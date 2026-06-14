@@ -12,7 +12,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
-            "workspace.remote.pty_bridge", "sidebar.custom.reload",
+            "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).

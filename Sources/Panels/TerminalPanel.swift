@@ -49,6 +49,16 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// The workspace-env key/value pairs this panel inherited from its workspace's
+    /// `workspaceEnvironment` at creation. The same panel travels when a surface is
+    /// moved between workspaces, so a respawn uses these to drop the (possibly
+    /// previous) workspace's variables and re-apply the current workspace's. The
+    /// value (not just the key) is tracked so an explicit per-surface override that
+    /// happens to share a workspace key (e.g. a layout `env` AWS_PROFILE=staging in
+    /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
+    /// stripped and replaced by the workspace value (issue #5995).
+    var seededWorkspaceEnvironment: [String: String] = [:]
+
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
 

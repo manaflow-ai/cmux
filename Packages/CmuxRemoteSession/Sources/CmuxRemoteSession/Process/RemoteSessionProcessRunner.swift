@@ -22,17 +22,18 @@ internal import CMUXDebugLog
 public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// Test observation seam (package tests only): invoked right after the
     /// stdout/stderr capture readers are installed, with the pipe read
-    /// handles. The capture-survives-teardown regression test closes them to
-    /// prove `run` still completes; production constructs the runner without
-    /// a hook.
-    let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Void)?
+    /// handles. Return `true` when the hook closes both handles, so the
+    /// runner will not close already-closed `FileHandle` instances again.
+    /// The capture-survives-teardown regression test uses that to prove
+    /// `run` still completes; production constructs the runner without a hook.
+    let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
     }
 
-    init(readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Void)?) {
+    init(readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?) {
         self.readHandlesDidInstall = readHandlesDidInstall
     }
 
@@ -142,15 +143,17 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                 captureState.stderrReadError = result.readError
             }
         }
-        readHandlesDidInstall?(stdoutHandle, stderrHandle)
+        let readHandlesClosedByInstallHook = readHandlesDidInstall?(stdoutHandle, stderrHandle) ?? false
 
         var didFinishCapture = false
         func finishCaptureAndCloseReadHandles() {
             guard !didFinishCapture else { return }
             didFinishCapture = true
             captureGroup.wait()
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
+            if !readHandlesClosedByInstallHook {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
             if let stdoutReadError = captureState.stdoutReadError {
                 debugLog(
                     "remote.proc.stdoutReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
