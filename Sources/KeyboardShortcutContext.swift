@@ -172,7 +172,9 @@ extension AppDelegate {
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
-        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+        let fileExplorerFocused = shortcutFileExplorerResponderFocused(in: shortcutWindow)
+        let rightSidebarFocused = fileExplorerFocused ||
+            (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
@@ -239,6 +241,52 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
+    private func shortcutFileExplorerResponderFocused(in window: NSWindow?) -> Bool {
+        guard let window,
+              let responder = window.firstResponder,
+              let focusView = shortcutFileExplorerFocusView(for: responder) else {
+            return false
+        }
+        return focusView.window === window || focusView.window?.windowNumber == window.windowNumber
+    }
+
+    private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
+        if let view = responder as? NSView,
+           isFileExplorerShortcutFocusView(view) {
+            return view
+        }
+
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           let ownerView = cmuxFieldEditorOwnerView(textView),
+           isFileExplorerShortcutFocusView(ownerView) {
+            return ownerView
+        }
+
+        return nil
+    }
+
+    private func isFileExplorerShortcutFocusView(_ view: NSView) -> Bool {
+        if isFileExplorerShortcutFocusRoot(view) {
+            return true
+        }
+
+        var current = view.superview
+        while let candidate = current {
+            if isFileExplorerShortcutFocusRoot(candidate) {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
+        view is FileExplorerNSOutlineView ||
+            view is FileExplorerSearchResultsTableView ||
+            view is FileExplorerSearchField
+    }
+
     func clearShortcutEventFocusContextCache(for event: NSEvent) {
         if shortcutEventFocusContextCache?.event === event {
             shortcutEventFocusContextCache = nil
@@ -303,11 +351,11 @@ extension AppDelegate {
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
-        if let window = event.window {
+        if event.windowNumber > 0,
+           let window = NSApp.window(withWindowNumber: event.windowNumber) {
             return window
         }
-        guard event.windowNumber > 0 else { return nil }
-        return NSApp.window(withWindowNumber: event.windowNumber)
+        return event.window
     }
 
     private func shortcutBrowserPanel(panelId: UUID) -> BrowserPanel? {

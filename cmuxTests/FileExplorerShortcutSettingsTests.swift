@@ -79,8 +79,8 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         #expect(actualActions == expectedActions)
     }
 
-    @Test func openSelectionShortcutsStayOutOfAppWideBareStartCache() throws {
-        try withIsolatedShortcutSettings {
+    @Test func openSelectionShortcutsStayOutOfAppWideBareStartCache() {
+        withIsolatedShortcutSettings {
             #expect(!KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "\r"))
 
             KeyboardShortcutSettings.setShortcut(
@@ -143,8 +143,45 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         }
     }
 
-    @Test func openSelectionSetShortcutRejectsChords() throws {
+    @Test func openSelectionPaneFocusPreventsNonBrowserShortcutShadowing() throws {
         try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+            let outlineView = FileExplorerNSOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
+            column.isEditable = false
+            outlineView.addTableColumn(column)
+            outlineView.outlineTableColumn = column
+            let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            scrollView.documentView = outlineView
+            contentView.addSubview(scrollView)
+            window.contentView = contentView
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            defer { window.orderOut(nil) }
+
+            #expect(window.makeFirstResponder(outlineView))
+            #expect(window.firstResponder === outlineView)
+
+            let commandR = StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+            KeyboardShortcutSettings.setShortcut(commandR, for: .fileExplorerOpenSelection)
+            let event = try #require(makeKeyDownEvent(shortcut: commandR, windowNumber: window.windowNumber))
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+
+            #expect(appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))
+            #expect(!appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: event))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+        }
+    }
+
+    @Test func openSelectionSetShortcutRejectsChords() {
+        withIsolatedShortcutSettings {
             let chord = StoredShortcut(
                 first: ShortcutStroke(key: "o", command: true, shift: false, option: false, control: false),
                 second: ShortcutStroke(key: "p", command: false, shift: false, option: false, control: false)
@@ -179,7 +216,7 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         try contents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
     }
 
-    private func makeKeyDownEvent(shortcut: StoredShortcut) -> NSEvent? {
+    private func makeKeyDownEvent(shortcut: StoredShortcut, windowNumber: Int = 0) -> NSEvent? {
         guard !shortcut.isUnbound,
               !shortcut.hasChord,
               let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
@@ -190,7 +227,7 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             location: .zero,
             modifierFlags: shortcut.modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
+            windowNumber: windowNumber,
             context: nil,
             characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
             charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
