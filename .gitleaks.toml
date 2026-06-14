@@ -49,6 +49,12 @@ regexTarget = "line"
 paths = ['''(^|/)\.gitleaks\.toml$''']
 regexes = [
   '''token=sk-abc123def456ghij''',
+  '''ticket-secret''',
+  '''0c33124b-9f59-4ba2-a2c2-9bd3b1cba001''',
+  '''2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16''',
+  '''CMUX_PALETTE_FOCUS_PROBE_9412''',
+  '''CMUX_PALETTE_RESTORE_PROBE_7731''',
+  '''00112233445566778899aabbccddeeff''',
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
   '''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''',
@@ -78,22 +84,46 @@ paths = ['''(^|/)Packages/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.
 regexes = ['''token=sk-abc123def456ghij''']
 
 # ---------------------------------------------------------------------------
-# Other intentional, synthetic test-only tokens (not real credentials):
-#   - attach-ticket JSON coding round-trip fixture
-#   - diff-viewer URL token (a UUID) exercised by DiffComments tests
-#   - websocket-lease fuzz seed corpus (a sha256 hex literal)
-#   - command-palette focus probe marker
-#   - relay CLI token hex (an obviously-synthetic incrementing hex literal)
+# Other intentional, synthetic test-only tokens. These are ordinary tests, so
+# each allowlist is scoped to one exact file AND the known fixture literal(s).
 # ---------------------------------------------------------------------------
 [[allowlists]]
-description = "Synthetic test-only tokens (attach-ticket / diff-viewer / fuzz seed / focus probe / relay token)"
-paths = [
-  '''(^|/)Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''',
-  '''(^|/)cmuxTests/DiffCommentStoreTests\.swift$''',
-  '''(^|/)daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''',
-  '''(^|/)tests_v2/test_command_palette_focus\.py$''',
-  '''(^|/)Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''',
+description = "Attach-ticket compact-coder fixture token"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''']
+regexes = ['''ticket-secret''']
+
+[[allowlists]]
+description = "Diff-viewer URL fixture token"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)cmuxTests/DiffCommentStoreTests\.swift$''']
+regexes = ['''0c33124b-9f59-4ba2-a2c2-9bd3b1cba001''']
+
+[[allowlists]]
+description = "Remote websocket lease fuzz seed token hash"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''']
+regexes = ['''2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16''']
+
+[[allowlists]]
+description = "Command-palette focus probe markers"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)tests_v2/test_command_palette_focus\.py$''']
+regexes = [
+  '''CMUX_PALETTE_FOCUS_PROBE_9412''',
+  '''CMUX_PALETTE_RESTORE_PROBE_7731''',
 ]
+
+[[allowlists]]
+description = "Remote CLI relay fixture token hex"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''']
+regexes = ['''00112233445566778899aabbccddeeff''']
 
 # ---------------------------------------------------------------------------
 # Embedded public/publishable keys and non-secret env references. These ship in
