@@ -1,8 +1,11 @@
 import XCTest
+import CmuxTerminalServices
 import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
+@testable import CmuxSettingsUI
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -407,6 +410,134 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord second key should dispatch the configured shortcut")
+    }
+
+    func testOptionCommandNDefaultShortcutCreatesBrowserWorkspace() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let hadBrowserDisabledOverride =
+            UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey) != nil
+        let originalBrowserDisabled = UserDefaults.standard.bool(forKey: BrowserAvailabilitySettings.disabledKey)
+        UserDefaults.standard.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            if hadBrowserDisabledOverride {
+                UserDefaults.standard.set(originalBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialCount = manager.tabs.count
+
+        withTemporaryShortcut(action: .newBrowserWorkspace) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .option],
+                keyCode: 45, // kVK_ANSI_N
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Option+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Option+Cmd+N should create a workspace")
+
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected the new browser workspace to be selected")
+            return
+        }
+        XCTAssertEqual(workspace.panels.count, 1)
+        guard let browserPanel = workspace.panels.values.first as? BrowserPanel else {
+            XCTFail("Expected the new workspace's initial surface to be a browser pane")
+            return
+        }
+        XCTAssertNil(workspace.focusedTerminalPanel)
+        XCTAssertNotNil(
+            browserPanel.pendingAddressBarFocusRequestId,
+            "Browser workspace should land first focus in the address bar"
+        )
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testNewBrowserWorkspaceShortcutIsBlockedWhileBrowserDisabled() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let hadBrowserDisabledOverride =
+            UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey) != nil
+        let originalBrowserDisabled = UserDefaults.standard.bool(forKey: BrowserAvailabilitySettings.disabledKey)
+        UserDefaults.standard.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            if hadBrowserDisabledOverride {
+                UserDefaults.standard.set(originalBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialCount = manager.tabs.count
+
+        withTemporaryShortcut(action: .newBrowserWorkspace) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .option],
+                keyCode: 45, // kVK_ANSI_N
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Option+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "The shortcut stays consumed while the browser is disabled"
+            )
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(
+            manager.tabs.count,
+            initialCount,
+            "No workspace should be created while the browser is disabled"
+        )
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
     }
 
     func testSettingsFileChordDispatchesNewWorkspaceShortcut() throws {
@@ -2391,6 +2522,126 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testGhosttyConfigDoesNotRetainNumberedGotoTabFallback() throws {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/5189.
+        // cmux owns "Select Workspace 1…9" (default ⌘1–9) through KeyboardShortcutSettings.
+        // Ghostty's built-in super+1…8 = goto_tab and super+9 = last_tab fallbacks must be
+        // unbound — exactly like cmux already unbinds super+d / super+w — so the numbered
+        // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
+        // still reaches the focused terminal and switches "tabs", making the rebind look
+        // hardcoded.
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        let digitKeyCodes: [(String, UInt32)] = [
+            ("1", UInt32(kVK_ANSI_1)),
+            ("2", UInt32(kVK_ANSI_2)),
+            ("3", UInt32(kVK_ANSI_3)),
+            ("4", UInt32(kVK_ANSI_4)),
+            ("5", UInt32(kVK_ANSI_5)),
+            ("6", UInt32(kVK_ANSI_6)),
+            ("7", UInt32(kVK_ANSI_7)),
+            ("8", UInt32(kVK_ANSI_8)),
+            ("9", UInt32(kVK_ANSI_9)),
+        ]
+
+        for (digit, keyCode) in digitKeyCodes {
+            XCTAssertFalse(
+                ghosttyConfigKeyIsBinding(
+                    ghosttyConfig,
+                    key: digit,
+                    modifiers: [.command],
+                    keyCode: keyCode
+                ),
+                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; the numbered workspace shortcut is owned by KeyboardShortcutSettings"
+            )
+        }
+    }
+
+    func testRebindingSelectWorkspaceByNumberHonorsNewModifierAndDropsDefault() {
+        // Companion to testGhosttyConfigDoesNotRetainNumberedGotoTabFallback (#5189):
+        // the cmux routing layer must drive the numbered shortcut from the configured
+        // value, so a rebound modifier selects the workspace and the old ⌘ default no
+        // longer routes through cmux.
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected window context")
+            return
+        }
+
+        // Need at least two workspaces so a digit-1 selection is observable.
+        _ = manager.addTab(select: true)
+        _ = manager.addTab(select: true)
+        guard manager.tabs.count >= 2,
+              let firstTabId = manager.tabs.first?.id else {
+            XCTFail("Expected at least two workspaces")
+            return
+        }
+        manager.selectTab(at: manager.tabs.count - 1)
+        appDelegate.tabManager = manager
+        let selectionBeforeStaleDefault = manager.selectedTabId
+        XCTAssertNotEqual(selectionBeforeStaleDefault, firstTabId, "Expected a non-first workspace selected before the digit press")
+
+        let rebound = StoredShortcut(key: "1", command: false, shift: false, option: true, control: true)
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: rebound) {
+            guard let staleCmd1 = makeKeyDownEvent(
+                key: "1",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_1),
+                windowNumber: mainWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+1 event")
+                return
+            }
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: staleCmd1),
+                "After rebinding Select Workspace 1…9, the old ⌘1 must not be routed by cmux"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                selectionBeforeStaleDefault,
+                "⌘1 must not change workspace selection after the shortcut is rebound away from ⌘"
+            )
+
+            guard let reboundEvent = makeKeyDownEvent(
+                key: "1",
+                modifiers: [.control, .option],
+                keyCode: UInt16(kVK_ANSI_1),
+                windowNumber: mainWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+Option+1 event")
+                return
+            }
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: reboundEvent),
+                "The rebound Ctrl+Option+1 shortcut should be routed by cmux"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                firstTabId,
+                "Ctrl+Option+1 should select the first workspace after the rebind"
+            )
+        }
+    }
+
     func testBrowserPopupPanelCloseShortcutFollowsCloseTabRemap() throws {
         let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
         let previousMainMenu = NSApp.mainMenu
@@ -2870,14 +3121,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
         sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
 
-        guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
+        guard let createdWorkspace = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
             return
         }
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
 
-        guard let newWorkspace = manager.tabs.first(where: { $0.id == newWorkspaceId }) else {
+        guard let newWorkspace = manager.tabs.first(where: { $0.id == createdWorkspace.id }) else {
             XCTFail("Expected new workspace in test window")
             return
         }
@@ -5761,6 +6012,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testInlineVSCodeCommandPaletteShortcutRoutesThroughWebContentForTrackedServeWebOrigin() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "P",
+            charactersIgnoringModifiers: "p",
+            keyCode: 35
+        )
+        let pageURL = URL(string: "http://127.0.0.1:63266/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertTrue(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { $0 == pageURL },
+                shortcutForAction: { action in
+                    XCTAssertEqual(action, .commandPalette)
+                    return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "Expected Cmd+Shift+P to stay inside inline VS Code when the focused browser URL belongs to the live serve-web process"
+        )
+    }
+
+    func testInlineVSCodeCommandPaletteShortcutDoesNotRouteForUntrackedLocalhostPage() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "P",
+            charactersIgnoringModifiers: "p",
+            keyCode: 35
+        )
+        let pageURL = URL(string: "http://127.0.0.1:3000/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertFalse(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { _ in false },
+                shortcutForAction: { _ in
+                    StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "A localhost page with a folder query must not steal cmux's command palette shortcut unless it is the tracked VS Code serve-web origin"
+        )
+    }
+
+    func testInlineVSCodeCommandPaletteShortcutDoesNotRouteUnrelatedShortcut() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "l",
+            charactersIgnoringModifiers: "l",
+            keyCode: 37
+        )
+        let pageURL = URL(string: "http://127.0.0.1:63266/?folder=%2FUsers%2Ftester%2Fproject")!
+
+        XCTAssertFalse(
+            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+                event,
+                pageURL: pageURL,
+                inlineVSCodeURLMatcher: { $0 == pageURL },
+                shortcutForAction: { _ in
+                    StoredShortcut(key: "p", command: true, shift: true, option: false, control: false, keyCode: 35)
+                }
+            ),
+            "Only the configured command palette shortcut should bypass cmux for inline VS Code"
+        )
+    }
+
     // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testCmdTWorksWithRussianKeyboardLayout() {
@@ -6608,6 +6926,45 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === terminalView, "Terminal must be the only focused input endpoint")
         XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.surface))
+    }
+
+    func testTextBoxConfiguredShortcutStandsDownWhilePackageRecorderIsActive() {
+        let focusTextBoxShortcut = StoredShortcut(
+            key: "a",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+        guard let event = makeKeyDownEvent(
+            shortcut: focusTextBoxShortcut,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+A event")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        var toggleFocusCount = 0
+        textBoxView.onToggleFocus = { toggleFocusCount += 1 }
+
+        withTemporaryShortcut(action: .focusTextBoxInput, shortcut: focusTextBoxShortcut) {
+            XCTAssertTrue(textBoxView.performKeyEquivalent(with: event))
+            XCTAssertEqual(toggleFocusCount, 1)
+
+            let recorder = RecorderHostButton(frame: .zero)
+            defer {
+                if RecorderHostButton.isActivelyRecording {
+                    recorder.debugStopRecording()
+                }
+            }
+            recorder.debugStartRecording()
+
+            XCTAssertTrue(RecorderHostButton.isActivelyRecording)
+            XCTAssertFalse(textBoxView.performKeyEquivalent(with: event))
+            XCTAssertEqual(toggleFocusCount, 1)
+        }
     }
 
     func testTextBoxSecondEscapeDoesNotHideWhenAnotherResponderOwnsFocus() {
@@ -8138,7 +8495,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSessionDraftCopiesOwnedTemporaryImageToDurableStorage() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
@@ -8157,7 +8514,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(snapshot.submissionText, TextBoxAttachment.submissionText(forLocalFileURL: durableURL))
         XCTAssertTrue(snapshot.cleanupLocalPathWhenDisposed)
 
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
 
@@ -8168,7 +8525,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSessionDraftSnapshotDoesNotSynchronouslyCopyUnpreparedTemporaryImage() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8176,7 +8533,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         addTeardownBlock {
             attachment.debugCancelSessionDraftCopyForTesting()
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
 
         let snapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
@@ -8193,7 +8550,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSessionDraftKeepsOwnedTemporaryImageWhenDurableCopyFails() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8219,7 +8576,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSessionDraftPreservesRemoteSubmissionPathWhenCopyingPreviewImage() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let remotePath = "/tmp/cmux-upload/moon.png"
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
@@ -8248,7 +8605,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxDraftCopyIsRemovedWhenOriginalTemporaryAttachmentIsDisposed() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8274,7 +8631,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxLocalPathSubmitDropsDraftCopyButKeepsSubmittedFile() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8286,7 +8643,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
             try? FileManager.default.removeItem(at: durableURL)
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
@@ -8307,7 +8664,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxDraftCopyIsRemovedWhenAttachmentPillIsDeleted() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8336,7 +8693,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxCutAttachmentPreservesClipboardFile() throws {
         try withPreservedGeneralPasteboard {
             let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-            GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+            GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
             let attachment = TextBoxAttachment(
                 localURL: temporaryURL,
                 submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8373,7 +8730,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxCutRestoredAttachmentClearsDeferredCleanup() throws {
         try withPreservedGeneralPasteboard {
             let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-            GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+            GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
             let attachment = TextBoxAttachment(
                 localURL: temporaryURL,
                 submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8385,7 +8742,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
             addTeardownBlock {
                 try? FileManager.default.removeItem(at: durableURL)
-                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
             }
 
             let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
@@ -8428,7 +8785,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxRepastedDraftCopyRemainsDisposable() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8439,7 +8796,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
             try? FileManager.default.removeItem(at: durableURL)
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
 
         let repastedAttachment = TextBoxAttachment(
@@ -8462,7 +8819,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxKeyboardDeleteAttachmentCleansDraftCopy() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8492,9 +8849,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxTypingOverSelectedAttachmentCleansDisposableFile() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         addTeardownBlock {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
@@ -8559,7 +8916,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxUndoableDraftAttachmentDeleteDefersCleanupUntilDismantle() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8616,8 +8973,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxPrepareForSubmitFlushesDeletedAttachmentCleanup() throws {
         let deletedTemporaryURL = try makeTemporaryPNGFile(named: "moon.png")
         let inlineTemporaryURL = try makeTemporaryPNGFile(named: "sun.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(deletedTemporaryURL)
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(inlineTemporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(deletedTemporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(inlineTemporaryURL)
         let deletedAttachment = TextBoxAttachment(
             localURL: deletedTemporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: deletedTemporaryURL),
@@ -8637,7 +8994,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: deletedDurableURL)
             try? FileManager.default.removeItem(at: inlineDurableURL)
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([deletedTemporaryURL, inlineTemporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([deletedTemporaryURL, inlineTemporaryURL])
         }
 
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
@@ -8675,7 +9032,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxPrepareForSubmitDropsPendingCleanupForRestoredAttachment() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -8686,7 +9043,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let durableURL = URL(fileURLWithPath: durablePath).standardizedFileURL
         addTeardownBlock {
             try? FileManager.default.removeItem(at: durableURL)
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
 
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
@@ -8728,7 +9085,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSubmitClearDefersDraftCopyCleanup() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL)
@@ -8781,7 +9138,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSubmitCleanupPreservesReinsertedActiveAttachment() throws {
         let imageURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(imageURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(imageURL)
         let attachment = TextBoxAttachment(
             localURL: imageURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL),
@@ -8806,7 +9163,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxSubmitCleanupDisposesSynchronousRemoteAttachmentAfterEditorClears() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let remotePath = "/tmp/cmux-upload/moon.png"
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
@@ -9781,7 +10138,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: temporaryURL),
@@ -10187,7 +10544,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxPendingAttachmentUploadQueuesDurableDraftCopyForOwnedTemporaryImage() throws {
         let temporaryURL = try makeTemporaryPNGFile(named: "moon.png")
-        GhosttyPasteboardHelper.debugRegisterOwnedTemporaryImageFile(temporaryURL)
+        GhosttyApp.terminalPasteboard.debugRegisterOwnedTemporaryImageFile(temporaryURL)
         let remotePath = "/tmp/remote/moon.png"
         let attachment = TextBoxAttachment(
             localURL: temporaryURL,
@@ -10196,7 +10553,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
         addTeardownBlock {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
         }
 
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
@@ -10206,7 +10563,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
 
         XCTAssertTrue(textView.replacePendingAttachmentUploadPlaceholder(id: uploadID, with: [attachment]))
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
 
         let draft = try XCTUnwrap(textView.sessionDraftSnapshot(isActive: true))
         let snapshot = try XCTUnwrap(draft.parts.first?.attachment)

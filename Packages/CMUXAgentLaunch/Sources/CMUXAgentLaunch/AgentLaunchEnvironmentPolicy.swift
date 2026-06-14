@@ -72,6 +72,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
         "PI_CACHE_RETENTION",
+        "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",
         "PI_CODING_AGENT_SESSION_DIR",
         "PI_OFFLINE",

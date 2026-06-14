@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
