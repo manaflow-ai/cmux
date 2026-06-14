@@ -107,13 +107,15 @@ enum GuiModeWorkspaceCoordinator {
             throw AgentSessionBridgeError.invalidRequest
         }
         let initialInput = taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
-        _ = workspace.splitPaneWithNewTerminal(
+        guard workspace.splitPaneWithNewTerminal(
             targetPane: guiPaneId,
             orientation: .horizontal,
             insertFirst: false,
             workingDirectory: location.workspace.currentDirectory,
             initialInput: initialInput
-        )
+        ) != nil else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
         return workspace
     }
 
