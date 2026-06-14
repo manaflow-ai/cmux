@@ -8,11 +8,8 @@ import Testing
 
     @Test(arguments: [
         "gemini",
-        "cursor",
-        "antigravity",
         "pi",
-        "omp",
-        "kiro"
+        "omp"
     ])
     func extractsDirectPromptAndAssistantFields(agent: String) {
         let object: [String: Any] = [
@@ -60,6 +57,16 @@ import Testing
             now: Date(timeIntervalSince1970: 1_000_000)
         )
         #expect(decision == .proceed(baseline: lineCount))
+    }
+
+    @Test func hookMessageLineEquivalentsUseMonotonicTotalWhenCacheIsCapped() {
+        let messages = [
+            AutoNamingTranscriptMessage(role: "user", text: "Newest request"),
+            AutoNamingTranscriptMessage(role: "assistant", text: "Newest answer")
+        ]
+
+        let lineCount = engine.hookMessageLineEquivalentCount(messages, totalMessageCount: 40)
+        #expect(lineCount == 40 * engine.config.minLineGrowth)
     }
 
     @Test func sharedEnginePipelineParityWithHookContent() {

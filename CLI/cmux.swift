@@ -48,7 +48,7 @@ private enum CLISocketEnvironment {
     }
 }
 
-private final class CLISocketSentryTelemetry {
+final class CLISocketSentryTelemetry {
     private struct PendingBreadcrumb {
         let message: String
         let data: [String: Any]
@@ -338,7 +338,7 @@ struct NotificationInfo {
     let tabTitle: String?
 }
 
-private struct ClaudeHookParsedInput {
+struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
@@ -430,7 +430,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 
-private struct ClaudeHookSessionRecord: Codable {
+struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -461,6 +461,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
+    var autoNameMessageSequence: Int?
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
@@ -490,7 +491,7 @@ private struct CodexMonitorLeaseRecord: Codable {
     var retiredAt: TimeInterval?
 }
 
-private struct ClaudeHookSessionStoreFile: Codable {
+struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
@@ -525,7 +526,7 @@ private struct ClaudeHookSessionStoreFile: Codable {
     }
 }
 
-private final class ClaudeHookSessionStore {
+final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
@@ -564,11 +565,27 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    struct AutoNamingRecentMessagesSnapshot {
+        var messages: [AutoNamingTranscriptMessage]
+        var totalMessageCount: Int
+    }
+
     func autoNamingRecentMessages(sessionId: String) throws -> [AutoNamingTranscriptMessage] {
+        try autoNamingRecentMessagesSnapshot(sessionId: sessionId).messages
+    }
+
+    func autoNamingRecentMessagesSnapshot(sessionId: String) throws -> AutoNamingRecentMessagesSnapshot {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return [] }
+        guard !normalized.isEmpty else {
+            return AutoNamingRecentMessagesSnapshot(messages: [], totalMessageCount: 0)
+        }
         return try withLockedState { state in
-            state.sessions[normalized]?.autoNameRecentMessages ?? []
+            let record = state.sessions[normalized]
+            let messages = record?.autoNameRecentMessages ?? []
+            return AutoNamingRecentMessagesSnapshot(
+                messages: messages,
+                totalMessageCount: max(messages.count, record?.autoNameMessageSequence ?? 0)
+            )
         }
     }
 
@@ -1145,15 +1162,20 @@ private final class ClaudeHookSessionStore {
     ) {
         guard !messages.isEmpty else { return }
         var recent = record.autoNameRecentMessages ?? []
+        var appendedCount = 0
         for message in messages {
             guard let normalized = normalizedAutoNameMessage(message) else { continue }
             if recent.last == normalized { continue }
             recent.append(normalized)
+            appendedCount += 1
         }
         if recent.count > Self.maxAutoNameRecentMessages {
             recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
         }
         record.autoNameRecentMessages = recent.isEmpty ? nil : recent
+        if appendedCount > 0 {
+            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + appendedCount
+        }
     }
 
     private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
@@ -5510,7 +5532,7 @@ struct CMUXCLI {
         return environment
     }
 
-    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {
+    func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {
         if !process.isRunning {
             process.waitUntilExit()
             return true
@@ -22198,611 +22220,6 @@ struct CMUXCLI {
         }
     }
 
-    /// Drives one auto-naming pass for a Claude session at turn end: live
-    /// setting probe, active-session and nested-agent gates, locked throttle
-    /// with an in-flight marker, transcript extraction, the summarizer
-    /// subprocess (the user's own claude binary), and the provenance-checked
-    /// socket apply. Every failure path returns silently; the durable
-    /// baseline advances only after a confirmed apply so failures retry on
-    /// the next qualifying Stop.
-    private func runClaudeAutoNameHook(
-        parsedInput: ClaudeHookParsedInput,
-        mappedSession: ClaudeHookSessionRecord?,
-        workspaceId: String,
-        surfaceId: String,
-        sessionStore: ClaudeHookSessionStore,
-        client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
-    ) {
-        guard let sessionId = parsedInput.sessionId else { return }
-        let env = ProcessInfo.processInfo.environment
-
-        // Live setting + ownership probe before any transcript or LLM work:
-        // mid-session toggles apply immediately, and user-renamed workspaces
-        // never cost a summarization call.
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("claude-hook.auto-name.disabled")
-            return
-        }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
-
-        let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
-        guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
-            telemetry.breadcrumb("claude-hook.auto-name.nested-suppressed")
-            return
-        }
-        guard shouldApplyClaudeHookVisibleMutation(
-            sessionStore: sessionStore,
-            parsedInput: parsedInput,
-            workspaceId: workspaceId,
-            telemetry: telemetry
-        ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.stale")
-            return
-        }
-
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
-        guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
-            return
-        }
-        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
-
-        let engine = AutoNamingEngine()
-        guard let outcome = try? sessionStore.beginAutoNaming(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            transcriptLineCount: lineCount,
-            now: Date(),
-            engine: engine
-        ) else { return }
-        guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("claude-hook.auto-name.throttled")
-            return
-        }
-
-        // From here the in-flight marker is set: clear it on every exit, and
-        // advance the durable baseline only when a title was applied (or the
-        // topic was confirmed stable).
-        var confirmedTitle: String?
-        defer {
-            try? sessionStore.finishAutoNaming(
-                sessionId: sessionId,
-                appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
-            )
-        }
-
-        let messages = engine.extractMessages(fromTranscriptLines: lines)
-        guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-
-        let policy = AutoNamingEnvironmentPolicy()
-        let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let executable: String? = {
-            var isDirectory = ObjCBool(false)
-            if !customPath.isEmpty,
-               FileManager.default.fileExists(atPath: customPath, isDirectory: &isDirectory),
-               !isDirectory.boolValue,
-               FileManager.default.isExecutableFile(atPath: customPath),
-               !isCmuxClaudeWrapper(at: customPath) {
-                return customPath
-            }
-            return resolveClaudeExecutable(searchPath: env["PATH"])
-        }()
-        guard let executable else {
-            telemetry.breadcrumb("claude-hook.auto-name.no-binary")
-            return
-        }
-
-        guard let rawResponse = runAutoNamingSummarizer(
-            executable: executable,
-            arguments: ["-p", "--model", policy.claudeModel(from: env)],
-            prompt: prompt,
-            environment: policy.summarizerEnvironment(from: env),
-            timeout: engine.config.llmTimeout
-        ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
-            return
-        }
-
-        // currentTitle is deliberately nil so sanitizeResponse's unchanged-title
-        // fold (which returns nil, same as garbage) never fires here: the two
-        // outcomes must diverge below - an unchanged title confirms the topic
-        // is stable and advances the baseline, while garbage must not.
-        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
-        guard let sanitized else { return }
-        if sanitized == outcome.lastTitle {
-            // Topic confirmed stable: keep the title, advance the baseline.
-            confirmedTitle = sanitized
-            return
-        }
-
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": sanitized
-        ]) else {
-            telemetry.breadcrumb("claude-hook.auto-name.socket-failed")
-            return
-        }
-        if payload["workspace_applied"] as? Bool == true {
-            confirmedTitle = sanitized
-            telemetry.breadcrumb("claude-hook.auto-name.applied")
-        } else {
-            // The workspace became user-owned between probe and apply; record
-            // the pass so the next Stop's probe short-circuits.
-            confirmedTitle = outcome.lastTitle
-            telemetry.breadcrumb("claude-hook.auto-name.rejected")
-        }
-    }
-
-    /// Spawns a detached generic-agent auto-name pass via `sh`, backgrounded and
-    /// fully detached from this hook process's stdio, so the parent can exit
-    /// within its sync hook budget while the naming pass runs to completion.
-    private func spawnDetachedAgentAutoName(
-        def: AgentHookDef,
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        transcriptPath: String?,
-        cwd: String?,
-        env: [String: String],
-        telemetry: CLISocketSentryTelemetry
-    ) {
-        let selfPath: String = {
-            if let first = ProcessInfo.processInfo.arguments.first,
-               first.hasPrefix("/"),
-               FileManager.default.isExecutableFile(atPath: first) {
-                return first
-            }
-            if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
-               FileManager.default.isExecutableFile(atPath: bundled) {
-                return bundled
-            }
-            return "cmux"
-        }()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            "\"$0\" hooks \"$1\" auto-name --session \"$2\" --workspace \"$3\" --surface \"$4\" --transcript \"$5\" --cwd \"$6\" </dev/null >/dev/null 2>&1 &",
-            selfPath,
-            def.name,
-            sessionId,
-            workspaceId,
-            surfaceId,
-            transcriptPath ?? "",
-            cwd ?? ""
-        ]
-        var spawnEnv = env
-        // Point the detached process's session store at the same file the
-        // foreground generic hook path uses, so throttle state lands together.
-        spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)
-        process.environment = spawnEnv
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
-            return
-        }
-        // This waits only for the sh wrapper, which exits immediately after
-        // backgrounding the real pass with '&' - it reaps sh without blocking
-        // on the naming work itself. Bounded so a pathologically stalled sh
-        // can never eat the sync hook budget.
-        if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
-            process.terminate()
-            if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
-                kill(process.processIdentifier, SIGKILL)
-                _ = try? waitForProcessExit(process, timeout: 1)
-            }
-        }
-    }
-
-    /// The detached codex naming pass: live setting + ownership probe,
-    /// active-session gate, locked throttle, rollout extraction, `codex exec`
-    /// summarization, and the provenance-checked socket apply. Mirrors
-    /// `runClaudeAutoNameHook` with the Codex source adapter and runner.
-    private func runCodexAutoNameHook(
-        commandArgs: [String],
-        client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
-        env: [String: String]
-    ) {
-        guard let sessionId = optionValue(commandArgs, name: "--session"),
-              let workspaceId = optionValue(commandArgs, name: "--workspace"),
-              let surfaceId = optionValue(commandArgs, name: "--surface") else {
-            return
-        }
-
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("codex-hook.auto-name.disabled")
-            return
-        }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("codex-hook.auto-name.user-owned")
-            return
-        }
-
-        let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId)) ?? false else {
-            telemetry.breadcrumb("codex-hook.auto-name.stale")
-            return
-        }
-
-        let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
-            ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
-        guard let transcriptPath,
-              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
-              !lines.isEmpty else {
-            return
-        }
-        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
-
-        let engine = AutoNamingEngine()
-        guard let outcome = try? sessionStore.beginAutoNaming(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            transcriptLineCount: lineCount,
-            now: Date(),
-            engine: engine
-        ) else { return }
-        guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("codex-hook.auto-name.throttled")
-            return
-        }
-
-        var confirmedTitle: String?
-        defer {
-            try? sessionStore.finishAutoNaming(
-                sessionId: sessionId,
-                appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
-            )
-        }
-
-        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
-        guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-
-        guard let executable = resolveCodexExecutable(searchPath: env["PATH"]) else {
-            telemetry.breadcrumb("codex-hook.auto-name.no-binary")
-            return
-        }
-        let policy = AutoNamingEnvironmentPolicy()
-        var summarizerEnv = policy.summarizerEnvironment(from: env)
-        // The codex hook-disable flag is re-added after the CMUX_* scrub so
-        // the summarization call never re-enters the hook machinery.
-        summarizerEnv["CMUX_CODEX_HOOKS_DISABLED"] = "1"
-
-        // `codex exec` streams progress to stdout; the final agent message is
-        // captured via --output-last-message so sanitization sees only the
-        // title candidate.
-        let outputFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-autoname-\(UUID().uuidString).txt")
-        defer { try? FileManager.default.removeItem(at: outputFile) }
-        guard runAutoNamingSummarizer(
-            executable: executable,
-            arguments: [
-                "exec",
-                "--skip-git-repo-check",
-                "--output-last-message", outputFile.path,
-                prompt
-            ],
-            prompt: "",
-            environment: summarizerEnv,
-            timeout: engine.config.llmTimeout
-        ) != nil else {
-            telemetry.breadcrumb("codex-hook.auto-name.llm-failed")
-            return
-        }
-        let rawResponse = (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
-
-        // currentTitle is deliberately nil so the unchanged-title fold inside
-        // sanitizeResponse never fires; the explicit comparison below must
-        // distinguish topic-stable (advance baseline) from garbage (retry).
-        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
-        guard let sanitized else { return }
-        if sanitized == outcome.lastTitle {
-            // Topic confirmed stable: keep the title, advance the baseline.
-            confirmedTitle = sanitized
-            return
-        }
-
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": sanitized
-        ]) else {
-            telemetry.breadcrumb("codex-hook.auto-name.socket-failed")
-            return
-        }
-        if payload["workspace_applied"] as? Bool == true {
-            confirmedTitle = sanitized
-            telemetry.breadcrumb("codex-hook.auto-name.applied")
-        } else {
-            confirmedTitle = outcome.lastTitle
-            telemetry.breadcrumb("codex-hook.auto-name.rejected")
-        }
-    }
-
-    /// Detached naming pass for non-Codex generic agents. The foreground hook
-    /// only spawns this after the live setting probe succeeds; this pass probes
-    /// again before doing transcript or LLM work so mid-pass toggles and manual
-    /// renames still win.
-    private func runGenericAgentAutoNameHook(
-        def: AgentHookDef,
-        commandArgs: [String],
-        client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
-        env: [String: String]
-    ) {
-        guard let source = autoNamingSource(for: def) else { return }
-        if case .codexRollout = source { return }
-        guard let sessionId = optionValue(commandArgs, name: "--session"),
-              let workspaceId = optionValue(commandArgs, name: "--workspace"),
-              let surfaceId = optionValue(commandArgs, name: "--surface") else {
-            return
-        }
-
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
-            return
-        }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.user-owned")
-            return
-        }
-
-        let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        let mapped = try? sessionStore.lookup(sessionId: sessionId)
-        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
-            return
-        }
-
-        let engine = AutoNamingEngine()
-        let sourceResult: (messages: [AutoNamingTranscriptMessage], lineCount: Int)? = {
-            switch source {
-            case .codexRollout:
-                return nil
-            case .grokHistory:
-                let cwd = normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd
-                guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
-                    return nil
-                }
-                let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-                guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024),
-                      !lines.isEmpty else {
-                    return nil
-                }
-                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
-                return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
-            case .hookMessageCache:
-                guard let messages = try? sessionStore.autoNamingRecentMessages(sessionId: sessionId),
-                      !messages.isEmpty else {
-                    return nil
-                }
-                return (messages, engine.hookMessageLineEquivalentCount(messages))
-            }
-        }()
-        guard let sourceResult, !sourceResult.messages.isEmpty else { return }
-
-        guard let outcome = try? sessionStore.beginAutoNaming(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            transcriptLineCount: sourceResult.lineCount,
-            now: Date(),
-            engine: engine
-        ) else { return }
-        guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.throttled")
-            return
-        }
-
-        var confirmedTitle: String?
-        defer {
-            try? sessionStore.finishAutoNaming(
-                sessionId: sessionId,
-                appliedTitle: confirmedTitle,
-                baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
-            )
-        }
-
-        guard let context = engine.buildContext(from: sourceResult.messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-
-        guard let rawResponse = runAutoNamingSummarizer(
-            def: def,
-            prompt: prompt,
-            env: env,
-            timeout: engine.config.llmTimeout,
-            telemetry: telemetry
-        ) else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.llm-failed")
-            return
-        }
-
-        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
-        guard let sanitized else { return }
-        if sanitized == outcome.lastTitle {
-            confirmedTitle = sanitized
-            return
-        }
-
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": sanitized
-        ]) else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.socket-failed")
-            return
-        }
-        if payload["workspace_applied"] as? Bool == true {
-            confirmedTitle = sanitized
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.applied")
-        } else {
-            confirmedTitle = outcome.lastTitle
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.rejected")
-        }
-    }
-
-    private func runAutoNamingSummarizer(
-        def: AgentHookDef,
-        prompt: String,
-        env: [String: String],
-        timeout: TimeInterval,
-        telemetry: CLISocketSentryTelemetry
-    ) -> String? {
-        let policy = AutoNamingEnvironmentPolicy()
-        var summarizerEnv = policy.summarizerEnvironment(from: env)
-        summarizerEnv[def.disableEnvVar] = "1"
-
-        func executable(_ name: String = def.binaryName) -> String? {
-            resolveExecutableInSearchPath(name, searchPath: env["PATH"])
-        }
-
-        let executablePath: String?
-        let arguments: [String]
-        let stdinPrompt: String
-        switch def.name {
-        case "gemini":
-            executablePath = executable("gemini")
-            arguments = ["-p", prompt]
-            stdinPrompt = ""
-        case "opencode":
-            executablePath = executable("opencode")
-            arguments = ["run", "--pure", "--format", "default", prompt]
-            stdinPrompt = ""
-        case "grok":
-            executablePath = executable("grok")
-            arguments = ["--single", prompt, "--output-format", "plain"]
-            stdinPrompt = ""
-        case "cursor":
-            executablePath = executable("cursor-agent")
-            arguments = ["--print", "--mode", "ask", "--output-format", "text", "--trust", prompt]
-            stdinPrompt = ""
-        case "antigravity":
-            executablePath = executable("agy")
-            arguments = ["--print", prompt]
-            stdinPrompt = ""
-        case "pi", "omp":
-            executablePath = executable()
-            arguments = ["--print", "--no-tools", prompt]
-            stdinPrompt = ""
-        case "kiro":
-            executablePath = executable("kiro-cli")
-            arguments = ["chat", "--no-interactive", prompt]
-            stdinPrompt = ""
-        default:
-            return nil
-        }
-
-        guard let executablePath else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.no-binary")
-            return nil
-        }
-        return runAutoNamingSummarizer(
-            executable: executablePath,
-            arguments: arguments,
-            prompt: stdinPrompt,
-            environment: summarizerEnv,
-            timeout: timeout
-        )
-    }
-
-    /// Returns a cheap monotonic progress metric for file-backed transcripts.
-    /// File size preserves growth and compaction/shrink signals without
-    /// streaming the whole transcript on every naming pass.
-    private func textFileGrowthMetric(path: String, fallbackLineCount: Int) -> Int {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath),
-              let size = attributes[.size] as? NSNumber else {
-            return fallbackLineCount
-        }
-        return max(fallbackLineCount, size.intValue / 128)
-    }
-
-    /// Runs the summarizer subprocess with the prompt on stdin and a hard
-    /// deadline, returning captured stdout (nil on failure, timeout, or
-    /// non-zero exit).
-    private func runAutoNamingSummarizer(
-        executable: String,
-        arguments: [String],
-        prompt: String,
-        environment: [String: String],
-        timeout: TimeInterval
-    ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = environment
-
-        let stdinPipe = Pipe()
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
-            return nil
-        }
-        defer {
-            try? stdoutHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutHandle
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        if let promptData = prompt.data(using: .utf8) {
-            try? stdinPipe.fileHandleForWriting.write(contentsOf: promptData)
-        }
-        try? stdinPipe.fileHandleForWriting.close()
-
-        let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
-        if !exited {
-            process.terminate()
-            if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
-                kill(process.processIdentifier, SIGKILL)
-                _ = try? waitForProcessExit(process, timeout: 1)
-            }
-            return nil
-        }
-        try? stdoutHandle.close()
-        guard process.terminationStatus == 0,
-              let output = try? Data(contentsOf: outputURL) else {
-            return nil
-        }
-        return String(data: output, encoding: .utf8)
-    }
-
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -23609,30 +23026,30 @@ struct CMUXCLI {
         }
     }
 
-    private enum AgentAutoNamingSource: Equatable {
+    enum AgentAutoNamingSource: Equatable {
         case codexRollout
         case grokHistory
         case hookMessageCache
     }
 
-    private func autoNamingSource(for def: AgentHookDef) -> AgentAutoNamingSource? {
+    func autoNamingSource(for def: AgentHookDef) -> AgentAutoNamingSource? {
         switch def.name {
         case "codex":
             return .codexRollout
         case "grok":
             return .grokHistory
-        case "opencode", "gemini", "cursor", "antigravity", "pi", "omp", "kiro":
+        case "opencode", "gemini", "pi", "omp":
             return .hookMessageCache
         default:
             return nil
         }
     }
 
-    private func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
+    func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
         autoNamingSource(for: def) == .hookMessageCache
     }
 
-    private func autoNamingMessages(
+    func autoNamingMessages(
         for def: AgentHookDef,
         parsedInput: ClaudeHookParsedInput,
         engine: AutoNamingEngine = AutoNamingEngine()
@@ -23674,7 +23091,7 @@ struct CMUXCLI {
         }
     }
 
-    private func shouldApplyClaudeHookVisibleMutation(
+    func shouldApplyClaudeHookVisibleMutation(
         sessionStore: ClaudeHookSessionStore,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
@@ -23691,7 +23108,7 @@ struct CMUXCLI {
         )
     }
 
-    private func shouldApplyClaudeHookVisibleMutation(
+    func shouldApplyClaudeHookVisibleMutation(
         sessionStore: ClaudeHookSessionStore,
         sessionId: String?,
         turnId: String?,
@@ -24139,308 +23556,6 @@ struct CMUXCLI {
         return raw
     }
 
-    private func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
-        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let data = trimmed.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []),
-              let object = json as? [String: Any] else {
-            let fallback = trimmed.isEmpty ? nil : truncate(
-                normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
-                maxLength: 180
-            )
-            return ClaudeHookParsedInput(
-                rawObject: nil,
-                object: nil,
-                rawFallback: fallback,
-                sessionId: nil,
-                turnId: nil,
-                cwd: nil,
-                transcriptPath: nil
-            )
-        }
-
-        let sessionId = extractClaudeHookSessionId(from: object)
-        let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
-        let cwd = extractClaudeHookCWD(from: object)
-        let transcriptPath = extractHookTranscriptPath(from: object)
-        let compactObject = compactClaudeHookObject(object)
-        return ClaudeHookParsedInput(
-            rawObject: object,
-            object: compactObject,
-            rawFallback: nil,
-            sessionId: sessionId,
-            turnId: turnId,
-            cwd: cwd,
-            transcriptPath: transcriptPath
-        )
-    }
-
-    private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {
-        var compact: [String: Any] = [:]
-
-        for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
-            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
-            "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
-            "additional_details", "additionalDetails", "description",
-        ] {
-            if let value = compactClaudeHookValue(object[key], key: key) {
-                compact[key] = value
-            }
-        }
-
-        if let toolInput = object["tool_input"] as? [String: Any] {
-            var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
-                if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
-                    compactToolInput[key] = value
-                }
-            }
-            if let allowedPrompts = toolInput["allowedPrompts"] as? [[String: Any]] {
-                let compactPrompts: [[String: String]] = allowedPrompts.compactMap { prompt in
-                    guard let promptText = compactClaudeHookStringValue(prompt["prompt"], maxLength: 220) else {
-                        return nil
-                    }
-                    var out: [String: String] = ["prompt": promptText]
-                    if let tool = compactClaudeHookStringValue(prompt["tool"], maxLength: 80) {
-                        out["tool"] = tool
-                    }
-                    return out
-                }
-                if !compactPrompts.isEmpty {
-                    compactToolInput["allowedPrompts"] = compactPrompts
-                }
-            }
-            if let questions = toolInput["questions"] as? [[String: Any]] {
-                compactToolInput["questions"] = questions.prefix(1).map { question in
-                    var compactQuestion: [String: Any] = [:]
-                    if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
-                        compactQuestion["question"] = value
-                    }
-                    if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
-                        compactQuestion["header"] = value
-                    }
-                    if let options = question["options"] as? [[String: Any]] {
-                        let compactOptions: [[String: Any]] = options.compactMap { option in
-                            guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
-                                return nil
-                            }
-                            return ["label": label] as [String: Any]
-                        }
-                        compactQuestion["options"] = compactOptions
-                    }
-                    return compactQuestion
-                }
-            }
-            if !compactToolInput.isEmpty {
-                compact["tool_input"] = compactToolInput
-            }
-        }
-
-        for key in ["notification", "data"] {
-            guard let nested = object[key] as? [String: Any] else { continue }
-            var compactNested: [String: Any] = [:]
-            for nestedKey in [
-                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-                "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
-            ] {
-                if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
-                    compactNested[nestedKey] = value
-                }
-            }
-            if !compactNested.isEmpty {
-                compact[key] = compactNested
-            }
-        }
-
-        if let extra = object["extra"] as? [String: Any] {
-            var compactExtra: [String: Any] = [:]
-            for extraKey in [
-                "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage",
-                "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
-                "title", "command", "description", "pattern_key", "patternKey",
-                "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
-            ] {
-                if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
-                    compactExtra[extraKey] = value
-                }
-            }
-            if !compactExtra.isEmpty {
-                compact["extra"] = compactExtra
-            }
-        }
-
-        return compact
-    }
-
-    private func claudeHookCompactFieldLimit(for key: String) -> Int {
-        switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
-            return 80
-        case "transcript_path", "transcriptPath":
-            return 240
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
-            return 240
-        default:
-            return 160
-        }
-    }
-
-    private func compactClaudeHookValue(_ rawValue: Any?, key: String) -> String? {
-        switch key {
-        case "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails":
-            return compactClaudeHookCodexFailureValue(rawValue, key: key)
-        default:
-            return compactClaudeHookStringValue(rawValue, maxLength: claudeHookCompactFieldLimit(for: key))
-        }
-    }
-
-    private func compactClaudeHookCodexFailureValue(_ rawValue: Any?, key: String) -> String? {
-        let maxLength = claudeHookCompactFieldLimit(for: key)
-        if let string = compactClaudeHookStringValue(rawValue, maxLength: maxLength) {
-            return string
-        }
-        guard let rawValue,
-              JSONSerialization.isValidJSONObject(rawValue),
-              let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return compactClaudeHookStringValue(string, maxLength: maxLength)
-    }
-
-    private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
-        switch key {
-        case "file_path":
-            return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
-        case "planFilePath":
-            return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
-        case "command":
-            return compactClaudeHookStringValue(rawValue, maxLength: 120)
-        case "plan":
-            return compactClaudeHookStringValue(rawValue, maxLength: 4_000)
-        case "pattern", "query":
-            return compactClaudeHookStringValue(rawValue, maxLength: 120)
-        case "description":
-            return compactClaudeHookStringValue(rawValue, maxLength: 180)
-        default:
-            return compactClaudeHookStringValue(rawValue, maxLength: 160)
-        }
-    }
-
-    private func compactClaudeHookStringValue(
-        _ rawValue: Any?,
-        maxLength: Int,
-        keepSuffix: Bool = false
-    ) -> String? {
-        guard let rawString = rawValue as? String else { return nil }
-        let previewLength = max(maxLength, min(maxLength * 4, 1024))
-        let preview = keepSuffix
-            ? String(rawString.suffix(previewLength))
-            : String(rawString.prefix(previewLength))
-        let normalized = normalizedSingleLine(preview)
-        guard !normalized.isEmpty else { return nil }
-        if keepSuffix, normalized.count > maxLength {
-            return "…" + String(normalized.suffix(maxLength - 1))
-        }
-        return truncate(normalized, maxLength: maxLength)
-    }
-
-    private func extractClaudeHookSessionId(from object: [String: Any]) -> String? {
-        let sessionIDKeys = ["session_id", "sessionId", "conversation_id", "conversationId"]
-        if let id = firstString(in: object, keys: sessionIDKeys) {
-            return id
-        }
-
-        if let nested = object["notification"] as? [String: Any],
-           let id = firstString(in: nested, keys: sessionIDKeys) {
-            return id
-        }
-        if let nested = object["data"] as? [String: Any],
-           let id = firstString(in: nested, keys: sessionIDKeys) {
-            return id
-        }
-        if let session = object["session"] as? [String: Any],
-           let id = firstString(in: session, keys: ["id"] + sessionIDKeys) {
-            return id
-        }
-        if let context = object["context"] as? [String: Any],
-           let id = firstString(in: context, keys: sessionIDKeys) {
-            return id
-        }
-        return nil
-    }
-
-    private func extractHookTranscriptPath(from object: [String: Any]) -> String? {
-        let transcriptPathKeys = ["transcript_path", "transcriptPath"]
-        if let transcriptPath = firstString(in: object, keys: transcriptPathKeys) {
-            return transcriptPath
-        }
-        if let nested = object["notification"] as? [String: Any],
-           let transcriptPath = firstString(in: nested, keys: transcriptPathKeys) {
-            return transcriptPath
-        }
-        if let nested = object["data"] as? [String: Any],
-           let transcriptPath = firstString(in: nested, keys: transcriptPathKeys) {
-            return transcriptPath
-        }
-        if let context = object["context"] as? [String: Any],
-           let transcriptPath = firstString(in: context, keys: transcriptPathKeys) {
-            return transcriptPath
-        }
-        return nil
-    }
-
-    private func extractClaudeHookCWD(from object: [String: Any]) -> String? {
-        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir", "project_path", "projectPath"]
-        if let cwd = firstString(in: object, keys: cwdKeys) {
-            return cwd
-        }
-        if let cwd = firstWorkspacePath(in: object) {
-            return cwd
-        }
-        if let nested = object["notification"] as? [String: Any],
-           let cwd = firstString(in: nested, keys: cwdKeys) {
-            return cwd
-        }
-        if let nested = object["notification"] as? [String: Any],
-           let cwd = firstWorkspacePath(in: nested) {
-            return cwd
-        }
-        if let nested = object["data"] as? [String: Any],
-           let cwd = firstString(in: nested, keys: cwdKeys) {
-            return cwd
-        }
-        if let nested = object["data"] as? [String: Any],
-           let cwd = firstWorkspacePath(in: nested) {
-            return cwd
-        }
-        if let context = object["context"] as? [String: Any],
-           let cwd = firstString(in: context, keys: cwdKeys) {
-            return cwd
-        }
-        if let context = object["context"] as? [String: Any],
-           let cwd = firstWorkspacePath(in: context) {
-            return cwd
-        }
-        return nil
-    }
-
-    private func firstWorkspacePath(in object: [String: Any]) -> String? {
-        let rawPaths = object["workspacePaths"] ?? object["workspace_paths"]
-        guard let paths = rawPaths as? [Any] else { return nil }
-        for path in paths {
-            guard let string = path as? String else { continue }
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
-    }
-
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
@@ -24535,63 +23650,6 @@ struct CMUXCLI {
 
         guard lastAssistantMessage != nil else { return nil }
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
-    }
-
-    private func readRecentTextFileLines(
-        path: String,
-        maxBytes: UInt64
-    ) -> [String]? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
-            return nil
-        }
-        defer { try? handle.close() }
-
-        func isASCIIWhitespace(_ byte: UInt8) -> Bool {
-            byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20
-        }
-
-        func hasCompleteLineAfterLeadingBoundary(_ data: Data, readStart: UInt64) -> Bool {
-            guard readStart > 0 else { return true }
-            guard let newline = data.firstIndex(of: 0x0A) else { return false }
-            return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
-        }
-
-        let size: UInt64
-        do {
-            size = try handle.seekToEnd()
-            var readStart = size > maxBytes ? size - maxBytes : 0
-            try handle.seek(toOffset: readStart)
-            guard var data = try handle.readToEnd(), !data.isEmpty else {
-                return nil
-            }
-            let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
-
-            while !hasCompleteLineAfterLeadingBoundary(data, readStart: readStart), readStart > 0 {
-                let currentWindowBytes = size - readStart
-                guard currentWindowBytes < maxWindowBytes else { break }
-                let remainingWindowBytes = maxWindowBytes - currentWindowBytes
-                let expansionBytes = min(readStart, maxBytes, remainingWindowBytes)
-                guard expansionBytes > 0 else { break }
-
-                readStart -= expansionBytes
-                try handle.seek(toOffset: readStart)
-                guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
-                    return nil
-                }
-                data = expandedData
-            }
-
-            if readStart > 0, let newline = data.firstIndex(of: 0x0A) {
-                data.removeSubrange(data.startIndex...newline)
-            }
-            guard let text = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-            return text.components(separatedBy: "\n")
-        } catch {
-            return nil
-        }
     }
 
     private struct CodexHookFailureSummary {
@@ -25286,7 +24344,7 @@ struct CMUXCLI {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
+    func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return nil }
 
@@ -25982,7 +25040,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func grokSessionDirectory(
+    func grokSessionDirectory(
         cwd: String?,
         sessionId: String?,
         env: [String: String]
@@ -26238,30 +25296,6 @@ struct CMUXCLI {
         lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
-    private func firstString(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            if let string = value as? String {
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
-    }
-
-    private func normalizedSingleLine(_ value: String) -> String {
-        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func truncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
-    }
-
     private func sanitizeNotificationField(_ value: String) -> String {
         return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
@@ -26269,22 +25303,6 @@ struct CMUXCLI {
 
     private func notificationPayload(title: String, subtitle: String, body: String) -> String {
         "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-    }
-
-    private func redactClaudeSensitiveSpans(_ value: String) -> String {
-        let patterns: [(pattern: String, replacement: String)] = [
-            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
-            (#"(?:~|/)[^\s\"']+"#, "<path>"),
-            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
-            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>")
-        ]
-        return patterns.reduce(value) { partial, entry in
-            partial.replacingOccurrences(
-                of: entry.pattern,
-                with: entry.replacement,
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
@@ -26370,7 +25388,7 @@ struct CMUXCLI {
         return candidate > 1 ? Int(candidate) : nil
     }
 
-    private func claudeAgentPID(from env: [String: String]) -> Int? {
+    func claudeAgentPID(from env: [String: String]) -> Int? {
         guard let raw = env["CMUX_CLAUDE_PID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             let pid = Int(raw),
@@ -26380,7 +25398,7 @@ struct CMUXCLI {
         return pid
     }
 
-    private func shouldSuppressNestedAgentVisibleMutations(
+    func shouldSuppressNestedAgentVisibleMutations(
         currentAgentPID: Int?,
         nestedPromptEvent: Bool = false,
         transcriptSubagentSession: Bool = false,
@@ -27053,7 +26071,7 @@ struct CMUXCLI {
         return selected
     }
 
-    private func normalizedHookValue(_ value: String?) -> String? {
+    func normalizedHookValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -27061,7 +26079,7 @@ struct CMUXCLI {
         return trimmed
     }
 
-    private func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
+    func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
         let filename = "\(sessionStoreSuffix)-hook-sessions.json"
         guard let overrideDirectory = normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"]) else {
             return "~/.cmuxterm/\(filename)"
@@ -27228,6 +26246,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
+const MAX_TRACKED_SESSIONS = 100;
 const messageRoles = new Map();
 const sessions = new Map();
 
@@ -27256,9 +26275,39 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      updatedAt: Date.now(),
     });
   }
-  return sessions.get(key);
+  const state = sessions.get(key);
+  state.updatedAt = Date.now();
+  pruneSessions();
+  return state;
+}
+
+function pruneSessions() {
+  while (sessions.size > MAX_TRACKED_SESSIONS) {
+    let oldestKey = null;
+    let oldestUpdatedAt = Infinity;
+    for (const [key, state] of sessions.entries()) {
+      const updatedAt = Number(state && state.updatedAt) || 0;
+      if (updatedAt < oldestUpdatedAt) {
+        oldestUpdatedAt = updatedAt;
+        oldestKey = key;
+      }
+    }
+    if (!oldestKey) break;
+    dropSession(oldestKey);
+  }
+}
+
+function dropSession(sessionId) {
+  const key = sessionId || "unknown";
+  sessions.delete(key);
+  for (const [messageId, meta] of messageRoles.entries()) {
+    if (meta && meta.sessionId === key) {
+      messageRoles.delete(messageId);
+    }
+  }
 }
 
 function contextForSession(sessionId) {
@@ -27441,6 +26490,7 @@ const CMUXSessionRestore = async (ctx) => {
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
+            dropSession(sessionIdFor(event));
           } else {
             sendHook("session-start", ctx, event);
           }
@@ -27455,6 +26505,7 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
+          dropSession(sessionIdFor(event));
           break;
         default:
           break;

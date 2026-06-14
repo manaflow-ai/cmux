@@ -32,14 +32,14 @@ Auto-naming currently has source adapters and summarizer runners for:
 
 - Claude Code: reads the Claude transcript JSONL and summarizes with `claude -p`.
 - Codex: reads the Codex rollout JSONL and summarizes with `codex exec --output-last-message`.
-- Grok: reads Grok's `chat_history.jsonl` for the active session and summarizes with `grok --single`.
-- OpenCode: caches recent prompt/assistant text from the cmux OpenCode session plugin and summarizes with `opencode run --pure`.
-- Gemini, Cursor, Antigravity, Pi, OMP, and Kiro: cache prompt/assistant text from their cmux hooks and summarize with their own non-interactive CLIs (`gemini -p`, `cursor-agent --print --mode ask`, `agy --print`, `pi --print --no-tools`, `omp --print --no-tools`, and `kiro-cli chat --no-interactive`).
+- Grok: reads Grok's `chat_history.jsonl` for the active session and summarizes with `grok --prompt-file` with tools and web search disabled.
+- OpenCode: caches recent prompt/assistant text from the cmux OpenCode session plugin and summarizes with `opencode run --pure` from an isolated temporary directory.
+- Gemini, Pi, and OMP: cache prompt/assistant text from their cmux hooks and summarize with their own non-interactive CLIs (`gemini -p` with sandbox/default approvals, `pi --print --no-tools`, and `omp --print --no-tools`).
 
 The other hook integrations are intentionally skipped for now:
 
 - Amp's current cmux plugin reports lifecycle/status but does not expose a usable prompt or assistant transcript.
-- Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder have cmux Stop/notification hooks, but this branch does not yet have a verified transcript source plus cheap non-interactive summarizer invocation for them.
+- Cursor, Antigravity, Kiro, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder have cmux Stop/notification hooks, but this branch does not yet have both a verified transcript source and a safe cheap non-interactive summarizer invocation that disables tools/project access.
 
 ## Mechanics
 

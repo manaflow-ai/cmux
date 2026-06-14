@@ -285,12 +285,16 @@ struct AutoNamingEngine: Sendable {
         return messages
     }
 
-    /// Converts a bounded hook message cache into the line-growth unit used by
-    /// the shared throttle. One user+assistant turn reaches the default
-    /// short-transcript floor, while each new message advances enough to pass
-    /// the growth floor after the interval gate.
-    func hookMessageLineEquivalentCount(_ messages: [AutoNamingTranscriptMessage]) -> Int {
-        messages.count * config.minLineGrowth
+    /// Converts hook-message progress into the line-growth unit used by the
+    /// shared throttle. `totalMessageCount` is monotonic even when the recent
+    /// message cache is capped, so long-running hook adapters can keep naming
+    /// after the cache reaches its retention limit.
+    func hookMessageLineEquivalentCount(
+        _ messages: [AutoNamingTranscriptMessage],
+        totalMessageCount: Int? = nil
+    ) -> Int {
+        let count = max(messages.count, totalMessageCount ?? 0)
+        return count * config.minLineGrowth
     }
 
     // MARK: - Prompt and response
