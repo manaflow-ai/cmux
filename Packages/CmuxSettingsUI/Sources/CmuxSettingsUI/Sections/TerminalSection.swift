@@ -171,6 +171,7 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
+                searchAnchorID: "setting:terminal:tabs-fill-pane-width",
                 String(localized: "settings.terminal.tabsFillPaneWidth", defaultValue: "Stretch Tabs to Fill Pane Width"),
                 subtitle: tabsFillPaneWidth
                     ? String(localized: "settings.terminal.tabsFillPaneWidth.subtitleOn", defaultValue: "Tabs stretch to fill each pane's tab bar. A single tab spans the full width; multiple tabs share it evenly and scroll only when they overflow.")

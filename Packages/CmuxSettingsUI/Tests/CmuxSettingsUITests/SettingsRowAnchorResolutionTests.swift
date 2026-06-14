@@ -139,6 +139,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:customSidebars:enabled",
         "setting:browser:history",
         "setting:browser:http-allowlist",
+        "setting:terminal:tabs-fill-pane-width",
         "setting:workspaceColors:palette",
         "setting:browser:enable-browser",
         "setting:browserImport:import-data",
