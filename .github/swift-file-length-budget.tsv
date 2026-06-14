@@ -42,7 +42,7 @@
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2314	Sources/FileExplorerView.swift
-2252	Sources/TerminalWindowPortal.swift
+2259	Sources/TerminalWindowPortal.swift
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2095	cmuxTests/ShortcutAndCommandPaletteTests.swift
