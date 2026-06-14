@@ -8,6 +8,7 @@ struct CanvasMinimapSnapshot: Equatable {
     let visibleRect: CGRect
     let focusedPaneID: CanvasPaneID?
     let navigationBounds: CGRect
+    private let contentBounds: CGRect?
 
     init(
         panes: [CanvasMinimapPaneSnapshot],
@@ -21,6 +22,7 @@ struct CanvasMinimapSnapshot: Equatable {
         let content = panes.map(\.frame).reduce(nil) { partial, frame -> CGRect? in
             partial?.union(frame) ?? frame
         }
+        self.contentBounds = content
         var bounds = (content ?? visibleRect).union(visibleRect)
         if bounds.width < 1 {
             bounds.origin.x -= 0.5
@@ -36,10 +38,7 @@ struct CanvasMinimapSnapshot: Equatable {
     var shouldShow: Bool {
         guard visibleRect.width > 1, visibleRect.height > 1 else { return false }
         guard !panes.isEmpty else { return false }
-        let content = panes.map(\.frame).reduce(nil) { partial, frame -> CGRect? in
-            partial?.union(frame) ?? frame
-        }
-        guard let content else { return false }
+        guard let content = contentBounds else { return false }
         return panes.count > 1 || !visibleRect.insetBy(dx: -24, dy: -24).contains(content)
     }
 
