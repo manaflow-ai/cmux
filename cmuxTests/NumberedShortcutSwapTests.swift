@@ -9,7 +9,7 @@ import Testing
 @Suite("Numbered shortcut swap", .serialized)
 struct NumberedShortcutSwapTests {
     @MainActor
-    @Test func workspaceAndSurfaceShortcutsCanSwapModifierFamilies() {
+    @Test func workspaceAndSurfaceShortcutsCanSwapModifierFamilies() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-numbered-shortcut-swap"
         )
@@ -22,19 +22,19 @@ struct NumberedShortcutSwapTests {
         let workspaceDefault = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
         let surfaceDefault = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
 
-        let presentation = ShortcutRecorderValidationPresentation(
+        let presentation = try #require(ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
                 reason: .conflictsWithAction(.selectSurfaceByNumber),
                 proposedShortcut: surfaceDefault
             ),
             action: .selectWorkspaceByNumber,
             currentShortcut: workspaceDefault
-        )
+        ))
 
-        #expect(presentation?.message == "This shortcut conflicts with Select Surface 1…9 (⌃1…9). Swap shortcuts?")
-        #expect(presentation?.swapButtonTitle == "Swap")
-        #expect(presentation?.canSwap == true)
-        #expect(presentation?.undoButtonTitle == "Undo")
+        #expect(presentation.message == "This shortcut conflicts with Select Surface 1…9 (⌃1…9). Swap shortcuts?")
+        #expect(presentation.swapButtonTitle == "Swap")
+        #expect(presentation.canSwap)
+        #expect(presentation.undoButtonTitle == "Undo")
 
         #expect(
             KeyboardShortcutSettings.swapShortcutConflict(
