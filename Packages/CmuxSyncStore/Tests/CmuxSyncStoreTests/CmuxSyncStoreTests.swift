@@ -523,6 +523,21 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         } else { Issue.record("expected delta with a tombstone") }
     }
 
+    @Test func booleanOrNegativeRevIsMalformed() {
+        // `rev: true` (a JSON bool, bridged to a CFBoolean NSNumber) must not
+        // parse as 1; a negative rev is impossible. Both force .malformed.
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":true,"records":[]}"#.utf8))
+        }
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":-1,"records":[]}"#.utf8))
+        }
+        // A snapshot with a boolean snapshotRev is also malformed.
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":false,"complete":true,"records":[]}"#.utf8))
+        }
+    }
+
     @Test func hugeOrNonIntegralRevIsMalformedNotACrash() {
         // A valid JSON sync frame with an out-of-Int-range numeric rev must
         // surface .malformed (→ resync), never trap the process on Int(d).

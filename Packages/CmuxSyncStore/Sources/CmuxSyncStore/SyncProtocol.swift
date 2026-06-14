@@ -166,16 +166,31 @@ public struct SyncFrameCodec: Sendable {
         )
     }
 
+    /// Parse a NON-NEGATIVE integer from a JSON value. `rev`/`snapshotRev`/
+    /// `cursor`/`epoch` are all non-negative, so a negative or non-integral value
+    /// is malformed. A JSON boolean (which `JSONSerialization` bridges to a
+    /// CFBoolean-backed `NSNumber`) is rejected too, so `rev: true` does not parse
+    /// as 1. Returns nil for anything invalid so the caller surfaces `.malformed`.
     private func intValue(_ value: Any?) -> Int? {
-        if let i = value as? Int { return i }
-        if let d = value as? Double { return intFromDouble(d) }
-        if let n = value as? NSNumber {
-            // NSNumber backs JSON numbers; route through Double bounds-checking so
-            // a huge `rev` (e.g. 1e100) yields nil (→ malformed) instead of
-            // trapping on an out-of-range Int conversion.
-            return intFromDouble(n.doubleValue)
+        // Reject JSON booleans: an NSNumber backed by CFBoolean has the Bool
+        // ObjC type, and `true as? Int` would otherwise yield 1.
+        if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() {
+            return nil
         }
-        return nil
+        let parsed: Int?
+        if let i = value as? Int {
+            parsed = i
+        } else if let d = value as? Double {
+            // Route through Double bounds-checking so a huge value (e.g. 1e100)
+            // yields nil instead of trapping on an out-of-range Int conversion.
+            parsed = intFromDouble(d)
+        } else if let n = value as? NSNumber {
+            parsed = intFromDouble(n.doubleValue)
+        } else {
+            parsed = nil
+        }
+        guard let result = parsed, result >= 0 else { return nil }
+        return result
     }
 
     /// Convert a JSON double to Int only when it is finite, integral, and within

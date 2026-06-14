@@ -208,8 +208,16 @@ export class TeamPresence extends DurableObject {
     // storage ops per tick instead of a prefix-list + owner read + compare every
     // ~15s per instance. A new instance, an owner pin, or a routes/identity
     // change still projects. Additive: old DO instances simply skip all of this.
+    // BEST-EFFORT and isolated: a sync failure (DO storage hiccup, bad stored
+    // payload) must NEVER fail the presence heartbeat RPC — presence already
+    // succeeded above, and the additive sync layer cannot be allowed to turn the
+    // live heartbeat endpoint into 5xx for existing hosts (DESIGN.md §5).
     if (this.heartbeatMayChangeListShape(existing, instance, owner.pin, events)) {
-      await this.syncOneDevice(beat.deviceId, now);
+      try {
+        await this.syncOneDevice(beat.deviceId, now);
+      } catch (err) {
+        console.error("sync projection failed (heartbeat); presence unaffected", err);
+      }
     }
     await this.ensureAlarmFor(instance);
     return this.heartbeatOk(teamId, instance);
@@ -499,14 +507,21 @@ export class TeamPresence extends DurableObject {
     // Project the (possibly mutated) presence state onto the synced device-list
     // collection: a prune that removed a device's last instance tombstones it
     // here, leaving the list (DESIGN.md §5.2). Then GC expired tombstones and
-    // raise the resync floor (DESIGN.md §3.5).
-    await this.syncDeviceRecords(now);
-    await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
+    // raise the resync floor (DESIGN.md §3.5). BEST-EFFORT and isolated: a sync
+    // failure must not abort the alarm before it reschedules / closes expired
+    // subscribers, which are the presence-critical alarm duties (DESIGN.md §5).
+    let tombGc: number | null = null;
+    try {
+      await this.syncDeviceRecords(now);
+      await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
+      // Include the next tombstone-GC deadline so a fully-offline team (no
+      // instances left to schedule a heartbeat-driven alarm) still wakes to GC
+      // its tombstones and advance the GC floor (DESIGN.md §3.5).
+      tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+    } catch (err) {
+      console.error("sync projection/GC failed (alarm); presence unaffected", err);
+    }
     this.closeExpiredSubscribers(now);
-    // Include the next tombstone-GC deadline so a fully-offline team (no
-    // instances left to schedule a heartbeat-driven alarm) still wakes to GC its
-    // tombstones and advance the GC floor (DESIGN.md §3.5).
-    const tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
     const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]
       .filter((value): value is number => value !== null);
     if (candidates.length > 0) {
