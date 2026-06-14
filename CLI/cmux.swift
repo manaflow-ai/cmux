@@ -406,6 +406,7 @@ private struct AgentNeedsInputPublisher {
     let surfaceOption: (String?) -> String
     let quote: (String) -> String
     let redact: (String) -> String
+    let recordPersistenceError: (String, Error) -> Void
     var dedupInterval: TimeInterval = 60 * 60
 
     func publish(_ event: AgentNeedsInputEvent) throws -> AgentNeedsInputPublishResult {
@@ -414,7 +415,7 @@ private struct AgentNeedsInputPublisher {
             return .targetUnavailable
         }
 
-        if try isDuplicate(event) {
+        if isDuplicate(event) {
             return .duplicateSuppressed
         }
 
@@ -429,32 +430,41 @@ private struct AgentNeedsInputPublisher {
 
         let payload = notificationPayload(event.title, redactedSubtitle, redactedBody)
         let response = try sendCommand("notify_target_async \(event.workspaceId) \(event.surfaceId) \(payload)")
-        try markPublished(event)
+        markPublished(event)
         return .published(response: response)
     }
 
-    func isDuplicate(_ event: AgentNeedsInputEvent) throws -> Bool {
+    func isDuplicate(_ event: AgentNeedsInputEvent) -> Bool {
         guard let sessionId = normalized(event.sessionId),
               let dedupKey = normalized(event.dedupKey) else {
             return false
         }
-        return try sessionStore.recentlyEmittedNotification(
-            sessionId: sessionId,
-            fingerprint: dedupKey,
-            within: dedupInterval
-        )
+        do {
+            return try sessionStore.recentlyEmittedNotification(
+                sessionId: sessionId,
+                fingerprint: dedupKey,
+                within: dedupInterval
+            )
+        } catch {
+            recordPersistenceError("dedup-read", error)
+            return false
+        }
     }
 
-    func markPublished(_ event: AgentNeedsInputEvent) throws {
+    func markPublished(_ event: AgentNeedsInputEvent) {
         guard let sessionId = normalized(event.sessionId),
               let dedupKey = normalized(event.dedupKey) else {
             return
         }
-        try sessionStore.markNotificationEmitted(
-            sessionId: sessionId,
-            fingerprint: dedupKey,
-            marksAskUserQuestion: event.sourceSignal == .claudeAskUserQuestion
-        )
+        do {
+            try sessionStore.markNotificationEmitted(
+                sessionId: sessionId,
+                fingerprint: dedupKey,
+                marksAskUserQuestion: event.sourceSignal == .claudeAskUserQuestion
+            )
+        } catch {
+            recordPersistenceError("dedup-write", error)
+        }
     }
 
     static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
@@ -22995,9 +23005,9 @@ struct CMUXCLI {
             }
             if claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body),
                let sessionId = parsedInput.sessionId,
-               try sessionStore.hasPendingAskUserQuestionNotification(
+               (try? sessionStore.hasPendingAskUserQuestionNotification(
                 sessionId: sessionId
-               ) {
+               )) == true {
                 print("OK")
                 return
             }
@@ -23048,7 +23058,7 @@ struct CMUXCLI {
                 dedupKey: dedupKey,
                 sourceSignal: .claudeNotification
             )
-            switch try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event) {
+            switch try agentNeedsInputPublisher(client: client, sessionStore: sessionStore, telemetry: telemetry).publish(event) {
             case let .published(response):
                 print(response)
             case .duplicateSuppressed, .targetUnavailable:
@@ -23272,7 +23282,7 @@ struct CMUXCLI {
                     sourceSignal: .claudeAskUserQuestion
                 )
                 do {
-                    _ = try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event)
+                    _ = try agentNeedsInputPublisher(client: client, sessionStore: sessionStore, telemetry: telemetry).publish(event)
                 } catch {
                     telemetry.breadcrumb(
                         "claude-hook.pre-tool-use.needs-input-publish.error",
@@ -26055,7 +26065,8 @@ struct CMUXCLI {
 
     private func agentNeedsInputPublisher(
         client: SocketClient,
-        sessionStore: ClaudeHookSessionStore
+        sessionStore: ClaudeHookSessionStore,
+        telemetry: CLISocketSentryTelemetry
     ) -> AgentNeedsInputPublisher {
         AgentNeedsInputPublisher(
             sessionStore: sessionStore,
@@ -26073,6 +26084,12 @@ struct CMUXCLI {
             },
             redact: { value in
                 redactClaudeSensitiveSpans(value)
+            },
+            recordPersistenceError: { stage, error in
+                telemetry.breadcrumb(
+                    "agent-needs-input.\(stage).error",
+                    data: ["error": String(describing: error)]
+                )
             }
         )
     }
