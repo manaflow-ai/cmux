@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Testing
 
 #if canImport(cmux_DEV)
