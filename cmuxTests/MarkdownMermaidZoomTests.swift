@@ -54,12 +54,16 @@ final class MarkdownMermaidZoomTests: XCTestCase {
 
         let baseline = try await waitForMermaidSnapshot(in: webView)
         let baselineWidth = try XCTUnwrap(baseline["width"])
+        let baselineProseHeight = try XCTUnwrap(baseline["proseHeight"])
         XCTAssertEqual(baseline["zoom"] ?? -1, 1, accuracy: 0.001)
         XCTAssertEqual(baselineWidth, 240, accuracy: 2)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
-        XCTAssertGreaterThan(try XCTUnwrap(zoomed["width"]), baselineWidth * 1.8)
+        let zoomedWidth = try XCTUnwrap(zoomed["width"])
+        let zoomedProseHeight = try XCTUnwrap(zoomed["proseHeight"])
+        XCTAssertGreaterThan(zoomedWidth, baselineWidth * 1.8)
+        XCTAssertEqual(zoomedWidth / baselineWidth, zoomedProseHeight / baselineProseHeight, accuracy: 0.25)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
         try await renderMarkdown(
@@ -133,10 +137,13 @@ final class MarkdownMermaidZoomTests: XCTestCase {
               var rect = svg.getBoundingClientRect();
               var container = svg.closest('.cmux-mermaid');
               var containerRect = container ? container.getBoundingClientRect() : null;
+              var prose = document.querySelector('.markdown-body p');
+              var proseRect = prose ? prose.getBoundingClientRect() : null;
               var zoom = Number(svg.getAttribute('data-cmux-mermaid-zoom') || '1');
               return {
                 width: rect.width || 0,
                 containerWidth: containerRect ? (containerRect.width || 0) : 0,
+                proseHeight: proseRect ? (proseRect.height || 0) : 0,
                 zoom: Number.isFinite(zoom) ? zoom : 1
               };
             })();
