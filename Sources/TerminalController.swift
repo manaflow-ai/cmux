@@ -3443,7 +3443,7 @@ class TerminalController {
     /// mid-session toggles. `panel_id` accepts either a panel UUID or a
     /// surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
-        let enabled = WorkspaceAutoNamingSettings.enabled()
+        let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
             var result: [String: Any] = ["enabled": enabled]
             // With a workspace_id the probe also reports user ownership, so
