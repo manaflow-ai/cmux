@@ -227,7 +227,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        store.applyWorkspaceRoot(.local(path: directory))
+        store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {

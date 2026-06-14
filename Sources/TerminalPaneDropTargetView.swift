@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Foundation
 import SwiftUI
+import CmuxTerminal
 
 final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
@@ -322,7 +323,7 @@ final class PaneDropTargetView: NSView {
             return nil
         case .rightSidebarTool:
             return nil
-        case .project:
+        case .agentSession, .project:
             return nil
         case .extensionBrowser:
             return nil

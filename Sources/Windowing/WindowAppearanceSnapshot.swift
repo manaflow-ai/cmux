@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum GhosttyTerminalBackdropRenderingMode {
@@ -20,36 +21,11 @@ enum WindowBackdropRole {
     case browserSurface
 }
 
-enum GhosttyBackgroundBlur: Equatable {
-    case disabled
-    case radius(Int)
-    case macosGlassRegular
-    case macosGlassClear
-
-    init(cValue value: Int16) {
-        switch value {
-        case 0:
-            self = .disabled
-        case -1:
-            self = .macosGlassRegular
-        case -2:
-            self = .macosGlassClear
-        case 1...:
-            self = .radius(Int(value))
-        default:
-            self = .disabled
-        }
-    }
-
-    var isMacOSGlassStyle: Bool {
-        switch self {
-        case .macosGlassRegular, .macosGlassClear:
-            return true
-        case .disabled, .radius:
-            return false
-        }
-    }
-
+extension GhosttyBackgroundBlur {
+    /// The window-chrome glass style for this blur mode, or `nil` when the mode
+    /// is a compositor blur or disabled. Lives app-side because
+    /// `WindowGlassEffect` is a window-domain type the terminal core must not
+    /// depend on.
     var windowGlassStyle: WindowGlassEffect.Style? {
         switch self {
         case .macosGlassRegular:
@@ -286,7 +262,7 @@ struct WindowGlassSettingsSnapshot {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return true
         }
-        return cmuxShouldApplyWindowGlass(
+        return WindowBackgroundComposition.policy.shouldApplyWindowGlass(
             sidebarBlendMode: sidebarBlendModeRawValue,
             bgGlassEnabled: isEnabled,
             glassEffectAvailable: glassEffectAvailable

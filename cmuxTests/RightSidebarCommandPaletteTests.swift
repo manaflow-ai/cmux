@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 import Testing
 
@@ -17,7 +18,7 @@ struct RightSidebarCommandPaletteTests {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
-            let context = ContentView.CommandPaletteContextSnapshot()
+            let context = CommandPaletteContextSnapshot()
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
