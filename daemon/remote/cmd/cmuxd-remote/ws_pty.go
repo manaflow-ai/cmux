@@ -501,8 +501,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 			continue
 		}
 
-		resp := server.handleRequest(req)
-		if err := server.frameWriter.writeResponse(resp); err != nil {
+		if err := server.handleRequestAndWriteResponse(req); err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "write failed")
 			return
 		}
