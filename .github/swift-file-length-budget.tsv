@@ -1,17 +1,17 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33285	CLI/cmux.swift
-17899	Sources/AppDelegate.swift
-16820	Sources/ContentView.swift
+33454	CLI/cmux.swift
+17911	Sources/AppDelegate.swift
+16826	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
-13572	Sources/Panels/BrowserPanel.swift
-12079	Sources/GhosttyTerminalView.swift
+13577	Sources/Panels/BrowserPanel.swift
+12085	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11972	Sources/Workspace.swift
+12021	Sources/Workspace.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7738	Sources/Panels/BrowserPanelView.swift
-7311	cmuxTests/WorkspaceUnitTests.swift
+7851	Sources/Panels/BrowserPanelView.swift
+7349	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6297	cmuxTests/GhosttyConfigTests.swift
@@ -20,7 +20,7 @@
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5500	cmuxTests/BrowserConfigTests.swift
-5470	Sources/cmuxApp.swift
+5487	Sources/cmuxApp.swift
 4938	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
@@ -35,9 +35,9 @@
 3203	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
+2573	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
-2516	Sources/KeyboardShortcutSettings.swift
 2449	cmuxTests/CommandPaletteSearchEngineTests.swift
 2377	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
@@ -46,7 +46,7 @@
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2100	cmuxTests/ShortcutAndCommandPaletteTests.swift
-2037	Sources/SessionPersistence.swift
+2059	Sources/SessionPersistence.swift
 2031	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
@@ -96,14 +96,14 @@
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 904	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-881	Sources/WorkspaceContentView.swift
+897	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
+893	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 866	Sources/Panels/TerminalPanel.swift
-856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
-842	Sources/Panels/MarkdownWebRenderer.swift
+841	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift

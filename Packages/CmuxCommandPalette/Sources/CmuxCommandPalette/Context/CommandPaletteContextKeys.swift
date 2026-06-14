@@ -19,6 +19,8 @@ public enum CommandPaletteContextKeys {
     public static let workspaceHasPullRequests = "workspace.hasPullRequests"
     /// Whether the workspace has splits.
     public static let workspaceHasSplits = "workspace.hasSplits"
+    /// Whether the workspace uses the canvas layout mode.
+    public static let workspaceCanvasLayout = "workspace.canvasLayout"
     /// Whether the workspace has sibling workspaces.
     public static let workspaceHasPeers = "workspace.hasPeers"
     /// Whether a workspace exists above the selection.

@@ -11,6 +11,7 @@ import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
+import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
 import CmuxWorkspaceCore
@@ -136,6 +137,8 @@ extension Workspace {
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
+            layoutMode: layoutMode.rawValue,
+            canvasPanes: canvasSessionPaneSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -233,6 +236,8 @@ extension Workspace {
         gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
         recomputeListeningPorts()
+
+        restoreCanvasState(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
 
         if let focusedOldPanelId = snapshot.focusedPanelId,
            let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],
@@ -2518,6 +2523,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+
+    /// How this workspace lays out its panels. Mutate through
+    /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
+    /// are seeded from the split layout on first entry.
+    @Published var layoutMode: WorkspaceLayoutMode = .splits
+
+    /// Durable canvas-layout state (pane frames, z-order). Lives on the
+    /// workspace so it survives canvas view remounts and workspace switches.
+    let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
@@ -8719,6 +8733,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        // In canvas mode, focusing a panel also brings it forward as its
+        // pane's selected tab so focus and visibility never diverge.
+        if layoutMode == .canvas {
+            canvasModel.selectPanel(panelId)
+        }
         let currentlyFocusedPanelId = focusedPanelId
 
         // Capture the currently focused terminal view so we can explicitly move AppKit first
@@ -8864,6 +8883,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
+        if layoutMode == .canvas {
+            moveCanvasFocus(direction: direction)
+            return
+        }
         let previousFocusedPanelId = focusedPanelId
 
         // Unfocus the currently-focused panel before navigating.
@@ -8886,6 +8909,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the next surface in the currently focused pane
     func selectNextSurface() {
+        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: 1) { return }
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -8896,6 +8920,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the previous surface in the currently focused pane
     func selectPreviousSurface() {
+        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: -1) { return }
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -8932,7 +8957,20 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput, inheritWorkingDirectoryFallback: true)
+        // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
+        // remember the anchor panel so the new one joins its pane instead of
+        // floating as a separate canvas pane.
+        let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
+        let panel = newTerminalSurface(
+            inPane: focusedPaneId,
+            focus: focus,
+            initialInput: initialInput,
+            inheritWorkingDirectoryFallback: true
+        )
+        if let panel, let anchor = canvasAnchorPanelId {
+            joinNewPanelIntoCanvasPane(panel.id, anchor: anchor)
+        }
+        return panel
     }
 
     @discardableResult
@@ -9728,6 +9766,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
+        // Canvas mode renders one panel per canvas pane — its selected tab.
+        // Background tabs are unmounted, so reporting them as rendered makes
+        // the terminal window portal float them at stale frames (chromeless
+        // slivers). Offscreen clipping of the selected tabs is the canvas
+        // viewport's job.
+        if layoutMode == .canvas {
+            return Set(canvasModel.layout.panes.map(\.selectedPanelId.rawValue))
+        }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
@@ -9757,7 +9803,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
+    func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
@@ -9812,12 +9858,15 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     @discardableResult
-    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+    func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = false
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
+            // Canvas-inline-hosted webviews live in the pane hierarchy; portal
+            // rebinds/refreshes here would steal them back into the portal.
+            if browserPanel.canvasInlineHostingActive { continue }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
