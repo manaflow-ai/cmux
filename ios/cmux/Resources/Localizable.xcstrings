@@ -2013,13 +2013,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter the 6-digit code from your email."
+            "value": "Enter the 6-character code from your email."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メールに届いた 6 桁のコードを入力してください。"
+            "value": "メールに届いた6文字のコードを入力してください。"
           }
         }
       }
@@ -2030,13 +2030,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "000000"
+            "value": "ABC123"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "000000"
+            "value": "ABC123"
           }
         }
       }
