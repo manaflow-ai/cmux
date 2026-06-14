@@ -443,33 +443,6 @@ final class TerminalInputTextView: UITextView {
         applyModifierPresentation()
     }
 
-    /// Apply the user's autocorrect preference to the keyboard input traits.
-    ///
-    /// When enabled, the autocorrect / predictive text / smart-punctuation /
-    /// spell-check traits fall back to the system default (so the field behaves
-    /// like an ordinary iOS text field, respecting the user's global keyboard
-    /// settings); when disabled they are forced off for terminal-hardened input.
-    /// Autocapitalization is left untouched here — it stays off unconditionally
-    /// (set once in `init`).
-    private func applyKeyboardTraits() {
-        let enabled = TerminalKeyboardConfiguration.shared.autocorrectionEnabled
-        autocorrectionType = enabled ? .default : .no
-        smartQuotesType = enabled ? .default : .no
-        smartDashesType = enabled ? .default : .no
-        smartInsertDeleteType = enabled ? .default : .no
-        spellCheckingType = enabled ? .default : .no
-    }
-
-    @objc private func handleKeyboardConfigurationChanged() {
-        applyKeyboardTraits()
-        // Reload only when this view owns the keyboard, so the change takes
-        // effect on the live keyboard; otherwise the next `init`/become-first-
-        // responder picks up the already-applied traits.
-        if isFirstResponder {
-            reloadInputViews()
-        }
-    }
-
     /// Retitle the modifier buttons for the current remote and re-apply each
     /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
     /// so a configuration-driven rebuild can re-apply it without toggling the flag.
@@ -503,12 +476,9 @@ final class TerminalInputTextView: UITextView {
         backgroundColor = .clear
         textColor = .clear
         tintColor = .clear
-        // Autocapitalization stays off regardless of the autocorrect preference:
-        // capitalizing the first word of a shell command is never wanted.
+        // Autocapitalization stays off (never wanted for commands); the
+        // autocorrect family is user-configurable (#6083).
         autocapitalizationType = .none
-        // The autocorrect / predictive text / smart-punctuation / spell-check
-        // traits are user-configurable (issue #6083); apply the stored preference
-        // (default off) and re-apply when it changes (see the observer below).
         applyKeyboardTraits()
         keyboardType = .default
         returnKeyType = .default
@@ -526,12 +496,7 @@ final class TerminalInputTextView: UITextView {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardConfigurationChanged),
-            name: TerminalKeyboardConfiguration.didChangeNotification,
-            object: nil
-        )
+        observeKeyboardConfigurationChanges()
     }
 
     required init?(coder: NSCoder) {
