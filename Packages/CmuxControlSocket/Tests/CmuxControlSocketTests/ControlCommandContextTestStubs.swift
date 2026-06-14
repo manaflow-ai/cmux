@@ -96,6 +96,16 @@ extension ControlCanvasContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSetViewport(
+        routing: ControlRoutingSelectors,
+        centerX: Double,
+        centerY: Double,
+        magnification: Double?
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasNewPane(
+        routing: ControlRoutingSelectors,
+        type: String
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
 }
 
 extension ControlNotificationContext {

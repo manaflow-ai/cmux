@@ -69,4 +69,21 @@ public protocol ControlCanvasContext: AnyObject {
         routing: ControlRoutingSelectors,
         surfaceID: UUID
     ) -> ControlCanvasActionResolution
+
+    /// Centers and zooms the viewport for `canvas.set_viewport`. `center` is
+    /// in canvas coordinates; `magnification` nil keeps the current zoom.
+    func controlCanvasSetViewport(
+        routing: ControlRoutingSelectors,
+        centerX: Double,
+        centerY: Double,
+        magnification: Double?
+    ) -> ControlCanvasActionResolution
+
+    /// Creates a new free-floating canvas pane for `canvas.new_pane`. `type`
+    /// is `"terminal"` or `"browser"`. Returns `.created` carrying the new
+    /// surface id.
+    func controlCanvasNewPane(
+        routing: ControlRoutingSelectors,
+        type: String
+    ) -> ControlCanvasActionResolution
 }

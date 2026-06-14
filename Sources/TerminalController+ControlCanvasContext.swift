@@ -38,10 +38,22 @@ extension TerminalController: ControlCanvasContext {
                 selectedPanelID: pane.selectedPanelId.rawValue
             )
         }
+        var magnification: Double?
+        var centerX: Double?
+        var centerY: Double?
+        if ws.layoutMode == .canvas, let viewport = ws.canvasModel.viewport {
+            magnification = Double(viewport.currentMagnification)
+            let center = viewport.currentCenterInCanvas
+            centerX = Double(center.x)
+            centerY = Double(center.y)
+        }
         return ControlCanvasInfoSnapshot(
             workspaceID: ws.id,
             mode: ws.layoutMode.rawValue,
-            panes: panes
+            panes: panes,
+            magnification: magnification,
+            centerX: centerX,
+            centerY: centerY
         )
     }
 
@@ -192,6 +204,38 @@ extension TerminalController: ControlCanvasContext {
         ws.focusPanel(surfaceID)
         ws.canvasModel.viewport?.modelDidChangeExternally(animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
+    }
+
+    func controlCanvasSetViewport(
+        routing: ControlRoutingSelectors,
+        centerX: Double,
+        centerY: Double,
+        magnification: Double?
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        ws.canvasModel.viewport?.setViewport(
+            center: CGPoint(x: centerX, y: centerY),
+            magnification: magnification.map { CGFloat($0) }
+        )
+        return .ok(mode: ws.layoutMode.rawValue)
+    }
+
+    func controlCanvasNewPane(
+        routing: ControlRoutingSelectors,
+        type: String
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        let paneType: CanvasNewPaneType = (type == "browser") ? .browser : .terminal
+        guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {
+            return .tabManagerUnavailable
+        }
+        return .created(mode: ws.layoutMode.rawValue, surfaceID: surfaceID)
     }
 }
 

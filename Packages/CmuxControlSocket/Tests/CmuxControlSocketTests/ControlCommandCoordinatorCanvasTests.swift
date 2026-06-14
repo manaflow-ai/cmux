@@ -94,6 +94,27 @@ private final class FakeCanvasControlCommandContext: ControlCommandContext {
         lastSelectTabSurfaceID = surfaceID
         return actionResolution
     }
+
+    var lastSetViewport: (centerX: Double, centerY: Double, magnification: Double?)?
+    var lastNewPaneType: String?
+
+    func controlCanvasSetViewport(
+        routing: ControlRoutingSelectors,
+        centerX: Double,
+        centerY: Double,
+        magnification: Double?
+    ) -> ControlCanvasActionResolution {
+        lastSetViewport = (centerX, centerY, magnification)
+        return actionResolution
+    }
+
+    func controlCanvasNewPane(
+        routing: ControlRoutingSelectors,
+        type: String
+    ) -> ControlCanvasActionResolution {
+        lastNewPaneType = type
+        return actionResolution
+    }
 }
 
 @MainActor
@@ -296,6 +317,126 @@ struct ControlCommandCoordinatorCanvasTests {
             return
         }
         #expect(context.lastSelectTabSurfaceID == surface)
+    }
+
+    @Test func infoSerializesViewportStateWhenPresent() {
+        let (coordinator, context) = makeCoordinator()
+        context.infoSnapshot = ControlCanvasInfoSnapshot(
+            workspaceID: UUID(),
+            mode: "canvas",
+            panes: [],
+            magnification: 1.5,
+            centerX: 400,
+            centerY: 260
+        )
+        guard case .ok(.object(let object)) = coordinator.handle(request("canvas.info")) else {
+            Issue.record("expected ok object")
+            return
+        }
+        #expect(object["magnification"] == .double(1.5))
+        #expect(object["viewport_center"] == .object(["x": .double(400), "y": .double(260)]))
+    }
+
+    @Test func infoOmitsViewportStateWhenAbsent() {
+        let (coordinator, context) = makeCoordinator()
+        context.infoSnapshot = ControlCanvasInfoSnapshot(
+            workspaceID: UUID(),
+            mode: "splits",
+            panes: []
+        )
+        guard case .ok(.object(let object)) = coordinator.handle(request("canvas.info")) else {
+            Issue.record("expected ok object")
+            return
+        }
+        #expect(object["magnification"] == nil)
+        #expect(object["viewport_center"] == nil)
+    }
+
+    @Test func setViewportRequiresCoordinates() {
+        let (coordinator, context) = makeCoordinator()
+        guard case .err(let code, _, _) = coordinator.handle(
+            request("canvas.set_viewport", ["x": .double(10)])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastSetViewport == nil)
+    }
+
+    @Test func setViewportRejectsNonPositiveZoom() {
+        let (coordinator, context) = makeCoordinator()
+        guard case .err(let code, _, _) = coordinator.handle(
+            request("canvas.set_viewport", ["x": .double(10), "y": .double(20), "zoom": .double(0)])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastSetViewport == nil)
+    }
+
+    @Test func setViewportPassesCenterAndZoomThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .ok(mode: "canvas")
+        guard case .ok = coordinator.handle(request("canvas.set_viewport", [
+            "x": .double(400), "y": .double(260), "zoom": .double(1.5),
+        ])) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastSetViewport?.centerX == 400)
+        #expect(context.lastSetViewport?.centerY == 260)
+        #expect(context.lastSetViewport?.magnification == 1.5)
+    }
+
+    @Test func setViewportKeepsZoomNilWhenOmitted() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .ok(mode: "canvas")
+        guard case .ok = coordinator.handle(request("canvas.set_viewport", [
+            "x": .double(0), "y": .double(0),
+        ])) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastSetViewport?.magnification == nil)
+    }
+
+    @Test func newPaneDefaultsToTerminalAndSerializesCreatedSurface() {
+        let (coordinator, context) = makeCoordinator()
+        let surface = UUID()
+        context.actionResolution = .created(mode: "canvas", surfaceID: surface)
+        guard case .ok(.object(let object)) = coordinator.handle(request("canvas.new_pane")) else {
+            Issue.record("expected ok object")
+            return
+        }
+        #expect(context.lastNewPaneType == "terminal")
+        #expect(object["surface_id"] == .string(surface.uuidString))
+        #expect(object["mode"] == .string("canvas"))
+    }
+
+    @Test func newPaneRejectsUnknownType() {
+        let (coordinator, context) = makeCoordinator()
+        guard case .err(let code, _, _) = coordinator.handle(
+            request("canvas.new_pane", ["type": .string("widget")])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastNewPaneType == nil)
+    }
+
+    @Test func newPanePassesBrowserTypeThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .created(mode: "canvas", surfaceID: UUID())
+        guard case .ok = coordinator.handle(
+            request("canvas.new_pane", ["type": .string("browser")])
+        ) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastNewPaneType == "browser")
     }
 
     @Test func notCanvasModeMapsToInvalidState() {

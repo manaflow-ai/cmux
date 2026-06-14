@@ -192,7 +192,44 @@ extension Workspace {
     }
 }
 
+/// The kind of surface `openNewCanvasPane` should create.
+enum CanvasNewPaneType {
+    case terminal
+    case browser
+}
+
 extension Workspace {
+    /// Creates a new surface as its own free-floating canvas pane (not joined
+    /// as a tab of an existing pane), the automation counterpart to the
+    /// canvas "new pane" gesture. Returns the new surface/panel UUID, or `nil`
+    /// when creation fails (e.g. no focused bonsplit pane, or the browser is
+    /// disabled). Must be called in canvas mode.
+    @discardableResult
+    func openNewCanvasPane(type: CanvasNewPaneType, focus: Bool = true) -> UUID? {
+        guard layoutMode == .canvas else { return nil }
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        let newPanelId: UUID
+        switch type {
+        case .terminal:
+            guard let panel = newTerminalSurface(inPane: focusedPaneId, focus: focus) else {
+                return nil
+            }
+            newPanelId = panel.id
+        case .browser:
+            guard let panel = newBrowserSurface(inPane: focusedPaneId, focus: focus) else {
+                return nil
+            }
+            newPanelId = panel.id
+        }
+        // Give the new surface its own canvas pane (the placer positions it
+        // near the focused pane) rather than joining it as a tab.
+        canvasModel.syncPanes(panelIds: orderedPanelIds, focusedPanelId: newPanelId)
+        focusPanel(newPanelId)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        canvasModel.viewport?.revealPane(newPanelId, animated: true)
+        return newPanelId
+    }
+
     /// Makes a freshly created panel a tab of the canvas pane hosting
     /// `anchor` (the Cmd+T-in-canvas semantics). Ensures the panel exists in
     /// the canvas model first, since panel creation can run before the next

@@ -7342,8 +7342,8 @@ struct CMUXCLI {
         }
     }
 
-    /// `cmux canvas <info|mode|set-frame|align|reveal|overview>` — workspace
-    /// canvas-layout control over the v2 `canvas.*` methods.
+    /// `cmux canvas <info|mode|set-frame|align|reveal|overview|set-viewport|new-pane|…>`
+    /// — workspace canvas-layout control over the v2 `canvas.*` methods.
     private func runCanvasNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7351,7 +7351,7 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom")
+            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
         }
         let rest = Array(commandArgs.dropFirst())
         // Split flags ("--name value") from bare positionals so a flag's
@@ -7435,8 +7435,30 @@ struct CMUXCLI {
         case "select-tab":
             try surfaceParam(positional: positionals.first, required: true)
             method = "canvas.select_tab"
+        case "set-viewport":
+            for key in ["x", "y"] {
+                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-viewport requires numeric --x --y")
+                }
+                params[key] = value
+            }
+            if let raw = optionValue(rest, name: "--zoom") {
+                guard let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-viewport --zoom must be numeric")
+                }
+                params["zoom"] = value
+            }
+            method = "canvas.set_viewport"
+        case "new-pane":
+            if let type = optionValue(rest, name: "--type")?.lowercased() {
+                guard ["terminal", "browser"].contains(type) else {
+                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser]")
+                }
+                params["type"] = type
+            }
+            method = "canvas.new_pane"
         default:
-            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom, join, break, select-tab")
+            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom, join, break, select-tab, set-viewport, new-pane")
         }
 
         let payload = try client.sendV2(method: method, params: params)
@@ -13458,6 +13480,11 @@ struct CMUXCLI {
               reveal [<surface>]            Scroll a pane into view (default: focused)
               overview                      Toggle fit-all overview zoom
               zoom <in|out|reset>           Step viewport magnification
+              set-viewport --x <n> --y <n> [--zoom <n>]
+                                            Center the viewport on a canvas point
+                                            (optionally set magnification)
+              new-pane [--type terminal|browser]
+                                            Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
               select-tab <surface>          Select a surface as its pane's visible tab
@@ -13465,6 +13492,8 @@ struct CMUXCLI {
             Example:
               cmux canvas mode canvas
               cmux canvas set-frame surface:1 --x 0 --y 0 --width 800 --height 520
+              cmux canvas set-viewport --x 400 --y 260 --zoom 1.0
+              cmux canvas new-pane --type terminal
               cmux canvas align tidy
             """
         case "events":

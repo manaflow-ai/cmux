@@ -29,6 +29,10 @@ extension ControlCommandCoordinator {
             return canvasBreak(request.params)
         case "canvas.select_tab":
             return canvasSelectTab(request.params)
+        case "canvas.set_viewport":
+            return canvasSetViewport(request.params)
+        case "canvas.new_pane":
+            return canvasNewPane(request.params)
         default:
             return nil
         }
@@ -58,12 +62,22 @@ extension ControlCommandCoordinator {
                 "selected_surface_ref": ref(.surface, pane.selectedPanelID),
             ])
         }
-        return .ok(.object([
+        var object: [String: JSONValue] = [
             "workspace_id": .string(snapshot.workspaceID.uuidString),
             "workspace_ref": ref(.workspace, snapshot.workspaceID),
             "mode": .string(snapshot.mode),
             "panes": .array(panes),
-        ]))
+        ]
+        if let magnification = snapshot.magnification {
+            object["magnification"] = .double(magnification)
+        }
+        if let centerX = snapshot.centerX, let centerY = snapshot.centerY {
+            object["viewport_center"] = .object([
+                "x": .double(centerX),
+                "y": .double(centerY),
+            ])
+        }
+        return .ok(.object(object))
     }
 
     // MARK: - set_mode
@@ -213,12 +227,67 @@ extension ControlCommandCoordinator {
         return canvasActionResult(resolution)
     }
 
+    // MARK: - set_viewport
+
+    /// `canvas.set_viewport` — center the viewport on a canvas point and
+    /// optionally set the magnification (`zoom`/`magnification`).
+    func canvasSetViewport(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let x = double(params, "x"), let y = double(params, "y") else {
+            return .err(
+                code: "invalid_params",
+                message: "x and y are required",
+                data: nil
+            )
+        }
+        let magnification = double(params, "zoom") ?? double(params, "magnification")
+        if let magnification, magnification <= 0 {
+            return .err(
+                code: "invalid_params",
+                message: "zoom must be positive",
+                data: nil
+            )
+        }
+        let routing = routingSelectors(params)
+        let resolution = context?.controlCanvasSetViewport(
+            routing: routing,
+            centerX: x,
+            centerY: y,
+            magnification: magnification
+        ) ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
+    // MARK: - new_pane
+
+    /// `canvas.new_pane` — create a new free-floating canvas pane (`type`
+    /// defaults to `terminal`).
+    func canvasNewPane(_ params: [String: JSONValue]) -> ControlCallResult {
+        let type = string(params, "type") ?? "terminal"
+        guard ["terminal", "browser"].contains(type) else {
+            return .err(
+                code: "invalid_params",
+                message: "type must be terminal or browser",
+                data: nil
+            )
+        }
+        let routing = routingSelectors(params)
+        let resolution = context?.controlCanvasNewPane(routing: routing, type: type)
+            ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
     // MARK: - Shared resolution mapping
 
     private func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
         switch resolution {
         case .ok(let mode):
             return .ok(.object(["mode": .string(mode)]))
+        case .created(let mode, let surfaceID):
+            return .ok(.object([
+                "mode": .string(mode),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+            ]))
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "No active cmux window", data: nil)
         case .workspaceNotFound:

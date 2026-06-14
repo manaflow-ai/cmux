@@ -58,6 +58,50 @@ extension CanvasRootView: CanvasViewportControlling {
         setMagnification(1.0)
     }
 
+    public var currentMagnification: CGFloat {
+        scrollView.magnification
+    }
+
+    public var currentCenterInCanvas: CGPoint {
+        let visible = scrollView.contentView.documentVisibleRect
+        let canvas = canvasRect(fromDocument: visible)
+        return CGPoint(x: canvas.midX, y: canvas.midY)
+    }
+
+    public func setViewport(center: CGPoint, magnification: CGFloat?) {
+        // An explicit viewport set invalidates the overview round-trip restore.
+        overviewRestore = nil
+        let targetMagnification: CGFloat
+        if let magnification {
+            targetMagnification = min(
+                max(magnification, scrollView.minMagnification),
+                scrollView.maxMagnification
+            )
+        } else {
+            targetMagnification = scrollView.magnification
+        }
+        // Convert the desired canvas center to document coordinates, then place
+        // the clip origin so that point lands at the viewport center.
+        let docCenter = CGPoint(
+            x: center.x - documentOriginInCanvas.x,
+            y: center.y - documentOriginInCanvas.y
+        )
+        let viewportSize = scrollView.contentSize
+        let clipSize = CGSize(
+            width: viewportSize.width / targetMagnification,
+            height: viewportSize.height / targetMagnification
+        )
+        let targetOrigin = CGPoint(
+            x: docCenter.x - clipSize.width / 2,
+            y: docCenter.y - clipSize.height / 2
+        )
+        scrollView.magnification = targetMagnification
+        scrollView.contentView.setBoundsOrigin(targetOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        callbacks.onViewportGeometryChanged(window)
+        callbacks.onViewportSettled(window)
+    }
+
     /// Zooms by `factor` while keeping the document point under
     /// `windowLocation` fixed (cursor-anchored), for pointer-driven zoom
     /// (option+scroll). Unanimated so it tracks the wheel; the caller settles
