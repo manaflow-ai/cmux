@@ -17,6 +17,8 @@ final class SSHPTYAttachReconnectInputFilter {
     private static let questionMark: UInt8 = 0x3F
     private static let dollar: UInt8 = 0x24
     private static let maxPendingProbeBytes = 512
+    // Terminal ESC disambiguation: enough for split probe replies, bounded for real Escape keys.
+    private static let ambiguousEscapeTimeoutMilliseconds: Int32 = 25
 
     private var isFiltering: Bool
     private var pending = [UInt8]()
@@ -32,7 +34,12 @@ final class SSHPTYAttachReconnectInputFilter {
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
                 if count > 0 {
-                    let input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
+                    var input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
+                    if input.isEmpty,
+                       reconnectInputFilter.hasPendingAmbiguousEscape,
+                       !Self.stdinHasReadyInput(timeoutMilliseconds: Self.ambiguousEscapeTimeoutMilliseconds) {
+                        input = reconnectInputFilter.flushPendingAmbiguousEscape()
+                    }
                     guard !input.isEmpty else {
                         continue
                     }
@@ -109,6 +116,19 @@ final class SSHPTYAttachReconnectInputFilter {
         let data = Data(pending)
         pending.removeAll(keepingCapacity: false)
         return data
+    }
+
+    var hasPendingAmbiguousEscape: Bool {
+        isFiltering && pending.count == 1 && pending[0] == Self.escape
+    }
+
+    func flushPendingAmbiguousEscape() -> Data {
+        guard hasPendingAmbiguousEscape else {
+            return Data()
+        }
+        pending.removeAll(keepingCapacity: true)
+        isFiltering = false
+        return Data([Self.escape])
     }
 
     private static func reconnectProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
@@ -220,6 +240,23 @@ final class SSHPTYAttachReconnectInputFilter {
         case 0x79:
             return intermediates.elementsEqual([dollar])
         default:
+            return false
+        }
+    }
+
+    private static func stdinHasReadyInput(timeoutMilliseconds: Int32) -> Bool {
+        var stdinPoll = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+        while true {
+            let result = Darwin.poll(&stdinPoll, 1, timeoutMilliseconds)
+            if result > 0 {
+                return (stdinPoll.revents & Int16(POLLIN)) != 0
+            }
+            if result == 0 {
+                return false
+            }
+            if errno == EINTR {
+                continue
+            }
             return false
         }
     }

@@ -49,4 +49,15 @@ import Testing
         let keyInput = Data("\u{1B}[13;2u".utf8)
         #expect(filter.filter(keyInput) == keyInput)
     }
+
+    @Test func flushesPendingBareEscapeWhenNoContinuationArrives() {
+        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+        let escape = Data([0x1B])
+        #expect(filter.filter(escape) == Data())
+        #expect(filter.hasPendingAmbiguousEscape)
+        #expect(filter.flushPendingAmbiguousEscape() == escape)
+
+        let keyInput = Data("\u{1B}[13;2u".utf8)
+        #expect(filter.filter(keyInput) == keyInput)
+    }
 }
