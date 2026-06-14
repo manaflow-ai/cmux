@@ -10,6 +10,14 @@ struct TranscriptBatchAssembler {
     private var batchIndexByMessageID: [String: Int] = [:]
     private let budget: TranscriptTextBudget
 
+    /// Upper bound on tool invocations carried across parse calls awaiting a
+    /// result. A `tool_use` whose `tool_result` never arrives (interrupted or
+    /// crashed tool, malformed result line) would otherwise accumulate in
+    /// `pending` for the life of the tailer. Capping to the most-recent N (by
+    /// seq) bounds the carried state; dropping the oldest unresolved calls only
+    /// means an extremely-late result (>N tool calls later) won't back-patch.
+    static let maxPendingToolUses = 256
+
     /// Creates an assembler seeded with carried-over pending tool uses.
     ///
     /// - Parameters:
@@ -69,9 +77,21 @@ struct TranscriptBatchAssembler {
             messages: messages,
             updatedMessages: updatedMessages,
             state: ChatTranscriptParseState(
-                pendingToolUses: pending,
+                pendingToolUses: Self.bounded(pending),
                 lastTimestamp: lastTimestamp
             )
+        )
+    }
+
+    /// Caps carried pending tool uses to the most-recent ``maxPendingToolUses``
+    /// by their newest message seq, evicting the oldest unresolved calls.
+    private static func bounded(_ pending: [String: [ChatMessage]]) -> [String: [ChatMessage]] {
+        guard pending.count > maxPendingToolUses else { return pending }
+        let newestFirst = pending.sorted { lhs, rhs in
+            (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
+        }
+        return Dictionary(
+            uniqueKeysWithValues: newestFirst.prefix(maxPendingToolUses).map { ($0.key, $0.value) }
         )
     }
 }
