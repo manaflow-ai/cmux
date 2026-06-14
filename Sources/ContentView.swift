@@ -783,8 +783,9 @@ private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebVi
 }
 
 enum WorkspaceMountPolicy {
-    // Keep only the selected workspace mounted to minimize layer-tree traversal.
-    static let maxMountedWorkspaces = 1
+    // Keep the selected workspace plus a small bounded MRU cache warm so revisits avoid cold terminal mounts.
+    static let maxRecentlyMountedWorkspaces = 3
+    static let maxMountedWorkspaces = 1 + maxRecentlyMountedWorkspaces
     // During workspace cycling, keep only a minimal handoff pair (selected + retiring).
     static let maxMountedWorkspacesDuringCycle = 2
 
@@ -821,11 +822,12 @@ enum WorkspaceMountPolicy {
 
         // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
         // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
+        let orderedTabIndexById = Dictionary(uniqueKeysWithValues: orderedTabIds.enumerated().map { ($0.element, $0.offset) })
         let prioritizedPinnedIds = pinnedIds
             .filter { existing.contains($0) && $0 != selected }
             .sorted { lhs, rhs in
-                let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
-                let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
+                let lhsIndex = orderedTabIndexById[lhs] ?? .max
+                let rhsIndex = orderedTabIndexById[rhs] ?? .max
                 return lhsIndex < rhsIndex
             }
         if let selected, existing.contains(selected) {
@@ -3263,6 +3265,7 @@ struct ContentView: View {
         let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            // Ordered by MRU: head is most recent, tail is evicted first.
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
             pinnedIds: pinnedIds,
@@ -3281,17 +3284,19 @@ struct ContentView: View {
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
             let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
+            let debugPinnedIds = pinnedIds.sorted { $0.uuidString < $1.uuidString }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
-                    "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
+                    "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) limit=\(maxMounted) " +
+                    "selected=\(debugShortWorkspaceId(effectiveSelectedId)) pinned=\(debugShortWorkspaceIds(debugPinnedIds)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
                     "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removedIds))"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
+                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) limit=\(maxMounted) " +
+                    "selected=\(debugShortWorkspaceId(effectiveSelectedId)) pinned=\(debugShortWorkspaceIds(debugPinnedIds)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
                 )
             }

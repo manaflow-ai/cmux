@@ -7093,7 +7093,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
 
 final class WorkspaceMountPolicyTests: XCTestCase {
-    func testDefaultPolicyMountsOnlySelectedWorkspace() {
+    func testDefaultPolicyKeepsRecentlyMountedWorkspaceWarm() {
         let a = UUID()
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
@@ -7107,7 +7107,48 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
+    }
+
+    func testDefaultPolicyDoesNotFillWarmSlotsWithUnvisitedWorkspaces() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let orderedTabIds: [UUID] = [a, b, c]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: b,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
+        )
+
+        XCTAssertFalse(next.contains(c))
+    }
+
+    func testDefaultPolicyKeepsWarmCacheBounded() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let d = UUID()
+        let e = UUID()
+        let warmCacheIds = (0...WorkspaceMountPolicy.maxMountedWorkspaces).map { _ in UUID() }
+        let orderedTabIds: [UUID] = [a, b, c, d, e] + warmCacheIds
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [b, a, d, e] + warmCacheIds,
+            selected: c,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
+        )
+
+        XCTAssertEqual(Array(next.prefix(4)), [c, b, a, d])
+        XCTAssertEqual(next.count, WorkspaceMountPolicy.maxMountedWorkspaces)
+        XCTAssertFalse(next.contains(warmCacheIds.last!))
     }
 
     func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
