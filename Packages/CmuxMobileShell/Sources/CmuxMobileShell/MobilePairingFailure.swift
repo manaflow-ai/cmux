@@ -454,11 +454,12 @@ extension MobilePairingChecklist {
     ///
     /// - Parameters:
     ///   - category: The classified failure.
-    ///   - reachedMac: Whether the attempt got on the wire to the Mac (a
-    ///     connect/auth-phase failure), so a gate before the failed one that
+    ///   - reachedMac: Whether the attempt actually got a request onto the
+    ///     transport to the Mac, so a gate before the failed one that
     ///     ``MobilePairingFailureCategory/clearsPriorGates`` marks cleared really
-    ///     was. A pre-network failure (validation or offline preflight) passes
-    ///     `false`, leaving the earlier gates untested instead of falsely cleared.
+    ///     was. A failure that never reached the transport — offline, a bad code,
+    ///     or a local pre-send token/ticket failure — passes `false`, leaving the
+    ///     earlier gates untested instead of falsely cleared.
     static func resolving(
         _ category: MobilePairingFailureCategory,
         reachedMac: Bool

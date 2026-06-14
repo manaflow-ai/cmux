@@ -37,6 +37,11 @@ actor MobileCoreRPCSession {
     private var cancelledQueuedRequestIDs: Set<String> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
+    /// Whether at least one request has reached the transport-send stage (its auth
+    /// was built and `send` was entered). Stays false when a request fails locally
+    /// before any send, letting pairing tell a pre-send auth/token failure apart
+    /// from a host rejection that proves the network was reached.
+    private(set) var didAttemptSend = false
     /// Pending writes drained by `writerTask`. Serializes `transport.send` so
     /// two concurrent `send(payload:requestID:)` callers never trip
     /// `CmxNetworkByteTransport.sendAlreadyInProgress`. AsyncStream backed so
@@ -56,6 +61,11 @@ actor MobileCoreRPCSession {
     }
 
     func send(payload: Data, requestID: String) async throws -> Data {
+        // Reaching `send` means the caller already built the request's auth, so any
+        // failure from here on is a real transport/host interaction (not a local
+        // pre-send auth/token failure). Pairing reads this to decide whether the
+        // network gate was genuinely exercised (issue #6084).
+        didAttemptSend = true
         _ = try await ensureConnected()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 

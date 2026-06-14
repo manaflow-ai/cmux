@@ -463,6 +463,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reading it again would report the first successful pair as `is_first_pair:
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
+    /// Whether the in-flight attempt got a request onto the transport (proof it
+    /// reached the Mac), so the pairing checklist only marks the network gate
+    /// cleared for an auth/trust failure that the host actually returned — never
+    /// for a local pre-send token/ticket failure (issue #6084). Reset at each
+    /// attempt entry; set once `connect()` observes a client that attempted a send.
+    private var pairingAttemptReachedMac = false
     private var pendingPairingVersionWarningURL: String?
 
     /// The structured diagnostic log, injected from the app composition root.
@@ -2966,6 +2972,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
+                    // Record whether this attempt got a request onto the transport,
+                    // so the checklist can tell a host rejection (network reached)
+                    // from a local pre-send token/ticket failure (issue #6084).
+                    if await client.didAttemptHostSend() {
+                        pairingAttemptReachedMac = true
+                    }
                     guard isCurrentConnectionAttempt(generation) else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
@@ -3185,6 +3197,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
         let attemptID = UUID()
         pairingAttemptID = attemptID
+        // A fresh attempt has not reached the Mac yet; cleared here (the shared
+        // funnel for every pairing/validation attempt) so a prior attempt's
+        // "reached" state can't leak into this one's checklist.
+        pairingAttemptReachedMac = false
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
@@ -3285,7 +3301,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Resolve before `recordPairingFailed` clears the attempt instrumentation
         // (the checklist sink is gated on an in-flight attempt for the same reason
         // the analytics emit is).
-        resolvePairingChecklist(category, phase: phase)
+        resolvePairingChecklist(category)
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
@@ -3312,13 +3328,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Project a classified failure onto the per-gate checklist. Gated on an
     /// in-flight attempt (``pairingAttemptMethod``) so live-connection auth
     /// evictions and operational errors — which reuse the same classifier — never
-    /// repaint the pairing checklist. Only a connect/auth-phase failure reached the
-    /// Mac; a `validation` or `preflight` failure did not, so the earlier gates
-    /// stay untested rather than falsely cleared.
-    private func resolvePairingChecklist(_ category: MobilePairingFailureCategory, phase: String) {
+    /// repaint the pairing checklist. Uses ``pairingAttemptReachedMac`` (set only
+    /// once a request actually reached the transport) rather than the coarse phase
+    /// label, so a pre-send token/ticket failure never shows a cleared network gate
+    /// even though it surfaces in the connect/auth phase.
+    private func resolvePairingChecklist(_ category: MobilePairingFailureCategory) {
         guard pairingAttemptMethod != nil else { return }
-        let reachedMac = phase == "connect" || phase == "auth"
-        pairingChecklist = .resolving(category, reachedMac: reachedMac)
+        pairingChecklist = .resolving(category, reachedMac: pairingAttemptReachedMac)
     }
 
     /// Mark every gate cleared once an attempt connects.
@@ -3401,7 +3417,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // `connect()` already set the headline (e.g. `noSupportedRoute`); keep the
         // checklist in step with that message before the instrumentation clears.
-        resolvePairingChecklist(category ?? .unknown(host: nil, port: nil), phase: phase)
+        resolvePairingChecklist(category ?? .unknown(host: nil, port: nil))
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
@@ -5000,7 +5016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Same in-flight-attempt gate as the analytics emit below: paints the
         // failed gate (auth or trust) for a foreground pairing attempt, no-ops for
         // a live-connection auth eviction.
-        resolvePairingChecklist(category, phase: "auth")
+        resolvePairingChecklist(category)
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that

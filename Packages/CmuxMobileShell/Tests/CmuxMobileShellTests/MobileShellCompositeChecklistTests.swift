@@ -44,6 +44,27 @@ import Testing
         #expect(checklist.trust.isFailed)
     }
 
+    @Test func preSendTokenFailureLeavesNetworkGateUntested() async throws {
+        // The Stack token provider fails, so the request never reaches the
+        // transport. The auth gate fails, but the network gate must stay untested
+        // (not falsely cleared) since no packet left the device (issue #6084).
+        struct TokenError: Error {}
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            stackAccessTokenProvider: { throw TokenError() },
+            stackAccessTokenForceRefresher: { throw TokenError() },
+            now: { TestClock().now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
+        #expect(result == .failed)
+        let checklist = try #require(store.pairingChecklist)
+        #expect(checklist.network == .pending)
+        #expect(checklist.authentication.isFailed)
+        #expect(checklist.trust == .pending)
+    }
+
     @Test func successfulPairingClearsEveryGate() async throws {
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
