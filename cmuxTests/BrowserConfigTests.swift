@@ -15,10 +15,8 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares legacy duplicates of these CmuxSettings
-// value types; with CmuxSettings imported unconditionally the names are
-// ambiguous. These tests exercise the app-side BrowserThemeSettings /
-// BrowserSearchSettings paths, so pin the app types.
+// The app target still declares legacy duplicates of these CmuxSettings value
+// types; these tests exercise app-side browser settings paths, so pin them.
 private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 private typealias BrowserSearchEngine = cmux_DEV.BrowserSearchEngine
 private typealias BrowserEngine = cmux_DEV.BrowserEngine
@@ -5056,7 +5054,6 @@ final class BrowserSearchSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
     }
 }
-
 
 final class BrowserEngineSettingsTests: XCTestCase {
     private var suiteName: String!
