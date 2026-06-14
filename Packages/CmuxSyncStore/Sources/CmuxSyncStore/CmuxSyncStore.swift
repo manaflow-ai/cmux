@@ -207,12 +207,21 @@ public actor CmuxSyncStore: CmuxSyncStoring {
                 present.insert(record.id)
             }
             // Missing-record reconciliation, scoped to authoritative records
-            // (rev >= 1): drop any local record in [1, snapshotRev] not in the
-            // snapshot — it was deleted while we were disconnected. Provisional
+            // (rev >= 1): any local record in [1, snapshotRev] not in the
+            // snapshot was deleted while we were disconnected. Provisional
             // rev == 0 migration rows are EXEMPT and survive (DESIGN.md §3.2a/§6).
+            //
+            // We do NOT hard-delete: that would drop the per-record rev watermark
+            // and let a delayed/duplicate delta with rev <= snapshotRev (e.g. a
+            // queued delta from a reconnect/snapshot overlap) resurrect the row,
+            // since applyOneRecord's guard reads nil for a missing record. Instead
+            // we write a TOMBSTONE at rev = snapshotRev: it is excluded from the
+            // live read (deleted=1) and its rev watermark makes applyOneRecord
+            // ignore any later rev <= snapshotRev delta for that id, so a snapshot
+            // that proved a record gone can never be undone by a stale delta.
             let existing = try allRecordIDs(teamID: teamID, collection: collection, minRev: 1, maxRev: snapshotRev)
             for id in existing where !present.contains(id) {
-                try deleteRecord(teamID: teamID, collection: collection, recordID: id)
+                try tombstoneAt(teamID: teamID, collection: collection, recordID: id, rev: snapshotRev, now: now)
             }
             try setCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
         }
@@ -368,9 +377,25 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         return ids
     }
 
-    private func deleteRecord(teamID: String, collection: String, recordID: String) throws {
-        try exec("DELETE FROM sync_records WHERE team_id = ? AND collection = ? AND record_id = ?;",
-                 binding: [.text(teamID), .text(collection), .text(recordID)])
+    /// Write a tombstone for a record at a given rev (the snapshot-reconciliation
+    /// deletion watermark). Excluded from the live read; its rev guards against a
+    /// later stale delta resurrecting the record. Idempotent via the PK upsert.
+    private func tombstoneAt(teamID: String, collection: String, recordID: String, rev: Int, now: Date) throws {
+        try exec("""
+            INSERT INTO sync_records (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
+            VALUES (?, ?, ?, ?, ?, 0, 1, '{}')
+            ON CONFLICT(team_id, collection, record_id) DO UPDATE SET
+                rev = excluded.rev,
+                updated_at = excluded.updated_at,
+                deleted = 1,
+                payload = '{}';
+        """, binding: [
+            .text(teamID),
+            .text(collection),
+            .text(recordID),
+            .int(Int64(rev)),
+            .real(now.timeIntervalSince1970),
+        ])
     }
 
     private func setCursor(teamID: String, collection: String, to rev: Int, now: Date) throws {

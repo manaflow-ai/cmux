@@ -154,6 +154,32 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 3)
     }
 
+    @Test func staleDeltaCannotResurrectSnapshotDeletedRecord() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Client had B at rev 2.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 2, records: [
+            try deviceRecord(id: "dev-B", rev: 2),
+        ], sortKeyFor: sortKey, now: Date())
+        // A snapshot at rev 5 omits B (it was deleted while disconnected).
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 5, records: [
+            try deviceRecord(id: "dev-A", rev: 5),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["dev-A"])
+        // A delayed/duplicate delta for B with rev <= snapshotRev (e.g. a queued
+        // delta from a reconnect overlap) must NOT resurrect B: the snapshot left
+        // a tombstone at rev 5, so the rev guard ignores the stale rev-3 record.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 5, records: [
+            try deviceRecord(id: "dev-B", rev: 3, displayName: "Ghost"),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["dev-A"]) // no ghost
+        // A genuinely newer delta (rev > snapshotRev) CAN bring B back legitimately.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 6, records: [
+            try deviceRecord(id: "dev-B", rev: 6),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(Set(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID)) == ["dev-A", "dev-B"])
+    }
+
     @Test func snapshotKeepsProvisionalRev0Rows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
