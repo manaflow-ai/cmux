@@ -10,30 +10,42 @@ extension TerminalNotificationStore {
     func configureNotificationAuthorizationHandlerForTesting(
         _ handler: @escaping NativeNotificationDeliveryHooks.AuthorizationHandler
     ) {
-        nativeNotificationDeliveryHooks.authorizationHandlerForTesting = handler
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.authorizationHandlerForTesting = handler
+        }
     }
 
     func resetNotificationAuthorizationHandlerForTesting() {
-        nativeNotificationDeliveryHooks.authorizationHandlerForTesting = nil
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.authorizationHandlerForTesting = nil
+        }
     }
 
     func configureUserNotificationSchedulerForTesting(
         _ scheduler: @escaping NativeNotificationDeliveryHooks.Scheduler
     ) {
-        nativeNotificationDeliveryHooks.scheduler = scheduler
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.scheduler = scheduler
+        }
     }
 
     func resetUserNotificationSchedulerForTesting() {
-        nativeNotificationDeliveryHooks.scheduler = NativeNotificationDeliveryHooks().scheduler
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.scheduler = NativeNotificationDeliveryHooks().scheduler
+        }
     }
 
     func configureNotificationCommandRunnerForTesting(
         _ runner: @escaping NativeNotificationDeliveryHooks.CommandRunner
     ) {
-        nativeNotificationDeliveryHooks.commandRunner = runner
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.commandRunner = runner
+        }
     }
 
     func resetNotificationCommandRunnerForTesting() {
-        nativeNotificationDeliveryHooks.commandRunner = NativeNotificationDeliveryHooks().commandRunner
+        configureNativeNotificationDeliveryHooksForTesting {
+            $0.commandRunner = NativeNotificationDeliveryHooks().commandRunner
+        }
     }
 }

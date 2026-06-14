@@ -495,7 +495,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
-    var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
+    private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -2085,6 +2085,12 @@ final class TerminalNotificationStore: ObservableObject {
         notificationDeliveryHandler = { store, notification, effects in
             store.scheduleUserNotification(notification, effects: effects)
         }
+    }
+
+    func configureNativeNotificationDeliveryHooksForTesting(
+        _ update: (inout NativeNotificationDeliveryHooks) -> Void
+    ) {
+        update(&nativeNotificationDeliveryHooks)
     }
 
     func configureSuppressedNotificationFeedbackHandlerForTesting(
