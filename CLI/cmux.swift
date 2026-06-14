@@ -29581,12 +29581,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            let incomingTerminalPromptMatchesStoredPID = incomingCodexTurnIsTerminal &&
-                (pid == nil || mapped?.pid == nil || pid == mapped?.pid)
-            let shouldRecordPromptBaseline = !suppressVisibleMutations &&
-                (!incomingCodexTurnIsTerminal || incomingTerminalPromptMatchesStoredPID)
-            if shouldRecordPromptBaseline {
-                if !incomingCodexTurnIsTerminal, codexPromptTurnWentTerminal() {
+            if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
+                if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
                 }
