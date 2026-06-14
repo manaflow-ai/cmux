@@ -136,13 +136,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // note is opened to be written, and an empty render is useless. This
         // is the default for every entry point (Notes tree, pane drop,
         // restore); non-empty notes open in the rendered viewer like any md.
-        if Self.isWorkspaceNotesPath(filePath),
-           let size = (try? FileManager.default.attributesOfItem(atPath: filePath))?[.size] as? Int,
-           size == 0 {
+        // `loadFileContent()` reads the file just below, so `content.isEmpty`
+        // already captures the empty-file case without a redundant `stat`.
+        loadFileContent()
+        if Self.isWorkspaceNotesPath(filePath), content.isEmpty {
             self.displayMode = .text
         }
-
-        loadFileContent()
         startWatching()
         observeTypographyDefaults()
         observeNoteRelocations()

@@ -148,6 +148,8 @@ final class NotesTreeStore: ObservableObject {
         markerRefreshTask = nil
         emptyObservationRetryTask?.cancel()
         emptyObservationRetryTask = nil
+        visibilityRefreshTask?.cancel()
+        visibilityRefreshTask = nil
         lastMarkerRefresh = nil
         hasWorkspace = false
         projectRoot = nil
