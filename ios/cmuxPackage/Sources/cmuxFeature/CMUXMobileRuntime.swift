@@ -106,7 +106,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     }
 
     public init(
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,

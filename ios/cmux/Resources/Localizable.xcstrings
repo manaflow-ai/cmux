@@ -381,13 +381,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."
+            "value": "Enter a host or IP address reachable through Tailscale, your own VPN, or a trusted LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。"
+            "value": "Tailscale、自分の VPN、または信頼できる LAN 経由で接続できるホストまたは IP アドレスを入力してください。"
           }
         }
       }
@@ -415,13 +415,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
+            "value": "VPN hostname or IP address"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
+            "value": "VPN ホスト名または IP アドレス"
           }
         }
       }
@@ -466,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+            "value": "This will connect directly to that address and send your cmux account token. Use it only with a trusted VPN, LAN, or device you control."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのアドレスへ直接接続します。信頼できる LAN、VPN、または管理しているデバイスでのみ使用してください。"
+            "value": "そのアドレスへ直接接続し、cmux アカウントトークンを送信します。信頼できる VPN、LAN、または管理しているデバイスでのみ使用してください。"
           }
         }
       }
@@ -1367,13 +1367,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct."
+            "value": "Could not reach %@:%d. Check that the host is reachable over Tailscale, your VPN, or LAN and that the port is correct."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d に到達できませんでした。ホストが Tailscale または LAN 経由で到達可能で、ポートが正しいことを確認してください。"
+            "value": "%@:%d に到達できませんでした。ホストが Tailscale、自分の VPN、または LAN 経由で到達可能で、ポートが正しいことを確認してください。"
           }
         }
       }
@@ -1418,13 +1418,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Enter the Mac's VPN/LAN host and port, or scan a fresh QR after a network route appears."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
+            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac の VPN/LAN ホストとポートを入力するか、ネットワーク経路が表示されてから新しい QR をスキャンしてください。"
           }
         }
       }
@@ -2268,13 +2268,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac may be unreachable because Tailscale is off here. Turn it on, then try again."
+            "value": "If this Mac uses Tailscale, turn it on here. Otherwise pair by host and port over your VPN or LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスで Tailscale がオフのため、Mac に接続できない可能性があります。Tailscale をオンにしてから、もう一度お試しください。"
+            "value": "この Mac で Tailscale を使っている場合は、このデバイスでオンにしてください。それ以外の場合は、VPN または LAN 経由でホストとポートを指定してペアリングしてください。"
           }
         }
       }
@@ -2319,13 +2319,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port on a trusted local network."
+            "value": "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port over your own VPN or a trusted LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR ペアリングには通常、両方のデバイスが同じ Tailscale ネットワークに接続されている必要があります。まず Tailscale をオンにするか、信頼できるローカルネットワーク上でホストとポートを指定してペアリングしてください。"
+            "value": "QR ペアリングには通常、両方のデバイスが同じ Tailscale ネットワークに接続されている必要があります。まず Tailscale をオンにするか、自分の VPN または信頼できる LAN 経由でホストとポートを指定してペアリングしてください。"
           }
         }
       }
@@ -4393,13 +4393,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
+            "value": "No response from %@:%d. Make sure the Mac is awake, cmux is open, and the host and port are reachable over your chosen network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d から応答がありません。Mac がスリープしておらず、cmux が開いていて、選択したネットワーク経由でホストとポートに到達できることを確認してください。"
           }
         }
       }
@@ -4444,13 +4444,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+            "value": "Couldn't resolve %@. Check DNS and make sure this device is on your VPN, LAN, or Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を解決できませんでした。両方の端末でTailscaleが接続されていることを確認してください。"
+            "value": "%@ を解決できませんでした。DNS を確認し、このデバイスが VPN、LAN、または Tailscale ネットワークに接続されていることを確認してください。"
           }
         }
       }
@@ -4512,13 +4512,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+            "value": "Check that this phone can reach your Mac over Tailscale, your VPN, or LAN, that the Mac is awake, and that cmux is open on it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このスマートフォンとMacが同じWi-Fi上にあるか、両方でTailscaleが動作していること、Macがスリープしていないこと、Macでcmuxが開いていることを確認してください。"
+            "value": "このスマートフォンから Tailscale、自分の VPN、または LAN 経由で Mac に到達できること、Mac がスリープしていないこと、Mac で cmux が開いていることを確認してください。"
           }
         }
       }
@@ -4563,13 +4563,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device."
+            "value": "Can't reach %@:%d. Make sure your Mac is awake and reachable from this device over Tailscale, your VPN, or LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d に接続できません。Macがスリープしておらず、この端末と同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d に接続できません。Mac がスリープしておらず、このデバイスから Tailscale、自分の VPN、または LAN 経由で到達できることを確認してください。"
           }
         }
       }
@@ -4699,13 +4699,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+            "value": "Your phone has to reach your Mac over the network. Tailscale is the easiest private path and enables QR pairing. If you already use another VPN or a trusted LAN, type the Mac's host or IP address and port by hand."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneはネットワーク経由でMacに届く必要があります。最もシンプルでプライベートな方法はTailscaleです。両方の端末を同じtailnetに参加させると、クラウド中継なしで直接つながります。同じWi-Fiなら、Macのローカルアドレスを手入力して接続することもできますが、その接続は暗号化されないため、Tailscaleをおすすめします。"
+            "value": "iPhone はネットワーク経由で Mac に届く必要があります。Tailscale は最も簡単なプライベート経路で、QR ペアリングを有効にします。別の VPN または信頼できる LAN をすでに使っている場合は、Mac のホスト名または IP アドレスとポートを手入力してください。"
           }
         }
       }
@@ -4784,13 +4784,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Put both devices on Tailscale"
+            "value": "Use a private network"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方の端末をTailscaleに入れる"
+            "value": "プライベートネットワークを使う"
           }
         }
       }
@@ -4801,13 +4801,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+            "value": "Tailscale is a free option, but cmux also works over your own VPN or trusted LAN when you enter the Mac's host and port manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleは、端末同士をプライベートなネットワークでつなぐ無料アプリです。iPhoneとMacの両方で一度だけ設定してください。"
+            "value": "Tailscale は無料の選択肢ですが、Mac のホストとポートを手入力すれば、自分の VPN または信頼できる LAN 経由でも cmux を使えます。"
           }
         }
       }
@@ -4818,13 +4818,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on this phone and on your Mac."
+            "value": "Put this phone and your Mac on Tailscale, your VPN, or the same trusted LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末とMacの両方にTailscaleをインストールします。"
+            "value": "この端末と Mac を Tailscale、自分の VPN、または同じ信頼できる LAN に接続します。"
           }
         }
       }
@@ -4835,13 +4835,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign both in to the same Tailscale account so they share one tailnet."
+            "value": "Confirm the phone can reach the Mac's hostname or IP address."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方を同じTailscaleアカウントでサインインし、同じtailnetを共有させます。"
+            "value": "iPhone から Mac のホスト名または IP アドレスに到達できることを確認します。"
           }
         }
       }
@@ -5056,13 +5056,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+            "value": "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm this device can reach it over Tailscale, your VPN, or LAN. Then reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacは以前ペアリング済みですが、今は届きません。Macを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
+            "value": "この Mac は以前ペアリング済みですが、今は届きません。Mac を起こし、cmux が起動していることを確認し、このデバイスから Tailscale、自分の VPN、または LAN 経由で到達できることを確認してから再接続してください。"
           }
         }
       }
@@ -5175,13 +5175,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add device. That link is unencrypted, so only use it on a network you trust."
+            "value": "No Tailscale? Use your own VPN or a trusted LAN by typing the Mac's host or IP address and port by hand in Add device."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「デバイスを追加」でMacのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
+            "value": "Tailscale がない場合は、自分の VPN または信頼できる LAN を使い、「デバイスを追加」で Mac のホスト名または IP アドレスとポートを手入力してください。"
           }
         }
       }
@@ -5192,13 +5192,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Mac and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+            "value": "The Mac and this phone must be signed in to the same cmux account and reachable over Tailscale, your VPN, or a trusted LAN."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
+            "value": "Mac とこの端末は、同じ cmux アカウントでサインインし、Tailscale、自分の VPN、または信頼できる LAN 経由で到達可能である必要があります。"
           }
         }
       }

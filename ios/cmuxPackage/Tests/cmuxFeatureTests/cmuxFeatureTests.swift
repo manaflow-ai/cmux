@@ -650,13 +650,18 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsPrivateLANIPWithoutSendingStackToken() async throws {
-    // Plain private-LAN routes are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesTrustedNetworkRouteForPrivateVPNIP() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .trustedNetwork,
+        host: "192.168.1.77",
+        port: 15432
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "vpn-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "vpn-workspace", title: "VPN Workspace"),
+    ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.trustedNetwork],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-lan"
     )
@@ -665,22 +670,34 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(route.kind == .trustedNetwork)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "192.168.1.77")
+        #expect(port == 15432)
+    } else {
+        Issue.record("manual trusted-network route should use host/port")
+    }
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLocalDNSNameWithoutSendingStackToken() async throws {
-    // `.local`/Bonjour hosts are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesTrustedNetworkRouteForLocalDNSName() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .trustedNetwork,
+        host: "devbox.local",
+        port: 61234
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-dns-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
+    ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.trustedNetwork],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-local-dns"
     )
@@ -689,12 +706,20 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectedHostName == "devbox.local")
+    #expect(route.kind == .trustedNetwork)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "devbox.local")
+        #expect(port == 61234)
+    } else {
+        Issue.record("manual trusted-network route should use host/port")
+    }
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-local-dns" })
 }
 
 @MainActor
@@ -746,10 +771,10 @@ final class TerminalOutputCollector {
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    // A handshake timeout to a Tailscale host now points the user at the real
-    // cause (Mac asleep / off Tailscale) instead of wrongly blaming the host
-    // app, and carries an actionable guidance line.
-    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.")
+    // A handshake timeout to a manual host now points the user at the real
+    // cause (Mac asleep or unreachable on the chosen network) instead of wrongly
+    // blaming the host app, and carries an actionable guidance line.
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the Mac is awake, cmux is open, and the host and port are reachable over your chosen network.")
     #expect(store.connectionErrorGuidance != nil)
 }
 
@@ -1874,13 +1899,18 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsDefaultPortLANHostWithoutSendingStackToken() async throws {
-    // Same encrypted-routes-only contract as the explicit-port LAN test, on
-    // the default host port: no RPC (and no Stack bearer token) may leave the
-    // device for a plain-TCP private-LAN route.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesTrustedNetworkRouteForDefaultPortLANHost() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .trustedNetwork,
+        host: "192.168.1.77",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "default-lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "default-lan-workspace", title: "Default LAN Workspace"),
+    ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.trustedNetwork],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-default-lan"
     )
@@ -1889,12 +1919,13 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(route.kind == .trustedNetwork)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-default-lan" })
 }
 
 @MainActor
@@ -2620,7 +2651,7 @@ private final class RecordingAnalytics: AnalyticsEmitting, @unchecked Sendable {
 }
 
 private func testRuntime(
-    supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
+    supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork, .debugLoopback, .websocket],
     transportFactory: any CmxByteTransportFactory,
     stackAccessToken: String? = "test-stack-token",
     rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,

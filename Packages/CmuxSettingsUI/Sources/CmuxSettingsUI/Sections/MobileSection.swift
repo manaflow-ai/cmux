@@ -290,7 +290,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+                    defaultValue: "No automatic addresses yet. You can still pair manually with this Mac's VPN/LAN host and the listener port."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {

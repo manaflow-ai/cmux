@@ -6,9 +6,10 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints an attach ticket, and exposes the QR payload plus
-/// Tailscale reachability for the view. The displayed code never expires and
-/// is never regenerated on a timer; Refresh Code re-mints on demand.
+/// pairing host, mints an attach ticket when an automatic route exists, and
+/// exposes either a QR payload or manual host/port guidance. The displayed code
+/// never expires and is never regenerated on a timer; Refresh Code re-mints on
+/// demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -29,9 +30,11 @@ final class MobilePairingModel {
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
         case connected(Ready)
-        /// The listener is up but there is no route a phone can reach (no
-        /// Tailscale address on this Mac), so no ticket can be minted yet.
-        case needsTailscale
+        /// The listener is up but there is no automatic route for a QR code, so
+        /// the user can enter their own VPN/LAN host with the displayed port.
+        case manualOnly(ManualOnly)
+        /// A phone has attached through the manual host/port path.
+        case connectedManual(ManualOnly)
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -51,6 +54,14 @@ final class MobilePairingModel {
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
+    }
+
+    /// Manual pairing details when the user brings their own VPN/LAN route.
+    struct ManualOnly: Equatable {
+        /// The Mac's display name, shown in the manual instructions.
+        let macName: String
+        /// The listener port the iPhone should use with the user's chosen host/IP.
+        let port: Int
     }
 
     /// The current render state, observed by ``MobilePairingView``.
@@ -124,13 +135,23 @@ final class MobilePairingModel {
             )
             return
         }
-        // No route a phone can reach: a real iPhone needs a Tailscale address
-        // on this Mac. A DEBUG build's dev loopback route does not count — a
-        // QR pointing at 127.0.0.1 would make the phone dial itself, so the
-        // window shows the set-up-Tailscale guidance instead of a weak code.
-        // (Simulator/dev pairing uses the injected attach URL path, not the QR.)
+        let manualOnly = Self.manualOnlyDetails(from: status)
+        // A DEBUG build's dev loopback route does not count as QR reachability:
+        // a QR pointing at 127.0.0.1 would make a physical phone dial itself.
+        // Without an automatic route, keep the listener up and show manual
+        // VPN/LAN host guidance instead of blocking on Tailscale.
         guard status.routes.contains(where: Self.isPhoneReachableRoute) else {
-            state = .needsTailscale
+            if let manualOnly {
+                state = .manualOnly(manualOnly)
+                observeConnections()
+            } else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.listenerOffline",
+                        defaultValue: "Could not start the pairing listener on this Mac."
+                    )
+                )
+            }
             return
         }
         do {
@@ -149,12 +170,22 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale routes only, no loopback,
+            // Only the minimal v2 grammar (automatic routes only, no loopback,
             // no token) may ever be displayed as a scannable code. If the mint
-            // raced a Tailscale route loss and fell back to the v1 payload,
-            // show the Tailscale guidance rather than a weak QR.
+            // raced an automatic route loss and fell back to the v1 payload,
+            // show manual host/port guidance rather than a weak QR.
             guard CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
-                state = .needsTailscale
+                if let manualOnly {
+                    state = .manualOnly(manualOnly)
+                    observeConnections()
+                } else {
+                    state = .failed(
+                        String(
+                            localized: "mobile.pairing.error.noTicket",
+                            defaultValue: "Could not generate a pairing code. Try again."
+                        )
+                    )
+                }
                 return
             }
             state = .ready(
@@ -167,7 +198,17 @@ final class MobilePairingModel {
             )
             observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
-            state = .needsTailscale
+            if let manualOnly {
+                state = .manualOnly(manualOnly)
+                observeConnections()
+            } else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.noTicket",
+                        defaultValue: "Could not generate a pairing code. Try again."
+                    )
+                )
+            }
         } catch {
             state = .failed(
                 String(
@@ -243,6 +284,10 @@ final class MobilePairingModel {
             return .connected(ready)
         case let .connected(ready) where !connected:
             return .ready(ready)
+        case let .manualOnly(manual) where connected:
+            return .connectedManual(manual)
+        case let .connectedManual(manual) where !connected:
+            return .manualOnly(manual)
         default:
             return current
         }
@@ -256,10 +301,15 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    /// Whether `route` is one a physical iPhone can actually dial: a
-    /// Tailscale route that does not point back at this Mac. The dev loopback
-    /// route a DEBUG build always carries must not count as reachability, or
-    /// the pairing window would happily display a QR no phone can use.
+    private static func manualOnlyDetails(from status: MobileHostServiceStatus) -> ManualOnly? {
+        guard let port = status.port else { return nil }
+        return ManualOnly(macName: macDisplayName, port: port)
+    }
+
+    /// Whether `route` is one a physical iPhone can dial automatically from a QR:
+    /// a Tailscale route that does not point back at this Mac. The dev loopback
+    /// route a DEBUG build always carries must not count as reachability, or the
+    /// pairing window would happily display a QR no phone can use.
     private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }

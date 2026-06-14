@@ -325,6 +325,13 @@ import Testing
         #expect(probe?.attachToken == nil)
     }
 
+    @Test func hostStatusProbeCarriesStackTokenOnUserTrustedNetworkRoute() async throws {
+        let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
+        let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
+        #expect(probe?.stackAccessToken == "test-stack-token")
+        #expect(probe?.attachToken == nil)
+    }
+
     @Test func hostStatusProbeStaysTokenlessWhenTokenUnavailable() async throws {
         // Signed-out probe: a failing token provider must not fail the
         // request. The probe still goes out (reachability needs no auth) and
@@ -334,10 +341,10 @@ import Testing
         #expect(probe?.hasAuth == false)
     }
 
-    @Test func hostStatusProbeNeverSendsStackTokenOnUntrustedRoute() async throws {
-        // A manually-entered plain-LAN host is dialed over unencrypted TCP;
-        // the account bearer token must never ride it, even opportunistically.
-        // The probe itself still goes out tokenless instead of throwing.
+    @Test func hostStatusProbeNeverSendsStackTokenOnMislabeledTailscaleRoute() async throws {
+        // A private-LAN host must not carry auth just because a payload labels it
+        // `.tailscale`; arbitrary VPN/LAN addresses are only trusted through the
+        // explicit manual `.trustedNetwork` path.
         let route = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: 58465)
         let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
         #expect(probe?.hasAuth == false)
