@@ -3,12 +3,17 @@ import SwiftSyntax
 
 /// Evaluates a (operator-folded) Swift expression to a ``SwiftValue``.
 ///
-/// Supports literals, identifier lookup against an ``Environment``, string
+/// Supports literals, identifier lookup against an ``EvalEnvironment``, string
 /// interpolation, unary minus/not, and binary arithmetic, comparison,
 /// logical, and range operators. Expressions it does not understand return
 /// `nil` so the caller can skip them.
-struct ExpressionEvaluator {
-    func eval(_ expr: ExprSyntax, _ env: Environment) -> SwiftValue? {
+public struct ExpressionEvaluator: Sendable {
+    public init() {}
+
+    public func eval(_ expr: ExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return nil }
         if let literal = expr.as(IntegerLiteralExprSyntax.self) {
             return Int(literal.literal.text.replacingOccurrences(of: "_", with: "")).map(SwiftValue.int)
         }
@@ -48,6 +53,17 @@ struct ExpressionEvaluator {
             let values = array.elements.compactMap { eval($0.expression, env) }
             return .array(values)
         }
+        if let dictionary = expr.as(DictionaryExprSyntax.self) {
+            // `[:]` or `["k": v, …]` with string-displayable keys -> `.object`.
+            guard case let .elements(elements) = dictionary.content else { return .object([:]) }
+            var fields: [String: SwiftValue] = [:]
+            for element in elements {
+                guard let key = eval(element.key, env)?.displayString,
+                      let value = eval(element.value, env) else { continue }
+                fields[key] = value
+            }
+            return .object(fields)
+        }
         if let ternary = expr.as(TernaryExprSyntax.self) {
             let taken = eval(ternary.condition, env)?.isTruthy ?? false
             return eval(taken ? ternary.thenExpression : ternary.elseExpression, env)
@@ -56,6 +72,47 @@ struct ExpressionEvaluator {
            let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
            ref.baseName.text == "Color" {
             return colorValue(call, env)
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           ["Array", "Int", "Double", "String"].contains(ref.baseName.text),
+           env.lookupFunction(ref.baseName.text) == nil,
+           let firstArg = call.arguments.first(where: { $0.label == nil })?.expression {
+            let inner = eval(firstArg, env)
+            switch ref.baseName.text {
+            case "Array": return inner // `Array(seq)` / `Array(x.enumerated())`: identity.
+            case "Int":
+                switch inner {
+                case let .int(i): return .int(i)
+                // Int(_: Double) traps on NaN/infinity/overflow; authored
+                // source can produce all three (e.g. `Int(1.0 / 0.0)`).
+                case let .double(d): return Int(exactly: d.rounded(.towardZero)).map { .int($0) }
+                case let .string(s): return Int(s).map { .int($0) }
+                default: return nil
+                }
+            case "Double":
+                switch inner {
+                case let .double(d): return .double(d)
+                case let .int(i): return .double(Double(i))
+                case let .string(s): return Double(s).map { .double($0) }
+                default: return nil
+                }
+            case "String":
+                return inner.map { .string($0.displayString) }
+            default: return nil
+            }
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           ["min", "max", "abs"].contains(ref.baseName.text),
+           env.lookupFunction(ref.baseName.text) == nil {
+            let nums = call.arguments.compactMap { numericValue(eval($0.expression, env)) }
+            switch ref.baseName.text {
+            case "min" where nums.count >= 2: return numberResult(nums.min()!, intIf: allInt(call, env))
+            case "max" where nums.count >= 2: return numberResult(nums.max()!, intIf: allInt(call, env))
+            case "abs" where nums.count == 1: return numberResult(Swift.abs(nums[0]), intIf: allInt(call, env))
+            default: return nil
+            }
         }
         if let call = expr.as(FunctionCallExprSyntax.self),
            let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
@@ -79,7 +136,7 @@ struct ExpressionEvaluator {
 
     /// Evaluates a string literal, concatenating plain segments and
     /// interpolations evaluated against `env`.
-    func evalString(_ literal: StringLiteralExprSyntax, _ env: Environment) -> String {
+    public func evalString(_ literal: StringLiteralExprSyntax, _ env: EvalEnvironment) -> String {
         var result = ""
         for segment in literal.segments {
             if let text = segment.as(StringSegmentSyntax.self) {
@@ -103,7 +160,7 @@ struct ExpressionEvaluator {
         }
     }
 
-    private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: Environment) -> SwiftValue? {
+    private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self)?.operator.text else { return nil }
         guard let lhs = eval(node.leftOperand, env) else { return nil }
 
@@ -182,7 +239,7 @@ struct ExpressionEvaluator {
     /// Evaluates a method call on a value: array higher-order methods and
     /// common string methods. Closures are single-expression and bound to
     /// `$0` (and any named parameter).
-    private func evalMethod(_ base: SwiftValue, _ name: String, _ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
+    private func evalMethod(_ base: SwiftValue, _ name: String, _ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         let closure = call.trailingClosure
             ?? call.arguments.first(where: { ["where", "by"].contains($0.label?.text) })?.expression.as(ClosureExprSyntax.self)
         let firstArg = call.arguments.first(where: { $0.label == nil })?.expression
@@ -231,9 +288,32 @@ struct ExpressionEvaluator {
                 return .int(values.filter { evalClosure(closure, $0, env)?.isTruthy ?? false }.count)
             case "reversed":
                 return .array(values.reversed())
+            case "indices":
+                return .array(values.indices.map { .int($0) })
+            case "enumerated":
+                // Each element is an index/value pair, addressable as
+                // `.offset`/`.element` or destructured by a 2-arg closure
+                // (`$0`/`$1`, stored under "0"/"1").
+                return .array(values.enumerated().map { pair in
+                    .object([
+                        "offset": .int(pair.offset),
+                        "element": pair.element,
+                        "0": .int(pair.offset),
+                        "1": pair.element,
+                    ])
+                })
             case "prefix":
                 guard let firstArg, case let .int(n)? = eval(firstArg, env) else { return nil }
                 return .array(Array(values.prefix(max(0, n))))
+            case "dropFirst":
+                let n = firstArg.flatMap { if case let .int(k)? = eval($0, env) { return k } else { return nil } } ?? 1
+                return .array(Array(values.dropFirst(max(0, n))))
+            case "dropLast":
+                let n = firstArg.flatMap { if case let .int(k)? = eval($0, env) { return k } else { return nil } } ?? 1
+                return .array(Array(values.dropLast(max(0, n))))
+            case "suffix":
+                guard let firstArg, case let .int(n)? = eval(firstArg, env) else { return nil }
+                return .array(Array(values.suffix(max(0, n))))
             case "sorted":
                 guard let closure else { return .array(sortedScalars(values)) }
                 // Honor a 2-arg comparator like `sorted { $0.rank < $1.rank }`.
@@ -252,6 +332,12 @@ struct ExpressionEvaluator {
                 return .array(result)
             case "isEmpty":
                 return .bool(values.isEmpty)
+            case "joined":
+                let separator: String = {
+                    if let firstArg, case let .string(v)? = eval(firstArg, env) { return v }
+                    return ""
+                }()
+                return .string(values.map { $0.displayString }.joined(separator: separator))
             default:
                 return nil
             }
@@ -267,10 +353,26 @@ struct ExpressionEvaluator {
             case "contains": return argString().map { .bool(s.contains($0)) }
             case "uppercased": return .string(s.uppercased())
             case "lowercased": return .string(s.lowercased())
+            case "capitalized": return .string(s.capitalized)
             case "isEmpty": return .bool(s.isEmpty)
+            case "replacingOccurrences":
+                func labeled(_ label: String) -> String? {
+                    guard let e = call.arguments.first(where: { $0.label?.text == label })?.expression else { return nil }
+                    if case let .string(v)? = eval(e, env) { return v }
+                    return nil
+                }
+                guard let target = labeled("of"), let replacement = labeled("with") else { return nil }
+                return .string(s.replacingOccurrences(of: target, with: replacement))
             case "split":
                 guard let sep = argString(), let first = sep.first else { return nil }
                 return .array(s.split(separator: first).map { .string(String($0)) })
+            case "trimmingCharacters":
+                // `.trimmingCharacters(in: .whitespaces / .whitespacesAndNewlines / .newlines)`
+                let token = call.arguments.first(where: { $0.label?.text == "in" })?.expression.trimmedDescription ?? ""
+                let set: CharacterSet = token.contains("newlines") && !token.contains("whitespacesAndNewlines")
+                    ? .newlines
+                    : (token.contains("whitespaces") ? (token.contains("AndNewlines") ? .whitespacesAndNewlines : .whitespaces) : .whitespacesAndNewlines)
+                return .string(s.trimmingCharacters(in: set))
             default:
                 return nil
             }
@@ -279,76 +381,27 @@ struct ExpressionEvaluator {
         }
     }
 
-    // MARK: - User functions (value-returning)
-
-    /// Binds a call's arguments (by position) to a function's parameters in a
-    /// fresh child scope, evaluating each argument in the caller's scope.
-    func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> Environment {
-        let scope = env.makeChild()
-        let params = Array(decl.signature.parameterClause.parameters)
-        let args = Array(call.arguments)
-        for (index, param) in params.enumerated() where index < args.count {
-            let name = (param.secondName ?? param.firstName).text
-            if let value = eval(args[index].expression, env) { scope.define(name, value) }
+    /// The numeric reading of a value (int or double), else nil.
+    private func numericValue(_ value: SwiftValue?) -> Double? {
+        switch value {
+        case let .int(i): return Double(i)
+        case let .double(d): return d
+        default: return nil
         }
-        return scope
     }
 
-    /// Calls a value-returning user function: binds params, then evaluates its
-    /// body (handling `let`, `if/else` with `return`, `return`, and a trailing
-    /// expression as the implicit return).
-    private func callValueFunction(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
-        guard let body = decl.body else { return nil }
-        return evalBlockValue(body.statements, bindParameters(decl, call, env))
+    /// Whether every argument of `call` evaluates to an integer (so a numeric
+    /// builtin like `min` returns `.int`, not `.double`).
+    private func allInt(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> Bool {
+        call.arguments.allSatisfy {
+            if case .int? = eval($0.expression, env) { return true }
+            return false
+        }
     }
 
-    private func evalBlockValue(_ items: CodeBlockItemListSyntax, _ scope: Environment) -> SwiftValue? {
-        var last: SwiftValue?
-        for item in items {
-            let node = item.item
-            if let decl = node.as(VariableDeclSyntax.self) {
-                for binding in decl.bindings {
-                    if let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
-                       let value = binding.initializer.flatMap({ eval($0.value, scope) }) {
-                        scope.define(name, value)
-                    }
-                }
-                continue
-            }
-            if let ret = node.as(ReturnStmtSyntax.self) {
-                return ret.expression.flatMap { eval($0, scope) }
-            }
-            if let ifExpr = node.as(ExpressionStmtSyntax.self)?.expression.as(IfExprSyntax.self) ?? node.as(IfExprSyntax.self) {
-                if let value = evalIfValue(ifExpr, scope) { return value }
-                continue
-            }
-            if let expr = node.as(ExprSyntax.self) {
-                if let ifExpr = expr.as(IfExprSyntax.self) {
-                    if let value = evalIfValue(ifExpr, scope) { return value }
-                    continue
-                }
-                last = eval(expr, scope)
-            }
-        }
-        return last
-    }
-
-    private func evalIfValue(_ ifExpr: IfExprSyntax, _ scope: Environment) -> SwiftValue? {
-        let taken = ifExpr.conditions.allSatisfy { element in
-            guard let expr = element.condition.as(ExprSyntax.self) else { return false }
-            return eval(expr, scope)?.isTruthy ?? false
-        }
-        if taken {
-            return evalBlockValue(ifExpr.body.statements, scope.makeChild())
-        }
-        guard let elseBody = ifExpr.elseBody else { return nil }
-        if let block = elseBody.as(CodeBlockSyntax.self) {
-            return evalBlockValue(block.statements, scope.makeChild())
-        }
-        if let elseIf = elseBody.as(IfExprSyntax.self) {
-            return evalIfValue(elseIf, scope)
-        }
-        return nil
+    /// Wraps a numeric result as `.int` when `intIf` is true, else `.double`.
+    private func numberResult(_ value: Double, intIf: Bool) -> SwiftValue {
+        intIf ? .int(Int(value)) : .double(value)
     }
 
     /// Returns the contents of the first double-quoted literal in `source`,
@@ -382,7 +435,7 @@ struct ExpressionEvaluator {
 
     /// Resolves `Color(...)` to a hex/token string usable by color modifiers:
     /// `Color("#hex")`, `Color(red:green:blue:)`, else nil.
-    private func colorValue(_ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
+    private func colorValue(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         if let first = call.arguments.first(where: { $0.label == nil })?.expression,
            case let .string(token)? = eval(first, env) {
             return .string(token)
@@ -390,7 +443,10 @@ struct ExpressionEvaluator {
         func channel(_ label: String) -> Int? {
             guard let e = call.arguments.first(where: { $0.label?.text == label })?.expression else { return nil }
             switch eval(e, env) {
-            case let .double(d): return max(0, min(255, Int((d * 255).rounded())))
+            case let .double(d):
+                // Clamp to [0,1] BEFORE converting — `Int(Double.infinity)` traps.
+                guard d.isFinite else { return 0 }
+                return max(0, min(255, Int((max(0, min(1, d)) * 255).rounded())))
             case let .int(i): return max(0, min(255, i))
             default: return nil
             }
@@ -403,7 +459,7 @@ struct ExpressionEvaluator {
 
     /// Evaluates a two-parameter closure body with `a` bound to `$0` (and the
     /// first named param) and `b` bound to `$1` (and the second), for `reduce`.
-    private func evalClosure2(_ closure: ClosureExprSyntax, _ a: SwiftValue, _ b: SwiftValue, _ env: Environment) -> SwiftValue? {
+    private func evalClosure2(_ closure: ClosureExprSyntax, _ a: SwiftValue, _ b: SwiftValue, _ env: EvalEnvironment) -> SwiftValue? {
         let scope = env.makeChild()
         scope.define("$0", a)
         scope.define("$1", b)
@@ -412,22 +468,19 @@ struct ExpressionEvaluator {
             if names.count > 0 { scope.define(names[0].name.text, a) }
             if names.count > 1 { scope.define(names[1].name.text, b) }
         }
-        for item in closure.statements {
-            if let expr = item.item.as(ExprSyntax.self) { return eval(expr, scope) }
-        }
-        return nil
+        // Multi-statement bodies (local `let`, `if`/`switch`, trailing expr) are
+        // evaluated like a value-func block, so `{ a, b in let s = a + b; s }`
+        // works, not just single-expression closures.
+        return evalBlockValue(closure.statements, scope)
     }
 
-    /// Evaluates a single-expression closure body with `element` bound to the
-    /// closure parameter (and `$0`).
-    private func evalClosure(_ closure: ClosureExprSyntax, _ element: SwiftValue, _ env: Environment) -> SwiftValue? {
+    /// Evaluates a closure body with `element` bound to the closure parameter
+    /// (and `$0`), honoring local `let` bindings and a trailing expression.
+    private func evalClosure(_ closure: ClosureExprSyntax, _ element: SwiftValue, _ env: EvalEnvironment) -> SwiftValue? {
         let scope = env.makeChild()
         scope.define("$0", element)
         if let name = closureParameterName(closure) { scope.define(name, element) }
-        for item in closure.statements {
-            if let expr = item.item.as(ExprSyntax.self) { return eval(expr, scope) }
-        }
-        return nil
+        return evalBlockValue(closure.statements, scope)
     }
 
     private func closureParameterName(_ closure: ClosureExprSyntax) -> String? {

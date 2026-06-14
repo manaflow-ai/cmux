@@ -32,6 +32,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     private let placeholder: String
     private let chordsEnabled: Bool
     private let hasPendingRejection: Bool
+    private let firstStrokeRequiresModifier: Bool
 
     /// Creates a single-stroke recorder.
     ///
@@ -41,14 +42,20 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     /// action is unbound and the recorder is not focused, the box shows
     /// this label rather than a recording prompt — mirroring legacy
     /// `ShortcutRecorderNSButton` resting state.
+    ///
+    /// Set `firstStrokeRequiresModifier` to `false` only for content-scoped
+    /// shortcuts that intentionally allow vim-style bare keys, such as
+    /// diff-viewer navigation.
     public init(
         placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         hasPendingRejection: Bool = false,
+        firstStrokeRequiresModifier: Bool = true,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
     ) {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
+        self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         self.onStroke = onStroke
         self.onChord = nil
         self.onBareKeyRejected = onBareKeyRejected
@@ -60,16 +67,23 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     /// recorder waits for a second keystroke and yields it via
     /// ``onChord``. Plain single-key recordings still fire
     /// ``onStroke``.
+    ///
+    /// Set `firstStrokeRequiresModifier` to `false` only for content-scoped
+    /// shortcuts that intentionally allow vim-style bare keys, such as
+    /// diff-viewer navigation. The chord-pending second stroke can always be
+    /// bare, matching the legacy app-target recorder.
     public init(
         placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         chordsEnabled: Bool,
         hasPendingRejection: Bool = false,
+        firstStrokeRequiresModifier: Bool = true,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onChord: @escaping (StoredShortcut) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
     ) {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
+        self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         self.onStroke = onStroke
         self.onChord = onChord
         self.onBareKeyRejected = onBareKeyRejected
@@ -80,6 +94,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         let button = RecorderHostButton()
         button.placeholder = placeholder
         button.chordsEnabled = chordsEnabled
+        button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         button.onStroke = onStroke
         button.onChord = onChord
         button.onBareKeyRejected = onBareKeyRejected
@@ -90,6 +105,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     public func updateNSView(_ nsView: RecorderHostButton, context: Context) {
         nsView.placeholder = placeholder
         nsView.chordsEnabled = chordsEnabled
+        nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         nsView.onStroke = onStroke
         nsView.onChord = onChord
         nsView.onBareKeyRejected = onBareKeyRejected
@@ -118,8 +134,45 @@ public final class RecorderHostButton: NSButton {
     /// installing event monitors and racing for keystrokes.
     private static weak var activeRecorder: RecorderHostButton?
 
+    /// Whether a recorder is currently armed and capturing keystrokes for
+    /// rebinding.
+    ///
+    /// The app's global keyboard-shortcut monitor reads this to stand down
+    /// while a recorder is active, so app- and menu-level key equivalents
+    /// (⌘W, ⌃1…9, …) reach the armed recorder to be recorded instead of
+    /// firing their action. This mirrors the role the app-target
+    /// `KeyboardShortcutRecorderActivity.isAnyRecorderActive` flag plays for
+    /// the legacy `ShortcutRecorderNSButton`; the package recorder cannot
+    /// import that app-target type, so it publishes its own read-only signal
+    /// for the composition root to consult.
+    public static var isActivelyRecording: Bool {
+        activeRecorder?.isRecording ?? false
+    }
+
+    /// Posted (on the main thread) whenever ``isActivelyRecording`` changes —
+    /// i.e. a package recorder arms or disarms.
+    ///
+    /// The app-target's system-wide hotkey registrar (`GlobalHotkeyManager`)
+    /// is event-driven: it re-evaluates Carbon hotkey registration only when
+    /// it is told recorder activity changed. The legacy recorder drives that
+    /// via `KeyboardShortcutRecorderActivity.didChangeNotification`; the
+    /// package recorder cannot reach that app-target type, so it publishes
+    /// this notification. The composition root observes it and unregisters
+    /// system-wide hotkeys while ``isActivelyRecording`` is `true`, so a global
+    /// hotkey being rebound in Settings is captured instead of firing.
+    // `nonisolated` so the nonisolated `deinit` teardown path can post it.
+    public nonisolated static let activeRecordingDidChangeNotification = Notification.Name(
+        "com.cmux.settingsUI.recorderActiveRecordingDidChange"
+    )
+
     public var placeholder: String = ""
     public var chordsEnabled: Bool = false
+    /// Whether the first recorded stroke must include Command, Option, Control, or Shift.
+    ///
+    /// The default is `true` so package-hosted settings rows cannot accidentally
+    /// bind a plain typing key as an app-level shortcut. Content-scoped actions
+    /// that intentionally use bare keys may set this to `false`.
+    public var firstStrokeRequiresModifier: Bool = true
     public var onStroke: ((ShortcutStroke) -> Void)?
     public var onChord: ((StoredShortcut) -> Void)?
     public var onBareKeyRejected: (() -> Void)?
@@ -145,6 +198,14 @@ public final class RecorderHostButton: NSButton {
     deinit {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+        // If AppKit tears us down while still armed (without a resignFirstResponder
+        // that would call stopRecording), the start-notification's effect — Carbon
+        // global hotkeys unregistered — would otherwise persist. The `activeRecorder`
+        // weak ref nils as we deinit, so `isActivelyRecording` already reads false;
+        // post the change so SystemWideHotkeyController re-registers (issue #5189).
+        if isRecording {
+            NotificationCenter.default.post(name: Self.activeRecordingDidChangeNotification, object: nil)
         }
     }
 
@@ -214,6 +275,7 @@ public final class RecorderHostButton: NSButton {
         hasPendingRejection = false
         installEventMonitor()
         refreshTitle()
+        Self.postActiveRecordingDidChange()
     }
 
     private func stopRecording() {
@@ -225,6 +287,11 @@ public final class RecorderHostButton: NSButton {
         pendingFirst = nil
         removeEventMonitor()
         refreshTitle()
+        Self.postActiveRecordingDidChange()
+    }
+
+    private static func postActiveRecordingDidChange() {
+        NotificationCenter.default.post(name: activeRecordingDidChangeNotification, object: nil)
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -293,7 +360,7 @@ public final class RecorderHostButton: NSButton {
         // first stroke so users cannot accidentally bind a bare letter
         // as a global keyboard shortcut. The chord-pending second
         // stroke does not require a modifier (matching legacy).
-        if pendingFirst == nil, !hasModifier {
+        if pendingFirst == nil, firstStrokeRequiresModifier, !hasModifier {
             hasPendingRejection = true
             refreshTitle()
             onBareKeyRejected?()
@@ -339,7 +406,7 @@ public final class RecorderHostButton: NSButton {
         if isRecording {
             if let pendingFirst {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
-                title = String.localizedStringWithFormat(format, display(pendingFirst))
+                title = String.localizedStringWithFormat(format, shortcutStrokeDisplayString(pendingFirst))
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }
@@ -350,50 +417,24 @@ public final class RecorderHostButton: NSButton {
         }
     }
 
-    /// Formats a single stroke with modifier symbols + the
-    /// human-readable key label. Mirrors legacy
-    /// `ShortcutStroke.displayString` so the chord-pending preview
-    /// shows e.g. "⌃B" or "⌘Space" instead of "⌃B" + raw key tokens
-    /// like "space" or "media.next".
-    private func display(_ stroke: ShortcutStroke) -> String {
-        var result = ""
-        if stroke.control { result.append("⌃") }
-        if stroke.option { result.append("⌥") }
-        if stroke.shift { result.append("⇧") }
-        if stroke.command { result.append("⌘") }
-        result.append(Self.keyDisplayString(stroke.key))
-        return result
+}
+
+#if DEBUG
+extension RecorderHostButton {
+    var debugIsRecording: Bool {
+        isRecording
     }
 
-    /// Mirrors legacy `ShortcutStroke.keyDisplayString`. Returns the
-    /// localized friendly label for named keys (Tab, Space, media keys)
-    /// and the uppercased raw character otherwise.
-    private static func keyDisplayString(_ key: String) -> String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            return key.uppercased()
-        }
+    func debugStartRecording() {
+        startRecording()
+    }
+
+    func debugStopRecording() {
+        stopRecording()
+    }
+
+    func debugHandleRecordingEvent(_ event: NSEvent) {
+        handleRecordingEvent(event)
     }
 }
+#endif

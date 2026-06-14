@@ -15,7 +15,7 @@ public struct AutomationCatalogSection: SettingCatalogSection {
 
     public let claudeCodeIntegration = DefaultsKey<Bool>(
         id: "automation.claudeCodeIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "claudeCodeHooksEnabled"
     )
 
@@ -33,7 +33,7 @@ public struct AutomationCatalogSection: SettingCatalogSection {
 
     public let suppressSubagentNotifications = DefaultsKey<Bool>(
         id: "automation.suppressSubagentNotifications",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
@@ -55,13 +55,13 @@ public struct AutomationCatalogSection: SettingCatalogSection {
 
     public let cursorIntegration = DefaultsKey<Bool>(
         id: "automation.cursorIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "cursorHooksEnabled"
     )
 
     public let geminiIntegration = DefaultsKey<Bool>(
         id: "automation.geminiIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "geminiHooksEnabled"
     )
 
