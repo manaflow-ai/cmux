@@ -71,6 +71,48 @@ struct WindowTerminalHostViewTitlebarHitTests {
         )
     }
 
+    @Test func windowDecorationsDoubleClickHandlerDefersToTerminalTopRowInsideTitlebarBand() throws {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            if let savedMode {
+                defaults.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let container = try #require(contentView.superview, "Expected window content container")
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
+        let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
+        let event = try makeMouseDownEvent(at: pointInWindow, window: window, clickCount: 2)
+
+        try #require(
+            pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The regression point must exercise the fixed-height titlebar pass-through band"
+        )
+        #expect(
+            !WindowDecorationsController().handleMinimalModeTitlebarDoubleClickMouseDown(event: event),
+            "The app-level titlebar double-click handler must not consume terminal top-row double-clicks"
+        )
+    }
+
     @Test func hostViewPassesThroughRegisteredTitlebarControlsAboveTerminal() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
@@ -113,7 +155,11 @@ struct WindowTerminalHostViewTitlebarHitTests {
         return hostedView
     }
 
-    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) throws -> NSEvent {
+    private func makeMouseDownEvent(
+        at locationInWindow: NSPoint,
+        window: NSWindow,
+        clickCount: Int = 1
+    ) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: locationInWindow,
@@ -122,7 +168,7 @@ struct WindowTerminalHostViewTitlebarHitTests {
             windowNumber: window.windowNumber,
             context: nil,
             eventNumber: 0,
-            clickCount: 1,
+            clickCount: clickCount,
             pressure: 1.0
         ), "Failed to create leftMouseDown event")
     }
