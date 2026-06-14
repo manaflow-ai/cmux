@@ -43,6 +43,33 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
 func makeShortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
@@ -534,6 +561,41 @@ func TestCLIListWorkspacesV2(t *testing.T) {
 	}
 }
 
+func TestCLIListWorkspacesAcceptsTrailingJSONFlag(t *testing.T) {
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{
+		"workspaces": []any{
+			map[string]any{"id": "ws-1"},
+		},
+	})
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "list-workspaces", "--json"})
+		if code != 0 {
+			t.Fatalf("list-workspaces should return 0, got %d", code)
+		}
+	})
+
+	want := "{\"workspaces\":[{\"id\":\"ws-1\"}]}\n"
+	if output != want {
+		t.Fatalf("trailing --json output mismatch:\ngot  %q\nwant %q", output, want)
+	}
+}
+
+func TestCLINoParamsCommandRejectsUnexpectedArgs(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "list-workspaces", "extra"})
+		if code != 2 {
+			t.Fatalf("list-workspaces extra arg should return 2, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stderr, `unexpected argument "extra"`) {
+		t.Fatalf("expected unexpected argument error, got %q", stderr)
+	}
+}
+
 func TestCLIListWorkspacesV2DefaultOutputShowsResult(t *testing.T) {
 	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{"method": "workspace.list", "params": map[string]any{}})
 	output := captureStdout(t, func() {
@@ -557,6 +619,21 @@ func TestCLINotifyDefaultOutputPrintsOKForEmptyResult(t *testing.T) {
 	})
 	if strings.TrimSpace(output) != "OK" {
 		t.Fatalf("expected empty-result command to print OK, got %q", output)
+	}
+}
+
+func TestCLINotifyTrailingJSONDoesNotSatisfyMissingBodyValue(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "notify", "--body", "--json"})
+		if code != 2 {
+			t.Fatalf("notify missing body value should return 2, got %d", code)
+		}
+	})
+
+	if !strings.Contains(stderr, "flag --body requires a value") {
+		t.Fatalf("expected missing body value error, got %q", stderr)
 	}
 }
 
@@ -667,6 +744,35 @@ func TestCLIBrowserSubcommand(t *testing.T) {
 	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "open", "--url", "https://example.com"})
 	if code != 0 {
 		t.Fatalf("browser open should return 0, got %d", code)
+	}
+}
+
+func TestCLIBrowserOpenAcceptsTrailingJSONFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "browser", "open", "--url", "https://example.com", "--json"})
+		if code != 0 {
+			t.Fatalf("browser open should return 0, got %d", code)
+		}
+	})
+
+	want := "{\"method\":\"browser.open_split\",\"params\":{\"url\":\"https://example.com\"}}\n"
+	if output != want {
+		t.Fatalf("browser trailing --json output mismatch:\ngot  %q\nwant %q", output, want)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.open_split" {
+			t.Fatalf("expected browser.open_split, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["url"]; got != "https://example.com" {
+			t.Fatalf("expected url to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser open request")
 	}
 }
 

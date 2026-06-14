@@ -277,8 +277,11 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		params[key] = value
 	}
 
+	cleanedArgs, commandJSONOutput := extractJSONOutputFlag(args, spec.flagKeys)
+	jsonOutput = jsonOutput || commandJSONOutput
+
 	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
+		parsed, err := parseFlags(cleanedArgs, spec.flagKeys)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 			return 2
@@ -301,6 +304,9 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 
 		applyWorkspaceEnvFallback(params)
 		applySurfaceEnvFallback(params)
+	} else if len(cleanedArgs) > 0 {
+		fmt.Fprintf(os.Stderr, "cmux: unexpected argument %q\n", cleanedArgs[0])
+		return 2
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
@@ -551,7 +557,9 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 	}
 
 	params := make(map[string]any)
-	parsed, err := parseFlags(subArgs, spec.flagKeys)
+	cleanedArgs, commandJSONOutput := extractJSONOutputFlag(subArgs, spec.flagKeys)
+	jsonOutput = jsonOutput || commandJSONOutput
+	parsed, err := parseFlags(cleanedArgs, spec.flagKeys)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
 		return 2
@@ -608,6 +616,36 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func extractJSONOutputFlag(args []string, valueFlags []string) ([]string, bool) {
+	valueFlagSet := make(map[string]bool, len(valueFlags))
+	for _, flag := range valueFlags {
+		valueFlagSet[flag] = true
+	}
+
+	cleaned := make([]string, 0, len(args))
+	jsonOutput := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			cleaned = append(cleaned, args[i:]...)
+			break
+		}
+		if arg == "--json" {
+			jsonOutput = true
+			continue
+		}
+		cleaned = append(cleaned, arg)
+		if strings.HasPrefix(arg, "--") {
+			key := strings.TrimPrefix(arg, "--")
+			if valueFlagSet[key] && i+1 < len(args) && args[i+1] != "--json" {
+				i++
+				cleaned = append(cleaned, args[i])
+			}
+		}
+	}
+	return cleaned, jsonOutput
 }
 
 func browserSubcommandHint() string {
