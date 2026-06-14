@@ -197,11 +197,35 @@ export async function upsertRecord<P>(
   }
   const rev = head + 1;
   const record = makeRecord(id, rev, nowMs, payload);
-  // Atomic: record + head commit together, so storage can never hold a record
-  // whose rev exceeds the head (which would make it invisible to catch-up
-  // deltas and rev-filtered snapshots until the next shape change).
-  await storage.put({ [recordKey(collection, id)]: record, [headKey(collection)]: rev });
+  // Atomic: record + head (+ epoch on the very first write) commit together, so
+  // storage can never hold a record whose rev exceeds the head, and the epoch
+  // exists as soon as the collection has any state — even after a reset rebuilds
+  // to the same head, so equal-head reset detection is never disabled by a
+  // missing server epoch (DESIGN.md §3.6).
+  await storage.put({
+    [recordKey(collection, id)]: record,
+    [headKey(collection)]: rev,
+    ...(await firstWriteEpochEntry(storage, collection, head, nowMs)),
+  });
   return { delta: buildDelta(collection, rev, [record]), head: rev };
+}
+
+/** On the FIRST write to a collection (prior head 0), mint and include the epoch
+ * key so it is created atomically with the head. On a reset the wiped storage
+ * starts at head 0 again, so the rebuild mints a fresh epoch a stale client will
+ * mismatch. Subsequent writes (head > 0) leave the existing epoch untouched. */
+async function firstWriteEpochEntry(
+  storage: SyncStorage,
+  collection: string,
+  priorHead: number,
+  nowMs: number,
+): Promise<Record<string, number>> {
+  if (priorHead > 0) return {};
+  // Defensive: if an epoch somehow already exists (e.g. minted by a hello before
+  // the first write), keep it rather than overwriting.
+  const existing = await readEpoch(storage, collection);
+  if (existing > 0) return {};
+  return { [epochKey(collection)]: nowMs };
 }
 
 /** Tombstone a record (the device left the list). Mints a new rev, writes the
@@ -310,7 +334,13 @@ export async function resolveHelloFrames<P>(
 > {
   const gcFloor = await readGcFloor(storage, collection);
   const head = await readHead(storage, collection);
-  const serverEpoch = await readEpoch(storage, collection);
+  // Ensure an epoch exists whenever the collection has state, so the
+  // equal-head reset guard is never disabled by a missing epoch — including for
+  // pre-epoch records written before this code shipped (head > 0, epoch 0). On a
+  // truly empty collection (head 0) cursor-0/snapshot handling already covers it.
+  const serverEpoch = head > 0
+    ? await readOrMintEpoch(storage, collection, nowMs)
+    : await readEpoch(storage, collection);
   const resolution = resolveHello({ cursor, gcFloor, head, clientEpoch, serverEpoch });
   if (resolution.mode === "snapshot") {
     const { snapshotRev, epoch, pages } = await buildSnapshotPages<P>(storage, collection, pageSize, nowMs);

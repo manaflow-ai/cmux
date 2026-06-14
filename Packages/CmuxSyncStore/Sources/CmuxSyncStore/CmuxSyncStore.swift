@@ -258,7 +258,15 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             let maxRev = isReset ? Int.max : snapshotRev
             let existing = try allRecordIDs(teamID: teamID, collection: collection, minRev: 1, maxRev: maxRev)
             for id in existing where !present.contains(id) {
-                try tombstoneAt(teamID: teamID, collection: collection, recordID: id, rev: snapshotRev, now: now)
+                // Tombstone rev: normally snapshotRev. On a reset, a stale row can
+                // have a rev FAR ABOVE snapshotRev (from the old high-rev history);
+                // tombstoning at snapshotRev would let a queued old-history delta
+                // (rev > snapshotRev) pass the monotone guard and resurrect it. So
+                // tombstone at max(snapshotRev, localRev) to dominate any
+                // old-history delta for that id.
+                let localRev = try recordRev(teamID: teamID, collection: collection, recordID: id) ?? 0
+                let tombRev = isReset ? max(snapshotRev, localRev) : snapshotRev
+                try tombstoneAt(teamID: teamID, collection: collection, recordID: id, rev: tombRev, now: now)
             }
             // On a reset the cursor must move DOWN to the new head; setCursor's MAX
             // would keep the stale ahead cursor, so force it on reset. The

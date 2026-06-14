@@ -232,11 +232,14 @@ describe("resolveHelloFrames (GC-floor forced resync, DESIGN §3.5)", () => {
     }
   });
 
-  it("a client at/above the floor catches up with deltas", async () => {
+  it("a client at/above the floor with a matching epoch catches up with deltas", async () => {
     const storage = new FakeStorage();
-    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0); // rev 1
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0); // rev 1, mints epoch
     await upsertRecord(storage, COLL, "dev-A", devicePayload({ displayName: "y" }), T0); // rev 2
-    const resolved = await resolveHelloFrames<DeviceRecord>(storage, COLL, 1);
+    const serverEpoch = await readEpoch(storage, COLL);
+    // Passing the matching epoch keeps it a delta (an absent/stale epoch would
+    // correctly force a resync, which is exercised separately).
+    const resolved = await resolveHelloFrames<DeviceRecord>(storage, COLL, 1, undefined, serverEpoch);
     expect(resolved.mode).toBe("delta");
     if (resolved.mode === "delta") expect(resolved.delta!.rev).toBe(2);
   });
@@ -454,6 +457,30 @@ describe("collection epoch (equal-head reset detection, DESIGN §3.6)", () => {
     // A later read returns the SAME minted epoch (not re-minted).
     expect(await readOrMintEpoch(storage, COLL, T0 + 999)).toBe(T0);
     expect(await readEpoch(storage, COLL)).toBe(T0);
+  });
+
+  it("is minted on the FIRST write so equal-head reset detection is never disabled", async () => {
+    const storage = new FakeStorage();
+    expect(await readEpoch(storage, COLL)).toBe(0);
+    // The first upsert mints the epoch atomically with the head.
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
+    expect(await readEpoch(storage, COLL)).toBe(T0);
+    // A subsequent write does NOT change the epoch.
+    await upsertRecord(storage, COLL, "dev-B", devicePayload({ deviceId: "dev-B" }), T0 + 5);
+    expect(await readEpoch(storage, COLL)).toBe(T0);
+  });
+
+  it("resolveHelloFrames mints an epoch for pre-epoch records (head>0, epoch 0)", async () => {
+    const storage = new FakeStorage();
+    // Simulate legacy data: records + head exist but no epoch key (pre-this-fix).
+    await storage.put("synced:devices:dev-A", { id: "dev-A", rev: 1, updatedAt: T0, deleted: false, schemaVersion: 1, payload: {} });
+    await storage.put("synchead:devices", 1);
+    expect(await readEpoch(storage, COLL)).toBe(0);
+    // A client at the same head with a stale (nonzero) epoch must be snapshotted,
+    // which requires the server to mint an epoch to compare against.
+    const resolved = await resolveHelloFrames<DeviceRecord>(storage, COLL, 1, undefined, 999, T0);
+    expect(await readEpoch(storage, COLL)).toBe(T0); // minted
+    expect(resolved.mode).toBe("snapshot"); // mismatch (999 != T0) forces resync
   });
 
   it("a snapshot carries the minted epoch on every page", async () => {

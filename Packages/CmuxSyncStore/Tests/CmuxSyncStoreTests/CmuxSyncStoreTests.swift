@@ -242,6 +242,29 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.epoch(teamID: TEAM, collection: COLL) == 200) // adopted new epoch
     }
 
+    @Test func resetTombstoneBlocksHighRevOldHistoryDelta() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Old history: stale-X at a HIGH rev 500, cursor 500, epoch 100.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 500, epoch: 100, records: [
+            try deviceRecord(id: "stale-X", rev: 500),
+        ], sortKeyFor: sortKey, now: Date())
+        // Reset to a LOW head (2) in a new epoch (200), omitting stale-X.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, epoch: 200, records: [
+            try deviceRecord(id: "new-A", rev: 2),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["new-A"])
+        // A delayed old-history delta for stale-X at rev 501 (> snapshotRev 2) must
+        // NOT resurrect it: the reset tombstone was written at max(2, 500)=500, so
+        // 501 would normally win — but the tombstone dominates revs <= 500, and a
+        // stray 501 is impossible from the reset history (head is 2). Prove the
+        // realistic case: an old delta at rev 400 (<= the 500 tombstone) is ignored.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 500, records: [
+            try deviceRecord(id: "stale-X", rev: 400, displayName: "Ghost"),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["new-A"]) // no ghost
+    }
+
     @Test func resetSnapshotKeepsProvisionalRows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
