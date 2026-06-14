@@ -622,6 +622,7 @@ trap reload_finalize EXIT
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
 "$PWD/scripts/ensure-ghosttykit.sh"
+"$PWD/scripts/ensure-cef-sdk.sh"
 
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
@@ -905,6 +906,21 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+    # Align CEF helper bundle IDs to the tagged app. Chromium / Chrome runtime
+    # routes helper IPC by exact bundle-id prefix match against the host app;
+    # leaving helpers at the untagged base id breaks the GPU / compositor
+    # channel, so navigation begins but no frames ship.
+    for HELPER_SUFFIX in "" ".gpu" ".renderer"; do
+      case "$HELPER_SUFFIX" in
+        "")        HELPER_DIR="cmux Helper.app";;
+        ".gpu")    HELPER_DIR="cmux Helper (GPU).app";;
+        ".renderer") HELPER_DIR="cmux Helper (Renderer).app";;
+      esac
+      HELPER_PLIST="$TAG_APP_STAGING_PATH/Contents/Frameworks/$HELPER_DIR/Contents/Info.plist"
+      [[ -f "$HELPER_PLIST" ]] || continue
+      /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${BUNDLE_ID}.helper${HELPER_SUFFIX}" "$HELPER_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string ${BUNDLE_ID}.helper${HELPER_SUFFIX}" "$HELPER_PLIST"
+    done
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
@@ -989,7 +1005,25 @@ fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+  for CEF_HELPER_DIR in \
+    "cmux Helper.app" \
+    "cmux Helper (GPU).app" \
+    "cmux Helper (Renderer).app"
+  do
+    CEF_HELPER_PATH="$APP_PATH/Contents/Frameworks/$CEF_HELPER_DIR"
+    [[ -d "$CEF_HELPER_PATH" ]] || continue
+    if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der --preserve-metadata=entitlements "$CEF_HELPER_PATH" >/dev/null 2>&1; then
+      if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+        echo "warning: codesign failed for $CEF_HELPER_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
+      else
+        echo "error: codesign failed for $CEF_HELPER_PATH" >&2
+        exit 1
+      fi
+    fi
+  done
+fi
+if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der --preserve-metadata=entitlements "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else

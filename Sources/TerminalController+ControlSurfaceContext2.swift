@@ -113,7 +113,7 @@ extension TerminalController {
         let dividerPosition = inputs.initialDividerPosition.map { CGFloat($0) }
         let newId: UUID?
         if panelType == .browser {
-            newId = ws.newBrowserSplit(
+            newId = ws.newBrowserEngineSplit(
                 from: targetSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -274,7 +274,7 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let newPanelId: UUID?
         if panelType == .browser {
-            newPanelId = ws.newBrowserSurface(
+            newPanelId = ws.newBrowserEngineSurface(
                 inPane: paneId,
                 url: url,
                 focus: focus,

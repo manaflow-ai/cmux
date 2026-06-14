@@ -1111,6 +1111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.setActivationPolicy(.regular)
         } else {
             MenuBarOnlySettings.normalizeLegacyStoredPreference()
+            #if DEBUG
+            if BrowserEngineKind.current == .cef, BrowserEngineKind.isCEFAvailable {
+                cmuxDebugLog("cef.startup.defer reason=launch")
+            }
+            #endif
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
@@ -1749,6 +1754,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
+    @discardableResult
+    private func closeAllCEFBrowserPanelsBeforeEngineShutdown() -> Int {
+        var seenManagers: Set<ObjectIdentifier> = []
+        var managers: [TabManager] = []
+        func appendManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+            managers.append(manager)
+        }
+
+        appendManager(tabManager)
+        for context in sortedMainWindowContextsForSessionSnapshot() {
+            appendManager(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            appendManager(route.tabManager)
+        }
+
+        var seenPanels: Set<UUID> = []
+        var closedCount = 0
+        for manager in managers {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let cefPanel = panel as? CEFBrowserPanel else { continue }
+                    guard seenPanels.insert(cefPanel.id).inserted else { continue }
+                    cefPanel.close()
+                    closedCount += 1
+                }
+            }
+        }
+        #if DEBUG
+        if closedCount > 0 {
+            cmuxDebugLog("cef.panel.teardownBeforeShutdown closed=\(closedCount)")
+        }
+        #endif
+        return closedCount
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
@@ -1766,6 +1809,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
+        closeAllCEFBrowserPanelsBeforeEngineShutdown()
+        shutdownCEFEngineIfNeeded()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }

@@ -61,6 +61,22 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+            #if canImport(CMUXCEF)
+            if let cefPanel = panel as? CEFBrowserPanel {
+                // Parallel rendering path for the experimental CEF
+                // engine. The same `.browser` panelType covers both
+                // engines so cmux's tab strip and bonsplit code treats
+                // them uniformly; only the SwiftUI view differs.
+                CEFBrowserPanelView(
+                    panel: cefPanel,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
+            #endif
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
                 MarkdownPanelView(

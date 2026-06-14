@@ -62,6 +62,9 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    /// Selects the browser engine for newly-created browser panes.
+    @AppStorage(BrowserEngineKind.userDefaultsKey) private var browserEngineRaw = BrowserEngineKind.default.rawValue
+    @State private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -514,6 +517,65 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Menu(String(
+                    localized: "debug.menu.browserEngine",
+                    defaultValue: "Browser Engine"
+                )) {
+                    ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
+                        let selectedKind = BrowserEngineKind(rawValue: browserEngineRaw) ?? BrowserEngineKind.default
+                        let isCurrent = selectedKind == kind
+                        let isAvailable = (kind != .cef) || BrowserEngineKind.canSelectCEF
+                        Button(action: {
+                            if kind == .cef {
+                                Task { @MainActor in
+                                    guard await cefRuntimeInstaller.ensureInstalledAfterUserConfirmation(
+                                        presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                                    ) else { return }
+                                    browserEngineRaw = kind.rawValue
+                                }
+                            } else {
+                                browserEngineRaw = kind.rawValue
+                            }
+                        }) {
+                            HStack {
+                                if isCurrent {
+                                    Image(systemName: "checkmark")
+                                        .frame(width: 16)
+                                } else {
+                                    Color.clear
+                                        .frame(width: 16, height: 1)
+                                }
+                                if kind == .cef, let status = cefRuntimeInstaller.menuStatusText {
+                                    Text("\(kind.displayLabel) (\(status))")
+                                } else {
+                                    Text(kind.displayLabel)
+                                }
+                            }
+                        }
+                        .disabled(!isAvailable || (kind == .cef && cefRuntimeInstaller.phase.isBusy))
+                    }
+                    if !BrowserEngineKind.isCEFAvailable {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefMissing",
+                            defaultValue: "CEF is not linked. See CEF/INTEGRATION.md."
+                        ))
+                    } else if !BrowserEngineKind.isCEFSupportedOnCurrentOS {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefUnsupportedOS",
+                            defaultValue: "CEF requires macOS 15.0 or later."
+                        ))
+                    } else if !BrowserEngineKind.isCEFSupportedOnCurrentArchitecture {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefUnsupportedArchitecture",
+                            defaultValue: "CEF currently requires an Apple Silicon Mac."
+                        ))
+                    }
+                }
+                Divider()
+
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
@@ -1468,6 +1530,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
+    "cmux.cefRuntime.installProgress",
     "cmux.extensionSidebarInspector",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",

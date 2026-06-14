@@ -286,6 +286,19 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            CEF/CEF
+            CEF/Frameworks
+            ~/Library/Caches/cmux-cef-vendor
+          key: cef-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CEF/vendor/cef.lock.json', 'CEF/vendor/fetch_cef.sh') }}
+          restore-keys: cef-sdk-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision CEF SDK
+        run: ./scripts/ensure-cef-sdk.sh
+
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
@@ -661,6 +674,19 @@ jobs:
           key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-build-
 
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            CEF/CEF
+            CEF/Frameworks
+            ~/Library/Caches/cmux-cef-vendor
+          key: cef-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CEF/vendor/cef.lock.json', 'CEF/vendor/fetch_cef.sh') }}
+          restore-keys: cef-sdk-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision CEF SDK
+        run: ./scripts/ensure-cef-sdk.sh
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
@@ -896,6 +922,19 @@ jobs:
             spm-release-
             spm-
 
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            CEF/CEF
+            CEF/Frameworks
+            ~/Library/Caches/cmux-cef-vendor
+          key: cef-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CEF/vendor/cef.lock.json', 'CEF/vendor/fetch_cef.sh') }}
+          restore-keys: cef-sdk-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision CEF SDK
+        run: ./scripts/ensure-cef-sdk.sh
+
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
@@ -1002,6 +1041,19 @@ jobs:
           path: .ci-source-packages
           key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-ui-regressions-
+
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            CEF/CEF
+            CEF/Frameworks
+            ~/Library/Caches/cmux-cef-vendor
+          key: cef-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CEF/vendor/cef.lock.json', 'CEF/vendor/fetch_cef.sh') }}
+          restore-keys: cef-sdk-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision CEF SDK
+        run: ./scripts/ensure-cef-sdk.sh
 
       - name: Resolve Swift packages
         run: |

@@ -188,7 +188,7 @@ extension TerminalController {
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
-            return tab.newBrowserSplit(
+            return tab.newBrowserEngineSplit(
                 from: focusedPanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -236,7 +236,7 @@ extension TerminalController {
 
         let newPanelId: UUID?
         if isBrowser {
-            newPanelId = tab.newBrowserSurface(
+            newPanelId = tab.newBrowserEngineSurface(
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,

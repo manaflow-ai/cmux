@@ -59,5 +59,13 @@ tmp-*/
 .iter-logs/
 .claude/worktrees/
 
+# CEF binary distribution — provisioned by CEF/vendor/fetch_cef.sh
+# (~270 MiB compressed, ~1.4 GiB extracted; never commit).
+CEF/CEF/
+CEF/Frameworks/
+CEF/.build/
+CEF/.swiftpm/
+CEF/Package.resolved
+
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/

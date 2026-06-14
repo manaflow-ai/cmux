@@ -18,6 +18,9 @@ fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
+echo "==> Provisioning CEF SDK for local builds..."
+"$SCRIPT_DIR/ensure-cef-sdk.sh"
+
 "$SCRIPT_DIR/install-git-hooks.sh"
 
 echo "==> Setup complete!"

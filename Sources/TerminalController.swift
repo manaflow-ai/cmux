@@ -6182,9 +6182,9 @@ class TerminalController {
 
             var createdSplit = true
             var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
+            let createdPanel: (any BrowserEngineBackedPanel)?
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
+                createdPanel = ws.newBrowserEngineSurface(
                     inPane: targetPane,
                     url: url,
                     focus: focus,
@@ -6197,7 +6197,7 @@ class TerminalController {
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(
+                createdPanel = ws.newBrowserEngineSplit(
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
@@ -6233,7 +6233,7 @@ class TerminalController {
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "show_omnibar": omnibarVisible,
                 "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
@@ -9492,7 +9492,7 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(
+            guard let panel = ws.newBrowserEngineSurface(
                 inPane: pane,
                 url: url,
                 focus: true,

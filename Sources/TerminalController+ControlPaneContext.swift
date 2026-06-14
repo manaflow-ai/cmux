@@ -216,7 +216,7 @@ extension TerminalController: ControlPaneContext {
         let newPanelId: UUID?
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
-            newPanelId = ws.newBrowserSplit(
+            newPanelId = ws.newBrowserEngineSplit(
                 from: sourcePanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,

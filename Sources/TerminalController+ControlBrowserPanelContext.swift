@@ -41,7 +41,7 @@ extension TerminalController: ControlBrowserPanelContext {
             return nil
         }
         let focus = Self.socketCommandAllowsInAppFocusMutations()
-        return tab.newBrowserSplit(
+        return tab.newBrowserEngineSplit(
             from: focusedPanelId,
             orientation: .horizontal,
             url: url,
