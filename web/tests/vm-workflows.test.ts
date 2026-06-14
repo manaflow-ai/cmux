@@ -126,11 +126,14 @@ describe("VM Effect workflows", () => {
     );
 
     await Effect.runPromise(
-      openAttachEndpoint({
-        userId: "user-workflow-signed-attach",
-        providerVmId: "provider-vm-signed-attach",
-        options: { requireDaemon: true },
-      }).pipe(Effect.provide(layer)),
+      Effect.provide(
+        openAttachEndpoint({
+          userId: "user-workflow-signed-attach",
+          providerVmId: "provider-vm-signed-attach",
+          options: { requireDaemon: true },
+        }),
+        layer,
+      ),
     );
 
     expect(observedOptions).toMatchObject({
