@@ -5,6 +5,12 @@ extension ContentView {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
+        func localizedKeywordList(_ value: String) -> [String] {
+            value
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
 
         return [
             CommandPaletteCommandContribution(
@@ -23,7 +29,12 @@ extension ContentView {
                 commandId: GuiModeWorkspaceCoordinator.commandPaletteCommandId,
                 title: constant(String(localized: "guiMode.command.enable.title", defaultValue: "Enable GUI Mode")),
                 subtitle: constant(String(localized: "guiMode.command.enable.subtitle", defaultValue: "Workspace")),
-                keywords: ["gui", "mode", "homepage", "task", "worktree", "pr"]
+                keywords: localizedKeywordList(
+                    String(
+                        localized: "guiMode.command.enable.keywords",
+                        defaultValue: "gui,mode,homepage,task,worktree,pr"
+                    )
+                )
             ),
         ]
     }
@@ -63,6 +74,10 @@ enum GuiModeWorkspaceCoordinator {
         sourcePanelId: UUID,
         preferredWorkspaceId: UUID
     ) throws -> Workspace {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw AgentSessionBridgeError.missingParameter("prompt")
+        }
         guard let app = AppDelegate.shared,
               let location = app.workspaceContainingPanel(
                 panelId: sourcePanelId,
@@ -71,12 +86,12 @@ enum GuiModeWorkspaceCoordinator {
             throw AgentSessionBridgeError.invalidRequest
         }
 
-        let title = taskWorkspaceTitle(prompt: prompt)
+        let title = taskWorkspaceTitle(prompt: trimmedPrompt)
         let workspace = location.tabManager.addWorkspace(
             title: title,
             workingDirectory: location.workspace.currentDirectory,
             initialSurface: .guiMode,
-            initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: providerID),
+            initialGuiModeState: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID),
             inheritWorkingDirectory: false,
             select: true,
             autoRefreshMetadata: false
@@ -91,7 +106,7 @@ enum GuiModeWorkspaceCoordinator {
         guard let guiPaneId = workspace.paneId(forPanelId: guiPanel.id) else {
             throw AgentSessionBridgeError.invalidRequest
         }
-        let initialInput = taskWorktreePRCommand(prompt: prompt, providerID: providerID)
+        let initialInput = taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
         _ = workspace.splitPaneWithNewTerminal(
             targetPane: guiPaneId,
             orientation: .horizontal,
@@ -108,7 +123,10 @@ enum GuiModeWorkspaceCoordinator {
 
     static func taskWorkspaceTitle(prompt: String) -> String {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = String(trimmed.prefix(48))
+        let normalized = trimmed
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        let summary = String(normalized.prefix(48))
         guard !summary.isEmpty else {
             return String(localized: "guiMode.workspace.task.title", defaultValue: "GUI Task")
         }

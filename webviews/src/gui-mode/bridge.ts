@@ -56,10 +56,13 @@ function callNativeWithTimeout<T>(
   params: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<T> {
-  return Promise.race([
-    callNative<T>(method, params),
-    new Promise<T>((_, reject) => {
-      window.setTimeout(() => reject(new Error("Native bridge timed out.")), timeoutMs);
-    }),
-  ]);
+  let timeoutId: number | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error("Native bridge timed out.")), timeoutMs);
+  });
+  return Promise.race([callNative<T>(method, params), timeout]).finally(() => {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  });
 }

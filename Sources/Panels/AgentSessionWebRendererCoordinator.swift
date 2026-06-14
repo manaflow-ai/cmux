@@ -23,6 +23,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
+    private var isGuiModeSubmitPending = false
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -47,7 +48,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     ) {
         self.panelId = panelId
         self.workspaceId = workspaceId
-        if self.rendererKind != rendererKind {
+        let guiModeStateChanged = self.rendererKind == .guiMode && (
+            self.guiModePage != guiModePage ||
+            self.guiModePrompt != guiModePrompt ||
+            self.guiModeProviderID != guiModeProviderID
+        )
+        if self.rendererKind != rendererKind || guiModeStateChanged {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
@@ -348,8 +354,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             bodyTextLength: document.body ? document.body.innerText.length : -1,
             viewport: [window.innerWidth, window.innerHeight].join('x'),
             rootRect: rootRect ? [rootRect.x, rootRect.y, rootRect.width, rootRect.height].join(',') : '',
-            rootText: root ? root.innerText : '',
-            rootHTML: root ? root.innerHTML.slice(0, 240) : '',
+            hasRoot: root ? true : false,
+            rootHTMLLength: root ? root.innerHTML.length : 0,
             scripts: Array.from(document.scripts).map((script) => script.getAttribute('src') || '').join(',')
           });
         })()
@@ -429,6 +435,13 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 #endif
             return payload
         case "guiMode.submit":
+            guard !isGuiModeSubmitPending else {
+                throw AgentSessionBridgeError.sessionAlreadyRunning
+            }
+            isGuiModeSubmitPending = true
+            defer {
+                isGuiModeSubmitPending = false
+            }
             return try Self.handleGuiModeSubmit(
                 request,
                 rendererKind: rendererKind,

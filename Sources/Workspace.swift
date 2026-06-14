@@ -3260,7 +3260,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else if initialSurface == .guiMode {
             initialTabId = installInitialGuiModePanel(
                 initialDirectory: initialDirectory,
-                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+                workingDirectory: initialDirectory,
                 guiModeInitialState: initialGuiModeState
             )
         } else {

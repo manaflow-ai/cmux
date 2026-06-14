@@ -18,10 +18,27 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         XCTAssertTrue(contribution.keywords.contains("worktree"))
     }
 
-    func testGuiModeTaskPromptShellQuotingKeepsPromptAsOneArgument() {
+    func testGuiModeTaskPromptShellQuotingKeepsMetacharactersLiteral() {
+        let cases = [
+            ("", "''"),
+            ("   ", "'   '"),
+            ("build Lawrence's thing", "'build Lawrence'\\''s thing'"),
+            ("`uname`", "'`uname`'"),
+            ("$HOME", "'$HOME'"),
+            ("line one\nline two", "'line one\nline two'"),
+            (#"back\slash"#, #"'back\slash'"#),
+            (#""quoted""#, "'\"quoted\"'"),
+        ]
+
+        for (input, expected) in cases {
+            XCTAssertEqual(GuiModeWorkspaceCoordinator.shellQuoted(input), expected)
+        }
+    }
+
+    func testGuiModeTaskWorkspaceTitleCollapsesWhitespace() {
         XCTAssertEqual(
-            GuiModeWorkspaceCoordinator.shellQuoted("build Lawrence's thing"),
-            "'build Lawrence'\\''s thing'"
+            GuiModeWorkspaceCoordinator.taskWorkspaceTitle(prompt: "  build\n\tthe   provider  UI  "),
+            "GUI: build the provider UI"
         )
     }
 
@@ -92,6 +109,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         XCTAssertEqual(guiPanel.guiModePage, .taskWorktreePR)
         XCTAssertEqual(guiPanel.guiModePrompt, prompt)
         XCTAssertEqual(guiPanel.guiModeProviderID, .qoder)
+        XCTAssertFalse(guiPanel.workingDirectory?.isEmpty ?? true)
         XCTAssertEqual(
             guiPanel.displayTitle,
             String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
