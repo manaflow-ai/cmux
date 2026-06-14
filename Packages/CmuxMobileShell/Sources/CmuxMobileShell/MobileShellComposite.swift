@@ -1665,7 +1665,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadRegistryDevices()
         guard stillCurrent() else { return false }
 
-        let presenceOnline = await autoAttachPresence?.onlineDeviceIDs()
+        // Prefer an explicitly injected presence provider; otherwise fall back to
+        // the shell's own live presence stream (#5792), which the device tree
+        // already subscribes. Either way the selector prefers a single online Mac
+        // and treats multiple online Macs as ambiguous. `nil` (no provider AND no
+        // presence data yet) keeps the recency-only path unchanged.
+        let presenceOnline: Set<String>?
+        if let provided = await autoAttachPresence?.onlineDeviceIDs() {
+            presenceOnline = provided
+        } else if !presenceMap.isEmpty {
+            presenceOnline = presenceMap.onlineDeviceIDs()
+        } else {
+            presenceOnline = nil
+        }
         guard stillCurrent() else { return false }
 
         // On a physical phone, reject loopback routes: a `127.0.0.1` route names
@@ -2530,9 +2542,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
-        // `beginPairingAttempt` below supersedes any in-flight auto-attach (and
-        // resolves its restoring gate), so a background attempt that resumes
-        // mid-pairing cannot invalidate this manual attempt.
+        // A user-initiated manual pairing supersedes any in-flight auto-attach
+        // (and resolves its restoring gate) here at the top, BEFORE validation, so
+        // even an invalid code parks the background attempt and a later resume
+        // cannot invalidate this manual attempt. (Main split the post-validation
+        // `beginPairingAttempt(method: "qr")` out of this early path, so the
+        // supersede no longer rides on it and must fire explicitly.)
+        supersedeInFlightAutoAttach()
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
