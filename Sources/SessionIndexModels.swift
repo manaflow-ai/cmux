@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case amp
     case grok
     case opencode
     case rovodev
@@ -45,13 +46,14 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .amp, .grok, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "amp": self = .amp
         case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
@@ -66,6 +68,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .amp: return "amp"
         case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
@@ -201,6 +204,7 @@ enum AgentSpecifics: Hashable {
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
+    case amp
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
     case registered(CmuxVaultAgentRegistration)
 }
@@ -376,6 +380,8 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
+        case .amp:
+            return "amp threads continue \(Self.shellQuote(sessionId))"
         case let .hermesAgent(source, model, hermesHome):
             return Self.hermesResumeCommand(
                 sessionId: sessionId,

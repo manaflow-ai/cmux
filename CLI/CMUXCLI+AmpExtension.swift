@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ampExtensionMarker = "cmux-amp-session-extension-marker"
     private static let ampExtensionFilename = "cmux-session.ts"
     private static let ampExtensionSource = #"""
-// cmux-amp-session-extension-marker v2
+// cmux-amp-session-extension-marker v3
 // Bridges Amp session lifecycle events into cmux's restorable session store
 // AND reports live agent status (idle/thinking/tool calls/done/error) into
 // the cmux tab status bar.
@@ -42,6 +42,20 @@ function resolveExecutable(name: string): string {
     } catch (_) {}
   }
   return name;
+}
+
+// Prefer the CLI bundled with the cmux app that launched this terminal
+// (CMUX_BUNDLED_CLI_PATH) over whatever `cmux` is on PATH, so the plugin always
+// talks to the matching app/CLI version — PATH may point at a different build
+// (e.g. an installed release while running a dev/tagged app).
+// CMUX_AMP_CMUX_BIN takes highest precedence but is test-only plumbing (the
+// install test injects a fake cmux binary through it); it isn't set in production.
+function cmuxBin(): string {
+  return (
+    process.env.CMUX_AMP_CMUX_BIN ||
+    process.env.CMUX_BUNDLED_CLI_PATH ||
+    "cmux"
+  );
 }
 
 function looksLikeAmpExecutable(value: string): boolean {
@@ -124,7 +138,7 @@ function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = cmuxBin();
   try {
     const child = spawn(cmux, ["hooks", "amp", subcommand], {
       env: hookEnvironment(cwd),
@@ -138,7 +152,16 @@ function sendHook(
   } catch (_) {}
 }
 
-type AmpThreadContext = { thread?: { id?: string } };
+type AmpTitleObservable = {
+  get?: () => Promise<string | null>;
+  subscribe?: (onNext: (value: string | null) => void) => {
+    unsubscribe?: () => void;
+  };
+};
+
+type AmpThreadContext = {
+  thread?: { id?: string; title?: AmpTitleObservable };
+};
 
 function threadIdFrom(event: { thread?: { id?: string } } | undefined, ctx?: AmpThreadContext): string | null {
   return firstString(event?.thread?.id, ctx?.thread?.id);
@@ -259,7 +282,7 @@ function statusEnvironment(): NodeJS.ProcessEnv {
 function runCmux(args: string[]): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = cmuxBin();
   try {
     const child = spawn(cmux, args, {
       env: statusEnvironment(),
@@ -397,11 +420,111 @@ export default function (amp: PluginAPI) {
     } catch (_) {}
   });
 
+  // cmux just stores whatever `title` it receives. Prefer the thread title the
+  // user/agent set via the plugin API; fall back to the first user message for
+  // Amp versions whose API predates `thread.title`.
+  // Cached per thread so we resolve at most once.
+  const capturedTitles = new Map<string, string>();
+  async function resolveSessionTitle(
+    threadID: string,
+    ctx?: AmpThreadContext,
+  ): Promise<string | null> {
+    // Always try the real thread title first (cheap, and lets cmux upgrade the
+    // stored title once Amp assigns/refines it on a later turn).
+    try {
+      const threadTitle = (await ctx?.thread?.title?.get?.())?.trim();
+      if (threadTitle) return threadTitle;
+    } catch (_) {}
+    const cached = capturedTitles.get(threadID);
+    if (cached) return cached;
+    try {
+      const threads = (
+        amp as unknown as {
+          experimental?: {
+            threads?: {
+              get?: (id: string) => {
+                messages?: (options?: unknown) => Promise<unknown[]>;
+              };
+            };
+          };
+        }
+      ).experimental?.threads;
+      const handle = threads?.get?.(threadID);
+      if (!handle?.messages) return null;
+      const messages = await handle.messages({
+        from: "start",
+        limit: 1,
+        roles: ["user"],
+      });
+      if (!Array.isArray(messages)) return null;
+      for (const message of messages) {
+        const m = message as { role?: string; content?: unknown };
+        if (m.role !== "user" || !Array.isArray(m.content)) continue;
+        const text = m.content
+          .filter(
+            (block) =>
+              (block as { type?: string }).type === "text" &&
+              typeof (block as { text?: unknown }).text === "string",
+          )
+          .map((block) => (block as { text: string }).text)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (text) {
+          const title = text.length > 200 ? text.slice(0, 199) + "…" : text;
+          capturedTitles.set(threadID, title);
+          return title;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function titleExtra(title: string | null): Record<string, unknown> {
+    return title ? { title } : {};
+  }
+
+  // Amp usually generates the title mid-turn, so reading it on
+  // session.start/agent.start misses it. Subscribe once per thread and push each
+  // new title to cmux as it lands. The push reuses the session-start hook, which
+  // also marks the session running, so it must only fire while a turn is active —
+  // otherwise a title that finalizes after the turn ends would revive a session
+  // cmux has already marked idle.
+  const titleSubs = new Map<string, { unsubscribe?: () => void }>();
+  function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
+    const observable = ctx?.thread?.title;
+    if (!observable?.subscribe || titleSubs.has(threadID)) return;
+    let lastSent: string | null = null;
+    try {
+      const sub = observable.subscribe((value) => {
+        if (!turnActive) return;
+        const title = value?.trim();
+        if (!title || title === lastSent) return;
+        lastSent = title;
+        sendHook("session-start", threadID, cwdFromEnv(), { title });
+      });
+      titleSubs.set(threadID, sub);
+    } catch (_) {}
+  }
+
+  process.on("exit", () => {
+    for (const sub of titleSubs.values()) {
+      try {
+        sub.unsubscribe?.();
+      } catch (_) {}
+    }
+    titleSubs.clear();
+  });
+
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
     setStatus("idle", "circle", COLOR.idle);
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
-    sendHook("session-start", sessionId, cwdFromEnv());
+    watchThreadTitle(sessionId, ctx);
+    // Backfills a title for reopened threads; null for brand-new threads until
+    // the first prompt arrives (agent.start).
+    const title = await resolveSessionTitle(sessionId, ctx);
+    sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(title));
   });
 
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
@@ -411,7 +534,13 @@ export default function (amp: PluginAPI) {
     wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
-    sendHook("prompt-submit", sessionId, cwdFromEnv());
+    watchThreadTitle(sessionId, ctx);
+    const title = await resolveSessionTitle(sessionId, ctx);
+    // resolveSessionTitle can await the slow path; if the turn already ended
+    // (agent.end fired during that await) skip prompt-submit so a finished
+    // session isn't revived as running. Same guard as the title subscription.
+    if (!turnActive) return;
+    sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(title));
   });
 
   amp.on("tool.call", async (event: ToolCallEvent) => {

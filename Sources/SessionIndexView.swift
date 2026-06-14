@@ -1503,7 +1503,7 @@ private enum SessionTranscriptLoader {
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: id
             )
-        case .hermesAgent:
+        case .amp, .hermesAgent:
             return nil
         }
     }
@@ -1834,7 +1834,7 @@ private enum SessionTranscriptLoader {
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
-        case .hermesAgent:
+        case .amp, .hermesAgent:
             return false
         }
     }
@@ -1867,7 +1867,7 @@ private enum SessionTranscriptLoader {
             }
         case .grok:
             return inferredGrokRole(from: data)
-        case .hermesAgent:
+        case .amp, .hermesAgent:
             return nil
         }
         return nil
