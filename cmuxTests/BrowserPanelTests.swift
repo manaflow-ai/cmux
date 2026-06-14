@@ -64,6 +64,7 @@ private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMess
 private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
     var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
     var hiddenAt: Date?
+    var lastAutomationActivityAt: Date?
     var webViewInstanceID = UUID()
     var discardRequestCount = 0
 
@@ -78,6 +79,10 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 
     var hiddenWebViewDiscardHiddenAt: Date? {
         hiddenAt
+    }
+
+    var hiddenWebViewDiscardLastAutomationActivityAt: Date? {
+        lastAutomationActivityAt
     }
 
     var hiddenWebViewDiscardWebViewInstanceID: UUID {
@@ -269,6 +274,23 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
         manager.noteSystemDidWake(now: Date())
         manager.scheduleIfNeeded(reason: "test.postWake")
+
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+        XCTAssertTrue(manager.hasScheduledDiscard)
+    }
+
+    func testAutomationActivityRestartsHiddenWebViewDiscardCountdown() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let now = Date()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: now.addingTimeInterval(-BrowserHiddenWebViewDiscardPolicy.hiddenDelay - 1)
+        )
+        delegate.lastAutomationActivityAt = now
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.automationActivity")
 
         XCTAssertEqual(delegate.discardRequestCount, 0)
         XCTAssertTrue(manager.hasScheduledDiscard)
