@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxFoundation
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
