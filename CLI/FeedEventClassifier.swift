@@ -165,6 +165,7 @@ struct FeedEventClassifier {
             "SessionStart": .sessionStart,
             "SessionEnd": .sessionEnd,
             "Stop": .response,
+            "StopFailure": .response,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
         ],

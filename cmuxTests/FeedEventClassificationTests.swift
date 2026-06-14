@@ -82,6 +82,12 @@ struct FeedEventClassificationTests {
         #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
     }
 
+    @Test func claudeStopFailureMapsToStopTelemetry() {
+        let stopFailure = classify("claude", "StopFailure")
+        #expect(stopFailure.name == "Stop")
+        #expect(stopFailure.actionable == false)
+    }
+
     // MARK: Generic agents without a dedicated approval event
 
     /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
