@@ -13303,10 +13303,15 @@ struct TabItemView: View, Equatable {
 
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
+    // Stored `@Environment` values (like `colorScheme`) are listed here so
+    // SwiftUI's `.equatable()` guard can compare them — adding an
+    // `@Environment` property without listing it is the documented
+    // CLAUDE.md "Snapshot boundary" pitfall.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
         lhs.isActive == rhs.isActive &&
+        lhs.colorScheme == rhs.colorScheme &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
