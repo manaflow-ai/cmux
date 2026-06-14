@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
