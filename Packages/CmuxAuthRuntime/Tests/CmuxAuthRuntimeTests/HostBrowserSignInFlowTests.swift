@@ -254,6 +254,58 @@ import Testing
         #expect(fallbackState == callbackState(harness.factory.sessions[0]))
     }
 
+    @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func issuedFallbackCallbackAfterSignOutIsRejected() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+        await harness.flow.signOut()
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+    }
+
     @Test func signOutDuringCallbackValidationWins() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = makeHarness(user: user)
