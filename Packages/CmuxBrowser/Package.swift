@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxBrowser"]
         ),
     ],
+    dependencies: [
+        .package(path: "../../vendor/bonsplit"),
+    ],
     targets: [
         .target(
             name: "CmuxBrowser",
+            dependencies: [
+                .product(name: "Bonsplit", package: "bonsplit"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CMUXAgentVault
 import SQLite3
 import SwiftUI

@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import AppKit
 
 extension ContentView {
