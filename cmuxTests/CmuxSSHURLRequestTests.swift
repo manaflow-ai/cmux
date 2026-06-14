@@ -687,6 +687,51 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testRulesPasteTextWrapsTextInStandingInstructionPreamble() throws {
+        let url = try XCTUnwrap(textURL(host: "rules", queryItems: [
+            URLQueryItem(name: "name", value: "freestyle"),
+            URLQueryItem(name: "text", value: "Prefer commas, colons, and small PRs.")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .rules)
+            XCTAssertEqual(request.text, "Prefer commas, colons, and small PRs.")
+            // Rules differ from prompts: the delivered text is wrapped in a
+            // standing-instruction preamble (named), and is never the verbatim text.
+            XCTAssertNotEqual(request.pasteText, request.text)
+            XCTAssertEqual(
+                request.pasteText,
+                "Follow these rules for this session (freestyle):\n\nPrefer commas, colons, and small PRs."
+            )
+            // No trailing newline, so the text never auto-submits.
+            XCTAssertFalse(request.pasteText.hasSuffix("\n"))
+        case .success(nil):
+            XCTFail("Expected rules URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRulesPasteTextOmitsLabelWhenNameAbsent() throws {
+        let url = try XCTUnwrap(textURL(host: "rules", queryItems: [
+            URLQueryItem(name: "text", value: "Keep diffs small.")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .rules)
+            XCTAssertEqual(
+                request.pasteText,
+                "Follow these rules for this session:\n\nKeep diffs small."
+            )
+        case .success(nil):
+            XCTFail("Expected rules URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
     func testPreservesPromptURLTextWhitespace() throws {
         let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
             URLQueryItem(name: "text", value: "  indented prompt  ")
