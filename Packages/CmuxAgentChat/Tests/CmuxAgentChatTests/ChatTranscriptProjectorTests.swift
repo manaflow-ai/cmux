@@ -193,6 +193,15 @@ struct ChatTranscriptProjectorTests {
             .status(ChatStatusTransition(event: .sessionStarted)),
             .permissionRequest(ChatPermissionRequest(title: "Run:", subject: "ls")),
             .question(ChatQuestion(prompt: "Which?", options: [ChatQuestion.Option(label: "A")])),
+            // Full-width cards (and the thought row) render without a bubble and
+            // ignore groupPosition/showsTimestamp, so they must NOT participate
+            // in bubble grouping: otherwise an adjacent prose bubble gets a
+            // tightened corner pointing at a card and the group's timestamp can
+            // land on a card that never draws it.
+            .thought(ChatThought(text: "considering options")),
+            .toolUse(ChatToolUse(toolName: "Read", summary: "Read file", status: .succeeded)),
+            .terminal(ChatTerminalCapture(command: "ls")),
+            .fileEdit(ChatFileEdit(filePath: "a.swift", operation: .edit, additions: 1, deletions: 0, unifiedDiff: "-a\n+b")),
         ]
         for kind in nonGroupable {
             let messages = [
@@ -204,6 +213,26 @@ struct ChatTranscriptProjectorTests {
             let snaps = Self.snapshots(rows)
             #expect(snaps.map(\.groupPosition) == [.solo, .solo, .solo], "kind: \(kind)")
         }
+    }
+
+    @Test("a card between prose keeps each prose bubble's own timestamp")
+    func cardBreaksGroupTimestamp() {
+        let projector = Self.makeProjector()
+        // prose, toolUse-card, prose — all agent within the interval. The card
+        // must break the run so each prose shows its own timestamp (the bug:
+        // grouping spanned the card and put showsTimestamp on the card, hiding
+        // both prose timestamps).
+        let messages = [
+            Self.prose(seq: 0, offset: 0),
+            Self.message(seq: 1, offset: 10, kind: .toolUse(
+                ChatToolUse(toolName: "Read", summary: "Read file", status: .succeeded)
+            )),
+            Self.prose(seq: 2, offset: 20),
+        ]
+        let rows = projector.rows(messages: messages, pending: [], firstUnreadSeq: nil)
+        let snaps = Self.snapshots(rows)
+        #expect(snaps.map(\.groupPosition) == [.solo, .solo, .solo])
+        #expect(snaps.map(\.showsTimestamp) == [true, true, true])
     }
 
     @Test("showsTimestamp is true only on the last row of each group")
