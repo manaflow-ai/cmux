@@ -54,7 +54,6 @@ export function GuiModeApp() {
     didRequestContext.current = true;
     void loadGuiModeContext()
       .then((context) => {
-        syncGuiModeRoute(context);
         setLoadState({ status: "ready", context });
       })
       .catch((error) => {
@@ -83,18 +82,6 @@ export function GuiModeApp() {
     "data-gui-mode-page": "error",
   },
     h("div", { className: "gui-mode-status", role: "alert" }, loadState.message),
-  );
-}
-
-function syncGuiModeRoute(context: GuiModeContext): void {
-  const expectedHash = context.page === "task-worktree-pr" ? "#/task-worktree-pr" : "#/gui-mode";
-  if (window.location.hash === expectedHash) {
-    return;
-  }
-  window.history.replaceState(
-    null,
-    "",
-    `${window.location.pathname}${window.location.search}${expectedHash}`,
   );
 }
 

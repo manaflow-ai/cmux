@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RouterProvider } from "@tanstack/react-router";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { flushSync } from "react-dom";
@@ -6,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { GuiModeApp } from "../src/gui-mode/GuiModeApp";
 import { submitGuiModePrompt, type GuiModeContext } from "../src/gui-mode/bridge";
 import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
+import { createWebviewsRouter } from "../src/router";
 
 const expectedProviderIds = guiModeFallbackProviderIds;
 
@@ -161,7 +163,7 @@ test("GUI mode task page renders every provider from native context", async () =
         });
       }
 
-      expect(dom.window.location.hash).toBe("#/task-worktree-pr");
+      expect(dom.window.location.hash).toBe("#/gui-mode");
       const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
       expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
       expect(rootElement.dataset.guiModeProvider).toBe(provider.id);
@@ -187,10 +189,50 @@ test("GUI mode task page renders every provider from native context", async () =
   }
 });
 
+test("GUI mode task context renders inside the TanStack route without self-navigation", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "http://127.0.0.1/gui-mode.html#/gui-mode",
+  });
+  const restoreGlobals = installDomGlobals(dom);
+  const context = taskContextForProvider(guiModeFallbackProviders.at(-1)!);
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: unknown) => {
+          expect((message as any).method).toBe("app.context");
+          return Promise.resolve({ ok: true, value: { guiMode: context } });
+        },
+      },
+    },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const router = createWebviewsRouter(() => <GuiModeApp />);
+
+  try {
+    flushSync(() => {
+      root.render(<RouterProvider router={router} />);
+    });
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-task") !== null);
+
+    expect(dom.window.location.hash).toBe("#/gui-mode");
+    const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
+    expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
+    expect(rootElement.dataset.guiModeProvider).toBe(context.selectedProviderId);
+    expect(dom.window.document.querySelector(".gui-mode-task-provider-name")?.textContent)
+      .toBe("Qoder");
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+});
+
 function installDomGlobals(dom: JSDOM): () => void {
   const originalWindow = (globalThis as any).window;
   const originalDocument = (globalThis as any).document;
   const originalNavigator = (globalThis as any).navigator;
+  const originalHistory = (globalThis as any).history;
   const originalElement = (globalThis as any).Element;
   const originalNode = (globalThis as any).Node;
   const originalHTMLElement = (globalThis as any).HTMLElement;
@@ -202,6 +244,7 @@ function installDomGlobals(dom: JSDOM): () => void {
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).navigator = dom.window.navigator;
+  (globalThis as any).history = dom.window.history;
   (globalThis as any).Element = dom.window.Element;
   (globalThis as any).Node = dom.window.Node;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
@@ -214,6 +257,7 @@ function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("window", originalWindow);
     restoreGlobal("document", originalDocument);
     restoreGlobal("navigator", originalNavigator);
+    restoreGlobal("history", originalHistory);
     restoreGlobal("Element", originalElement);
     restoreGlobal("Node", originalNode);
     restoreGlobal("HTMLElement", originalHTMLElement);
@@ -221,6 +265,26 @@ function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("innerHeight", originalInnerHeight);
     restoreGlobal("scrollTo", originalScrollTo);
     restoreGlobal("webkit", originalWebkit);
+  };
+}
+
+function taskContextForProvider(provider: (typeof guiModeFallbackProviders)[number]): GuiModeContext {
+  return {
+    copy: {
+      errorMessage: "Could not create the GUI workspace.",
+      homeTitle: "GUI Mode",
+      promptPlaceholder: "What should cmux build?",
+      providerLabel: "Agent",
+      runtimeLabel: "Runtime",
+      submit: "Submit",
+      submitting: "Submitting",
+      taskPromptLabel: "Prompt",
+      taskTitle: "/task-worktree-pr",
+    },
+    page: "task-worktree-pr",
+    prompt: `Build with ${provider.displayName}`,
+    providers: guiModeFallbackProviders,
+    selectedProviderId: provider.id,
   };
 }
 
