@@ -91,7 +91,7 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             )
 
             #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
-            #expect(!event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
 
             try writeSettingsFile(
                 """
@@ -107,7 +107,7 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             KeyboardShortcutSettings.settingsFileStore.reload()
 
             #expect(!event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
-            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+            #expect(!event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
         }
     }
 

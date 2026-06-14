@@ -53,13 +53,6 @@ extension FileExplorerSearchField {
 
 @MainActor
 extension NSEvent {
-    var isFileExplorerOpenSelectionShortcut: Bool {
-        isFileExplorerOpenSelectionShortcut(
-            in: AppDelegate.shared?.shortcutEventFocusContext(self).shortcutContext ??
-                ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        )
-    }
-
     func isFileExplorerOpenSelectionShortcut(in placement: FileExplorerPanelPlacement) -> Bool {
         isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
     }
@@ -77,11 +70,13 @@ private extension FileExplorerPanelPlacement {
     func openSelectionShortcutContext(for event: NSEvent) -> ShortcutContext {
         var context = AppDelegate.shared?.shortcutEventFocusContext(event).shortcutContext ??
             ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        guard self == .rightSidebar else { return context }
-        context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
-        context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
-        context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)
-        context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        switch self {
+        case .rightSidebar, .pane:
+            context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
+            context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        }
         return context
     }
 }
