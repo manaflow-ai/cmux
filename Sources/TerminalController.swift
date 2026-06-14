@@ -2276,6 +2276,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return [
                 "socket_path": socketServer.currentSocketPath,
+                "app_pid": Int(ProcessInfo.processInfo.processIdentifier),
                 "focused": NSNull(),
                 "caller": NSNull()
             ]
@@ -2353,6 +2354,7 @@ class TerminalController {
 
         var result: [String: Any] = [
             "socket_path": socketServer.currentSocketPath,
+            "app_pid": Int(ProcessInfo.processInfo.processIdentifier),
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
         ]

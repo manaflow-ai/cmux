@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import hmac
 import os
 import shutil
 import socket
@@ -52,6 +53,8 @@ CMUX_CODEX_FEED_EVENTS = (
 
 FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 FAKE_SURFACE_ID = "22222222-2222-2222-2222-222222222222"
+FAKE_RELAY_ID = "test-relay"
+FAKE_RELAY_TOKEN = b"cmux-test-relay-token-32-bytes!!"
 
 
 class FakeCmuxSocket:
@@ -61,11 +64,13 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        app_pid: int | None = None,
     ):
         self.path = path
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.app_pid = os.getpid() if app_pid is None else app_pid
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self._ready = threading.Event()
@@ -127,6 +132,8 @@ class FakeCmuxSocket:
                             self._dropped_surface_list = True
                             continue
                         result = {"surfaces": self.surfaces}
+                    elif frame.get("method") == "system.identify":
+                        result = {"app_pid": self.app_pid}
                     elif self.decision is not None:
                         result = {
                             "status": "resolved",
@@ -140,7 +147,124 @@ class FakeCmuxSocket:
                     conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
 
 
-def monitor_pids_for_session(session_id: str) -> list[int]:
+class FakeRelayCmuxSocket:
+    def __init__(
+        self,
+        decision: dict | None,
+        surfaces: list[dict] | None = None,
+        app_pid: int | None = None,
+    ):
+        self.decision = decision
+        self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
+        self.app_pid = os.getpid() if app_pid is None else app_pid
+        self.relay_id = FAKE_RELAY_ID
+        self.relay_token = FAKE_RELAY_TOKEN
+        self.address = ""
+        self.frames: list[dict] = []
+        self._ready = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self) -> "FakeRelayCmuxSocket":
+        self._thread.start()
+        if not self._ready.wait(timeout=3):
+            raise RuntimeError("fake relay socket did not start")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._stop.set()
+        if self.address:
+            host, port_text = self.address.rsplit(":", 1)
+            try:
+                with socket.create_connection((host, int(port_text)), timeout=1):
+                    pass
+            except OSError:
+                pass
+        self._thread.join(timeout=3)
+
+    def _run(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", 0))
+            server.listen(8)
+            self.address = f"127.0.0.1:{server.getsockname()[1]}"
+            self._ready.set()
+            while not self._stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    continue
+                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+
+    def _read_line(self, conn: socket.socket) -> bytes:
+        data = b""
+        while b"\n" not in data and not self._stop.is_set():
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        line, _, _ = data.partition(b"\n")
+        return line
+
+    def _handle_conn(self, conn: socket.socket) -> None:
+        with conn:
+            nonce = f"nonce-{time.monotonic_ns()}"
+            challenge = {
+                "protocol": "cmux-relay-auth",
+                "version": 1,
+                "relay_id": self.relay_id,
+                "nonce": nonce,
+            }
+            conn.sendall(json.dumps(challenge).encode("utf-8") + b"\n")
+            auth_line = self._read_line(conn)
+            try:
+                auth = json.loads(auth_line.decode("utf-8"))
+            except json.JSONDecodeError:
+                return
+            auth_message = f"relay_id={self.relay_id}\nnonce={nonce}\nversion=1".encode("utf-8")
+            expected_mac = hmac.new(self.relay_token, auth_message, hashlib.sha256).hexdigest()
+            if auth.get("relay_id") != self.relay_id or auth.get("mac") != expected_mac:
+                conn.sendall(json.dumps({"ok": False}).encode("utf-8") + b"\n")
+                return
+            conn.sendall(json.dumps({"ok": True}).encode("utf-8") + b"\n")
+
+            data = b""
+            while not self._stop.is_set():
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+                while b"\n" in data:
+                    line, data = data.split(b"\n", 1)
+                    if not line:
+                        continue
+                    raw_line = line.decode("utf-8")
+                    try:
+                        frame = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        self.frames.append({"raw": raw_line})
+                        conn.sendall(b"OK\n")
+                        continue
+                    self.frames.append(frame)
+                    result: dict = {"status": "acknowledged"}
+                    if frame.get("method") == "surface.list":
+                        result = {"surfaces": self.surfaces}
+                    elif frame.get("method") == "system.identify":
+                        result = {"app_pid": self.app_pid}
+                    elif self.decision is not None:
+                        result = {
+                            "status": "resolved",
+                            "decision": self.decision,
+                        }
+                    response = {
+                        "id": frame.get("id"),
+                        "ok": True,
+                        "result": result,
+                    }
+                    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+
+
+def monitor_processes_for_session(session_id: str) -> list[tuple[int, str]]:
     ps_path = shutil.which("ps")
     if ps_path is None:
         raise AssertionError("ps executable not found")
@@ -153,7 +277,7 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
     )
     if result.returncode != 0:
         raise AssertionError(f"ps failed: {result.stderr}")
-    pids: list[int] = []
+    processes: list[tuple[int, str]] = []
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -163,8 +287,12 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
             " hooks codex monitor " in f" {command} "
             and f"--session {session_id}" in command
         ):
-            pids.append(int(pid_text))
-    return pids
+            processes.append((int(pid_text), command))
+    return processes
+
+
+def monitor_pids_for_session(session_id: str) -> list[int]:
+    return [pid for pid, _ in monitor_processes_for_session(session_id)]
 
 
 def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> list[int]:
@@ -177,6 +305,13 @@ def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> 
         time.sleep(0.1)
     state = "start" if present else "exit"
     raise AssertionError(f"monitor for {session_id} did not {state}; last pids={last}")
+
+
+def resolve_sleep_path() -> str:
+    sleep_path = shutil.which("sleep")
+    if sleep_path is None:
+        raise AssertionError("sleep command not found")
+    return sleep_path
 
 
 def assert_monitor_remains_present(session_id: str, *, duration: float) -> None:
@@ -330,7 +465,7 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
-def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
+def test_codex_prompt_submit_skips_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-lease-failure.sock"
     transcript_path = root / "codex-session-lease-failure.jsonl"
     bad_state_dir = root / "hook-state-file"
@@ -367,7 +502,120 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
                     f"hooks codex prompt-submit failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
+            if monitor_pids_for_session(session_id):
+                raise AssertionError("prompt-submit started a codex monitor without a lease")
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-missing-owner.sock"
+    state_dir = root / "hook-state-missing-owner"
+    transcript_path = root / "codex-missing-owner.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-missing-owner-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeCmuxSocket(socket_path, None, app_pid=0):
+        prompt = {
+            "session_id": session_id,
+            "turn_id": f"codex-monitor-missing-owner-turn-{os.getpid()}",
+            "cwd": str(root),
+            "transcript_path": str(transcript_path),
+        }
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+            input=json.dumps(prompt),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    if monitor_pids_for_session(session_id):
+        raise AssertionError("prompt-submit started an unowned codex monitor")
+
+
+def test_codex_prompt_submit_relay_uses_lease_without_owner_pid(cli_path: str, root: Path) -> None:
+    state_dir = root / "hook-state-relay"
+    transcript_path = root / "codex-relay.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-relay-session-{os.getpid()}"
+    turn_id = f"codex-monitor-relay-turn-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeRelayCmuxSocket(None, app_pid=99_999_999) as fake:
+        env["CMUX_SOCKET_PATH"] = fake.address
+        env["CMUX_RELAY_ID"] = fake.relay_id
+        env["CMUX_RELAY_TOKEN"] = fake.relay_token.hex()
+        try:
+            prompt = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", fake.address, "hooks", "codex", "prompt-submit"],
+                input=json.dumps(prompt),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+
             wait_for_monitor_pids(session_id, present=True, timeout=5)
+            monitor_commands = [command for _, command in monitor_processes_for_session(session_id)]
+            if any("--owner-pid" in command for command in monitor_commands):
+                raise AssertionError(f"relay-backed monitor used a local owner PID: {monitor_commands!r}")
+            if any(frame.get("method") == "system.identify" for frame in fake.frames):
+                raise AssertionError(f"relay-backed prompt-submit queried app_pid: {fake.frames!r}")
+
+            stop = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", fake.address, "hooks", "codex", "stop"],
+                input=json.dumps(stop),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex stop failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)
@@ -473,6 +721,150 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
         raw_commands = [frame.get("raw", "") for frame in fake.frames]
         if not any(command.startswith("set_status codex ") for command in raw_commands):
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
+
+
+def test_codex_monitor_exits_when_owner_pid_is_gone(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-gone.sock"
+    transcript_path = root / "codex-session-owner-gone.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    owner = subprocess.Popen([resolve_sleep_path(), "0.1"])
+    owner.wait(timeout=2)
+
+    session_id = f"codex-monitor-owner-gone-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    FAKE_WORKSPACE_ID,
+                    "--session",
+                    session_id,
+                    "--transcript",
+                    str(transcript_path),
+                    "--owner-pid",
+                    str(owner.pid),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("monitor stayed alive after owner process exited") from exc
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+
+def test_codex_monitor_exits_when_live_owner_pid_exits(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-live-owner-exits.sock"
+    transcript_path = root / "codex-session-live-owner-exits.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    owner = subprocess.Popen([resolve_sleep_path(), "0.5"])
+    session_id = f"codex-monitor-live-owner-exits-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    FAKE_WORKSPACE_ID,
+                    "--session",
+                    session_id,
+                    "--transcript",
+                    str(transcript_path),
+                    "--owner-pid",
+                    str(owner.pid),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            owner.terminate()
+            raise AssertionError("monitor stayed alive after live owner process exited") from exc
+        finally:
+            try:
+                owner.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                owner.terminate()
+                owner.wait(timeout=2)
+
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex monitor failed exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+
+def test_codex_monitor_rejects_invalid_owner_pid(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-invalid-owner.sock"
+    transcript_path = root / "codex-session-invalid-owner.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-invalid-owner-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--session",
+                session_id,
+                "--transcript",
+                str(transcript_path),
+                "--owner-pid",
+                "not-a-pid",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=3,
+        )
+    if result.returncode == 0:
+        raise AssertionError("hooks codex monitor accepted malformed --owner-pid")
+    combined_output = result.stdout + result.stderr
+    if "Invalid --owner-pid" not in combined_output:
+        raise AssertionError(
+            f"missing invalid owner pid diagnostic exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
 
 
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None, source: str = "codex") -> tuple[dict, dict]:
@@ -2073,9 +2465,14 @@ def main() -> int:
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
-            test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
+            test_codex_prompt_submit_skips_monitor_when_lease_write_fails(cli_path, root)
+            test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path, root)
+            test_codex_prompt_submit_relay_uses_lease_without_owner_pid(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)
+            test_codex_monitor_exits_when_live_owner_pid_exits(cli_path, root)
+            test_codex_monitor_rejects_invalid_owner_pid(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)

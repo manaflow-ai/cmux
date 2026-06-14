@@ -87,6 +87,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private var didTearDownWebView = false
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -268,6 +269,26 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func ownsLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard window.title.hasPrefix("Web Inspector") else { return false }
+        if Self.window(window, containsInspectorFrontendFor: webView) {
+            return true
+        }
+        return childPopups.contains { $0.ownsLiveDetachedWebInspectorWindow(window) }
+    }
+
+    private static func window(_ window: NSWindow, containsInspectorFrontendFor webView: WKWebView) -> Bool {
+        guard let inspectorFrontend = webView.cmuxInspectorFrontendWebView() else { return false }
+        if inspectorFrontend.window === window {
+            return true
+        }
+        if let contentView = window.contentView,
+           cmuxViewTreeContains(contentView, target: inspectorFrontend) {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Popup lifecycle
 
     func closePopup() {
@@ -305,11 +326,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation?.invalidate()
         urlObservation = nil
 
-        // Tear down web view
-        webAuthnCoordinator.uninstall(from: webView)
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
+        tearDownWebViewForRelease()
 
         // Unregister from parent (opener panel or parent popup)
         openerPanel?.removePopupController(self)
@@ -317,6 +334,23 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // Release self-retention
         objc_setAssociatedObject(panel, &Self.associatedObjectKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func tearDownWebViewForRelease() {
+        guard !didTearDownWebView else { return }
+        didTearDownWebView = true
+        if let window = webView.window,
+           cmuxResponderChainContains(window.firstResponder, target: webView) {
+            window.makeFirstResponder(nil)
+        }
+        webAuthnCoordinator.uninstall(from: webView)
+        webView.stopLoading()
+        webView.configuration.userContentController.removeAllUserScripts()
+        webView.cmuxPrepareForReleaseTeardown()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.loadHTMLString("", baseURL: URL(string: "about:blank"))
+        webView.removeFromSuperview()
     }
 
     // MARK: - Nested popup creation

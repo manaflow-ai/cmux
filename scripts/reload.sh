@@ -1016,6 +1016,7 @@ if [[ -n "$TAG" ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+  pkill -f "${APP_NAME}.app/Contents/Resources/bin/cmux hooks codex monitor" || true
   sleep 0.3
 fi
 
