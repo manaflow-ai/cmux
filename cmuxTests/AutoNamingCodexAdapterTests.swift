@@ -65,7 +65,7 @@ import Testing
         #expect(engine.buildContext(from: engine.extractCodexMessages(fromRolloutLines: onlyNoise)) == nil)
     }
 
-    @Test func sharedEnginePipelineParityWithCodexContent() {
+    @Test func sharedEnginePipelineParityWithCodexContent() throws {
         // One representative pass through the shared pipeline driven by codex
         // content: extraction feeds context, context feeds the prompt, and
         // the throttle behaves identically regardless of the source adapter.
@@ -74,7 +74,7 @@ import Testing
             messageLine(role: "assistant", content: [["type": "output_text", "text": "Plan: hook into Stop."]])
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
-        let context = try! #require(engine.buildContext(from: messages))
+        let context = try #require(engine.buildContext(from: messages))
         let prompt = engine.buildPrompt(currentTitle: "Old title", context: context)
         #expect(prompt.contains("Rename the workspace automatically"))
         #expect(prompt.contains("The current title is: Old title"))

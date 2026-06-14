@@ -49,13 +49,13 @@ import Testing
         #expect(messages.first == AutoNamingTranscriptMessage(role: "user", text: "Add Grok workspace naming"))
     }
 
-    @Test func sharedEnginePipelineParityWithGrokContent() {
+    @Test func sharedEnginePipelineParityWithGrokContent() throws {
         let lines = [
             historyLine(["type": "user", "content": "Name workspaces from Grok history"]),
             historyLine(["type": "assistant", "content": "I will use chat_history.jsonl."])
         ]
         let messages = engine.extractGrokMessages(fromChatHistoryLines: lines)
-        let context = try! #require(engine.buildContext(from: messages))
+        let context = try #require(engine.buildContext(from: messages))
         let prompt = engine.buildPrompt(currentTitle: "Old title", context: context)
         #expect(prompt.contains("Name workspaces from Grok history"))
         #expect(prompt.contains("The current title is: Old title"))

@@ -141,7 +141,7 @@ import Testing
         #expect(engine.extractMessages(fromTranscriptLines: ["", "garbage", "{}"]).isEmpty)
     }
 
-    @Test func contextCombinesHeadUserMessagesAndTailWithTruncation() {
+    @Test func contextCombinesHeadUserMessagesAndTailWithTruncation() throws {
         let longText = String(repeating: "x", count: config.contextMessageMaxChars + 100)
         var messages: [AutoNamingTranscriptMessage] = [
             AutoNamingTranscriptMessage(role: "user", text: "First ask"),
@@ -153,7 +153,7 @@ import Testing
         }
         messages.append(AutoNamingTranscriptMessage(role: "user", text: longText))
 
-        let context = try! #require(engine.buildContext(from: messages))
+        let context = try #require(engine.buildContext(from: messages))
         #expect(context.contains("user: First ask"))
         #expect(context.contains("user: Second ask"))
         #expect(!context.contains("Third ask"))
@@ -198,9 +198,9 @@ import Testing
         #expect(engine.sanitizeResponse("\"\"", currentTitle: nil) == nil)
     }
 
-    @Test func sanitizationEnforcesLengthCapAtWordBoundary() {
+    @Test func sanitizationEnforcesLengthCapAtWordBoundary() throws {
         let long = "Investigating the extremely convoluted authentication subsystem regression"
-        let sanitized = try! #require(engine.sanitizeResponse(long, currentTitle: nil))
+        let sanitized = try #require(engine.sanitizeResponse(long, currentTitle: nil))
         #expect(sanitized.count <= config.maxTitleLength)
         #expect(!sanitized.hasSuffix(" "))
         // Cut on a word boundary, not mid-word.
