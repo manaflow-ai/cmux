@@ -121,7 +121,7 @@ final class HostSettingsActions: SettingsHostActions {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            let observer = NotificationCenterObserverToken(
+            let observer = MobileHostStatusObserverToken(
                 NotificationCenter.default.addObserver(
                     forName: TerminalNotificationStore.authorizationStateDidChangeNotification,
                     object: TerminalNotificationStore.shared,
@@ -262,7 +262,7 @@ final class HostSettingsActions: SettingsHostActions {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            let observer = NotificationCenterObserverToken(
+            let observer = MobileHostStatusObserverToken(
                 NotificationCenter.default.addObserver(
                     forName: .mobileHostStatusDidChange,
                     object: nil,
@@ -389,7 +389,7 @@ private extension DesktopNotificationAuthorizationState {
 /// doesn't model `Sendable`; the token is immutable and only hands the opaque
 /// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
 /// has an identical internal token, which isn't `public`, so it's duplicated.
-final class NotificationCenterObserverToken: @unchecked Sendable {
+final class MobileHostStatusObserverToken: @unchecked Sendable {
     private let token: NSObjectProtocol
 
     init(_ token: NSObjectProtocol) {
