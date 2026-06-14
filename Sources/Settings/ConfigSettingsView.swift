@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileOpen
 import SwiftUI
 
 struct ConfigSettingsView: View {
@@ -179,7 +180,10 @@ struct ConfigSettingsView: View {
         window.minSize = NSSize(width: 700, height: 500)
         window.tabbingMode = .disallowed
         window.animationBehavior = .utilityWindow
-        window.level = .floating
+        // The Config editor is a top-level peer window, not a floating
+        // inspector: clicking the main window must be able to raise it above
+        // the editor (https://github.com/manaflow-ai/cmux/issues/5081).
+        window.adoptCmuxPeerWindowLevel()
         window.collectionBehavior.insert(.fullScreenAuxiliary)
     }
 
@@ -202,7 +206,11 @@ struct ConfigSettingsView: View {
 
     private func reloadFromDisk() {
         refreshSnapshots(preserveCmuxDraft: false)
-        GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(source: "settings.configWindow.reload")
+        } else {
+            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+        }
         statusMessage = String(
             localized: "settings.config.status.reloaded",
             defaultValue: "Reloaded configuration from disk."
@@ -217,7 +225,11 @@ struct ConfigSettingsView: View {
             try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
-            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "settings.configWindow.save")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+            }
             statusMessage = String(
                 localized: "settings.config.status.saved",
                 defaultValue: "Saved to cmux config and reloaded."
@@ -235,7 +247,7 @@ struct ConfigSettingsView: View {
 
     private func openCurrentSourceInEditor() {
         guard let url = materializedCmuxConfigURL() else { return }
-        PreferredEditorSettings.open(url)
+        PreferredEditorService(defaults: .standard).open(url)
     }
 
     private func revealCurrentSourceInFinder() {
