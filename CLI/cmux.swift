@@ -522,11 +522,6 @@ private final class ClaudeHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
 
-    enum PromptSubmitResult {
-        case staleTerminalTurn
-        case recorded(nested: Bool)
-    }
-
     private let statePath: String
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
@@ -590,9 +585,9 @@ private final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         rejectTerminalTurn: Bool = false
-    ) throws -> PromptSubmitResult {
+    ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return .recorded(nested: false) }
+        guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -606,7 +601,7 @@ private final class ClaudeHookSessionStore {
             if rejectTerminalTurn,
                let normalizedTurnId,
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                return .staleTerminalTurn
+                return (staleTerminalTurn: true, nested: false)
             }
             update(
                 &record,
@@ -636,7 +631,7 @@ private final class ClaudeHookSessionStore {
                     record.activePromptTurnIds = nil
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return .recorded(nested: true)
+                    return (staleTerminalTurn: false, nested: true)
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId {
                     var removedTurnCount = 0
@@ -656,26 +651,26 @@ private final class ClaudeHookSessionStore {
                     markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return .recorded(nested: totalDepth > 1)
+                    return (staleTerminalTurn: false, nested: totalDepth > 1)
                 }
                 if turnStack.last == normalizedTurnId {
                     let totalDepth = max(legacyDepth, turnStack.count)
                     setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return .recorded(nested: totalDepth > 1)
+                    return (staleTerminalTurn: false, nested: totalDepth > 1)
                 }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                 record.lastPromptTurnId = normalizedTurnId
                 state.sessions[normalized] = record
-                return .recorded(nested: totalDepth > 1)
+                return (staleTerminalTurn: false, nested: totalDepth > 1)
             }
             let existingTurnStackDepth = activePromptTurnStack(from: record).count
             record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
-            return .recorded(nested: (record.activePromptDepth ?? 0) > 1)
+            return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
         }
     }
 
@@ -29564,14 +29559,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         rejectTerminalTurn: def.name == "codex"
-                    )) ?? .recorded(nested: false)
-                    switch recordResult {
-                    case .staleTerminalTurn:
+                    )) ?? (staleTerminalTurn: false, nested: false)
+                    if recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
                         return
-                    case .recorded(let nested):
-                        nestedPromptSubmit = nested
                     }
+                    nestedPromptSubmit = recordResult.nested
                 }
             } else {
                 nestedPromptSubmit = false
