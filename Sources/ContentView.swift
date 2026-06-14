@@ -10465,17 +10465,25 @@ final class SidebarDragState {
     /// top-level space). Read by the preview builder; safe non-observed
     /// because it only changes together with `draggedTabId`.
     @ObservationIgnored var gestureScopeUsesTopLevelRows = false
-    /// Identity of the boundary slot the drag currently hovers plus the
-    /// translation width when it was entered. The X membership gesture is
-    /// measured RELATIVE to slot entry, so horizontal drift accumulated
-    /// earlier in the drag cannot silently bias joins.
-    @ObservationIgnored private var boundarySlotKey: String?
+    /// Translation width captured when the current legalized slot was entered;
+    /// the in-place X membership flip is measured relative to it so horizontal
+    /// drift accumulated in an earlier slot cannot silently bias a join.
     @ObservationIgnored private var translationWidthAtBoundaryEntry: CGFloat = 0
-    /// Last cursor Y and the persisted vertical drag direction. The reorder
-    /// probe is the follower's LEADING edge for the current direction, so a
-    /// touch triggers the swap; direction persists while stationary.
+    /// Previous cursor Y, used only to derive the per-event vertical delta `dY`
+    /// that feeds the velocity estimate.
     @ObservationIgnored private var lastReorderCursorY: CGFloat?
-    @ObservationIgnored private var dragDirectionIsUp = false
+    /// Low-passed vertical velocity and the slew-limited probe bias. Together
+    /// they lean the probe toward the follower's leading edge at drag speed and
+    /// back to the center at rest, CONTINUOUSLY — there is no binary direction
+    /// flag, which is what removes the old ~38pt jitter teleport.
+    @ObservationIgnored private var velocityEMA: CGFloat = 0
+    @ObservationIgnored private var probeBias: CGFloat = 0
+    /// Raw Schmitt memory for the slot staircase (neighbor-space). Consulted
+    /// only inside a threshold dead band; nil seeds from the committed slot.
+    @ObservationIgnored private var schmittSlot: Int?
+    /// The legalized neighbor slot the membership rule last saw; the X-flip
+    /// baseline re-anchors whenever it changes.
+    @ObservationIgnored private var lastLegalSlot: Int?
     /// Anchor ids of currently-collapsed groups, for spring-loading: parking
     /// the cursor over one mid-drag expands the group so the row can be
     /// placed at a specific slot inside (Finder-style spring-loaded folders).
@@ -10493,10 +10501,6 @@ final class SidebarDragState {
     /// Total content distance autoscroll has moved during this drag; folded
     /// into every translation-derived cursor position.
     @ObservationIgnored var autoScrollAccumulatedDelta: CGFloat = 0
-
-    /// Dead-zone half-width around a row midpoint within which the landing edge
-    /// is held, so the gap does not flicker on sub-pixel jitter.
-    static let hysteresisMargin: CGFloat = 6
 
     init() {}
 
@@ -10563,11 +10567,13 @@ final class SidebarDragState {
         draggedIsAnchor = false
         gestureScopeUsesTopLevelRows = false
         previewMembershipGroupId = nil
-        boundarySlotKey = nil
         translationWidthAtBoundaryEntry = 0
         lastTranslationWidth = 0
         lastReorderCursorY = nil
-        dragDirectionIsUp = false
+        velocityEMA = 0
+        probeBias = 0
+        schmittSlot = nil
+        lastLegalSlot = nil
         collapsedAnchorBandIds = []
         springLoadArmedAnchorId = nil
         springLoadTask?.cancel()
@@ -10603,7 +10609,10 @@ final class SidebarDragState {
         self.headerBandIds = headerBandIds
         self.collapsedAnchorBandIds = collapsedAnchorBandIds
         self.lastReorderCursorY = nil
-        self.dragDirectionIsUp = false
+        self.velocityEMA = 0
+        self.probeBias = 0
+        self.schmittSlot = nil
+        self.lastLegalSlot = nil
         self.draggedCommittedGroupId = draggedCommittedGroupId
         self.draggedCommittedIndent = (draggedCommittedGroupId != nil && !draggedIsAnchor)
             ? SidebarWorkspaceGroupingMetrics.memberIndent
@@ -10615,7 +10624,6 @@ final class SidebarDragState {
         // group they HEAD, not one they could join, so the preview membership
         // (which drives follower indent) must stay nil for them.
         self.previewMembershipGroupId = draggedIsAnchor ? nil : draggedCommittedGroupId
-        self.boundarySlotKey = nil
         self.translationWidthAtBoundaryEntry = 0
         self.draggedRowFrame = draggedRowFrame
         self.grabOffsetY = grabOffsetY
@@ -10684,69 +10692,72 @@ final class SidebarDragState {
     private func recomputeIndicator(cursorY: CGFloat, translationWidth: CGFloat) {
         guard let draggedTabId else { return }
         let bands = buildBands()
-
-        // Persisted vertical direction (kept while stationary).
-        if let last = lastReorderCursorY {
-            if cursorY < last - 0.5 {
-                dragDirectionIsUp = true
-            } else if cursorY > last + 0.5 {
-                dragDirectionIsUp = false
-            }
+        // One frame after a spring-load expansion the frozen frame map is
+        // empty; HOLD the current indicator + membership rather than snapping
+        // to the committed order, and only track cursorY so the next dY is sane.
+        guard !bands.isEmpty else {
+            lastReorderCursorY = cursorY
+            return
         }
-        lastReorderCursorY = cursorY
 
-        // The reorder probe is the FOLLOWER'S leading edge, not the cursor:
-        // the swap triggers as soon as the dragged row visually penetrates
-        // ~6pt into a neighbor, instead of waiting for the cursor to cross
-        // row midpoints. Moving up claims the slot ABOVE the touched row,
-        // moving down the slot BELOW it; while the probe sits in a gap (or
-        // the dragged row's own frozen band) the current slot is kept, which
-        // is also the hysteresis.
+        // ONE continuous scalar drives everything. The probe is the follower
+        // CENTER plus a slew-limited velocity lean: at rest it is the center
+        // (classic iOS reference), at drag speed it leans `probeInset` inside
+        // the leading edge so the ROW touches a neighbor rather than the
+        // cursor — with no binary direction flag, so a jitter reversal moves
+        // the probe by at most |dY| + biasSlew (~3.6pt) instead of teleporting
+        // a row height.
+        let dY = cursorY - (lastReorderCursorY ?? cursorY)
+        lastReorderCursorY = cursorY
         let draggedHeight = draggedRowFrame?.height ?? 0
-        let followerTop = cursorY - grabOffsetY
-        let touchInset: CGFloat = 6
-        let probeY = dragDirectionIsUp
-            ? followerTop + touchInset
-            : followerTop + draggedHeight - touchInset
+        let followerCenter = cursorY - grabOffsetY + draggedHeight / 2
+        let probed = SidebarReorderIndicatorResolver.probe(
+            followerCenter: followerCenter,
+            dY: dY,
+            height: draggedHeight,
+            ema: velocityEMA,
+            bias: probeBias
+        )
+        velocityEMA = probed.ema
+        probeBias = probed.bias
+        let probeY = probed.probeY
 
         let neighborBands = bands.filter { $0.id != draggedTabId }
-        let scopeIds = bands.map(\.id)
-        var indicator = dropIndicator
-        if let probeBand = neighborBands.first(where: { probeY >= $0.minY && probeY < $0.maxY }) {
-            // Built through the planner so pinned-tier legality and slot
-            // canonicalization still apply.
-            let forcedPointerY: CGFloat = dragDirectionIsUp ? 1 : max(probeBand.height - 1, 1)
-            indicator = SidebarDropPlanner.indicator(
-                draggedTabId: draggedTabId,
-                targetTabId: probeBand.id,
-                tabIds: scopeIds,
-                pinnedTabIds: pinnedIds,
-                pointerY: forcedPointerY,
-                targetHeight: probeBand.height
-            )
-        } else if let lastBand = neighborBands.last, probeY >= lastBand.maxY {
-            indicator = SidebarDropPlanner.indicator(
-                draggedTabId: draggedTabId,
-                targetTabId: nil,
-                tabIds: scopeIds,
-                pinnedTabIds: pinnedIds
-            )
-        } else if let firstBand = neighborBands.first, probeY < firstBand.minY {
-            indicator = SidebarDropPlanner.indicator(
-                draggedTabId: draggedTabId,
-                targetTabId: firstBand.id,
-                tabIds: scopeIds,
-                pinnedTabIds: pinnedIds,
-                pointerY: 1,
-                targetHeight: firstBand.height
-            )
+        let midYs = neighborBands.map(\.midY)
+        // Committed neighbor slot = number of neighbors above the dragged row's
+        // frozen band; seeds the staircase so the first event (probe at the own
+        // center) yields the committed slot with zero motion.
+        let committedSlot: Int
+        if let draggedBand = bands.first(where: { $0.id == draggedTabId }) {
+            committedSlot = neighborBands.prefix(while: { $0.minY < draggedBand.minY }).count
+        } else {
+            committedSlot = min(reorderIds.firstIndex(of: draggedTabId) ?? 0, neighborBands.count)
         }
-        if indicator != dropIndicator {
-            dropIndicator = indicator
+        let s = SidebarReorderIndicatorResolver.slot(
+            probeY: probeY,
+            midYs: midYs,
+            previous: schmittSlot ?? committedSlot
+        )
+        schmittSlot = s
+
+        let planned = SidebarDropPlanner.plan(
+            draggedTabId: draggedTabId,
+            neighborSlot: s,
+            tabIds: bands.map(\.id),
+            pinnedTabIds: pinnedIds
+        )
+        if planned.indicator != dropIndicator {
+            dropIndicator = planned.indicator
         }
 
         updateSpringLoad(bands: bands, cursorY: cursorY)
-        resolveMembership(bands: bands, probeY: probeY, translationWidth: translationWidth)
+        resolveMembership(
+            neighborBands: neighborBands,
+            probeY: probeY,
+            legalNeighborSlot: planned.legalNeighborSlot,
+            isOwnSlot: planned.indicator == nil,
+            translationWidth: translationWidth
+        )
     }
 
     /// Spring-loaded collapsed groups: parking the CURSOR over a collapsed
@@ -10785,50 +10796,47 @@ final class SidebarDragState {
             dropIndicator = nil
         }
         rowFramesInList = [:]
+        // The frozen geometry is about to be rebuilt against the expanded
+        // layout; reset the velocity/bias/slot memory so the staircase
+        // re-seeds from the new committed slot instead of carrying a stale
+        // lean across the discontinuity. previewMembership is deliberately
+        // held (membership rule 5) so the indent does not blink.
+        velocityEMA = 0
+        probeBias = 0
+        schmittSlot = nil
+        lastLegalSlot = nil
+        lastReorderCursorY = nil
     }
 
-    /// Resolves the membership the dragged row will commit with at the
-    /// current landing slot. Interior slots of a group force membership;
-    /// boundary slots (first/last slot of a run, the slot under a memberless
-    /// or collapsed header) follow the pointer's X axis — drag right to tuck
-    /// the row into the group, left to keep it (or pull it) out, in the same
-    /// motion as the vertical reorder. The X gesture is measured RELATIVE to
-    /// when the current boundary slot was entered, so horizontal drift
-    /// accumulated earlier in the drag never silently flips membership, and
-    /// a grouped member crossing a foreign group's boundary never auto-joins
-    /// it on a purely vertical drag.
+    /// Resolves the membership the dragged row will commit with at the current
+    /// landing slot, off the SAME velocity-biased probe that picks the slot —
+    /// one reference point, one strictly-increasing threshold sequence, so the
+    /// gap and the indent flip in lockstep and a single threshold crosses per
+    /// event. Interior slots of a group force membership; boundary slots use a
+    /// Schmitt around the gap midpoint `M`. The only horizontal input is the
+    /// in-place X-flip override at the dragged row's OWN slot (drag right to
+    /// tuck in / left to pull out without moving vertically), measured relative
+    /// to the slot the legalized planner reports so indicator flicker can never
+    /// erase accumulated X intent.
     private func resolveMembership(
-        bands: [SidebarReorderIndicatorResolver.Band],
+        neighborBands: [SidebarReorderIndicatorResolver.Band],
         probeY: CGFloat,
+        legalNeighborSlot p: Int,
+        isOwnSlot: Bool,
         translationWidth: CGFloat
     ) {
-        guard let draggedTabId, !draggedIsAnchor, !dropIndicatorUsesTopLevelRows else { return }
+        guard !draggedIsAnchor, !dropIndicatorUsesTopLevelRows else { return }
 
-        // The slot's visual neighbors, skipping the dragged row's own
-        // (frozen) band. With an indicator, the slot is canonicalized to
-        // "above row X" or the end sentinel; with a nil indicator the row
-        // sits at its own committed slot — whose neighbors still define a
-        // boundary, so "drag right/left in place" can flip membership
-        // without moving (the membership-only drop).
-        let neighborBands = bands.filter { $0.id != draggedTabId }
-        var prevBand: SidebarReorderIndicatorResolver.Band?
-        var nextBand: SidebarReorderIndicatorResolver.Band?
-        if let dropIndicator {
-            if let targetId = dropIndicator.tabId,
-               let targetIndex = neighborBands.firstIndex(where: { $0.id == targetId }) {
-                nextBand = neighborBands[targetIndex]
-                prevBand = targetIndex > 0 ? neighborBands[targetIndex - 1] : nil
-            } else {
-                prevBand = neighborBands.last
-                nextBand = nil
-            }
-        } else if let ownIndex = bands.firstIndex(where: { $0.id == draggedTabId }) {
-            prevBand = ownIndex > 0 ? bands[ownIndex - 1] : nil
-            nextBand = ownIndex + 1 < bands.count ? bands[ownIndex + 1] : nil
-        } else {
-            setPreviewMembership(draggedIsAnchor ? nil : draggedCommittedGroupId)
-            return
+        // Re-anchor the X baseline whenever the legalized slot changes (X
+        // intent is per-slot). Keyed on `p`, not indicator nil-ness, so a
+        // vertical jiggle that flickers the indicator does not reset it.
+        if lastLegalSlot != p {
+            lastLegalSlot = p
+            translationWidthAtBoundaryEntry = translationWidth
         }
+
+        let prevBand = p > 0 ? neighborBands[p - 1] : nil
+        let nextBand = p < neighborBands.count ? neighborBands[p] : nil
 
         // A header donates its group to the slot BELOW it (prev side) but
         // never to the slot above it (next side).
@@ -10839,70 +10847,50 @@ final class SidebarDragState {
 
         if let prevGroup, prevGroup == nextGroup {
             // Interior slot: sandwiched inside a group, membership is forced.
-            boundarySlotKey = nil
             setPreviewMembership(prevGroup)
             return
         }
         guard let candidate = prevGroup ?? nextGroup else {
-            boundarySlotKey = nil
             setPreviewMembership(nil)
             return
         }
 
-        if dropIndicator == nil {
-            // Own-slot boundary (no vertical movement): the X axis flips
-            // membership in place — drag right to tuck into the adjacent
-            // group, left to pull out, without moving vertically. Measured
-            // relative to slot entry so earlier drift never biases it.
-            let slotKey = "own.\(candidate.uuidString)"
-            if boundarySlotKey != slotKey {
-                boundarySlotKey = slotKey
-                translationWidthAtBoundaryEntry = translationWidth
-            }
-            let deltaSinceEntry = translationWidth - translationWidthAtBoundaryEntry
-            let stickyIn = previewMembershipGroupId == candidate
-            let isIn: Bool
-            if deltaSinceEntry >= 8 {
-                isIn = true
-            } else if deltaSinceEntry <= -8 {
-                isIn = false
-            } else {
-                isIn = stickyIn
-            }
-            if isIn != stickyIn {
-                translationWidthAtBoundaryEntry = translationWidth
-            }
-            setPreviewMembership(isIn ? candidate : nil)
-            return
-        }
-
-        // Moving boundary slot: TWO stacked hitboxes share this insertion
-        // position, measured with the SAME probe (the follower's leading
-        // edge) that drives the slot — one reference point for both, so the
-        // gap and the indent always flip together. While the probe is still
-        // over the boundary-adjacent row's run (its lower half plus half the
-        // gap) the drop is INSIDE the group ("last member" / "tucked under
-        // the header"); past the gap midpoint it is OUTSIDE ("first row
-        // after the group"). A small hysteresis band keeps jitter from
-        // flickering the indent.
-        boundarySlotKey = nil
-        let currentlyIn = previewMembershipGroupId == candidate
-        let isIn: Bool
-        if prevGroup != nil, let prevBand {
-            let edgeY: CGFloat
-            if let nextBand {
-                edgeY = (prevBand.maxY + nextBand.minY) / 2
-            } else {
-                edgeY = prevBand.maxY
-            }
-            isIn = currentlyIn ? probeY <= edgeY + 3 : probeY <= edgeY - 3
+        // Boundary slot. `M` = midpoint of the physical gap the slot occupies;
+        // it sits strictly between the two neighbor midpoints, so descending a
+        // group's bottom edge crosses prevMid (slot advances, still IN), then M
+        // (membership flips OUT), then nextMid (slot advances) — three single
+        // steps, the two group-bottom drops as adjacent Y intervals.
+        let candidateFromAbove = (prevGroup != nil)
+        let threshold: CGFloat
+        if let prevBand, let nextBand {
+            threshold = (prevBand.maxY + nextBand.minY) / 2
+        } else if let prevBand {
+            threshold = prevBand.maxY
         } else if let nextBand {
-            // Candidate donated by the row BELOW the slot — mirror the rule
-            // on that row's top edge.
-            let edgeY = prevBand.map { ($0.maxY + nextBand.minY) / 2 } ?? nextBand.minY
-            isIn = currentlyIn ? probeY >= edgeY - 3 : probeY >= edgeY + 3
+            threshold = nextBand.minY
         } else {
-            isIn = currentlyIn
+            threshold = probeY
+        }
+        var isIn = SidebarReorderIndicatorResolver.membershipIn(
+            probeY: probeY,
+            threshold: threshold,
+            candidateFromAbove: candidateFromAbove,
+            currentlyIn: previewMembershipGroupId == candidate
+        )
+
+        // In-place X override: only at the dragged row's own slot, where there
+        // is no vertical signal. Re-baselines on each flip so reversing needs a
+        // fresh nudge. Leaving the own slot vertically is continuous because
+        // the forced bit becomes the Schmitt seed above.
+        if isOwnSlot {
+            let deltaX = translationWidth - translationWidthAtBoundaryEntry
+            if deltaX >= SidebarReorderIndicatorResolver.Tuning.xFlipThreshold {
+                if !isIn { translationWidthAtBoundaryEntry = translationWidth }
+                isIn = true
+            } else if deltaX <= -SidebarReorderIndicatorResolver.Tuning.xFlipThreshold {
+                if isIn { translationWidthAtBoundaryEntry = translationWidth }
+                isIn = false
+            }
         }
         setPreviewMembership(isIn ? candidate : nil)
     }

@@ -1215,6 +1215,7 @@ struct WorkspaceGroupTests {
             scopeBandComposition: [:],
             bandGroupIdById: [h: g, m: g, u: nil, d: nil],
             headerBandIds: [h],
+            collapsedAnchorBandIds: [],
             draggedCommittedGroupId: nil,
             draggedIsAnchor: false,
             draggedRowFrame: frames[d],
@@ -1304,70 +1305,101 @@ struct WorkspaceGroupTests {
     }
 }
 
-/// Covers the gesture-driven reorder hit-testing + hysteresis that
-/// `SidebarReorderIndicatorResolver` adds on top of `SidebarDropPlanner`.
-@Suite("Sidebar reorder indicator resolver")
-struct SidebarReorderIndicatorResolverTests {
-    private func band(_ id: UUID, _ minY: CGFloat, _ maxY: CGFloat) -> SidebarReorderIndicatorResolver.Band {
-        .init(id: id, minY: minY, maxY: maxY)
+/// Covers the stable control law (`SidebarReorderIndicatorResolver` pure
+/// functions + the `SidebarDropPlanner.plan` neighbor-slot overload) that the
+/// live gesture reorder runs on. These are the invariants that kill the
+/// "two workspaces jump at once" instability: a single threshold sequence, a
+/// dead band at every decision, and a slew-limited probe.
+@Suite("Sidebar reorder control law")
+struct SidebarReorderControlLawTests {
+    private typealias R = SidebarReorderIndicatorResolver
+
+    @Test func slotIsMonotoneStaircase() {
+        let midYs: [CGFloat] = [15, 55, 105]
+        #expect(R.slot(probeY: -50, midYs: midYs, previous: 1) == 0)   // above all
+        #expect(R.slot(probeY: 500, midYs: midYs, previous: 1) == 3)   // below all (end)
+        #expect(R.slot(probeY: 35, midYs: midYs, previous: 0) == 1)    // between mid0/mid1
+        #expect(R.slot(probeY: 35, midYs: midYs, previous: 3) == 1)    // same regardless of memory
     }
 
-    @Test func cursorBelowAllRowsAppendsToEnd() {
-        let a = UUID(); let b = UUID(); let c = UUID()
-        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
-        let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 200, bands: bands, draggedId: a, pinnedIds: [], current: nil, hysteresisMargin: 6
-        )
-        #expect(indicator?.tabId == nil)
-        #expect(indicator?.edge == .bottom)
+    @Test func slotDeadBandHoldsPreviousNearThreshold() {
+        let midYs: [CGFloat] = [15, 55, 105]
+        // Within ±4 of mid1 (55): the previous slot is preserved (no flicker).
+        #expect(R.slot(probeY: 54, midYs: midYs, previous: 1) == 1)
+        #expect(R.slot(probeY: 54, midYs: midYs, previous: 2) == 2)
+        // Clearly past the dead band: the memory is overridden.
+        #expect(R.slot(probeY: 60, midYs: midYs, previous: 1) == 2)
+        #expect(R.slot(probeY: 50, midYs: midYs, previous: 2) == 1)
     }
 
-    @Test func cursorInTopHalfOfFirstRowTargetsItsTop() {
-        let a = UUID(); let b = UUID(); let c = UUID()
-        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
-        // Dragging C; hovering the top half of A should land it before A.
-        let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 3, bands: bands, draggedId: c, pinnedIds: [], current: nil, hysteresisMargin: 6
-        )
-        #expect(indicator?.tabId == a)
-        #expect(indicator?.edge == .top)
+    @Test func jitterAroundAThresholdNeverMovesTheSlot() {
+        // A stationary hand wobbling ±0.6pt across a threshold used to teleport
+        // the slot by a row height via the direction flag; now the dead band
+        // freezes it entirely.
+        let midYs: [CGFloat] = (0..<8).map { CGFloat($0) * 50 + 25 }   // 25,75,...,375
+        var prev = R.slot(probeY: 175, midYs: midYs, previous: 4)      // sit on mid3
+        for y in [CGFloat(174.4), 175.6, 174.4, 175.6, 175] {
+            let s = R.slot(probeY: y, midYs: midYs, previous: prev)
+            #expect(s == prev)
+            prev = s
+        }
     }
 
-    @Test func hysteresisHoldsCurrentEdgeNearMidpoint() {
-        let a = UUID(); let b = UUID(); let c = UUID()
-        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
-        // Dragging A. Current landing slot is "after B" (canonicalized to top of C).
-        let current = SidebarDropIndicator(tabId: c, edge: .top)
-        // Cursor just above B's midpoint (30) and within the 6pt dead-zone: the
-        // raw decision flips to "before B", but stickiness keeps the current slot.
-        let held = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 6
-        )
-        #expect(held == current)
-        // With no hysteresis the same cursor flips the slot.
-        let flipped = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 0
-        )
-        #expect(flipped != current)
+    @Test func perEventSweepNeverSkipsASlot() {
+        let midYs: [CGFloat] = (0..<8).map { CGFloat($0) * 50 + 25 }
+        var prev = 0
+        var y: CGFloat = -20
+        while y < 420 {
+            let s = R.slot(probeY: y, midYs: midYs, previous: prev)
+            #expect(abs(s - prev) <= 1)   // ≤ one position per 10pt step
+            prev = s
+            y += 10
+        }
     }
 
-    @Test func clearMidpointCrossingFlipsEdge() {
-        let a = UUID(); let b = UUID(); let c = UUID()
-        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
-        let current = SidebarDropIndicator(tabId: c, edge: .top) // after B
-        // Dragging C; cursor well into the top of B (far outside the dead-zone)
-        // lands before B.
-        let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 22, bands: bands, draggedId: c, pinnedIds: [], current: current, hysteresisMargin: 6
-        )
-        #expect(indicator?.tabId == b)
-        #expect(indicator?.edge == .top)
+    @Test func probeBiasIsSlewLimited() {
+        // A huge dY cannot move the bias more than biasSlew in one event, so the
+        // probe stays within slew of the follower center on first contact.
+        let r = R.probe(followerCenter: 100, dY: -200, height: 50, ema: 0, bias: 0)
+        #expect(abs(r.bias) <= R.Tuning.biasSlew + 0.001)
+        #expect(abs(r.probeY - 100) <= R.Tuning.biasSlew + 0.001)
     }
 
-    @Test func emptyBandsResolveToNil() {
-        let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: 10, bands: [], draggedId: UUID(), pinnedIds: [], current: nil, hysteresisMargin: 6
-        )
-        #expect(indicator == nil)
+    @Test func probeBiasDecaysToCenterAtRest() {
+        var ema: CGFloat = -30
+        var bias: CGFloat = -19
+        for _ in 0..<25 {
+            let r = R.probe(followerCenter: 100, dY: 0, height: 50, ema: ema, bias: bias)
+            ema = r.ema
+            bias = r.bias
+        }
+        #expect(abs(bias) < 0.5)
+    }
+
+    @Test func membershipSchmittFlipsOnlyPastThreshold() {
+        // Candidate donated from above (a group's bottom edge), M = 80.
+        #expect(R.membershipIn(probeY: 70, threshold: 80, candidateFromAbove: true, currentlyIn: false))
+        #expect(!R.membershipIn(probeY: 90, threshold: 80, candidateFromAbove: true, currentlyIn: true))
+        // Inside the ±4 dead band, the current state holds either way.
+        #expect(R.membershipIn(probeY: 82, threshold: 80, candidateFromAbove: true, currentlyIn: true))
+        #expect(!R.membershipIn(probeY: 82, threshold: 80, candidateFromAbove: true, currentlyIn: false))
+    }
+
+    @Test func planMapsNeighborSlotsThroughLegalization() {
+        let a = UUID(); let b = UUID(); let c = UUID()   // dragged = b (fromIndex 1)
+        let ids = [a, b, c]
+        let p0 = SidebarDropPlanner.plan(draggedTabId: b, neighborSlot: 0, tabIds: ids, pinnedTabIds: [])
+        #expect(p0.indicator?.tabId == a)
+        #expect(p0.indicator?.edge == .top)
+        #expect(p0.legalNeighborSlot == 0)
+
+        let p1 = SidebarDropPlanner.plan(draggedTabId: b, neighborSlot: 1, tabIds: ids, pinnedTabIds: [])
+        #expect(p1.indicator == nil)              // own slot, no-op
+        #expect(p1.legalNeighborSlot == 1)
+
+        let p2 = SidebarDropPlanner.plan(draggedTabId: b, neighborSlot: 2, tabIds: ids, pinnedTabIds: [])
+        #expect(p2.indicator?.tabId == nil)       // end sentinel
+        #expect(p2.indicator?.edge == .bottom)
+        #expect(p2.legalNeighborSlot == 2)
     }
 }

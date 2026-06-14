@@ -1,15 +1,20 @@
 import CoreGraphics
 import Foundation
 
-/// Maps a drag cursor position to a ``SidebarDropIndicator`` for the gesture
-/// driven workspace reorder, with hysteresis so the gap does not flicker when
-/// the cursor hovers exactly on a row's midpoint.
+/// Pure, unit-testable control math for the gesture-driven workspace reorder.
 ///
-/// Pure and self-contained so it is unit-testable without a running app: the
-/// caller passes the reorder-scope rows as vertical bands (already resolved
-/// from the live row frames) plus the current cursor Y, all in one coordinate
-/// space. Edge/insertion/pinned-tier legality is delegated to
-/// ``SidebarDropPlanner``; this type only adds hit-testing and stickiness.
+/// The live drag maps two inputs — the follower's vertical position and the
+/// horizontal translation — to two outputs: the insertion slot and the group
+/// membership the dragged row will commit with. The whole map is a MONOTONE
+/// step function of a single scalar (the velocity-biased follower probe `Y`)
+/// against one strictly-increasing threshold sequence, so an infinitesimal
+/// input change moves at most one decision boundary and two rows can never
+/// reorder in the same event. Every persistent decision sits behind a fixed
+/// dead band, never sticky state that survives large motion. The slot is fed
+/// to ``SidebarDropPlanner`` for pinned-tier legality; this type owns only the
+/// stable numeric mapping. (Replaces the old direction-flag probe whose
+/// ~38pt teleport on a sub-pixel reversal caused the "two workspaces jump at
+/// once" instability.)
 enum SidebarReorderIndicatorResolver {
     /// One reorder-scope item's vertical extent in list space. For a top-level
     /// group drag, a band spans the group header plus all its member rows so
@@ -23,93 +28,85 @@ enum SidebarReorderIndicatorResolver {
         var height: CGFloat { max(maxY - minY, 0) }
     }
 
-    /// Resolves the drop indicator for `cursorY`.
-    ///
-    /// - Parameters:
-    ///   - cursorY: cursor Y in the same list space as the band extents.
-    ///   - bands: reorder-scope bands in scope order, contiguous and sorted.
-    ///   - draggedId: the workspace being dragged.
-    ///   - pinnedIds: pinned ids within the scope (tier constraint).
-    ///   - current: the indicator currently shown, used for hysteresis.
-    ///   - hysteresisMargin: half-width of the dead-zone around a band midpoint
-    ///     within which the current edge is kept (points).
-    /// - Returns: the indicator to show, or nil for a no-op move.
-    static func resolve(
-        cursorY: CGFloat,
-        bands: [Band],
-        draggedId: UUID,
-        pinnedIds: Set<UUID>,
-        current: SidebarDropIndicator?,
-        hysteresisMargin: CGFloat
-    ) -> SidebarDropIndicator? {
-        guard !bands.isEmpty else { return nil }
-        let scopeIds = bands.map(\.id)
-
-        // Below every row: append to the end of the scope.
-        guard let lastBand = bands.last, cursorY <= lastBand.maxY else {
-            return SidebarDropPlanner.indicator(
-                draggedTabId: draggedId,
-                targetTabId: nil,
-                tabIds: scopeIds,
-                pinnedTabIds: pinnedIds
-            )
-        }
-
-        // First band whose bottom edge is below the cursor is the target; this
-        // also assigns the inter-row spacing gap to the lower band.
-        let targetBand = bands.first(where: { cursorY < $0.maxY }) ?? lastBand
-        let pointerY = cursorY - targetBand.minY
-
-        let effectivePointerY = stickyPointerY(
-            pointerY: pointerY,
-            band: targetBand,
-            scopeIds: scopeIds,
-            current: current,
-            margin: hysteresisMargin
-        )
-
-        return SidebarDropPlanner.indicator(
-            draggedTabId: draggedId,
-            targetTabId: targetBand.id,
-            tabIds: scopeIds,
-            pinnedTabIds: pinnedIds,
-            pointerY: effectivePointerY,
-            targetHeight: targetBand.height
-        )
+    /// Tuning constants for the control law, centralized so the live path and
+    /// the tests share one source of truth.
+    enum Tuning {
+        /// How far inside the follower's leading edge the saturated probe sits.
+        static let probeInset: CGFloat = 6
+        /// Low-pass factor for the velocity estimate (0 = frozen, 1 = raw).
+        static let emaAlpha: CGFloat = 0.25
+        /// Velocity → bias gain before clamping to ±B.
+        static let biasGain: CGFloat = 1.5
+        /// HARD per-event cap on how far the bias may move, the proof that
+        /// velocity-derived state can never teleport the probe.
+        static let biasSlew: CGFloat = 3
+        /// Half-width of the dead band around each slot threshold.
+        static let slotDeadBand: CGFloat = 4
+        /// Half-width of the dead band around the membership threshold.
+        static let membershipDeadBand: CGFloat = 4
+        /// Horizontal translation needed to force an in-place membership flip.
+        static let xFlipThreshold: CGFloat = 8
     }
 
-    /// Biases `pointerY` toward the current edge while the cursor sits within
-    /// `margin` of the band midpoint, so the indicator does not oscillate on
-    /// sub-pixel jitter at the 50% split.
-    private static func stickyPointerY(
-        pointerY: CGFloat,
-        band: Band,
-        scopeIds: [UUID],
-        current: SidebarDropIndicator?,
-        margin: CGFloat
-    ) -> CGFloat {
-        let mid = band.height / 2
-        guard margin > 0, abs(pointerY - mid) < margin else { return pointerY }
-        guard let edge = currentEdge(for: band, scopeIds: scopeIds, current: current) else {
-            return pointerY
-        }
-        return edge == .top ? mid - margin : mid + margin
+    /// Updates the velocity estimate and slew-limited bias, returning the probe
+    /// Y. At rest the probe is the follower CENTER (the classic iOS reference);
+    /// at deliberate drag speed the bias saturates so the probe sits
+    /// `probeInset` inside the follower's leading edge, giving "the row touches,
+    /// not the cursor" responsiveness WITHOUT any binary direction state. The
+    /// bias gets there continuously through the EMA + per-event slew cap, so a
+    /// jitter reversal moves the probe by at most `|dY| + biasSlew`.
+    static func probe(
+        followerCenter: CGFloat,
+        dY: CGFloat,
+        height: CGFloat,
+        ema: CGFloat,
+        bias: CGFloat
+    ) -> (probeY: CGFloat, ema: CGFloat, bias: CGFloat) {
+        let newEMA = ema + Tuning.emaAlpha * (dY - ema)
+        let maxBias = max(0, height / 2 - Tuning.probeInset)
+        let biasTarget = min(max(Tuning.biasGain * newEMA, -maxBias), maxBias)
+        let newBias = min(max(biasTarget, bias - Tuning.biasSlew), bias + Tuning.biasSlew)
+        return (followerCenter + newBias, newEMA, newBias)
     }
 
-    /// The edge of `band` that the current indicator represents, if any. The
-    /// planner canonicalizes "after row i" to "top of row i+1" (or the end
-    /// sentinel), so both forms are matched here.
-    private static func currentEdge(
-        for band: Band,
-        scopeIds: [UUID],
-        current: SidebarDropIndicator?
-    ) -> SidebarDropEdge? {
-        guard let current else { return nil }
-        if current.tabId == band.id, current.edge == .top { return .top }
-        guard let index = scopeIds.firstIndex(of: band.id) else { return nil }
-        let afterId: UUID? = index + 1 < scopeIds.count ? scopeIds[index + 1] : nil
-        if let afterId, current.tabId == afterId, current.edge == .top { return .bottom }
-        if afterId == nil, current.tabId == nil, current.edge == .bottom { return .bottom }
-        return nil
+    /// Schmitt-clamped staircase slot. `midYs` is the strictly-increasing
+    /// sequence of neighbor band midpoints; the returned slot is in
+    /// `0...midYs.count` ("above neighbor s", `count` = end sentinel). `lo`/`hi`
+    /// are the threshold counts at the two edges of the dead band; clamping the
+    /// previous slot into `[lo, hi]` means the slot only changes once `probeY`
+    /// is unambiguously past a threshold (by `deadBand`), and `previous` is
+    /// consulted ONLY inside a dead band, never as state surviving real motion.
+    static func slot(
+        probeY: CGFloat,
+        midYs: [CGFloat],
+        previous: Int,
+        deadBand: CGFloat = Tuning.slotDeadBand
+    ) -> Int {
+        var lo = 0
+        var hi = 0
+        for m in midYs {
+            if m + deadBand < probeY { lo += 1 }
+            if m - deadBand < probeY { hi += 1 }
+        }
+        return min(max(previous, lo), hi)
+    }
+
+    /// Schmitt membership bit at a boundary slot. `threshold` is the midpoint of
+    /// the physical gap the slot occupies; the bit only flips once `probeY` is
+    /// past it by `deadBand`. `candidateFromAbove` is true when the candidate
+    /// group is donated by the row ABOVE the slot (the common case at a group's
+    /// bottom edge); false when donated from below (a slot directly above a
+    /// group's first member).
+    static func membershipIn(
+        probeY: CGFloat,
+        threshold: CGFloat,
+        candidateFromAbove: Bool,
+        currentlyIn: Bool,
+        deadBand: CGFloat = Tuning.membershipDeadBand
+    ) -> Bool {
+        if candidateFromAbove {
+            return currentlyIn ? probeY <= threshold + deadBand : probeY <= threshold - deadBand
+        }
+        return currentlyIn ? probeY >= threshold - deadBand : probeY >= threshold + deadBand
     }
 }
