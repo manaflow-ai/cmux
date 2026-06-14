@@ -8689,7 +8689,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
-    private func synchronizeGeometryAndContent() -> Bool {
+    private func synchronizeGeometryAndContent(forceScrollerTile: Bool = false) -> Bool {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -8702,9 +8702,10 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
         // NSScrollView can defer clip-view/scroller updates until its own
-        // layout pass. Tile before computing the terminal content width so
-        // scroller visibility reflects the latest scrollbar state.
-        if didScrollbarAppearanceChange {
+        // layout pass. Tile before computing the terminal content width when
+        // scrollbar configuration or the system scroller style changed so
+        // scroller visibility reflects the latest state.
+        if forceScrollerTile || didScrollbarAppearanceChange {
             scrollView.tile()
         }
         let scrollerInsetWidth = verticalScrollerInsetWidth()
@@ -11188,8 +11189,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         // The preferred scroller style changes whether persistent scrollers
-        // reserve terminal content width, so re-run the full geometry owner.
-        _ = synchronizeGeometryAndContent()
+        // reserve terminal content width. Force AppKit to retile before the
+        // full geometry owner measures the scroller presentation.
+        _ = synchronizeGeometryAndContent(forceScrollerTile: true)
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
