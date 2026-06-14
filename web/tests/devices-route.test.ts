@@ -24,7 +24,9 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 const { DELETE, GET, POST } = await import("../app/api/devices/route");
-const { hostIsLoopback } = await import("../app/api/devices/route-classification");
+const { hostIsLoopback, hostIsTailscaleAttachable } = await import(
+  "../app/api/devices/route-classification"
+);
 
 let sql: Sql | null = null;
 
@@ -359,6 +361,69 @@ describe("device registry route", () => {
     ]) {
       expect(hostIsLoopback(host)).toBe(false);
     }
+  });
+
+  test("hostIsTailscaleAttachable accepts only CGNAT and *.ts.net", () => {
+    for (const host of [
+      "100.64.0.1",
+      "100.127.255.255",
+      "100.100.5.7",
+      "my-mac.tailnet.ts.net",
+      "MY-MAC.TS.NET",
+    ]) {
+      expect(hostIsTailscaleAttachable(host)).toBe(true);
+    }
+    for (const host of [
+      "192.168.1.5",
+      "10.0.0.5",
+      "172.16.0.1",
+      "100.63.0.1",
+      "100.128.0.1",
+      "8.8.8.8",
+      "example.com",
+      "my-mac.local",
+      "fd7a:115c:a1e0::1",
+    ]) {
+      expect(hostIsTailscaleAttachable(host)).toBe(false);
+    }
+  });
+
+  dbTest("rejects a manual remote with a non-Tailscale (LAN) route", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const response = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        displayName: "lan-remote",
+        manual: true,
+        routes: [
+          { id: "m0", kind: "tailscale", endpoint: { type: "host_port", host: "192.168.1.5", port: 51001 } },
+        ],
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toBe("non_attachable_route_rejected");
+
+    const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from devices`;
+    expect(total).toBe(0);
+  });
+
+  dbTest("a non-manual self-registration may still advertise a LAN route", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // The Mac's own self-registration (no `manual` flag) is not subject to the
+    // Tailscale attachability guard; it advertises whatever live routes it has.
+    const response = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        routes: [
+          { id: "r0", kind: "tailscale", endpoint: { type: "host_port", host: "192.168.1.5", port: 51001 } },
+        ],
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 
   dbTest("rejects a manual remote whose route is loopback", async () => {

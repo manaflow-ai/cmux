@@ -193,3 +193,43 @@ export function routesContainLoopback(routes: unknown[]): boolean {
   }
   return false;
 }
+
+/**
+ * Whether `host` is a Tailscale address a signed-in phone can authenticate to:
+ * a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Mirrors the native
+ * `MobileShellRouteAuthPolicy` (and the CLI's `RemoteRouteSpec.isTailscaleAttachable`).
+ * iOS only sends the Stack token over a `.tailscale` route whose host matches
+ * this, so any other host registers but fails to attach (`insecureManualRoute`).
+ */
+export function hostIsTailscaleAttachable(rawHost: string): boolean {
+  const host = rawHost.trim().toLowerCase();
+  if (host.endsWith(".ts.net")) return true;
+  const parts = host.split(".");
+  if (parts.length !== 4) return false;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!/^[0-9]+$/.test(part)) return false;
+    const value = Number(part);
+    if (value < 0 || value > 255) return false;
+    octets.push(value);
+  }
+  return octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
+}
+
+/**
+ * Whether any host:port route has a host that is NOT attachable from the phone
+ * (not a Tailscale CGNAT/`*.ts.net` host). The server-side guard for manual
+ * remotes so a direct API caller cannot register a remote that shows in the
+ * device list but deterministically fails to attach, matching the CLI/app check.
+ * Non-host routes (peer/url) and routes without a host are ignored here; the
+ * loopback guard runs separately.
+ */
+export function routesContainNonAttachableHost(routes: unknown[]): boolean {
+  for (const route of routes) {
+    if (!route || typeof route !== "object" || Array.isArray(route)) continue;
+    const record = route as Record<string, unknown>;
+    const host = routeEndpointHost(record);
+    if (host !== null && !hostIsTailscaleAttachable(host)) return true;
+  }
+  return false;
+}

@@ -129,8 +129,8 @@ import CMUXMobileCore
         "MY-MAC.TS.NET:51001",  // case-insensitive suffix
     ])
     func acceptsTailscaleAttachableHosts(_ token: String) throws {
-        let route = try RemoteRouteSpec.parse(token).attachRoute(id: "m", priority: 0)
-        #expect(RemotesClient.routeIsAttachable(route))
+        let spec = try RemoteRouteSpec.parse(token)
+        #expect(spec.isTailscaleAttachable)
     }
 
     @Test(arguments: [
@@ -145,8 +145,8 @@ import CMUXMobileCore
         "[fd7a:115c:a1e0::1]:51001", // Tailscale IPv6 ULA (no IPv6 auth path)
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
-        let route = try RemoteRouteSpec.parse(token).attachRoute(id: "m", priority: 0)
-        #expect(!RemotesClient.routeIsAttachable(route))
+        let spec = try RemoteRouteSpec.parse(token)
+        #expect(!spec.isTailscaleAttachable)
     }
 
     // MARK: - Deterministic device id (idempotency on name)

@@ -1,6 +1,5 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
-import CmuxMobileShellModel
 import CryptoKit
 import Foundation
 
@@ -118,6 +117,36 @@ struct RemoteRouteSpec: Equatable {
             priority: priority
         )
     }
+
+    /// Whether a signed-in phone could authenticate to this host from the
+    /// registry. Manual routes are stored as `.tailscale`, and the iOS attach
+    /// path (`MobileShellRouteAuthPolicy.routeAllowsStackAuth`) only sends the
+    /// Stack token over a `.tailscale` route whose host is a Tailscale address:
+    /// a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Any other host
+    /// (LAN IP, bare hostname, Tailscale IPv6 ULA) would show in the device list
+    /// but fail to connect with `insecureManualRoute`. This mirrors that policy;
+    /// keep the two in sync. (`MobileShellRouteAuthPolicy` is in a mobile-only
+    /// package the macOS CLI/app entry does not link, so the predicate is
+    /// reimplemented here rather than imported.)
+    var isTailscaleAttachable: Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasSuffix(".ts.net") { return true }
+        // CGNAT 100.64.0.0/10: first octet 100, second octet 64...127, dotted
+        // quad with all-decimal octets in 0...255.
+        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { part -> Int? in
+            guard !part.isEmpty,
+                  part.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let value = Int(part),
+                  (0...255).contains(value) else {
+                return nil
+            }
+            return value
+        }
+        guard octets.count == 4 else { return false }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
 }
 
 /// A registered remote as returned by the device registry, flattened to one
@@ -210,7 +239,7 @@ actor RemotesClient {
         // iOS auth policy will send the Stack token over it. Reject anything
         // else here so we never register a remote that shows in the device list
         // but deterministically fails to connect (`insecureManualRoute`).
-        for (spec, route) in zip(specs, attachRoutes) where !Self.routeIsAttachable(route) {
+        for spec in specs where !spec.isTailscaleAttachable {
             throw RemotesClientError.notAttachable(host: spec.host)
         }
 
@@ -275,17 +304,20 @@ actor RemotesClient {
             }
             throw RemotesClientError.notFound(target)
         }
-        // Match by exact display name first (case-insensitive).
+        // Prefer the deterministic id THIS name was added under (the caller's
+        // own manual remote), so a duplicate display name shared with a
+        // co-member's or auto-registered device does not shadow the user's own
+        // remote and make removal silently no-op.
+        let derived = Self.deviceId(forName: target)
+        if remotes.contains(where: { $0.deviceId.lowercased() == derived }) {
+            return derived
+        }
+        // Fall back to an exact display-name match (case-insensitive), e.g. for a
+        // remote whose deviceId was not derived from this exact name.
         if let match = remotes.first(where: {
             ($0.displayName ?? "").compare(target, options: .caseInsensitive) == .orderedSame
         }) {
             return match.deviceId
-        }
-        // Fallback: the deterministic id this name would have been added under,
-        // so removal works even if the displayName was never stored.
-        let derived = Self.deviceId(forName: target)
-        if remotes.contains(where: { $0.deviceId.lowercased() == derived }) {
-            return derived
         }
         throw RemotesClientError.notFound(target)
     }
@@ -314,15 +346,6 @@ actor RemotesClient {
 
     static func isUUID(_ value: String) -> Bool {
         UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
-    }
-
-    /// Whether a signed-in phone could authenticate to this route from the
-    /// registry. Defers to the same `MobileShellRouteAuthPolicy` the iOS attach
-    /// path enforces, so `remotes add` and the phone agree on what is reachable
-    /// (a manual host:port is attachable only when its host is a Tailscale
-    /// CGNAT 100.64/10 IP or a *.ts.net name).
-    static func routeIsAttachable(_ route: CmxAttachRoute) -> Bool {
-        MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
     }
 
     // MARK: - Display parsing
@@ -428,7 +451,9 @@ actor RemotesClient {
         }
         switch errorCode {
         case "loopback_route_rejected":
-            return "The device registry rejected a loopback route. Use the Mac's Tailscale name, LAN IP, or hostname, not localhost."
+            return "The device registry rejected a loopback route. Use the Mac's Tailscale address, not localhost."
+        case "non_attachable_route_rejected":
+            return "The device registry rejected a non-Tailscale route. Use a 100.64.x.x-100.127.x.x (CGNAT) IP or a *.ts.net name; a phone can only attach over Tailscale."
         case "device_not_owned":
             return "That remote is owned by another team member and cannot be modified from this account."
         case "too_many_devices":

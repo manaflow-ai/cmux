@@ -20,7 +20,10 @@ import {
   type AuthedUser,
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
-import { routesContainLoopback } from "./route-classification";
+import {
+  routesContainLoopback,
+  routesContainNonAttachableHost,
+} from "./route-classification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -161,6 +164,15 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (manual && routesContainLoopback(routes)) {
     return jsonResponse({ error: "loopback_route_rejected" }, 400);
+  }
+  // For a user-initiated manual remote, also enforce that every host:port route
+  // is attachable from the phone (a Tailscale CGNAT / *.ts.net host). This is
+  // the server-side mirror of the CLI/app check, so a direct authenticated API
+  // caller cannot register a remote that lists but cannot connect. Scoped to the
+  // manual path: the Mac's own self-registration advertises its real live routes
+  // and is not subject to this guard.
+  if (manual && routesContainNonAttachableHost(routes)) {
+    return jsonResponse({ error: "non_attachable_route_rejected" }, 400);
   }
 
   const db = cloudDb();
