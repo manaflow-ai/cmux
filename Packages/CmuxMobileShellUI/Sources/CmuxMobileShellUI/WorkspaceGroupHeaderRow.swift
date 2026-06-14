@@ -90,9 +90,6 @@ struct WorkspaceGroupHeaderRow: View {
             NavigationLink(value: group.anchorWorkspaceID) {
                 nameLabel
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                selectWorkspace(group.anchorWorkspaceID)
-            })
         case .sidebar:
             Button {
                 selectWorkspace(group.anchorWorkspaceID)
