@@ -7817,13 +7817,10 @@ enum TerminalScrollbackViewportIntent: Equatable {
         guard !isAwaitingExplicitScrollPacket else {
             return self
         }
-        if distanceFromBottom > bottomThreshold {
-            return .reviewingScrollback
+        guard distanceFromBottom.isFinite else {
+            return self
         }
-        if distanceFromBottom <= bottomThreshold {
-            return .followOutput
-        }
-        return self
+        return distanceFromBottom > bottomThreshold ? .reviewingScrollback : .followOutput
     }
 
     func scrollbarSyncDecision(for scrollbar: GhosttyScrollbar) -> TerminalScrollbackScrollbarSyncDecision {
