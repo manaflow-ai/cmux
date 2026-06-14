@@ -50,6 +50,19 @@ import Testing
         #expect(harness.workspace.panels.count == panelsBefore + 1)
     }
 
+    @Test func windowMirrorSplitRejectsWhileConnecting() {
+        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7)),
+            makePanel: { _ in nil }
+        )
+
+        #expect(!mirror.requestSplit(fromPane: 7, vertical: true))
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate

@@ -133,8 +133,10 @@ final class RemoteTmuxWindowMirror {
     /// Propagates a user split of `tmuxPaneId` to tmux `split-window`
     /// (`-h` = side-by-side, `-v` = stacked). The new pane arrives via the
     /// resulting `%layout-change` → ``reconcile(layout:)``.
-    func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) {
-        connection?.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
+    @discardableResult
+    func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) -> Bool {
+        guard let connection, connection.connectionState == .connected else { return false }
+        return connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
     }
 
     /// Propagates a user close of `tmuxPaneId` to tmux `kill-pane`. The pane is

@@ -11424,13 +11424,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func splitCurrentSurface(direction: SplitDirection) -> Bool {
         guard let surfaceId = terminalSurface?.id else { return false }
-        // Remote tmux mirror pane: route the split to tmux `split-window` and let
-        // the resulting %layout-change rebuild the in-tab splits (one source of
-        // truth). Local splits are unaffected (this returns false for them).
-        if AppDelegate.shared?.remoteTmuxController.handleMirrorSplitRequested(
-            surfaceId: surfaceId, vertical: !direction.isHorizontal
-        ) == true {
-            return true
+        // Remote tmux mirror pane: never fall through to a local split. The tmux
+        // command either reaches the live stream, or the action reports false.
+        if let controller = AppDelegate.shared?.remoteTmuxController,
+           controller.isMirrorPaneSurface(surfaceId) {
+            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal)
         }
         guard let tabId,
               let app = AppDelegate.shared,

@@ -502,10 +502,9 @@ final class RemoteTmuxController {
     /// `%layout-change`. Returns `true` if `surfaceId` is a mirror pane (the
     /// caller suppresses the local split).
     func handleMirrorSplitRequested(surfaceId: UUID, vertical: Bool) -> Bool {
-        for sessionMirror in sessionMirrors.values where !sessionMirror.connection.exited {
+        for sessionMirror in sessionMirrors.values {
             if let match = sessionMirror.windowMirror(forSurfaceId: surfaceId) {
-                match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
-                return true
+                return match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
             }
         }
         return false
