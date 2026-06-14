@@ -72,6 +72,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case sendCtrlFToTerminal
 
     // MARK: Panes
+    case nextPane
+    case prevPane
     case focusLeft
     case focusRight
     case focusUp
@@ -178,8 +180,9 @@ extension ShortcutAction {
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
             return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+        case .nextPane, .prevPane, .focusLeft, .focusRight, .focusUp, .focusDown,
+             .splitRight, .splitDown, .toggleSplitZoom, .equalizeSplits,
+             .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
@@ -345,6 +348,10 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .nextPane:
+            return String(localized: "shortcut.nextPane.label", defaultValue: "Next Pane")
+        case .prevPane:
+            return String(localized: "shortcut.previousPane.label", defaultValue: "Previous Pane")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"

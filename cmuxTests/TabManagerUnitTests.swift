@@ -2206,6 +2206,69 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 
 @MainActor
+final class TabManagerPaneFocusCycleTests: XCTestCase {
+    func testFocusNextPaneCyclesThroughSplitTreeOrder() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+
+        workspace.focusPanel(leftPanelId)
+
+        XCTAssertTrue(manager.focusNextPane())
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        XCTAssertTrue(manager.focusNextPane())
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+    }
+
+    func testFocusPreviousPaneWrapsToLastPane() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let lastPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: false)
+        )
+
+        workspace.focusPanel(firstPanelId)
+
+        XCTAssertTrue(manager.focusPreviousPane())
+        XCTAssertEqual(workspace.focusedPanelId, lastPanel.id)
+    }
+
+    func testFocusNextPaneReturnsFalseForSinglePaneWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let originalFocusedPanelId = workspace.focusedPanelId
+
+        XCTAssertFalse(manager.focusNextPane())
+        XCTAssertEqual(workspace.focusedPanelId, originalFocusedPanelId)
+    }
+
+    func testFocusPaneCycleDoesNotLeaveZoomedPane() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId))
+
+        XCTAssertFalse(manager.focusNextPane())
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+        XCTAssertNotEqual(workspace.focusedPanelId, rightPanel.id)
+
+        XCTAssertFalse(manager.focusPreviousPane())
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+        XCTAssertNotEqual(workspace.focusedPanelId, rightPanel.id)
+    }
+}
+
+@MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
     func testFocusTextBoxOnNewTerminalsDefaultAppliesToNewWorkspaceAndTerminalSurfaces() {
         let defaults = UserDefaults.standard

@@ -152,6 +152,40 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testPaneCycleShortcutsArePublicConfigurableActions() {
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.nextPane))
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.prevPane))
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.nextPane.defaultShortcut,
+            StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.prevPane.defaultShortcut,
+            StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
+        )
+        XCTAssertEqual(
+            ShortcutAction.nextPane.defaultStroke,
+            ShortcutStroke(key: "]", command: true, option: true, control: true)
+        )
+        XCTAssertEqual(
+            ShortcutAction.prevPane.defaultStroke,
+            ShortcutStroke(key: "[", command: true, option: true, control: true)
+        )
+        XCTAssertEqual(ShortcutAction.nextPane.displayName, KeyboardShortcutSettings.Action.nextPane.label)
+        XCTAssertEqual(ShortcutAction.prevPane.displayName, KeyboardShortcutSettings.Action.prevPane.label)
+    }
+
+    func testPublicShortcutActionsHaveSettingsPackageCounterparts() {
+        let missingActions = KeyboardShortcutSettings.publicShortcutActions
+            .filter { ShortcutAction(rawValue: $0.rawValue) == nil }
+            .map(\.rawValue)
+
+        XCTAssertTrue(
+            missingActions.isEmpty,
+            "Missing CmuxSettings.ShortcutAction cases: \(missingActions.joined(separator: ", "))"
+        )
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

@@ -8876,6 +8876,50 @@ final class Workspace: Identifiable, ObservableObject {
 
     }
 
+    @discardableResult
+    func focusNextPane() -> Bool {
+        focusPane(offset: 1)
+    }
+
+    @discardableResult
+    func focusPreviousPane() -> Bool {
+        focusPane(offset: -1)
+    }
+
+    @discardableResult
+    private func focusPane(offset: Int) -> Bool {
+        if let zoomedPaneId = bonsplitController.zoomedPaneId {
+            guard bonsplitController.allPaneIds.contains(zoomedPaneId) else { return false }
+            guard bonsplitController.focusedPaneId != zoomedPaneId else { return false }
+            return focusSelectedPanel(inPane: zoomedPaneId)
+        }
+
+        let paneIds = bonsplitController.allPaneIds
+        guard paneIds.count > 1 else { return false }
+
+        guard let currentPaneId = bonsplitController.focusedPaneId,
+              let currentIndex = paneIds.firstIndex(of: currentPaneId) else {
+            return false
+        }
+
+        let targetIndex = (currentIndex + offset + paneIds.count) % paneIds.count
+        let targetPaneId = paneIds[targetIndex]
+        return focusSelectedPanel(inPane: targetPaneId)
+    }
+
+    @discardableResult
+    private func focusSelectedPanel(inPane paneId: PaneID) -> Bool {
+        let targetTab = bonsplitController.selectedTab(inPane: paneId)
+            ?? bonsplitController.tabs(inPane: paneId).first
+        guard let targetTab,
+              let targetPanelId = panelIdFromSurfaceId(targetTab.id) else {
+            return false
+        }
+
+        focusPanel(targetPanelId)
+        return true
+    }
+
     // MARK: - Surface Navigation
 
     /// Select the next surface in the currently focused pane

@@ -13090,6 +13090,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Pane cycling: focus the next/previous split pane in stable split-tree order.
+        if matchConfiguredShortcut(event: event, action: .nextPane) {
+            let targetContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let targetManager = targetContext?.tabManager ?? tabManager
+            let targetWindow = targetContext.flatMap { $0.window ?? windowForMainWindowId($0.windowId) } ?? NSApp.keyWindow
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: targetManager, window: targetWindow)
+            _ = targetManager?.focusNextPane()
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .prevPane) {
+            let targetContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let targetManager = targetContext?.tabManager ?? tabManager
+            let targetWindow = targetContext.flatMap { $0.window ?? windowForMainWindowId($0.windowId) } ?? NSApp.keyWindow
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: targetManager, window: targetWindow)
+            _ = targetManager?.focusPreviousPane()
+            return true
+        }
+
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
             tabManager?.selectNextSurface()

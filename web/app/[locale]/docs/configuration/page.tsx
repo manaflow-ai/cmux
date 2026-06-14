@@ -147,7 +147,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+  return text[locale] ?? (locale.startsWith("ja") ? text.ja : text.en);
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {

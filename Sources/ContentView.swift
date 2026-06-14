@@ -7057,6 +7057,24 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.nextPane",
+                title: constant(String(localized: "command.nextPane.title", defaultValue: "Next Pane")),
+                subtitle: constant(String(localized: "command.nextPane.subtitle", defaultValue: "Pane Navigation")),
+                keywords: ["next", "pane", "split", "focus"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.previousPane",
+                title: constant(String(localized: "command.previousPane.title", defaultValue: "Previous Pane")),
+                subtitle: constant(String(localized: "command.previousPane.subtitle", defaultValue: "Pane Navigation")),
+                keywords: ["previous", "pane", "split", "focus"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8016,6 +8034,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.previousTabInPane") {
             tabManager.selectPreviousSurface()
+        }
+        registry.register(commandId: "palette.nextPane") {
+            _ = tabManager.focusNextPane()
+        }
+        registry.register(commandId: "palette.previousPane") {
+            _ = tabManager.focusPreviousPane()
         }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {

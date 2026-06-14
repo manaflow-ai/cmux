@@ -912,6 +912,12 @@ struct cmuxApp: App {
                 }
             }
             Divider()
+            splitCommandButton(title: String(localized: "menu.view.nextPane", defaultValue: "Next Pane"), shortcut: menuShortcut(for: .nextPane)) {
+                _ = activeTabManager.focusNextPane()
+            }
+            splitCommandButton(title: String(localized: "menu.view.previousPane", defaultValue: "Previous Pane"), shortcut: menuShortcut(for: .prevPane)) {
+                _ = activeTabManager.focusPreviousPane()
+            }
             splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
                 activeTabManager.selectNextSurface()
             }

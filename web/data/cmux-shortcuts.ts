@@ -1,6 +1,7 @@
 export type LocalizedText = {
   en: string;
   ja: string;
+  [locale: string]: string;
 };
 
 export type Shortcut = {
@@ -165,6 +166,58 @@ export const shortcutCategories: ShortcutCategory[] = [
     id: "split-panes",
     titleKey: "splitPanes",
     shortcuts: [
+      {
+        id: "nextPane",
+        combos: [["⌃", "⌥", "⌘", "]"]],
+        description: {
+          ar: "اللوحة التالية",
+          bs: "Sljedeći panel",
+          da: "Næste panel",
+          de: "Nächster Bereich",
+          en: "Next pane",
+          es: "Siguiente panel",
+          fr: "Panneau suivant",
+          it: "Pannello successivo",
+          ja: "次のペイン",
+          km: "ផ្ទាំងបន្ទាប់",
+          ko: "다음 패널",
+          no: "Neste panel",
+          pl: "Następny panel",
+          "pt-BR": "Próximo painel",
+          ru: "Следующая панель",
+          th: "บานหน้าต่างถัดไป",
+          tr: "Sonraki bölme",
+          uk: "Наступна панель",
+          "zh-CN": "下一个面板",
+          "zh-TW": "下一個面板",
+        },
+      },
+      {
+        id: "prevPane",
+        combos: [["⌃", "⌥", "⌘", "["]],
+        description: {
+          ar: "اللوحة السابقة",
+          bs: "Prethodni panel",
+          da: "Forrige panel",
+          de: "Vorheriger Bereich",
+          en: "Previous pane",
+          es: "Panel anterior",
+          fr: "Panneau précédent",
+          it: "Pannello precedente",
+          ja: "前のペイン",
+          km: "ផ្ទាំងមុន",
+          ko: "이전 패널",
+          no: "Forrige panel",
+          pl: "Poprzedni panel",
+          "pt-BR": "Painel anterior",
+          ru: "Предыдущая панель",
+          th: "บานหน้าต่างก่อนหน้า",
+          tr: "Önceki bölme",
+          uk: "Попередня панель",
+          "zh-CN": "上一个面板",
+          "zh-TW": "上一個面板",
+        },
+      },
       { id: "focusLeft", combos: [["⌥", "⌘", "←"]], description: { en: "Focus pane left", ja: "左のペインにフォーカス" } },
       { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },

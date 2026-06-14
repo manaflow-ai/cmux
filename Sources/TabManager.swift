@@ -3638,6 +3638,18 @@ class TabManager: ObservableObject {
         tab.moveFocus(direction: direction)
     }
 
+    /// Move focus to the next pane in split-tree order.
+    @discardableResult
+    func focusNextPane() -> Bool {
+        selectedWorkspace?.focusNextPane() ?? false
+    }
+
+    /// Move focus to the previous pane in split-tree order.
+    @discardableResult
+    func focusPreviousPane() -> Bool {
+        selectedWorkspace?.focusPreviousPane() ?? false
+    }
+
     // MARK: - Focus History Navigation (CmuxWorkspaceNavigation)
 
     // The back/forward stack, suppression depth, and navigation logic live
