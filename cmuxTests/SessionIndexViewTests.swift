@@ -137,13 +137,8 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    // Regression for https://github.com/manaflow-ai/cmux/issues/5262.
-    // cmux captures Codex's *internal* sandbox-policy `type`, which is a superset of
-    // the values the `--sandbox` CLI flag accepts. A
-    // `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a captured
-    // `(approval: "never", sandbox: "disabled")`; the generator must reproduce that
-    // single combined flag rather than the invalid, contradictory `-a never -s disabled`
-    // (Codex rejects it: `error: invalid value 'disabled' for '--sandbox <SANDBOX_MODE>'`).
+    // Regression for #5262: Codex's internal sandbox-policy `type` can be a
+    // superset of accepted CLI `--sandbox` values.
     func testCodexResumeCommandReproducesBypassFlagForDisabledSandbox() {
         let entry = makeEntry(
             agent: .codex,
@@ -347,12 +342,14 @@ final class SessionIndexViewTests: XCTestCase {
 
         coordinator.update(
             section: harness.section,
+            colorScheme: .dark,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
             onResume: nil
         )
         coordinator.update(
             section: harness.section,
+            colorScheme: .dark,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
             onResume: nil
@@ -387,6 +384,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         coordinator.update(
             section: harness.section,
+            colorScheme: .dark,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
             onResume: nil
@@ -401,6 +399,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         coordinator.update(
             section: harness.section,
+            colorScheme: .dark,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
             onResume: nil
@@ -430,6 +429,7 @@ final class SessionIndexViewTests: XCTestCase {
         let host = SectionPopoverHost(
             isPresented: binding,
             section: section,
+            colorScheme: .dark,
             search: search,
             loadSnapshot: loadSnapshot,
             onResume: nil
