@@ -238,7 +238,36 @@ class CmuxPerfRunner:
                     return True
                 except Exception:
                     pass
-            time.sleep(0.1)
+            if not self.wait_before_retry(deadline, 0.1, "wait_for_socket", fail_on_exit=False):
+                return False
+        return False
+
+    def wait_before_retry(
+        self,
+        deadline: float,
+        max_wait_s: float,
+        label: str,
+        fail_on_exit: bool = True,
+    ) -> bool:
+        remaining_s = deadline - time.monotonic()
+        if remaining_s <= 0:
+            return False
+
+        proc = self.proc
+        if proc is None:
+            if fail_on_exit:
+                raise PerfFailure(f"{label}: app process is not running")
+            return False
+
+        # Wait on the app process so an early crash wakes retries immediately.
+        try:
+            proc.wait(timeout=min(max_wait_s, remaining_s))
+        except subprocess.TimeoutExpired:
+            return True
+
+        self.app_returncode = proc.poll()
+        if fail_on_exit:
+            raise PerfFailure(f"{label}: app exited with code {self.app_returncode}")
         return False
 
     def debug_log_size(self) -> int:
@@ -272,7 +301,8 @@ class CmuxPerfRunner:
                     last_tail = text[-4000:]
             except OSError as exc:
                 last_error = str(exc)
-            time.sleep(0.1)
+            if not self.wait_before_retry(deadline, 0.1, f"wait_for_{label}"):
+                break
 
         failures = self.result["fixture"].setdefault("debug_log_wait_failures", [])
         if len(failures) < 10:
@@ -332,7 +362,8 @@ class CmuxPerfRunner:
                         return snapshot
                 except (OSError, json.JSONDecodeError) as exc:
                     last_error = str(exc)
-            time.sleep(0.1)
+            if not self.wait_before_retry(deadline, 0.1, "restore_session_snapshot_file"):
+                break
 
         self.result["fixture"]["restore_snapshot_file_failure"] = {
             "path": str(self.session_snapshot_path),
@@ -624,7 +655,8 @@ class CmuxPerfRunner:
                 last_count = len(panes)
                 if last_count >= minimum_count:
                     return panes
-            time.sleep(0.1)
+            if not self.wait_before_retry(deadline, 0.1, f"wait_for_pane_count {workspace}"):
+                break
         detail = f"last_count={last_count}"
         if last_error is not None:
             detail += f" last_error={last_error}"
@@ -791,8 +823,8 @@ class CmuxPerfRunner:
 
         prompt_reports = 0
         poll_failures: list[dict[str, str]] = []
-        deadline = time.time() + self.args.scrollback_timeout
-        while pending and time.time() < deadline:
+        deadline = time.monotonic() + self.args.scrollback_timeout
+        while pending and time.monotonic() < deadline:
             self.ensure_app_running("seed_scrollback.poll")
             done: list[tuple[str, str]] = []
             for surface, (ws, token) in list(pending.items()):
@@ -819,7 +851,7 @@ class CmuxPerfRunner:
                     prompt_reports += 1
                 pending.pop(surface, None)
             if pending:
-                time.sleep(1.0)
+                self.wait_before_retry(deadline, 1.0, "seed_scrollback.poll")
 
         self.result["fixture"]["scrollback_done"] = len(terminals) - len(pending)
         self.result["fixture"]["scrollback_pending"] = len(pending)
@@ -872,7 +904,11 @@ class CmuxPerfRunner:
                 break
             if self.args.real_scrollback_capture_timeout <= 0 or time.monotonic() >= deadline:
                 break
-            time.sleep(max(0.05, self.args.real_scrollback_refresh_interval))
+            self.wait_before_retry(
+                deadline,
+                max(0.05, self.args.real_scrollback_refresh_interval),
+                "benchmark_real_scrollback_snapshot",
+            )
 
         wait_ms = rounded_ms(now_ms() - start)
         refresh_interval = max(0.05, self.args.real_scrollback_refresh_interval)
