@@ -92,10 +92,10 @@
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
 926	Sources/DockPanelView.swift
+924	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 919	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-915	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 905	Sources/CmuxSSHURLRequest.swift
 893	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
