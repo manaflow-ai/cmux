@@ -93,16 +93,21 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
         }
         let createIfMissing = (params["create"] as? Bool) ?? false
-        return v2VmCall(id: id, timeoutSeconds: 20) {
-            try await MainActor.run {
-                guard let controller = AppDelegate.shared?.remoteTmuxController else {
-                    throw RemoteTmuxError.unreachable("app not ready")
-                }
-                _ = try controller.attach(
-                    host: host,
-                    sessionName: session,
-                    createIfMissing: createIfMissing
-                )
+        return v2VmCall(id: id, timeoutSeconds: 60) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            if let sshArgv = try await controller.attachControlStreamWhenReady(
+                host: host,
+                sessionName: session,
+                createIfMissing: createIfMissing
+            ) {
+                return [
+                    "host": host.destination,
+                    "session": session,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
             }
             return [
                 "host": host.destination,

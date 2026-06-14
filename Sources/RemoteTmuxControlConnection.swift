@@ -1,82 +1,6 @@
 import Foundation
 import os
 
-/// Bounded off-main writer for the SSH control client's stdin pipe.
-///
-/// `RemoteTmuxControlConnection` records command FIFO entries on the main actor
-/// before this writer can emit bytes, so tmux `%begin`/`%end` replies cannot
-/// outrun their local correlation slot. The write itself may block on a stalled
-/// SSH pipe; keeping it on this serial queue prevents that from freezing UI.
-private final class RemoteTmuxControlPipeWriter: @unchecked Sendable {
-    private struct State {
-        var closed = false
-        var pendingBytes = 0
-    }
-
-    private let handle: FileHandle
-    private let queue: DispatchQueue
-    private let maxPendingBytes: Int
-    private let onFailure: @Sendable (Error) -> Void
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    init(
-        handle: FileHandle,
-        label: String,
-        maxPendingBytes: Int,
-        onFailure: @escaping @Sendable (Error) -> Void
-    ) {
-        self.handle = handle
-        self.queue = DispatchQueue(label: label, qos: .userInitiated)
-        self.maxPendingBytes = maxPendingBytes
-        self.onFailure = onFailure
-    }
-
-    func enqueue(_ data: Data) -> Bool {
-        guard !data.isEmpty else { return true }
-        let accepted = state.withLock { state in
-            guard !state.closed,
-                  data.count <= maxPendingBytes - state.pendingBytes else {
-                return false
-            }
-            state.pendingBytes += data.count
-            return true
-        }
-        guard accepted else { return false }
-
-        queue.async { [handle, onFailure, state] in
-            var writeError: Error?
-            let shouldWrite = state.withLock { !$0.closed }
-            if shouldWrite {
-                do {
-                    try handle.write(contentsOf: data)
-                } catch {
-                    writeError = error
-                }
-            }
-
-            let shouldReportFailure = state.withLock { state in
-                state.pendingBytes = max(0, state.pendingBytes - data.count)
-                return !state.closed
-            }
-            if let writeError, shouldReportFailure {
-                onFailure(writeError)
-            }
-        }
-        return true
-    }
-
-    func close() {
-        let shouldClose = state.withLock { state in
-            guard !state.closed else { return false }
-            state.closed = true
-            return true
-        }
-        if shouldClose {
-            try? handle.close()
-        }
-    }
-}
-
 /// A live tmux control-mode connection to one remote session.
 ///
 /// Spawns `ssh -tt <ControlMaster> host tmux -CC attach -t <session>` as a
@@ -87,6 +11,12 @@ private final class RemoteTmuxControlPipeWriter: @unchecked Sendable {
 /// command-queue desync because we issue and correlate commands ourselves.
 @MainActor
 final class RemoteTmuxControlConnection {
+    typealias ConnectionState = RemoteTmuxConnectionState
+    typealias PaneForegroundState = RemoteTmuxPaneForegroundState
+    typealias Snapshot = RemoteTmuxControlConnectionSnapshot
+    private typealias CommandKind = RemoteTmuxControlCommandKind
+    private typealias PostAttachAction = RemoteTmuxPostAttachAction
+
     /// The host this connection talks to.
     let host: RemoteTmuxHost
     /// The tmux session name this connection attaches to. Mutable because a
@@ -114,6 +44,14 @@ final class RemoteTmuxControlConnection {
         didSet {
             guard oldValue != connectionState else { return }
             observers.notifyStateChanged(connectionState)
+            switch connectionState {
+            case .connected:
+                finishConnectionWaiters(connected: true)
+            case .ended:
+                finishConnectionWaiters(connected: false)
+            case .connecting, .reconnecting:
+                break
+            }
         }
     }
     /// `true` once the connection has permanently ended (genuine tmux `%exit`, a
@@ -154,6 +92,7 @@ final class RemoteTmuxControlConnection {
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
+    private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
     /// consumed. That first block is matched explicitly (see the `.commandResult`
@@ -187,17 +126,6 @@ final class RemoteTmuxControlConnection {
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
     private var lastClientSize: (columns: Int, rows: Int)?
-    /// Work deferred from `.enter` to the first `list-windows` result: `.enter`
-    /// precedes the attach's own `%begin`/`%end` block, and any command queued
-    /// before that block is consumed would shift the positional result FIFO.
-    private enum PostAttachAction {
-        /// Reconnect: re-seed every mirrored pane (the fresh client lost the
-        /// screen, subscriptions, and client size).
-        case reseed
-        /// First connect: re-apply a client grid stored before stdin was live,
-        /// so the remote doesn't stay at ssh's default 80×24.
-        case applyClientSize
-    }
     private var pendingPostAttachAction: PostAttachAction?
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
@@ -231,29 +159,11 @@ final class RemoteTmuxControlConnection {
     /// this, mutations are rejected and the connection reconnects instead of
     /// accepting unbounded user input that may never reach tmux.
     private static let maxPendingStdinBytes = 256 * 1024
-
-    private enum CommandKind: Equatable {
-        case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneReflow(Int), paneAltScreen(Int),
-             activityQuery(UUID), other
-    }
-
-    /// The lifecycle phase of a control connection.
-    ///
-    /// A transport loss moves `.connected` → `.reconnecting` (the mirror stays
-    /// frozen and keeps retrying); a successful re-attach returns to `.connected`
-    /// and re-seeds the panes. Only a genuine tmux `%exit`, a session found gone on
-    /// reconnect, or a deliberate ``stop()`` reaches `.ended`.
-    enum ConnectionState: Sendable, Equatable {
-        /// The initial connection is being established (before the first control-mode
-        /// `%enter`).
-        case connecting
-        /// Live: control mode is up and streaming.
-        case connected
-        /// The transport dropped; retrying with backoff while the mirror stays frozen.
-        case reconnecting
-        /// Permanently over (genuine `%exit`, session gone, or deliberate stop).
-        case ended
-    }
+    /// Cap pending stdout chunks between SSH's pipe callback and the main-actor
+    /// parser. A full buffer means parsing/rendering has fallen behind remote
+    /// output; reconnecting and re-seeding is safer than corrupting the stream by
+    /// dropping arbitrary control-mode bytes or growing memory without bound.
+    private static let maxPendingStdoutChunks = 16
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
@@ -267,71 +177,6 @@ final class RemoteTmuxControlConnection {
     /// starts) re-classifies the pane live. The tmux pane id is appended for
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     private static let reflowSubscriptionPrefix = "cmux_reflow_"
-
-    /// A pane's parsed `#{alternate_on}|#{pane_current_command}` value — the one
-    /// fact behind two policies (reflow suppression and close confirmation),
-    /// which deliberately default in opposite directions on an empty/unparseable
-    /// value: reflow must stay suppressed (rewrapping a TUI corrupts it) while a
-    /// close confirmation must not fire (a spurious dialog on every close).
-    /// Deliberately not `@MainActor` (a pure value), so the classification
-    /// constants live here rather than on the actor-isolated class.
-    struct PaneForegroundState: Equatable, Sendable {
-        /// Field separator inside the reflow subscription value
-        /// (`#{alternate_on}|#{pane_current_command}`). A pipe never appears in a tmux
-        /// `alternate_on` flag (0/1) and is not part of a process's `comm` name.
-        static let fieldSeparator: Character = "|"
-
-        /// Foreground commands (`#{pane_current_command}`) whose primary-screen
-        /// scrollback is safe to reflow on resize — i.e. plain interactive shells that
-        /// keep their history as ordinary soft-wrapped text. Anything else (node for
-        /// claude, python, REPLs, pagers, editors) is treated as no-reflow so an inline
-        /// TUI's fixed-width frame is never rewrapped. Alt-screen apps are caught
-        /// separately by `#{alternate_on}`. Login shells can be reported with a leading
-        /// dash, so the common traditional/POSIX dash variants are listed too (not every
-        /// shell has one — a missing dash variant just doesn't reflow). Classification
-        /// defaults to no-reflow on anything not in this set (and on an unparseable
-        /// value), which is the safe direction (worst case: a shell's scrollback doesn't
-        /// reflow until reclassified) — so a login shell whose dash variant is missing
-        /// here simply doesn't reflow, never breaks.
-        static let plainShellCommands: Set<String> = [
-            "bash", "zsh", "fish", "sh", "dash", "ksh", "tcsh", "csh", "ash",
-            "mksh", "pdksh", "elvish", "nu", "xonsh", "pwsh", "powershell", "oil", "osh",
-            "-bash", "-zsh", "-fish", "-sh", "-dash", "-ksh", "-tcsh", "-csh", "-ash",
-        ]
-
-        let alternateOn: Bool
-        let command: String
-
-        init(rawValue: String) {
-            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let parts = trimmed.split(
-                separator: Self.fieldSeparator,
-                maxSplits: 1, omittingEmptySubsequences: false
-            )
-            alternateOn = parts.first.map(String.init) == "1"
-            command = parts.count > 1
-                ? String(parts[1]).trimmingCharacters(in: .whitespaces)
-                : ""
-        }
-
-        /// Reflow policy: suppress primary-screen reflow on resize unless the
-        /// foreground command is a known plain shell (and the pane is not on the
-        /// alternate screen). `true` for an empty/unknown command — safe default.
-        var suppressesReflow: Bool {
-            alternateOn || !Self.plainShellCommands.contains(command)
-        }
-
-        /// Close-confirmation policy: the pane is running something beyond an
-        /// idle shell — a KNOWN non-shell foreground command (sleep, vim, node…)
-        /// or the alternate screen (full-screen TUI). Unlike ``suppressesReflow``,
-        /// an empty/unreported command is NOT active, so an unclassified pane
-        /// never triggers a spurious dialog. Foreground-only by nature: a remote
-        /// background job (`sleep 10 &`) keeps `pane_current_command` at the
-        /// shell and is not detected — tmux exposes no cheap process-tree check.
-        var hasActiveCommand: Bool {
-            alternateOn || (!command.isEmpty && !Self.plainShellCommands.contains(command))
-        }
-    }
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
@@ -418,6 +263,49 @@ final class RemoteTmuxControlConnection {
         started = true
     }
 
+    /// Suspends until the control stream really enters tmux control mode, or until
+    /// the connection reaches a permanent end. Launch success alone is not enough:
+    /// `ssh` can start and then fail authentication/session attach before tmux emits
+    /// `%enter`.
+    func waitUntilConnected() async -> Bool {
+        switch connectionState {
+        case .connected:
+            return true
+        case .ended:
+            return false
+        case .connecting, .reconnecting:
+            break
+        }
+
+        let token = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                switch connectionState {
+                case .connected:
+                    continuation.resume(returning: true)
+                    return
+                case .ended:
+                    continuation.resume(returning: false)
+                    return
+                case .connecting, .reconnecting:
+                    break
+                }
+
+                connectionWaiters[token] = { connected in
+                    continuation.resume(returning: connected)
+                }
+
+                if Task.isCancelled {
+                    finishConnectionWaiter(token, connected: false)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishConnectionWaiter(token, connected: false)
+            }
+        }
+    }
+
     /// Spawns (or re-spawns, on reconnect) the SSH `tmux -CC` process and wires its
     /// stdout into the parser, consuming stderr for session-gone classification.
     /// Resets the per-process state (parser, pending-command FIFO, captured stderr,
@@ -452,22 +340,38 @@ final class RemoteTmuxControlConnection {
             handle: inPipe.fileHandleForWriting,
             label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
             maxPendingBytes: Self.maxPendingStdinBytes,
-            onFailure: { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.handleStdinWriteFailure()
-                }
+            onFailure: { [weak self] in
+                self?.handleStdinWriteFailure()
             }
         )
 
-        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        let (stream, continuation) = AsyncStream<Data>.makeStream(
+            bufferingPolicy: .bufferingOldest(Self.maxPendingStdoutChunks)
+        )
         let reader = outPipe.fileHandleForReading
-        reader.readabilityHandler = { handle in
+        reader.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
             if chunk.isEmpty {
                 handle.readabilityHandler = nil
                 continuation.finish()
-            } else {
-                continuation.yield(chunk)
+                return
+            }
+
+            switch continuation.yield(chunk) {
+            case .enqueued:
+                break
+            case .dropped, .terminated:
+                handle.readabilityHandler = nil
+                continuation.finish()
+                Task { @MainActor [weak self] in
+                    self?.handleStdoutBackpressureOverflow()
+                }
+            @unknown default:
+                handle.readabilityHandler = nil
+                continuation.finish()
+                Task { @MainActor [weak self] in
+                    self?.handleStdoutBackpressureOverflow()
+                }
             }
         }
         // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
@@ -935,6 +839,19 @@ final class RemoteTmuxControlConnection {
         for completion in completions { completion(nil) }
     }
 
+    private func finishConnectionWaiters(connected: Bool) {
+        guard !connectionWaiters.isEmpty else { return }
+        let waiters = Array(connectionWaiters.values)
+        connectionWaiters.removeAll()
+        for waiter in waiters {
+            waiter(connected)
+        }
+    }
+
+    private func finishConnectionWaiter(_ token: UUID, connected: Bool) {
+        connectionWaiters.removeValue(forKey: token)?(connected)
+    }
+
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
     /// which is binary-safe and needs no shell quoting.
     @discardableResult
@@ -1051,6 +968,15 @@ final class RemoteTmuxControlConnection {
         // mirror frozen and reconnect; teardown finishes the old streams so
         // pending command correlation cannot consume replies from a dead client.
         record("stdin-write-failed")
+        beginReconnecting()
+    }
+
+    private func handleStdoutBackpressureOverflow() {
+        guard connectionState == .connected || connectionState == .connecting else { return }
+        // The parser fell far enough behind the SSH pipe that preserving every
+        // control-mode byte would exceed the bridge budget. Reconnect instead of
+        // dropping bytes and desynchronizing command/result parsing.
+        record("stdout-backpressure")
         beginReconnecting()
     }
 
@@ -1471,15 +1397,4 @@ final class RemoteTmuxControlConnection {
         )
     }
 
-    struct Snapshot: Sendable {
-        let started: Bool
-        let enterReceived: Bool
-        let exited: Bool
-        let sessionId: Int?
-        let windowCount: Int
-        let windowIDs: [Int]
-        let paneOutputByteCounts: [Int: Int]
-        let totalOutputBytes: Int
-        let recentEvents: [String]
-    }
 }

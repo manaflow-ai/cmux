@@ -14,6 +14,8 @@ import Foundation
 ///   "horizontal": [ { …, "pane": 1 }, { …, "pane": 2 } ] }
 /// ```
 struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
+    typealias Content = RemoteTmuxLayoutContent
+
     /// Width of the node in terminal cells.
     let width: Int
     /// Height of the node in terminal cells.
@@ -24,17 +26,6 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
     let y: Int
     /// The node's content: a leaf pane or a split.
     let content: Content
-
-    /// A layout node is either a leaf pane or a directional split.
-    enum Content: Sendable, Equatable {
-        /// A leaf pane, identified by its numeric tmux pane id (the `%N`
-        /// without the leading `%`).
-        case pane(Int)
-        /// A left→right split of child nodes.
-        case horizontal([RemoteTmuxLayoutNode])
-        /// A top→bottom split of child nodes.
-        case vertical([RemoteTmuxLayoutNode])
-    }
 
     init(width: Int, height: Int, x: Int, y: Int, content: Content) {
         self.width = width

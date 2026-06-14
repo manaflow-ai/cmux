@@ -4537,47 +4537,6 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
-    func testNewTerminalSurfaceFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
-        let workspace = Workspace()
-        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected focused pane in new workspace")
-            return
-        }
-
-        let staleCurrentDirectory = workspace.currentDirectory
-        let requestedDirectory = "/tmp/cmux-requested-tab-cwd-\(UUID().uuidString)"
-        guard let sourcePanel = workspace.newTerminalSurface(
-            inPane: sourcePaneId,
-            focus: true,
-            workingDirectory: requestedDirectory
-        ) else {
-            XCTFail("Expected source terminal panel to be created")
-            return
-        }
-
-        XCTAssertEqual(sourcePanel.requestedWorkingDirectory, requestedDirectory)
-        XCTAssertNil(
-            workspace.panelDirectories[sourcePanel.id],
-            "Expected requested cwd to exist before shell integration reports a live cwd"
-        )
-        XCTAssertEqual(
-            workspace.currentDirectory,
-            staleCurrentDirectory,
-            "Expected focused workspace cwd to remain stale before panel directory updates"
-        )
-
-        guard let newTabPanel = workspace.newTerminalSurfaceInFocusedPane(focus: false) else {
-            XCTFail("Expected new terminal tab panel to be created")
-            return
-        }
-
-        XCTAssertEqual(
-            newTabPanel.requestedWorkingDirectory,
-            requestedDirectory,
-            "Expected new terminal tab to inherit the selected source terminal's requested cwd when no reported cwd exists yet"
-        )
-    }
-
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()

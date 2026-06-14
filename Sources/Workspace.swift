@@ -4134,11 +4134,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private enum RemoteTmuxNonInteractiveCloseRoute {
-        case notMirrorTab
-        case rejectedMirrorTab
-        case routed
-    }
+    private typealias RemoteTmuxNonInteractiveCloseRoute = WorkspaceRemoteTmuxNonInteractiveCloseRoute
 
     private func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> RemoteTmuxNonInteractiveCloseRoute {
         guard isRemoteTmuxMirror,
@@ -5803,7 +5799,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// in-tab split container (``RemoteTmuxWindowMirrorView``) instead of the
     /// single-surface ``PanelContentView``. Owned by ``RemoteTmuxSessionMirror``;
     /// the view layer only reads it.
-    @Published private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
+    private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
 
     /// The multi-pane renderer for a window-tab's panel, if that window is
     /// currently multi-pane.
@@ -5813,6 +5809,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Registers (or replaces) a window's multi-pane renderer.
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
+        objectWillChange.send()
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
         } else {

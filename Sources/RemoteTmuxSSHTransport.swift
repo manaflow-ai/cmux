@@ -14,6 +14,8 @@ import Foundation
 /// Modeled as an `actor` because it owns the per-host connection lifecycle and
 /// serializes process launches; reads/writes are `async`.
 actor RemoteTmuxSSHTransport {
+    private static let maxCapturedOutputBytes = 1_048_576
+
     /// The host this transport talks to.
     ///
     /// `nonisolated` so the controller can read it synchronously (it's an immutable
@@ -136,7 +138,7 @@ actor RemoteTmuxSSHTransport {
                     await kills.waitForAll()
                 }
             }
-            group.addTask { try? await Task.sleep(for: timeout) }
+            group.addTask { try? await ContinuousClock().sleep(for: timeout) }
             await group.next()
             group.cancelAll()
         }
@@ -180,7 +182,7 @@ actor RemoteTmuxSSHTransport {
 
     // MARK: - Process plumbing
 
-    /// Launches a process and captures stdout/stderr without blocking the actor.
+    /// Launches a process and captures bounded stdout/stderr without blocking the actor.
     ///
     /// Each pipe is drained to EOF on a detached task so a chatty command can't
     /// deadlock against a full 64 KiB pipe buffer while we await termination.
@@ -203,8 +205,13 @@ actor RemoteTmuxSSHTransport {
 
         let outFD = outPipe.fileHandleForReading.fileDescriptor
         let errFD = errPipe.fileHandleForReading.fileDescriptor
-        let outRead = Task.detached { Self.drain(fd: outFD) }
-        let errRead = Task.detached { Self.drain(fd: errFD) }
+        let outRead = Task.detached { Self.drain(fd: outFD, maxBytes: Self.maxCapturedOutputBytes) }
+        let errRead = Task.detached { Self.drain(fd: errFD, maxBytes: Self.maxCapturedOutputBytes) }
+        let cancellation = RemoteTmuxProcessCancellation(
+            process: process,
+            stdout: outPipe.fileHandleForReading,
+            stderr: errPipe.fileHandleForReading
+        )
 
         // Install the termination handler BEFORE launching, then launch inside the
         // continuation. If `run()` and the handler assignment were separate steps, a
@@ -215,22 +222,30 @@ actor RemoteTmuxSSHTransport {
         // the fast auth-failure exits the `cmux ssh-tmux` flow classifies.
         let exitCode: Int32
         do {
-            exitCode = try await withCheckedThrowingContinuation { continuation in
-                process.terminationHandler = { proc in
-                    continuation.resume(returning: proc.terminationStatus)
+            exitCode = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    process.terminationHandler = { proc in
+                        continuation.resume(returning: proc.terminationStatus)
+                    }
+                    do {
+                        try process.run()
+                    } catch {
+                        // The process never started, so the handler will not fire; resume
+                        // exactly once here with the launch failure.
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
+                    }
                 }
-                do {
-                    try process.run()
-                } catch {
-                    // The process never started, so the handler will not fire; resume
-                    // exactly once here with the launch failure.
-                    process.terminationHandler = nil
-                    continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
-                }
+            } onCancel: {
+                cancellation.cancel()
             }
+            try Task.checkCancellation()
         } catch {
+            cancellation.cancel()
             outRead.cancel()
             errRead.cancel()
+            _ = await outRead.value
+            _ = await errRead.value
             throw error
         }
 
@@ -243,20 +258,26 @@ actor RemoteTmuxSSHTransport {
         )
     }
 
-    /// Reads a file descriptor to EOF, returning everything read.
+    /// Reads a file descriptor to EOF, returning at most `maxBytes`.
     ///
     /// Uses the raw `read(2)` so nothing non-`Sendable` crosses the task
     /// boundary; the owning `Pipe` keeps `fd` open for the duration.
-    private static func drain(fd: Int32) -> Data {
+    private static func drain(fd: Int32, maxBytes: Int) -> Data {
         var data = Data()
+        var remaining = max(0, maxBytes)
         let bufferSize = 65_536
         var buffer = [UInt8](repeating: 0, count: bufferSize)
         while true {
+            if Task.isCancelled { break }
             let count = buffer.withUnsafeMutableBytes { ptr -> Int in
                 read(fd, ptr.baseAddress, bufferSize)
             }
             if count > 0 {
-                data.append(contentsOf: buffer[0..<count])
+                if remaining > 0 {
+                    let kept = min(count, remaining)
+                    data.append(contentsOf: buffer[0..<kept])
+                    remaining -= kept
+                }
             } else if count == 0 {
                 break // EOF
             } else if errno == EINTR {

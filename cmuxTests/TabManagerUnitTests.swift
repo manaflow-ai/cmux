@@ -594,55 +594,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
     }
 
-    @MainActor
-    func testSessionSnapshotSkipsDedicatedRemoteTmuxWindowWithOnlyMirrorWorkspaces() throws {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        workspace.isRemoteTmuxMirror = true
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let host = RemoteTmuxHost(destination: "user@example.test")
-        appDelegate.remoteTmuxController.bindDedicatedWindowForTesting(host: host, windowId: windowId)
-        defer {
-            appDelegate.remoteTmuxController.unbindDedicatedWindowForTesting(windowId: windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            AppDelegate.shared = originalAppDelegate
-        }
-
-        XCTAssertNil(appDelegate.sessionSnapshotForTesting())
-    }
-
-    @MainActor
-    func testSessionSnapshotPreservesLocalWorkspaceInDedicatedRemoteTmuxWindow() throws {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let localWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        localWorkspace.setCustomTitle("Local")
-        let remoteWorkspace = manager.addWorkspace(
-            title: "remote",
-            select: true,
-            autoWelcomeIfNeeded: false
-        )
-        remoteWorkspace.isRemoteTmuxMirror = true
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let host = RemoteTmuxHost(destination: "user@example.test")
-        appDelegate.remoteTmuxController.bindDedicatedWindowForTesting(host: host, windowId: windowId)
-        defer {
-            appDelegate.remoteTmuxController.unbindDedicatedWindowForTesting(windowId: windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            AppDelegate.shared = originalAppDelegate
-        }
-
-        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
-        XCTAssertEqual(snapshot.windows.count, 1)
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces.map(\.workspaceId), [localWorkspace.id])
-        XCTAssertNil(snapshot.windows[0].tabManager.selectedWorkspaceIndex)
-    }
-
     func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

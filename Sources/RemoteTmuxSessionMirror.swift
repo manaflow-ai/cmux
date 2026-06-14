@@ -249,7 +249,7 @@ final class RemoteTmuxSessionMirror {
         if pushInitialClientSize() { return }
         initialSizingTask = Task { @MainActor [weak self] in
             for _ in 0..<20 {
-                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
                 guard let self else { return }
                 if self.pushInitialClientSize() { return }
             }

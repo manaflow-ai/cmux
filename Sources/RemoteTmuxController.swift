@@ -14,6 +14,9 @@ import CmuxSettings
 /// be reached from the v2 socket dispatcher via `AppDelegate.shared`.
 @MainActor
 final class RemoteTmuxController {
+    typealias MirrorTabActivity = RemoteTmuxMirrorTabActivity
+    typealias SessionEndAction = RemoteTmuxSessionEndAction
+
     /// Per-endpoint SSH transports (keyed by ``RemoteTmuxHost/connectionHash``),
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
     private let transportRegistry = RemoteTmuxTransportRegistry()
@@ -80,6 +83,98 @@ final class RemoteTmuxController {
         try connection.start()
         connectionsByHostSession[key] = connection
         return connection
+    }
+
+    /// Attaches a single control connection and returns success only after tmux has
+    /// emitted `%enter`. Before launching the long-lived control stream, run a
+    /// BatchMode tmux probe through the shared transport so auth/session failures
+    /// are reported synchronously instead of looking like a successful attach.
+    func attachControlStreamWhenReady(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false
+    ) async throws -> [String]? {
+        if let sshArgv = try await preflightControlAttach(
+            host: host,
+            sessionName: sessionName,
+            createIfMissing: createIfMissing
+        ) {
+            return sshArgv
+        }
+
+        let connection = try attach(
+            host: host,
+            sessionName: sessionName,
+            createIfMissing: createIfMissing
+        )
+        guard await connection.waitUntilConnected() else {
+            stopCachedConnectionIfCurrent(connection, host: host, sessionName: sessionName)
+            try Task.checkCancellation()
+            throw RemoteTmuxError.unreachable("tmux control stream ended before attach for \(host.destination)")
+        }
+        return nil
+    }
+
+    private func stopCachedConnectionIfCurrent(
+        _ connection: RemoteTmuxControlConnection,
+        host: RemoteTmuxHost,
+        sessionName: String
+    ) {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        guard connectionsByHostSession[key] === connection else { return }
+        connectionsByHostSession.removeValue(forKey: key)
+        connection.stop()
+    }
+
+    /// Ensures the requested session is attachable via a non-interactive tmux
+    /// command. Returns an auth-required outcome when BatchMode SSH cannot prompt;
+    /// returns `nil` when the control stream may be launched.
+    private func preflightControlAttach(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool
+    ) async throws -> [String]? {
+        let transport = transport(for: host)
+
+        do {
+            let existing = try await transport.runTmux(["has-session", "-t", sessionName])
+            if existing.succeeded {
+                return nil
+            }
+            if let sshArgv = Self.authRequiredAttachArgv(host: host, result: existing) {
+                return sshArgv
+            }
+
+            guard createIfMissing else {
+                throw RemoteTmuxError.commandFailed(exitCode: existing.exitCode, stderr: existing.stderr)
+            }
+
+            let created = try await transport.runTmux(["new-session", "-d", "-s", sessionName])
+            guard created.succeeded else {
+                if let sshArgv = Self.authRequiredAttachArgv(host: host, result: created) {
+                    return sshArgv
+                }
+                throw RemoteTmuxError.commandFailed(exitCode: created.exitCode, stderr: created.stderr)
+            }
+            return nil
+        } catch let error as RemoteTmuxError {
+            if case .commandFailed(_, let stderr) = error,
+               RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
+                return host.interactiveAuthInvocation()
+            }
+            throw error
+        }
+    }
+
+    private static func authRequiredAttachArgv(
+        host: RemoteTmuxHost,
+        result: RemoteTmuxCommandResult
+    ) -> [String]? {
+        guard !result.succeeded,
+              RemoteTmuxSSHTransport.indicatesAuthRequired(result.stderr) else {
+            return nil
+        }
+        return host.interactiveAuthInvocation()
     }
 
     // MARK: - Sidebar mirroring (P3, initial increment)
@@ -512,20 +607,6 @@ final class RemoteTmuxController {
         return target.mirror.connection.send("kill-window -t @\(target.windowId)")
     }
 
-    /// A close-time answer for a mirrored window-tab: whether any pane runs an
-    /// active command, plus the command name for the dialog ("This will close
-    /// \"sleep\"."). The name comes from the foreground classification rather
-    /// than the tab title — tmux's automatic-rename refreshes the title on its
-    /// own lagging schedule, so a title-based dialog can still say "bash" while
-    /// the tab is about to read "sleep", looking like it names a different tab.
-    struct MirrorTabActivity {
-        let hasActiveCommand: Bool
-        /// The first active pane's foreground command (tmux's active pane
-        /// preferred, then layout order); `nil` when idle or unnamed (the
-        /// dialog then falls back to the tab title).
-        let activeCommandName: String?
-    }
-
     /// Builds ``MirrorTabActivity`` from per-pane foreground states. Pure;
     /// `activePaneId` is checked first so a multi-pane window names the pane
     /// the user is looking at, then `paneOrder` (the window's layout order).
@@ -637,19 +718,6 @@ final class RemoteTmuxController {
             }
         }
         return true
-    }
-
-    /// What to do when a mirrored session ends remotely: close the dead session's
-    /// workspace, or — when the host's dedicated mirror window has just lost its
-    /// last session — close that whole window (the disconnect UX).
-    enum SessionEndAction: Equatable {
-        /// Close only the dead session's workspace (host still has other sessions,
-        /// or the mirror lives in a shared/non-dedicated window).
-        case closeWorkspace
-        /// Close the dedicated remote-tmux window wholesale, because its last
-        /// session disconnected and `closeWorkspace` can't remove a window's last
-        /// workspace.
-        case closeDedicatedWindow(UUID)
     }
 
     /// Decides how a remote session-end is reflected: close just the dead workspace,

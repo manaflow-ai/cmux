@@ -81,9 +81,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     /// fetched and cached; it is not called on a cache hit.
     private static func icon(forPath path: String, onResolved: @escaping (NSImage) -> Void) -> NSImage {
         if let cached = resolvedIconsByPath[path] { return cached }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task.detached(priority: .userInitiated) {
             let icon = NSWorkspace.shared.icon(forFile: path)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 icon.size = NSSize(width: 16, height: 16)
                 if resolvedIconsByPath.count > 256 { resolvedIconsByPath.removeAll() }
                 resolvedIconsByPath[path] = icon
@@ -99,9 +99,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     /// stats), then runs `onResolved` on the main thread — same shape as
     /// ``icon(forPath:onResolved:)``.
     private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task.detached(priority: .userInitiated) {
             let localizedName = FileManager.default.displayName(atPath: path)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 onResolved(localizedName)
             }
         }
