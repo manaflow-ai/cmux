@@ -237,10 +237,14 @@ public final class AuthCoordinator {
     /// surfacing a stale signed-in shell that fails at connect time. Reuses the
     /// same live-store probe as launch restore, which ends in
     /// ``clearAuthState()`` when no usable token remains and otherwise preserves
-    /// the cached session on transient failures. Re-entrant calls (e.g. two
-    /// rapid foreground transitions) coalesce: a second call while one is in
-    /// flight returns immediately.
+    /// the cached session on transient failures. A fully signed-out foreground
+    /// return is a no-op: there is no persisted session to check, and clearing
+    /// state there would discard in-progress email-code nonce state before the
+    /// user can enter the code they left the app to read. Re-entrant calls
+    /// (e.g. two rapid foreground transitions) coalesce: a second call while
+    /// one is in flight returns immediately.
     public func revalidateSession() async {
+        guard isAuthenticated || isRestoringSession || sessionCache.hasTokens else { return }
         await checkExistingSession()
     }
 
@@ -632,9 +636,11 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    func clearAuthState() {
+    func clearAuthState(preservePendingCode: Bool = false) {
         sessionGeneration &+= 1
-        pendingNonce = nil
+        if !preservePendingCode {
+            pendingNonce = nil
+        }
         userCache.clear()
         sessionCache.clear()
         availableTeams = []
