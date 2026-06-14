@@ -46,6 +46,10 @@ test("GUI mode renders the composer while native context is pending", async () =
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(dom.window.document.querySelector(".gui-mode-home")).toBeTruthy();
+    const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
+    expect(rootElement.dataset.guiModePage).toBe("home");
+    expect(rootElement.dataset.guiModeProvider).toBe("codex");
+    expect(rootElement.dataset.guiModePromptLength).toBe("0");
     expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
     expect(dom.window.document.querySelector(".gui-mode-submit")?.textContent).toBe("Submit");
     const providerOptions = Array.from(
@@ -158,6 +162,10 @@ test("GUI mode task page renders every provider from native context", async () =
       }
 
       expect(dom.window.location.hash).toBe("#/task-worktree-pr");
+      const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
+      expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
+      expect(rootElement.dataset.guiModeProvider).toBe(provider.id);
+      expect(rootElement.dataset.guiModePromptLength).toBe(String(`Build with ${provider.displayName}`.length));
       expect(dom.window.document.querySelector(".gui-mode-task-provider-name")?.textContent)
         .toBe(provider.displayName);
       expect(dom.window.document.querySelector(".gui-mode-task-command")?.textContent)

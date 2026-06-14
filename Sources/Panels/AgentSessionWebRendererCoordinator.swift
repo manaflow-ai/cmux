@@ -59,6 +59,16 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.guiModePage = guiModePage
         self.guiModePrompt = guiModePrompt
         self.guiModeProviderID = guiModeProviderID
+#if DEBUG
+        if rendererKind == .guiMode {
+            cmuxDebugLog(
+                "agentSession.web.guiMode.bind " +
+                "panel=\(panelId.uuidString.prefix(8)) workspace=\(workspaceId.uuidString.prefix(8)) " +
+                "page=\(guiModePage.rawValue) provider=\(guiModeProviderID.rawValue) " +
+                "promptLen=\(guiModePrompt?.count ?? 0)"
+            )
+        }
+#endif
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
         self.theme = theme
@@ -197,7 +207,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 #endif
         hasFinishedNavigation = true
         applyThemeToLoadedPage()
-        logGuiModeDiagnosticsIfNeeded(webView)
+        logGuiModeDiagnosticsIfNeeded(webView, reason: "didFinish")
         if isPanelFocused {
             focus()
         }
@@ -319,16 +329,25 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         ])
     }
 
-    private func logGuiModeDiagnosticsIfNeeded(_ webView: WKWebView) {
+    private func logGuiModeDiagnosticsIfNeeded(_ webView: WKWebView, reason: String) {
 #if DEBUG
         guard rendererKind == .guiMode else { return }
         let script = """
         (() => {
           const root = document.getElementById('root');
+          const main = document.querySelector('.gui-mode-root');
+          const rootRect = root ? root.getBoundingClientRect() : null;
           return JSON.stringify({
+            reason: '\(reason)',
             href: window.location.href,
             htmlKind: document.documentElement.dataset.cmuxWebviewKind || '',
             bodyKind: document.body.dataset.cmuxWebviewKind || '',
+            renderedPage: main ? main.dataset.guiModePage || '' : '',
+            renderedProvider: main ? main.dataset.guiModeProvider || '' : '',
+            renderedPromptLength: main ? main.dataset.guiModePromptLength || '' : '',
+            bodyTextLength: document.body ? document.body.innerText.length : -1,
+            viewport: [window.innerWidth, window.innerHeight].join('x'),
+            rootRect: rootRect ? [rootRect.x, rootRect.y, rootRect.width, rootRect.height].join(',') : '',
             rootText: root ? root.innerText : '',
             rootHTML: root ? root.innerHTML.slice(0, 240) : '',
             scripts: Array.from(document.scripts).map((script) => script.getAttribute('src') || '').join(',')
@@ -381,7 +400,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
         switch request.method {
         case "app.context":
-            return Self.appContextPayload(
+            let payload = Self.appContextPayload(
                 panelId: panelId,
                 workspaceId: workspaceId,
                 rendererKind: rendererKind,
@@ -392,6 +411,23 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 guiModePrompt: guiModePrompt,
                 guiModeProviderID: guiModeProviderID
             )
+#if DEBUG
+            if rendererKind == .guiMode {
+                cmuxDebugLog(
+                    "agentSession.web.guiMode.context " +
+                    "panel=\(panelId.uuidString.prefix(8)) workspace=\(workspaceId.uuidString.prefix(8)) " +
+                    "page=\(guiModePage.rawValue) provider=\(guiModeProviderID.rawValue) " +
+                    "promptLen=\(guiModePrompt?.count ?? 0)"
+                )
+                if let webView {
+                    Task { @MainActor [weak self, weak webView] in
+                        guard let webView else { return }
+                        self?.logGuiModeDiagnosticsIfNeeded(webView, reason: "app.context")
+                    }
+                }
+            }
+#endif
+            return payload
         case "guiMode.submit":
             return try Self.handleGuiModeSubmit(
                 request,

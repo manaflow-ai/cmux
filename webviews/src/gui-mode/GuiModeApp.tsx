@@ -64,14 +64,24 @@ export function GuiModeApp() {
   }, []);
 
   if (loadState.status === "ready") {
-    return h("main", { ref: loadHostRef, className: "gui-mode-root" },
+    return h("main", {
+      ref: loadHostRef,
+      className: "gui-mode-root",
+      "data-gui-mode-page": loadState.context.page,
+      "data-gui-mode-provider": loadState.context.selectedProviderId,
+      "data-gui-mode-prompt-length": String(loadState.context.prompt.length),
+    },
       loadState.context.page === "task-worktree-pr"
         ? h(GuiModeTaskPage, { context: loadState.context })
         : h(GuiModeHomePage, { context: loadState.context, key: loadState.context.selectedProviderId }),
     );
   }
 
-  return h("main", { ref: loadHostRef, className: "gui-mode-root" },
+  return h("main", {
+    ref: loadHostRef,
+    className: "gui-mode-root",
+    "data-gui-mode-page": "error",
+  },
     h("div", { className: "gui-mode-status", role: "alert" }, loadState.message),
   );
 }
