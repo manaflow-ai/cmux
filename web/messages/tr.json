@@ -792,7 +792,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileExplorer": {
-          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+          "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
@@ -805,7 +805,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
+      "exampleFileExplorerDoubleClickAction": "Bir dosyaya çift tıklama: preview (varsayılan), defaultEditor (macOS varsayılan uygulaması) veya preferredEditor (app.preferredEditor komutu).",
       "shortcutsWhenIntro": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı when koşulları), cmux eylem kimliğiyle anahtarlanır. Bir atama yalnızca koşulu sağlandığında tetiklenir ve aynı tuş vuruşundaki başka bir atamayla yalnızca o zaman çakışır. Eylemin yerleşik bağlamını korumak için koşulu atlayın. Koşul söz varlığı:",
       "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",
       "shortcutsWhenTypedKeys": "karşılaştırmalar için türlü anahtarlar: sağ kenar çubuğunun etkin modu (dize) ile bölme ve çalışma alanı sayıları (tamsayılar).",

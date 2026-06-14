@@ -792,7 +792,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileExplorer": {
-          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+          "doubleClickAction": "Šta se dešava kada dvaput kliknete (ili pritisnete Return na rezultatu pretrage) datoteku u istraživaču datoteka. `preview` otvara ugrađeni cmux pregled datoteke (zadano i dosadašnje ponašanje). `defaultEditor` otvara datoteku macOS zadanom aplikacijom za tu vrstu datoteke. `preferredEditor` otvara pomoću komande `app.preferredEditor`, uz povratak na zadanu aplikaciju kada nije postavljena. Primjenjuje se samo na datoteke; direktoriji se uvijek proširuju/skupljaju, a nelokalni (udaljeni) istraživači datoteka uvijek otvaraju cmux pregled."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
@@ -805,7 +805,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
+      "exampleFileExplorerDoubleClickAction": "Dvaput klik na datoteku: preview (zadano), defaultEditor (zadana macOS aplikacija) ili preferredEditor (komanda app.preferredEditor).",
       "shortcutsWhenIntro": "Opcionalni kontekstni predikati po radnji (when klauzule u VS Code stilu), indeksirani cmux ID-jem radnje. Vezivanje se pokreće — i sukobljava s drugim vezivanjem na istom pritisku — samo kada je njegova klauzula ispunjena. Izostavite klauzulu da radnja zadrži ugrađeni kontekst. Rječnik klauzula:",
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
       "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",

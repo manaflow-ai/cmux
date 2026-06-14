@@ -792,7 +792,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileExplorer": {
-          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+          "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
@@ -805,7 +805,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
+      "exampleFileExplorerDoubleClickAction": "Clique duas vezes em um arquivo: preview (padrão), defaultEditor (app padrão do macOS) ou preferredEditor (o comando app.preferredEditor).",
       "shortcutsWhenIntro": "Predicados de contexto opcionais por ação (cláusulas when no estilo do VS Code), indexados pelo id da ação do cmux. Uma atribuição só dispara — e só conflita com outra atribuição na mesma tecla — quando sua cláusula é verdadeira. Omita a cláusula para manter o contexto integrado da ação. O vocabulário das cláusulas:",
       "shortcutsWhenBooleanKeys": "chaves booleanas. Uma chave desconhecida ou ausente é avaliada como false; os literais true e false também são aceitos.",
       "shortcutsWhenTypedKeys": "chaves tipadas para comparações: o modo ativo da barra lateral direita (string) e as contagens de painéis e workspaces (inteiros).",
