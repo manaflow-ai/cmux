@@ -126,8 +126,12 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    private static let defaultCapacity = 50
+    private static let maxPersistedRecordCount = 50
+    private static let maxPersistedDataBytes = 5 * 1024 * 1024
+
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        capacity: defaultCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
@@ -183,7 +187,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func push(_ record: ClosedItemHistoryRecord) {
-        records.append(record)
+        records.append(Self.storageSafeRecord(record))
         trimToCapacityIfNeeded()
         revision &+= 1
         persistRecords()
@@ -240,7 +244,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
-        records.insert(record, at: min(max(0, index), records.count))
+        records.insert(Self.storageSafeRecord(record), at: min(max(0, index), records.count))
         if let capacity, records.count > capacity {
             let protectedRecordId = record.id
             let overflow = records.count - capacity
@@ -573,6 +577,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     private func mergeLoadedPersistedRecords(_ loadedRecords: [ClosedItemHistoryRecord]) {
         guard !loadedRecords.isEmpty else { return }
+        let loadedRecords = loadedRecords.map(Self.storageSafeRecord)
         if records.isEmpty {
             records = loadedRecords
         } else {
@@ -586,13 +591,20 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        if let fileSize = persistedFileSize(fileURL), fileSize > maxPersistedDataBytes {
+            closedItemHistoryLogger.debug(
+                "closedItemHistory.load.skippedOversize file=\(fileURL.path, privacy: .public) bytes=\(fileSize)"
+            )
+            return []
+        }
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
            snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
-            return snapshot.records
+            return Array(snapshot.records.suffix(maxPersistedRecordCount)).map(storageSafeRecord)
         }
-        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        let legacyRecords = (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        return Array(legacyRecords.suffix(maxPersistedRecordCount)).map(storageSafeRecord)
     }
 
     nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
@@ -618,8 +630,17 @@ final class ClosedItemHistoryStore: ObservableObject {
             let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+            guard let data = try persistenceData(for: snapshot.records, encoder: encoder) else {
+                try? FileManager.default.removeItem(at: fileURL)
+                closedItemHistoryLogger.debug(
+                    "closedItemHistory.save.skippedOversize file=\(fileURL.path, privacy: .public) records=\(records.count)"
+                )
+                return
+            }
+            let existingFileIsComparable = persistedFileSize(fileURL).map { $0 <= maxPersistedDataBytes } ?? true
+            if existingFileIsComparable,
+               let existingData = try? Data(contentsOf: fileURL),
+               existingData == data {
                 return
             }
             try data.write(to: fileURL, options: .atomic)
@@ -629,6 +650,90 @@ final class ClosedItemHistoryStore: ObservableObject {
             )
             return
         }
+    }
+
+    nonisolated private static func persistedFileSize(_ fileURL: URL) -> Int? {
+        if let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+           let fileSize = values.fileSize {
+            return fileSize
+        }
+        return nil
+    }
+
+    nonisolated private static func persistenceData(
+        for records: [ClosedItemHistoryRecord],
+        encoder: JSONEncoder
+    ) throws -> Data? {
+        var persistedRecords = Array(records.suffix(maxPersistedRecordCount)).map(storageSafeRecord)
+        while !persistedRecords.isEmpty {
+            let snapshot = ClosedItemHistoryPersistenceSnapshot(records: persistedRecords)
+            let data = try encoder.encode(snapshot)
+            if data.count <= maxPersistedDataBytes {
+                return data
+            }
+            persistedRecords.removeFirst()
+        }
+        return nil
+    }
+
+    nonisolated private static func storageSafeRecord(_ record: ClosedItemHistoryRecord) -> ClosedItemHistoryRecord {
+        ClosedItemHistoryRecord(
+            id: record.id,
+            closedAt: record.closedAt,
+            entry: storageSafeEntry(record.entry)
+        )
+    }
+
+    nonisolated private static func storageSafeEntry(_ entry: ClosedItemHistoryEntry) -> ClosedItemHistoryEntry {
+        switch entry {
+        case .panel(let panelEntry):
+            return .panel(ClosedPanelHistoryEntry(
+                workspaceId: panelEntry.workspaceId,
+                paneId: panelEntry.paneId,
+                paneAnchorPanelId: panelEntry.paneAnchorPanelId,
+                restoreInOriginalPane: panelEntry.restoreInOriginalPane,
+                tabIndex: panelEntry.tabIndex,
+                snapshot: storageSafePanelSnapshot(panelEntry.snapshot),
+                fallbackSplitPlacement: panelEntry.fallbackSplitPlacement
+            ))
+        case .workspace(let workspaceEntry):
+            return .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspaceEntry.workspaceId,
+                windowId: workspaceEntry.windowId,
+                workspaceIndex: workspaceEntry.workspaceIndex,
+                snapshot: storageSafeWorkspaceSnapshot(workspaceEntry.snapshot)
+            ))
+        case .window(let windowEntry):
+            return .window(ClosedWindowHistoryEntry(
+                windowId: windowEntry.windowId,
+                snapshot: storageSafeWindowSnapshot(windowEntry.snapshot),
+                workspaceIds: windowEntry.workspaceIds
+            ))
+        }
+    }
+
+    nonisolated private static func storageSafeWindowSnapshot(
+        _ snapshot: SessionWindowSnapshot
+    ) -> SessionWindowSnapshot {
+        var snapshot = snapshot
+        snapshot.tabManager.workspaces = snapshot.tabManager.workspaces.map(storageSafeWorkspaceSnapshot)
+        return snapshot
+    }
+
+    nonisolated private static func storageSafeWorkspaceSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot
+    ) -> SessionWorkspaceSnapshot {
+        var snapshot = snapshot
+        snapshot.panels = snapshot.panels.map(storageSafePanelSnapshot)
+        return snapshot
+    }
+
+    nonisolated private static func storageSafePanelSnapshot(
+        _ snapshot: SessionPanelSnapshot
+    ) -> SessionPanelSnapshot {
+        var snapshot = snapshot
+        snapshot.terminal?.scrollback = nil
+        return snapshot
     }
 
     nonisolated private static func defaultHistoryFileURL(

@@ -16068,7 +16068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cache has not loaded yet (see closedPanelHistoryEntry).
         let snapshot = sessionWindowSnapshot(
             for: context,
-            includeScrollback: true,
+            includeScrollback: false,
             restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                 ?? RestorableAgentSessionIndex.load()
         )

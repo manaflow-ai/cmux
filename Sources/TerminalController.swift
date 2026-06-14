@@ -4936,6 +4936,11 @@ class TerminalController {
             }
         }
 
+        if let fileSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           fileSize > SessionPersistencePolicy.maxScrollbackCaptureBytesPerTerminal {
+            return ""
+        }
+
         guard let data = try? Data(contentsOf: fileURL),
               let rawOutput = String(data: data, encoding: .utf8) else {
             return nil

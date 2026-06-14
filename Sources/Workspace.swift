@@ -669,7 +669,7 @@ extension Workspace {
         let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
-            includeScrollback: true,
+            includeScrollback: false,
             restorableAgent: restorableAgent,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,

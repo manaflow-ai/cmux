@@ -1115,6 +1115,55 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: historyURL.path))
     }
 
+    func testClosedItemHistoryDropsTerminalScrollbackBeforePersisting() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-scrollback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let store = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadPersisted: false,
+            persistsRecordsSynchronously: true
+        )
+
+        var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertFalse(workspaceSnapshot.panels.isEmpty)
+        if workspaceSnapshot.panels[0].terminal == nil {
+            workspaceSnapshot.panels[0].terminal = SessionTerminalPanelSnapshot()
+        }
+        workspaceSnapshot.panels[0].terminal?.scrollback = String(repeating: "x", count: 100_000)
+        let recordId = UUID()
+
+        store.push(ClosedItemHistoryRecord(
+            id: recordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: nil,
+                workspaceIndex: 0,
+                snapshot: workspaceSnapshot
+            ))
+        ))
+
+        let restoredStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        let restoredRecord = try XCTUnwrap(restoredStore.removeRecord(id: recordId)?.record)
+        guard case .workspace(let restoredEntry) = restoredRecord.entry else {
+            XCTFail("Expected restored workspace history entry")
+            return
+        }
+        XCTAssertNil(restoredEntry.snapshot.panels.first?.terminal?.scrollback)
+    }
+
     func testClosedItemHistoryAsyncLoadMergesEarlyMutation() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-merge-\(UUID().uuidString)", isDirectory: true)
