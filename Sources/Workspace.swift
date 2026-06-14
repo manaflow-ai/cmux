@@ -5704,7 +5704,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// (and `=`, which is never a valid env var name) and any value containing a
     /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
     /// session restore), so the guard cannot be bypassed.
-    static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
+    // `nonisolated` so the nonisolated socket workspace-create parsing path
+    // (`v2WorkspaceCreate`) can call this pure helper without hopping to the main
+    // actor; `Workspace` is `@MainActor`, so its statics are main-actor-isolated by
+    // default.
+    nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.reduce(into: [String: String]()) { result, pair in
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty,
