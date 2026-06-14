@@ -3,18 +3,18 @@ import Foundation
 import Testing
 
 /// Behavioral tests for ``TerminalKeyboardConfiguration``: the source of truth
-/// for whether the mobile terminal keyboard's autocorrect / predictive text /
-/// smart-punctuation / spell-check traits are enabled (issue #6083). These
-/// verify the terminal-hardened default (off, with no write), the persistence
-/// round-trip in both directions, and the change-notification contract that
-/// drives the live input view's trait re-application.
+/// for whether the mobile terminal keyboard's inline autocomplete suggestions
+/// are enabled (issue #6083). These verify the terminal-hardened default (off,
+/// with no write), the persistence round-trip in both directions, and the
+/// change-notification contract that drives the live input view's trait
+/// re-application.
 ///
 /// Each test injects a private `UserDefaults` suite so it never touches the live
 /// `.shared` settings.
 @MainActor
 @Suite("TerminalKeyboardConfiguration")
 struct TerminalKeyboardConfigurationTests {
-    private static let storageKey = "cmux.terminal.keyboard.autocorrectionEnabled.v1"
+    private static let storageKey = "cmux.terminal.keyboard.autocompleteEnabled.v1"
 
     /// A fresh suite-scoped defaults store, cleared so each test starts empty.
     private func freshDefaults() -> UserDefaults {
@@ -29,7 +29,7 @@ struct TerminalKeyboardConfigurationTests {
         let defaults = freshDefaults()
         let config = TerminalKeyboardConfiguration(defaults: defaults)
 
-        #expect(config.autocorrectionEnabled == false)
+        #expect(config.autocompleteEnabled == false)
         // Constructing/reading the default must not write the key.
         #expect(defaults.object(forKey: Self.storageKey) == nil)
     }
@@ -39,9 +39,9 @@ struct TerminalKeyboardConfigurationTests {
         let defaults = freshDefaults()
         let config = TerminalKeyboardConfiguration(defaults: defaults)
 
-        config.autocorrectionEnabled = true
+        config.autocompleteEnabled = true
 
-        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocorrectionEnabled == true)
+        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocompleteEnabled == true)
     }
 
     @Test("disabling after enabling persists across instances")
@@ -49,10 +49,10 @@ struct TerminalKeyboardConfigurationTests {
         let defaults = freshDefaults()
         let config = TerminalKeyboardConfiguration(defaults: defaults)
 
-        config.autocorrectionEnabled = true
-        config.autocorrectionEnabled = false
+        config.autocompleteEnabled = true
+        config.autocompleteEnabled = false
 
-        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocorrectionEnabled == false)
+        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocompleteEnabled == false)
     }
 
     @Test("a stored true is read back on init")
@@ -60,7 +60,7 @@ struct TerminalKeyboardConfigurationTests {
         let defaults = freshDefaults()
         defaults.set(true, forKey: Self.storageKey)
 
-        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocorrectionEnabled == true)
+        #expect(TerminalKeyboardConfiguration(defaults: defaults).autocompleteEnabled == true)
     }
 
     @Test("a real change posts exactly one notification; a no-op set posts none")
@@ -77,8 +77,8 @@ struct TerminalKeyboardConfigurationTests {
             ) { _ in confirmed() }
             defer { NotificationCenter.default.removeObserver(token) }
 
-            config.autocorrectionEnabled = true // false → true: posts
-            config.autocorrectionEnabled = true // unchanged: must not post
+            config.autocompleteEnabled = true // false -> true: posts
+            config.autocompleteEnabled = true // unchanged: must not post
         }
     }
 }

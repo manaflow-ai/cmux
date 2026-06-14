@@ -1,17 +1,17 @@
 import Foundation
 import Observation
 
-/// User preference for whether the system keyboard's autocorrection, predictive
-/// text, smart punctuation, and spell-checking are enabled in the mobile
-/// terminal input field.
+/// User preference for whether the system keyboard's inline autocomplete
+/// predictions are enabled in the mobile terminal input field.
 ///
-/// Terminals disable these traits by default because they mangle shell commands,
-/// so the stored value defaults to `false` (everything off). When the user turns
-/// it on, ``TerminalInputTextView`` applies the system-default traits so the
-/// field behaves like an ordinary iOS text field — the Mail-style autocomplete
-/// requested in issue #6083. Autocapitalization is intentionally *not* part of
-/// this toggle and stays off regardless: capitalizing the first word of a command
-/// is never wanted.
+/// Terminals keep replacement-based traits off because they can rewrite shell
+/// commands after bytes have already been sent. The stored value defaults to
+/// `false`; when the user turns it on, ``TerminalInputTextView`` enables
+/// `inlinePredictionType` so the keyboard can show append-style autocomplete
+/// suggestions without enabling autocorrection, smart punctuation, or spell
+/// checking replacements. Autocapitalization is intentionally *not* part of this
+/// toggle and stays off regardless: capitalizing the first word of a command is
+/// never wanted.
 ///
 /// Mirrors ``TerminalAccessoryConfiguration``: a `@MainActor` `@Observable` store
 /// persisted to `UserDefaults` that posts ``didChangeNotification`` so the
@@ -22,9 +22,9 @@ import Observation
 /// ```swift
 /// // Settings toggle binding:
 /// Toggle(isOn: Binding(
-///     get: { TerminalKeyboardConfiguration.shared.autocorrectionEnabled },
-///     set: { TerminalKeyboardConfiguration.shared.autocorrectionEnabled = $0 }
-/// )) { Text("Autocorrection") }
+///     get: { TerminalKeyboardConfiguration.shared.autocompleteEnabled },
+///     set: { TerminalKeyboardConfiguration.shared.autocompleteEnabled = $0 }
+/// )) { Text("Autocomplete") }
 /// ```
 @MainActor
 @Observable
@@ -42,22 +42,22 @@ public final class TerminalKeyboardConfiguration {
     /// keyboard.
     public static let didChangeNotification = Notification.Name("cmux.terminal.keyboardConfigurationDidChange")
 
-    private static let autocorrectionEnabledKey = "cmux.terminal.keyboard.autocorrectionEnabled.v1"
+    private static let autocompleteEnabledKey = "cmux.terminal.keyboard.autocompleteEnabled.v1"
 
     /// The store backing the persisted preference. `@ObservationIgnored` because
-    /// the dependency itself never changes — only ``autocorrectionEnabled`` does.
+    /// the dependency itself never changes — only ``autocompleteEnabled`` does.
     @ObservationIgnored private let defaults: UserDefaults
 
-    /// Whether the system keyboard's autocorrection, predictive text, smart
-    /// punctuation, and spell-checking are enabled in the terminal input field.
+    /// Whether the system keyboard's inline autocomplete predictions are enabled
+    /// in the terminal input field.
     ///
-    /// Defaults to `false` (terminal-hardened: every assist trait off). Mutating
+    /// Defaults to `false` (terminal-hardened: inline predictions off). Mutating
     /// it writes through to the injected ``UserDefaults`` and posts
     /// ``didChangeNotification`` so a live input view re-applies its traits.
-    public var autocorrectionEnabled: Bool {
+    public var autocompleteEnabled: Bool {
         didSet {
-            guard autocorrectionEnabled != oldValue else { return }
-            defaults.set(autocorrectionEnabled, forKey: Self.autocorrectionEnabledKey)
+            guard autocompleteEnabled != oldValue else { return }
+            defaults.set(autocompleteEnabled, forKey: Self.autocompleteEnabledKey)
             NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
         }
     }
@@ -72,6 +72,6 @@ public final class TerminalKeyboardConfiguration {
     ///   write.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.autocorrectionEnabled = defaults.bool(forKey: Self.autocorrectionEnabledKey)
+        self.autocompleteEnabled = defaults.bool(forKey: Self.autocompleteEnabledKey)
     }
 }

@@ -133,19 +133,19 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
 
-                    Toggle(isOn: autocorrectionBinding) {
+                    Toggle(isOn: autocompleteBinding) {
                         Label(
-                            L10n.string("mobile.settings.autocorrect", defaultValue: "Keyboard Autocorrection"),
+                            L10n.string("mobile.settings.autocomplete", defaultValue: "Keyboard Autocomplete"),
                             systemImage: "textformat.abc.dottedunderline"
                         )
                     }
-                    .accessibilityIdentifier("MobileSettingsAutocorrect")
+                    .accessibilityIdentifier("MobileSettingsAutocomplete")
                 } header: {
                     Text(L10n.string("mobile.settings.terminal", defaultValue: "Terminal"))
                 } footer: {
                     Text(L10n.string(
-                        "mobile.settings.autocorrectFooter",
-                        defaultValue: "When on, the keyboard's autocorrect, predictive text, and spell-check work in the terminal as they do in other apps. Off by default, since they can mangle commands."
+                        "mobile.settings.autocompleteFooter",
+                        defaultValue: "When on, the keyboard can show inline autocomplete suggestions in the terminal. Autocorrection and smart punctuation stay off so commands are never rewritten."
                     ))
                 }
 
@@ -241,18 +241,18 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// Binding to whether the terminal keyboard's autocorrect/predictive/spell-
-    /// check traits are enabled. Reading the value in `body` (via the binding's
-    /// getter) registers `@Observable` tracking so the toggle reflects changes.
+    /// Binding to whether the terminal keyboard's inline autocomplete suggestions
+    /// are enabled. Reading the value in `body` (via the binding's getter)
+    /// registers `@Observable` tracking so the toggle reflects changes.
     // TRANSITIONAL: TerminalKeyboardConfiguration.shared is also read by the
     // off-limits typing-latency input view (TerminalInputTextView); inverting it
     // to an injected store requires threading it through the terminal-surface
     // construction path, reserved for the terminal-surface wave. Until then this
     // view keeps the singleton reach-in, mirroring TerminalShortcutsSettingsView.
-    private var autocorrectionBinding: Binding<Bool> {
+    private var autocompleteBinding: Binding<Bool> {
         Binding(
-            get: { TerminalKeyboardConfiguration.shared.autocorrectionEnabled },
-            set: { TerminalKeyboardConfiguration.shared.autocorrectionEnabled = $0 }
+            get: { TerminalKeyboardConfiguration.shared.autocompleteEnabled },
+            set: { TerminalKeyboardConfiguration.shared.autocompleteEnabled = $0 }
         )
     }
 

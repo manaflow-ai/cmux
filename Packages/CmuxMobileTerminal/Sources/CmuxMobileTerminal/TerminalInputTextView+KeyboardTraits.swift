@@ -2,7 +2,7 @@ import UIKit
 
 extension TerminalInputTextView {
     /// Subscribe to ``TerminalKeyboardConfiguration/didChangeNotification`` so the
-    /// live keyboard traits track the user's autocorrect preference. Paired with
+    /// live keyboard traits track the user's autocomplete preference. Paired with
     /// the blanket `removeObserver(self)` in `deinit`. Called once from `init`.
     func observeKeyboardConfigurationChanges() {
         NotificationCenter.default.addObserver(
@@ -13,25 +13,24 @@ extension TerminalInputTextView {
         )
     }
 
-    /// Apply the user's autocorrect preference to the keyboard input traits.
+    /// Apply the user's autocomplete preference to the keyboard input traits.
     ///
-    /// When enabled, the autocorrect / predictive text / inline-prediction /
-    /// smart-punctuation / spell-check traits fall back to the system default (so
-    /// the field behaves like an ordinary iOS text field, respecting the user's
-    /// global keyboard settings); when disabled they are forced off for
-    /// terminal-hardened input. `inlinePredictionType` is set explicitly because
-    /// iOS controls the gray inline suggestion separately from `autocorrectionType`
-    /// — without it the off state would still leak inline predictions for users who
-    /// enable them system-wide. Autocapitalization is left untouched here — it
-    /// stays off unconditionally (set once in `init`). Called from `init` and on
-    /// every ``TerminalKeyboardConfiguration/didChangeNotification``.
+    /// The terminal input proxy forwards normal `insertText` bytes directly to
+    /// the shell. Replacement-based traits such as autocorrection, smart
+    /// punctuation, and spell-checking can rewrite text after those bytes have
+    /// already been sent, so they stay off even when autocomplete is enabled.
+    /// `inlinePredictionType` is safe to toggle because accepting an inline
+    /// prediction appends text through the normal input path. Autocapitalization
+    /// is left untouched here — it stays off unconditionally (set once in
+    /// `init`). Called from `init` and on every
+    /// ``TerminalKeyboardConfiguration/didChangeNotification``.
     func applyKeyboardTraits() {
-        let enabled = TerminalKeyboardConfiguration.shared.autocorrectionEnabled
-        autocorrectionType = enabled ? .default : .no
-        smartQuotesType = enabled ? .default : .no
-        smartDashesType = enabled ? .default : .no
-        smartInsertDeleteType = enabled ? .default : .no
-        spellCheckingType = enabled ? .default : .no
+        let enabled = TerminalKeyboardConfiguration.shared.autocompleteEnabled
+        autocorrectionType = .no
+        smartQuotesType = .no
+        smartDashesType = .no
+        smartInsertDeleteType = .no
+        spellCheckingType = .no
         inlinePredictionType = enabled ? .default : .no
     }
 

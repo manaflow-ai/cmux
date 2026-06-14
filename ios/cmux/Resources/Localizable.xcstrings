@@ -1871,36 +1871,36 @@
         }
       }
     },
-    "mobile.settings.autocorrect": {
+    "mobile.settings.autocomplete": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keyboard Autocorrection"
+            "value": "Keyboard Autocomplete"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーボードの自動修正"
+            "value": "キーボードの自動補完"
           }
         }
       }
     },
-    "mobile.settings.autocorrectFooter": {
+    "mobile.settings.autocompleteFooter": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, the keyboard's autocorrect, predictive text, and spell-check work in the terminal as they do in other apps. Off by default, since they can mangle commands."
+            "value": "When on, the keyboard can show inline autocomplete suggestions in the terminal. Autocorrection and smart punctuation stay off so commands are never rewritten."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンにすると、キーボードの自動修正・予測変換・スペルチェックが他のアプリと同じようにターミナルで機能します。コマンドを書き換えてしまうことがあるため、デフォルトではオフです。"
+            "value": "オンにすると、ターミナルでキーボードのインライン自動補完候補を表示できます。コマンドが書き換えられないよう、自動修正とスマート句読点はオフのままです。"
           }
         }
       }
