@@ -320,6 +320,13 @@ final class MobileHostService {
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
         }
+        let build = MobileHostBuildIdentity.current()
+        if let appVersion = build.appVersion {
+            payload["mac_app_version"] = appVersion
+        }
+        if let appBuild = build.appBuild {
+            payload["mac_app_build"] = appBuild
+        }
         return payload
     }
 
@@ -1069,7 +1076,12 @@ final class MobileHostService {
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: selectedRoutes,
-            ttl: ttl
+            ttl: ttl,
+            macUserEmail: await currentAuthenticatedLocalUserEmail(),
+            macUserID: await currentAuthenticatedLocalUserID(),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: MobileHostBuildIdentity.current().appVersion,
+            macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
         return try ticketStore.payload(for: ticket)
     }
@@ -1642,6 +1654,7 @@ final class MobileHostService {
     }
 }
 
+
 #if DEBUG
 extension MobileHostService {
     func debugResetMobileLifecycleStateForTesting() {
@@ -1719,13 +1732,18 @@ private enum MobileHostAuthorizationError: Error {
 }
 
 enum MobileHostAuthorizationPolicy {
-    static func authorizeStackUser(localUserID: String?, remoteUserID: String) throws {
-        guard let localUserID, !localUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    static func authorizeStackUserID(localUserID: String?, remoteUserID: String?) throws {
+        guard let localUserID = normalizedUserID(localUserID) else {
             throw MobileHostAuthorizationError.missingLocalUser
         }
-        guard localUserID == remoteUserID else {
+        guard normalizedUserID(remoteUserID) == localUserID else {
             throw MobileHostAuthorizationError.accountMismatch
         }
+    }
+
+    private static func normalizedUserID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -1750,7 +1768,7 @@ private actor MobileHostStackAuthVerifier {
     private static let verificationTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
 
     private struct CacheEntry {
-        let userID: String
+        let userID: String?
         let expiresAt: Date
     }
 
@@ -1772,7 +1790,7 @@ private actor MobileHostStackAuthVerifier {
             return nil
         }
         let localUserID = await currentAuthenticatedLocalUserID()
-        return (try? MobileHostAuthorizationPolicy.authorizeStackUser(
+        return (try? MobileHostAuthorizationPolicy.authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: cached.userID
         )) != nil
@@ -1785,7 +1803,7 @@ private actor MobileHostStackAuthVerifier {
 
         let cacheKey = Self.cacheKey(for: accessToken)
         let now = Date()
-        let remoteUserID: String
+        let remoteUserID: String?
         cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
@@ -1801,13 +1819,13 @@ private actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
-        try MobileHostAuthorizationPolicy.authorizeStackUser(
+        try MobileHostAuthorizationPolicy.authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
     }
 
-    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String {
+    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String? {
         let stack = Self.makeStackClient(accessToken: accessToken)
         guard let user = try await Self.withVerificationTimeout({
             try await stack.getUser(or: .throw)

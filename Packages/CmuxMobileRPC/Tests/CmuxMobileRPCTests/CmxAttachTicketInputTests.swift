@@ -14,6 +14,11 @@ import Testing
             terminalID: nil,
             macDeviceID: "mac-1",
             macDisplayName: "Studio",
+            macUserEmail: "user@example.com",
+            macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: 1,
+            macAppVersion: "0.64.15",
+            macAppBuild: "42",
             routes: [
                 try CmxAttachRoute(
                     id: "tailscale",
@@ -41,6 +46,11 @@ import Testing
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
+        #expect(decoded.macAppVersion == "0.64.15")
+        #expect(decoded.macAppBuild == "42")
         #expect(decoded.workspaceID == "")
         #expect(decoded.routes == ticket.routes)
         // The compact QR grammar intentionally drops the auth token (it
@@ -49,6 +59,17 @@ import Testing
         #expect(decoded.authToken == nil)
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
+    }
+
+    @Test func missingCompactCompatibilityDecodesAsUnknown() throws {
+        let payload = """
+        {"v":1,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
+        """
+        let decoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(payload.utf8))
+        )
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
     }
 
     @Test func decodesLegacyFullKeyPayloadAttachURL() throws {
@@ -63,6 +84,21 @@ import Testing
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.routes == ticket.routes)
         #expect(decoded.authToken == "legacy-token")
+    }
+
+    @Test func missingLegacyCompatibilityDecodesAsUnknown() throws {
+        let payload = """
+        {"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-1",\
+        "macDisplayName":null,"macUserID":"user_mac_123",\
+        "routes":[{"id":"tailscale","kind":"tailscale",\
+        "endpoint":{"type":"host_port","host":"100.64.0.5","port":8443},\
+        "priority":0}]}
+        """
+        let decoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(payload.utf8))
+        )
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
     }
 
     @Test func compactPayloadFailsLoudlyOnPreCompactDecoder() throws {
@@ -122,13 +158,18 @@ import Testing
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
         #expect(decoded.authToken == nil)
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
+        #expect(decoded.macAppVersion == "0.64.15")
+        #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes.count == 2)
         #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
         #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
@@ -144,6 +185,20 @@ import Testing
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=localhost:58465")
         }
+    }
+
+    @Test func legacyPairURLDecodesCompatibilityAsUnknown() throws {
+        let payload = try MobileSyncPairingPayload(
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            host: "100.64.0.5",
+            port: 8443,
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            transport: .tailscale
+        )
+        let decoded = try CmxAttachTicketInput.decode(payload.encodedURL().absoluteString)
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
     }
 
     @Test func legacyLoopbackPayloadStillDecodesForDevInjection() throws {

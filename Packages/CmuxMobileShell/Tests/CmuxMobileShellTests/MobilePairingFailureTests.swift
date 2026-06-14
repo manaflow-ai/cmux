@@ -122,6 +122,17 @@ import Testing
         #expect(category.isAuthorizationFailure)
     }
 
+    @Test func emailMismatchIsAuthorizationFailure() {
+        let category = MobilePairingFailureCategory.emailMismatch(
+            expected: "mac@example.com",
+            actual: "phone@example.com"
+        )
+        #expect(category.analyticsReason == "email_mismatch")
+        #expect(category.isAuthorizationFailure)
+        #expect(category.message.contains("mac@example.com"))
+        #expect(category.message.contains("phone@example.com"))
+    }
+
     @Test func insecureManualRouteIsUnsupportedRoute() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.insecureManualRoute,
@@ -190,6 +201,7 @@ import Testing
             .handshakeTimedOut(host: "h", port: 1),
             .connectionDropped(host: "h", port: 1),
             .accountMismatch,
+            .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
             .authFailed,
             .ticketExpired,
             .invalidCode,
