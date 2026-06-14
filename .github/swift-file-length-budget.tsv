@@ -93,7 +93,7 @@
 926	Sources/DockPanelView.swift
 919	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 917	cmuxTests/WorkspaceGroupTests.swift
-915	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
+913	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
 880	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift

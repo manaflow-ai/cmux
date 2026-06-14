@@ -527,7 +527,7 @@ enum MenuBarOnlySettings {
         if defaults.object(forKey: explicitEnableKey) != nil {
             return defaults.bool(forKey: explicitEnableKey)
         }
-        return !legacyCommandPaletteToggleLikelyEnabledMenuBarOnly(defaults: defaults)
+        return !legacyCommandPaletteOneShotLikelyEnabledMenuBarOnly(defaults: defaults)
     }
 
     static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {

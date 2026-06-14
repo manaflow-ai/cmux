@@ -26,7 +26,7 @@ struct MenuBarOnlyActivationPolicyTests {
         )
     }
 
-    @Test func commandHistoryDoesNotEnableAccessoryPolicy() throws {
+    @Test func isolatedOneShotCommandHistoryDoesNotEnableAccessoryPolicy() throws {
         try withTemporaryDefaults { defaults in
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
             defaults.set(
@@ -50,6 +50,33 @@ struct MenuBarOnlyActivationPolicyTests {
         }
     }
 
+    @Test func mixedCommandHistoryPreservesLegacyOptIn() throws {
+        try withTemporaryDefaults { defaults in
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+            defaults.set(
+                try JSONSerialization.data(withJSONObject: [
+                    MenuBarOnlySettings.legacyCommandPaletteMenuBarOnlyCommandId: [
+                        "useCount": 1,
+                        "lastUsedAt": 1_700_000_000,
+                    ],
+                    "palette.toggleSetting.dockBadge": [
+                        "useCount": 4,
+                        "lastUsedAt": 1_700_000_500,
+                    ],
+                ]),
+                forKey: MenuBarOnlySettings.legacyCommandPaletteUsageKey
+            )
+
+            #expect(MenuBarOnlySettings.isEnabled(defaults: defaults))
+            #expect(MenuBarOnlySettings.activationPolicy(defaults: defaults) == .accessory)
+
+            MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
+
+            #expect((defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool) == true)
+            #expect((defaults.object(forKey: MenuBarOnlySettings.explicitEnableKey) as? Bool) == true)
+        }
+    }
+
     @Test func legacyDefaultWithoutCommandHistoryStillOptsIn() throws {
         try withTemporaryDefaults { defaults in
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
@@ -64,13 +91,13 @@ struct MenuBarOnlyActivationPolicyTests {
         }
     }
 
-    @Test func evenCommandHistoryPreservesLegacyOptIn() throws {
+    @Test func repeatedCommandHistoryPreservesLegacyOptIn() throws {
         try withTemporaryDefaults { defaults in
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
             defaults.set(
                 try JSONSerialization.data(withJSONObject: [
                     MenuBarOnlySettings.legacyCommandPaletteMenuBarOnlyCommandId: [
-                        "useCount": 2,
+                        "useCount": 3,
                         "lastUsedAt": 1_700_000_000,
                     ],
                 ]),
