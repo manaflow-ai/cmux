@@ -8935,7 +8935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
 #if DEBUG
@@ -10280,7 +10280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == browserPanelId else { return }
             recordFocusedState()
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in recordFocusedState() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
@@ -10462,7 +10462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == panelId else { return }
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -11040,7 +11040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -11179,7 +11179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    observedWorkspaceId != workspace.id {
                     observedWorkspaceId = workspace.id
                     panelsCancellable?.cancel()
-                    panelsCancellable = workspace.$panels
+                    panelsCancellable = workspace.panelsPublisher
                         .map { _ in () }
                         .sink { _ in attemptResolve() }
                 }
@@ -11330,7 +11330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             panelsCancellable?.cancel()
-            panelsCancellable = workspace.$panels
+            panelsCancellable = workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in attemptFocus() }
             guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
@@ -16382,7 +16382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor in finishIfFocused() }
         })
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
-            cancellables.append(workspace.$panels
+            cancellables.append(workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in finishIfFocused() }

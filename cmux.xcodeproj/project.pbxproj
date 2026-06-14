@@ -274,6 +274,7 @@
 		C0DE58990000000000000004 /* CmuxWebViewKeyDownReentryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */; };
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		5E55200000000000000000B3 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
+		E3B7A3000000000000000113 /* CmuxWorkspaceCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000112 /* CmuxWorkspaceCore */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		E3B7A30000000000000000E3 /* CmuxWorkspaceNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */; };
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
@@ -1717,6 +1718,7 @@
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
+				E3B7A3000000000000000113 /* CmuxWorkspaceCore in Frameworks */,
 				E3B7A30000000000000000E3 /* CmuxWorkspaceNavigation in Frameworks */,
 				E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */,
 				C750400000000000000000D3 /* CmuxWorkspaceWindow in Frameworks */,
@@ -2690,6 +2692,7 @@
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
 				E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
+				E3B7A3000000000000000112 /* CmuxWorkspaceCore */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
@@ -2873,6 +2876,7 @@
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
 				E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */,
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
+				E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
@@ -4361,6 +4365,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxPanes;
 		};
+		E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxWorkspaceCore;
+		};
 		E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxWorkspaces;
@@ -4596,6 +4604,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */;
 			productName = CmuxPanes;
+		};
+		E3B7A3000000000000000112 /* CmuxWorkspaceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */;
+			productName = CmuxWorkspaceCore;
 		};
 		E3B7A3000000000000000102 /* CmuxWorkspaces */ = {
 			isa = XCSwiftPackageProductDependency;
