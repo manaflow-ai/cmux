@@ -1823,6 +1823,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
+    /// Origin of `currentDirectory`. Optional for back-compat with snapshots
+    /// that pre-date this field; missing values are treated as `.localSeed`
+    /// at restore time.
+    var currentDirectoryOrigin: CurrentDirectoryOrigin? = nil
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots

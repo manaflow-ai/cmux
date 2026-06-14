@@ -136,6 +136,7 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             currentDirectory: currentDirectory,
+            currentDirectoryOrigin: currentDirectoryOrigin,
             focusedPanelId: focusedPanelId,
             layout: layout,
             layoutMode: layoutMode.rawValue,
@@ -185,6 +186,19 @@ extension Workspace {
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
+        }
+        // Restored origin: never trust a persisted .remoteReport. The semantic of
+        // .remoteReport is "confirmed by a live remote shell", but a relaunched
+        // workspace has not re-confirmed anything yet — the remote shell may have
+        // started in a different cwd, or the persisted path may no longer exist.
+        // Treat .remoteReport as .localSeed so the SSH file explorer falls back
+        // to remote $HOME via resolveRemoteHome; the first .liveReport from the
+        // reconnected shell will flip the origin back to .remoteReport.
+        switch snapshot.currentDirectoryOrigin {
+        case nil, .remoteReport:
+            currentDirectoryOrigin = .localSeed
+        case .localSeed?, .localKnown?:
+            currentDirectoryOrigin = snapshot.currentDirectoryOrigin ?? .localSeed
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
@@ -2427,6 +2441,12 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 }
 
+enum CurrentDirectoryOrigin: String, Codable, Sendable {
+    case localSeed
+    case localKnown
+    case remoteReport
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -2484,6 +2504,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
     }
+    @Published private(set) var currentDirectoryOrigin: CurrentDirectoryOrigin = .localSeed
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
@@ -2601,12 +2622,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
+        #if DEBUG
+        if let debugForcedFocusedPanelIdForTests {
+            return debugForcedFocusedPanelIdForTests
+        }
+        #endif
         guard let paneId = bonsplitController.focusedPaneId,
               let tab = bonsplitController.selectedTab(inPane: paneId) else {
             return nil
         }
         return panelIdFromSurfaceId(tab.id)
     }
+
+    #if DEBUG
+    private var debugForcedFocusedPanelIdForTests: UUID?
+
+    func debugSetFocusedPanelIdForTests(_ id: UUID?) {
+        debugForcedFocusedPanelIdForTests = id
+    }
+    #endif
 
     /// Panel ids in bonsplit's spatial order: depth-first over the split tree
     /// (left/top child before right/bottom child), and within each pane in tab
@@ -3191,6 +3225,7 @@ final class Workspace: Identifiable, ObservableObject {
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
         self.surfaceTabBarDirectory = initialDirectory
+        self.currentDirectoryOrigin = hasWorkingDirectory ? .localKnown : .localSeed
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
@@ -4478,6 +4513,14 @@ final class Workspace: Identifiable, ObservableObject {
             if currentDirectory != trimmed {
                 currentDirectory = trimmed
             }
+            // Only live shell cwd reports prove the path was observed remotely; replayed snapshot
+            // metadata may carry a stale local-seed path for an SSH workspace (issue #5360).
+            if source == .liveReport {
+                let nextOrigin: CurrentDirectoryOrigin = isRemoteWorkspace ? .remoteReport : .localKnown
+                if currentDirectoryOrigin != nextOrigin {
+                    currentDirectoryOrigin = nextOrigin
+                }
+            }
         }
         return true
     }
@@ -5245,6 +5288,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRemoteWorkspace: Bool {
         remoteConfiguration != nil
+    }
+
+    /// The remote rootPath to feed into FileExplorerStore.applyWorkspaceRoot
+    /// for an SSH workspace. Returns nil when we don't have a known-remote path
+    /// yet — the store then resolves the remote $HOME via
+    /// `applyRemoteSSHWorkspaceRoot`.
+    var fileExplorerRemoteRootPath: String? {
+        guard currentDirectoryOrigin == .remoteReport else { return nil }
+        let trimmed = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     var isRestorableInSessionSnapshot: Bool {
