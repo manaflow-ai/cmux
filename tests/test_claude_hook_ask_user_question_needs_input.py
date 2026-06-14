@@ -435,6 +435,85 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        prompt_clear_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/Users/example/project",
+                "prompt": "answered while the question is still pending",
+            },
+            env,
+        )
+        if prompt_clear_proc.returncode != 0:
+            print("FAIL: within-window prompt-submit failed")
+            print(f"stdout={prompt_clear_proc.stdout!r}")
+            print(f"stderr={prompt_clear_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
+        post_prompt_clear_attention_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            generic_attention_payload(session_id, 1001),
+            env,
+        )
+        if post_prompt_clear_attention_proc.returncode != 0:
+            print("FAIL: generic attention after within-window prompt-submit failed")
+            print(f"stdout={post_prompt_clear_attention_proc.stdout!r}")
+            print(f"stderr={post_prompt_clear_attention_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_prompt_clear = wait_for_notify_count(server, 5)
+        if len(notify_after_prompt_clear) != 5:
+            print("FAIL: within-window prompt-submit should stop suppressing generic attention notifications")
+            print(f"notify_commands={notify_after_prompt_clear!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
+        pending_for_expiry_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            ask_user_question_payload(session_id, 101),
+            env,
+        )
+        if pending_for_expiry_proc.returncode != 0:
+            print("FAIL: AskUserQuestion before expiry test failed")
+            print(f"stdout={pending_for_expiry_proc.stdout!r}")
+            print(f"stderr={pending_for_expiry_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_pending_for_expiry = wait_for_notify_count(server, 6)
+        if len(notify_after_pending_for_expiry) != 6:
+            print("FAIL: AskUserQuestion before expiry test should publish")
+            print(f"notify_commands={notify_after_pending_for_expiry!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
+        duplicate_before_expiry_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            generic_attention_payload(session_id, 101),
+            env,
+        )
+        if duplicate_before_expiry_proc.returncode != 0:
+            print("FAIL: generic attention before expiry failed")
+            print(f"stdout={duplicate_before_expiry_proc.stdout!r}")
+            print(f"stderr={duplicate_before_expiry_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_before_expiry = wait_for_notify_count_to_remain(server, 6)
+        if len(notify_before_expiry) != 6:
+            print("FAIL: fresh AskUserQuestion state should suppress generic attention before expiry")
+            print(f"notify_commands={notify_before_expiry!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         age_pending_ask_user_question_state(state_path, session_id, seconds_ago=2 * 60 * 60)
         expired_pending_proc = run_claude_hook(
             cli_path,
@@ -449,8 +528,8 @@ def main() -> int:
             print(f"stderr={expired_pending_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_expired_pending = wait_for_notify_count(server, 5)
-        if len(notify_after_expired_pending) != 5:
+        notify_after_expired_pending = wait_for_notify_count(server, 7)
+        if len(notify_after_expired_pending) != 7:
             print("FAIL: stale AskUserQuestion state should not suppress generic attention forever")
             print(f"notify_commands={notify_after_expired_pending!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -488,8 +567,8 @@ def main() -> int:
             print(f"stderr={post_answer_attention_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_post_answer = wait_for_notify_count(server, 6)
-        if len(notify_after_post_answer) != 6:
+        notify_after_post_answer = wait_for_notify_count(server, 8)
+        if len(notify_after_post_answer) != 8:
             print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
             print(f"notify_commands={notify_after_post_answer!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -508,8 +587,8 @@ def main() -> int:
             print(f"stderr={repeated_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = wait_for_notify_count(server, 7)
-        if len(notify_after_repeat) != 7:
+        notify_after_repeat = wait_for_notify_count(server, 9)
+        if len(notify_after_repeat) != 9:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
