@@ -107,18 +107,7 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
-          if (imageSupportsSignedWebSocketAuth("freestyle", image)) {
-            try {
-              await writeFreestyleSignedAttachAudience(fs.vms.ref({ vmId: created.vmId }), created.vmId);
-              await ensureFreestyleWebSocketHealthyWithRetry(
-                `${created.vmId}.vm.freestyle.sh`,
-                CMUXD_WS_CREATE_HEALTH_RETRY_MS,
-              );
-            } catch (err) {
-              await fs.vms.ref({ vmId: created.vmId }).delete().catch(() => undefined);
-              throw err;
-            }
-          }
+          await setupFreestyleSignedAttachIfNeeded(fs, image, created.vmId);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -310,6 +299,7 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
+          await setupFreestyleSignedAttachIfNeeded(fs, snapshotId, created.vmId);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -649,6 +639,25 @@ async function execFreestyleOrThrow(vm: FreestyleVmRef, command: string) {
     throw new Error(`Freestyle exec failed with status ${exitCode}: ${(result.stderr ?? "").trim()}`);
   }
   return result;
+}
+
+async function setupFreestyleSignedAttachIfNeeded(
+  fs: Freestyle,
+  image: string,
+  vmId: string,
+): Promise<void> {
+  if (!imageSupportsSignedWebSocketAuth("freestyle", image)) return;
+  const vm = fs.vms.ref({ vmId });
+  try {
+    await writeFreestyleSignedAttachAudience(vm, vmId);
+    await ensureFreestyleWebSocketHealthyWithRetry(
+      `${vmId}.vm.freestyle.sh`,
+      CMUXD_WS_CREATE_HEALTH_RETRY_MS,
+    );
+  } catch (err) {
+    await vm.delete().catch(() => undefined);
+    throw err;
+  }
 }
 
 async function writeFreestyleSignedAttachAudience(vm: FreestyleVmRef, vmId: string): Promise<void> {
