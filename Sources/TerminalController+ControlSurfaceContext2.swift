@@ -296,7 +296,8 @@ extension TerminalController {
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
-                remotePTYSessionID: inputs.remotePTYSessionID
+                remotePTYSessionID: inputs.remotePTYSessionID,
+                inheritWorkingDirectoryFallback: true
             )?.id
         }
 
