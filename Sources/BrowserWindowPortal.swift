@@ -1458,6 +1458,64 @@ enum BrowserPaneDropRouting {
     }
 }
 
+@MainActor
+enum BrowserWebInspectorCompanionDetector {
+    static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        let primaryFrame = host.convert(primaryWebView.bounds, from: primaryWebView)
+        var stack = host.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            guard !current.isDescendant(of: primaryWebView), !current.isHidden, current.alphaValue > 0 else {
+                continue
+            }
+            let currentFrame = host.convert(current.bounds, from: current)
+            guard currentFrame.width > 1, currentFrame.height > 1 else { continue }
+            if cmuxIsWebInspectorObject(current) ||
+                isDockedInspectorWebView(current, currentFrame: currentFrame, primaryFrame: primaryFrame) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    private static func isDockedInspectorWebView(
+        _ view: NSView,
+        currentFrame: NSRect,
+        primaryFrame: NSRect
+    ) -> Bool {
+        guard view is WKWebView else { return false }
+        return isSideDockedFrame(currentFrame, primaryFrame: primaryFrame) ||
+            isVerticallyDockedFrame(currentFrame, primaryFrame: primaryFrame)
+    }
+
+    private static func isSideDockedFrame(_ currentFrame: NSRect, primaryFrame: NSRect) -> Bool {
+        guard verticalOverlap(between: primaryFrame, and: currentFrame) > 8 else { return false }
+        return HostedInspectorDockSide.resolve(pageFrame: primaryFrame, inspectorFrame: currentFrame) != nil
+    }
+
+    private static func isVerticallyDockedFrame(
+        _ currentFrame: NSRect,
+        primaryFrame: NSRect,
+        epsilon: CGFloat = 1
+    ) -> Bool {
+        let smallerWidth = min(primaryFrame.width, currentFrame.width)
+        guard smallerWidth > 1 else { return false }
+        guard horizontalOverlap(between: primaryFrame, and: currentFrame) > smallerWidth * 0.7 else {
+            return false
+        }
+        return currentFrame.maxY <= primaryFrame.minY + epsilon ||
+            primaryFrame.maxY <= currentFrame.minY + epsilon
+    }
+
+    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
+    }
+
+    private static func horizontalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxX, rhs.maxX) - max(lhs.minX, rhs.minX))
+    }
+}
+
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
@@ -1809,9 +1867,10 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasVisibleInspectorCompanion = BrowserWebInspectorCompanionDetector
+            .containsVisibleInspectorCompanion(in: self, primaryWebView: webView)
         let needsPlainWebViewFrameReset =
-            !hasCompanionWKSubviews &&
+            !hasVisibleInspectorCompanion &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
@@ -1833,7 +1892,7 @@ final class WindowBrowserSlotView: NSView {
         // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
-        if !hasCompanionWKSubviews {
+        if !hasVisibleInspectorCompanion {
             webView.frame = bounds
         }
         needsLayout = true
@@ -1845,28 +1904,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.minY - bounds.minY) > epsilon ||
             abs(frame.width - bounds.width) > epsilon ||
             abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
