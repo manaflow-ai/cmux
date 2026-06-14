@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import ObjectiveC
 
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
