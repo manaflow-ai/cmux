@@ -7,4 +7,6 @@ public enum CommandPaletteListScope: String, Sendable {
     case commands
     /// The workspace/surface switcher list.
     case switcher
+    /// The quick-open file search list (query prefixed with `@`).
+    case fileSearch
 }

@@ -757,6 +757,11 @@ struct cmuxApp: App {
                     NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
                 }
 
+                splitCommandButton(title: String(localized: "menu.file.quickOpenFile", defaultValue: "Quick Open…"), shortcut: menuShortcut(for: .quickOpenFile)) {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteFileSearchRequested, object: targetWindow)
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"), shortcut: menuShortcut(for: .commandPalette)) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)

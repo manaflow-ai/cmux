@@ -1338,6 +1338,8 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     nonisolated private static let commandPaletteCommandsPrefix = ">"
+    nonisolated private static let commandPaletteFileSearchPrefix = "@"
+    private static var fileSearchDedupFingerprint: Int?
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
@@ -2905,6 +2907,17 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteSwitcher()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteFileSearchRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openCommandPaletteFileSearch()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
@@ -4814,9 +4827,12 @@ struct ContentView: View {
         )
     }
 
-    nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
+    nonisolated static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
         if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
             return .commands
+        }
+        if query.hasPrefix(Self.commandPaletteFileSearchPrefix) {
+            return .fileSearch
         }
         return .switcher
     }
@@ -4848,6 +4864,8 @@ struct ContentView: View {
             return commandPaletteSearchAllSurfaces
                 ? String(localized: "commandPalette.search.switcherPlaceholderAllSurfaces", defaultValue: "Search workspaces and surfaces")
                 : String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
+        case .fileSearch:
+            return String(localized: "commandPalette.search.fileSearchPlaceholder", defaultValue: "Search files by name")
         }
     }
 
@@ -4859,6 +4877,8 @@ struct ContentView: View {
             return commandPaletteSearchAllSurfaces
                 ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
                 : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
+        case .fileSearch:
+            return String(localized: "commandPalette.search.fileSearchEmpty", defaultValue: "No files found")
         }
     }
 
@@ -4896,7 +4916,7 @@ struct ContentView: View {
         )
     }
 
-    nonisolated private static func commandPaletteQueryForMatching(
+    nonisolated static func commandPaletteQueryForMatching(
         query: String,
         scope: CommandPaletteListScope
     ) -> String {
@@ -4906,6 +4926,9 @@ struct ContentView: View {
             return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         case .switcher:
             return query.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .fileSearch:
+            let suffix = String(query.dropFirst(Self.commandPaletteFileSearchPrefix.count))
+            return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -4926,6 +4949,14 @@ struct ContentView: View {
             return commandPaletteCommands(commandsContext: commandsContext ?? commandPaletteCachedCommandsContext())
         case .switcher:
             return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
+        case .fileSearch:
+            let mq = commandPaletteQueryForMatching
+            let (cd, rawSearchTerm, isPathMode) = Self.commandPaletteFileSearchResolve(
+                matchingQuery: mq, workspaceRoot: resolvedFileSearchWorkspaceRoot)
+            if isPathMode && !rawSearchTerm.contains("/") {
+                return commandPaletteFileSearchPathEntries(matchingQuery: mq, currentDir: cd)
+            }
+            return []
         }
     }
 
@@ -4968,11 +4999,41 @@ struct ContentView: View {
             return
         }
 
-        let entries = commandPaletteEntries(
-            for: scope,
-            includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
-        )
+        if cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint {
+            // Nuke stale index; the async build will create a new one.
+            // Without this, searches use old indexed text (e.g. absolute
+            // paths from a previous query) and produce wrong matches.
+            commandPaletteNucleoSearchIndex = nil
+        }
+
+        let entries: [CommandPaletteCommand]
+        if scope == .fileSearch {
+            let matchingQuery = Self.commandPaletteQueryForMatching(
+                query: effectiveQuery, scope: .fileSearch)
+            let (currentDir, rawSearchTerm, isPathMode) = Self.commandPaletteFileSearchResolve(
+                matchingQuery: matchingQuery, workspaceRoot: resolvedFileSearchWorkspaceRoot)
+            if isPathMode && !rawSearchTerm.contains("/") {
+                entries = commandPaletteFileSearchPathEntries(
+                    matchingQuery: matchingQuery, currentDir: currentDir)
+            } else {
+                // Cross-directory or invalid path. Clear stale corpus so
+                // sync seeding doesn't show results from a previous query.
+                // Still record the fingerprint so repeated calls on the
+                // same query are no-ops (matching commands/switcher behavior).
+                cachedCommandPaletteScope = scope
+                cachedCommandPaletteFingerprint = fingerprint
+                commandPaletteSearchCorpus = []
+                commandPaletteSearchCommandsByID = [:]
+                commandPaletteSearchCorpusByID = [:]
+                return
+            }
+        } else {
+            entries = commandPaletteEntries(
+                for: scope,
+                includeSurfaces: includeSurfaces,
+                commandsContext: commandsContext
+            )
+        }
         commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
             entries,
             keyedBy: \.id
@@ -5136,6 +5197,27 @@ struct ContentView: View {
             scope: scope
         )
 
+        // Cross-directory: defer to background task.
+        var fsIsCrossDirectory = false
+        if scope == .fileSearch {
+            let (_, _, p) = Self.commandPaletteFileSearchResolve(
+                matchingQuery: matchingQuery, workspaceRoot: resolvedFileSearchWorkspaceRoot)
+            fsIsCrossDirectory = !p
+            // Cross-directory BFS is heavy. Two ContentView instances receive
+            // the same query change; let only the first one schedule work.
+            // Path-mode queries such as "@" and "@/" must never dedup because
+            // they synchronously seed the visible directory entries.
+            if let fp = Self.commandPaletteFileSearchDedupFingerprint(
+                query: effectiveQuery,
+                isCrossDirectory: fsIsCrossDirectory,
+                workspaceRoot: resolvedFileSearchWorkspaceRoot
+            ) {
+                if Self.fileSearchDedupFingerprint == fp { return }
+                Self.fileSearchDedupFingerprint = fp
+            } else {
+                Self.fileSearchDedupFingerprint = nil
+            }
+        }
         refreshCommandPaletteSearchCorpus(
             force: forceSearchCorpusRefresh,
             query: effectiveQuery
@@ -5149,10 +5231,17 @@ struct ContentView: View {
         let searchIndex = commandPaletteNucleoSearchIndex
         let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
-        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
+        let nucleoQuery: String = scope == .fileSearch
+            ? Self.commandPaletteFileSearchMatchingTerm(
+                matchingQuery,
+                workspaceRoot: resolvedFileSearchWorkspaceRoot
+            )
+            : matchingQuery
+        let preparedSearchQuery = CommandPaletteFuzzyMatcher.preparedQuery(nucleoQuery)
+        let queryIsEmpty = preparedSearchQuery.isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         let additionalScoreBoost: (String, Bool) -> Int = { commandId, _ in
-            Self.commandPaletteForkPriorityBoost(commandId: commandId, query: matchingQuery)
+            Self.commandPaletteForkPriorityBoost(commandId: commandId, query: nucleoQuery)
         }
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
         if preservePendingActivation {
@@ -5164,8 +5253,18 @@ struct ContentView: View {
             commandPalettePendingActivation = nil
         }
         cancelCommandPaletteSearch()
+        // File search entries change with every query, so existing visible
+        // results for the same scope are always stale. Allow synchronous
+        // seeding whenever the corpus is small enough.
+        // Cross-directory: always skip sync seeding — corpus is built by
+        // the background task.
+        let hasCurrentVisibleResults: Bool = {
+            if fsIsCrossDirectory { return true }
+            if scope == .fileSearch { return false }
+            return commandPaletteVisibleResultsScope == scope
+        }()
         if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
+            hasVisibleResultsForScope: hasCurrentVisibleResults,
             hasSearchIndex: searchIndex != nil,
             corpusCount: searchCorpus.count
         ) {
@@ -5173,14 +5272,20 @@ struct ContentView: View {
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 searchCorpusByID: searchCorpusByID,
-                query: matchingQuery,
+                query: nucleoQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
-                additionalScoreBoost: additionalScoreBoost
+                additionalScoreBoost: additionalScoreBoost,
+                resultLimit: scope == .fileSearch ? 30 : nil
             )
+            // Nucleo includes score-0 non-matches; Swift fallback excludes
+            // them (returns nil). Align: drop score-0 for fileSearch.
+            let filteredMatches: [CommandPaletteResolvedSearchMatch] = (scope == .fileSearch && !queryIsEmpty)
+                ? matches.filter { $0.score > 0 }
+                : matches
             cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
-                matches: matches,
+                matches: filteredMatches,
                 commandsByID: commandsByID
             )
             let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -5223,7 +5328,70 @@ struct ContentView: View {
         isCommandPaletteSearchPending = true
         syncCommandPaletteOverlayCommandListState()
 
-        commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
+        let capturedMatchingQuery = matchingQuery
+        let capturedFSRoot = resolvedFileSearchWorkspaceRoot
+        commandPaletteSearchTask = Task(priority: .userInitiated) {
+            // Cross-directory: parallel BFS + scoring on background.
+            if fsIsCrossDirectory {
+                let rootDir = capturedFSRoot ?? NSHomeDirectory()
+                let sq = Self.commandPaletteFileSearchMatchingTerm(
+                    capturedMatchingQuery,
+                    workspaceRoot: rootDir
+                )
+                let scored = await Self.searchCrossDirectory(query: sq, rootDir: rootDir)
+                await MainActor.run {
+                    guard commandPaletteSearchRequestID == requestID,
+                          isCommandPalettePresented else { return }
+                    var titleIndicesByIndex: [Int: Set<Int>] = [:]
+                    let entries = scored.enumerated().map { (i, item) -> CommandPaletteCommand in
+                        let name = item.url.lastPathComponent
+                        let rp = item.url.path.hasPrefix(rootDir + "/")
+                            ? String(item.url.path.dropFirst(rootDir.count + 1)) : item.url.path
+                        let isDir = Self.isDirectory(item.url)
+                        let matchCandidate = isDir ? rp + "/" : rp
+                        let isSelectedDirectory = isDir
+                            && matchCandidate.lowercased() == sq.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .lowercased()
+                        let title = isSelectedDirectory ? "." : rp
+                        titleIndicesByIndex[i] = isSelectedDirectory
+                            ? []
+                            : Self.fileSearchCrossDirectoryFuzzyMatch(query: sq, candidate: matchCandidate)?.indices
+                        return CommandPaletteCommand(
+                            id: "file.quickopen.\(item.url.absoluteString.hashValue)",
+                            rank: isDir ? 0 : item.depth * 1000 + i,
+                            title: title,
+                            subtitle: isSelectedDirectory ? rp : "",
+                            shortcutHint: nil,
+                            kindLabel: isDir
+                                ? String(localized: "commandPalette.kind.directory", defaultValue: "Directory")
+                                : String(localized: "commandPalette.kind.file", defaultValue: "File"),
+                            keywords: [name] + rp.split(separator: "/").map(String.init),
+                            dismissOnRun: !isDir || isSelectedDirectory,
+                            action: {
+                                if isSelectedDirectory {
+                                    NSWorkspace.shared.open(item.url)
+                                } else if isDir {
+                                    let p = Self.commandPaletteFileSearchPathForDirectory(
+                                        item.url, rootDir: rootDir, usePathPrefix: false)
+                                    self.commandPaletteQuery = Self.commandPaletteFileSearchPrefix + p
+                                } else { Self.openFileInDefaultEditor(item.url) }
+                            }
+                        )
+                    }
+                    let results = entries.enumerated().map { (i, cmd) in
+                        CommandPaletteSearchResult(command: cmd, score: scored[i].score,
+                            titleMatchIndices: titleIndicesByIndex[i] ?? [])
+                    }
+                    cachedCommandPaletteResults = results
+                    commandPaletteResolvedSearchRequestID = requestID
+                    commandPaletteResolvedSearchScope = scope
+                    isCommandPaletteSearchPending = false
+                    setCommandPaletteVisibleResults(results, scope: scope, fingerprint: fingerprint)
+                    commandPaletteResultsRevision &+= 1
+                }
+                return
+            }
+
             let previewMatches = shouldApplyPreviewResults
                 ? CommandPaletteSearchOrchestrator.previewSearchMatches(
                     scope: scope,
@@ -5231,7 +5399,7 @@ struct ContentView: View {
                     searchCorpus: searchCorpus,
                     candidateCommandIDs: previewCandidateCommandIDs,
                     searchCorpusByID: searchCorpusByID,
-                    query: matchingQuery,
+                    query: nucleoQuery,
                     usageHistory: usageHistory,
                     queryIsEmpty: queryIsEmpty,
                     historyTimestamp: historyTimestamp,
@@ -5281,13 +5449,18 @@ struct ContentView: View {
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 searchCorpusByID: searchCorpusByID,
-                query: matchingQuery,
+                query: nucleoQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
                 additionalScoreBoost: additionalScoreBoost,
+                resultLimit: scope == .fileSearch ? 30 : nil,
                 shouldCancel: { Task.isCancelled }
             )
+
+            let filteredMatches: [CommandPaletteResolvedSearchMatch] = (scope == .fileSearch && !queryIsEmpty)
+                ? matches.filter { $0.score > 0 }
+                : matches
 
             guard !Task.isCancelled else { return }
 
@@ -5307,7 +5480,7 @@ struct ContentView: View {
                 }
 
                 cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
-                    matches: matches,
+                    matches: filteredMatches,
                     commandsByID: commandPaletteSearchCommandsByID
                 )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -5359,6 +5532,8 @@ struct ContentView: View {
             )
         case .switcher:
             return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
+        case .fileSearch:
+            return commandPaletteFileSearchFingerprint()
         }
     }
 
@@ -5405,6 +5580,85 @@ struct ContentView: View {
         }
         return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
     }
+
+    // MARK: - File Search (Quick Open)
+
+    private func commandPaletteFileSearchFingerprint() -> Int {
+        Self.commandPaletteFileSearchFingerprint(query: commandPaletteQuery)
+    }
+
+    /// Path mode: single-directory listing. Called directly from
+    /// refreshCommandPaletteSearchCorpus.
+    private func commandPaletteFileSearchPathEntries(
+        matchingQuery: String, currentDir: String
+    ) -> [CommandPaletteCommand] {
+        guard let rootDir = resolvedFileSearchWorkspaceRoot, !rootDir.isEmpty else { return [] }
+        let resolvedDir = currentDir
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: resolvedDir) else { return [] }
+
+        var entries: [CommandPaletteCommand] = []
+        if resolvedDir != rootDir {
+            entries.append(Self.commandPaletteFileSearchDotEntry(currentDir: resolvedDir))
+        }
+        let nucleoTerm = Self.commandPaletteFileSearchMatchingTerm(
+            matchingQuery,
+            workspaceRoot: rootDir
+        )
+        let fileURLs = Self.listFilesInDirectory(resolvedDir, maxCount: 1000)
+            .filter { nucleoTerm.isEmpty ? !$0.lastPathComponent.hasPrefix(".") : true }
+        for url in fileURLs {
+            let isDir = Self.isDirectory(url)
+            let name = url.lastPathComponent
+            entries.append(CommandPaletteCommand(
+                id: "file.quickopen.\(url.absoluteString.hashValue)",
+                rank: isDir ? 0 : 1,
+                title: name, subtitle: "",
+                shortcutHint: nil,
+                kindLabel: isDir
+                    ? String(localized: "commandPalette.kind.directory", defaultValue: "Directory")
+                    : String(localized: "commandPalette.kind.file", defaultValue: "File"),
+                keywords: [],
+                dismissOnRun: !isDir,
+                action: {
+                    if isDir {
+                        let newPath = Self.commandPaletteFileSearchPathForDirectory(
+                            url, rootDir: rootDir, usePathPrefix: true
+                        )
+                        self.commandPaletteQuery = Self.commandPaletteFileSearchPrefix + newPath
+                    } else {
+                        Self.openFileInDefaultEditor(url)
+                    }
+                }
+            ))
+        }
+        return entries
+    }
+
+    private var resolvedFileSearchWorkspaceRoot: String? {
+        tabManager.selectedWorkspace?.currentDirectory
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private static func commandPaletteFileSearchDotEntry(currentDir: String) -> CommandPaletteCommand {
+        let url = URL(fileURLWithPath: currentDir, isDirectory: true)
+        return CommandPaletteCommand(
+            id: "file.quickopen.dot.\(currentDir.hashValue)",
+            rank: -1,
+            title: ".",
+            subtitle: currentDir,
+            shortcutHint: nil,
+            kindLabel: String(localized: "commandPalette.kind.directory", defaultValue: "Directory"),
+            keywords: [".", "open", "finder", "reveal"],
+            dismissOnRun: true,
+            action: {
+                NSWorkspace.shared.open(url)
+            }
+        )
+    }
+
+    // MARK: - Highlighted Title
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
@@ -8747,8 +9001,18 @@ struct ContentView: View {
         handleCommandPaletteListRequest(scope: .switcher)
     }
 
+    private func openCommandPaletteFileSearch() {
+        handleCommandPaletteListRequest(scope: .fileSearch)
+    }
+
     private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
-        let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
+        let initialQuery: String = {
+            switch scope {
+            case .commands: return Self.commandPaletteCommandsPrefix
+            case .fileSearch: return Self.commandPaletteFileSearchPrefix
+            case .switcher: return ""
+            }
+        }()
         guard isCommandPalettePresented else {
             presentCommandPalette(initialQuery: initialQuery)
             return
@@ -8912,6 +9176,7 @@ struct ContentView: View {
             commandPaletteRestoreFocusTarget = nil
         }
         isCommandPalettePresented = true
+        Self.fileSearchDedupFingerprint = nil
         commandPaletteForkableAgentActivePanelKey = nil
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
@@ -16824,4 +17089,3 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         }
     }
 }
-
