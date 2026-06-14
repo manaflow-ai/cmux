@@ -502,7 +502,7 @@ public struct BrowserSection: View {
     }
 
     private func setBrowserEngine(_ value: BrowserEngine) {
-        browserEngine.assumeCurrent(value)
+        browserEngine.acceptCommittedValue(value)
         if !hostActions.setBrowserEngine(value.rawValue) {
             browserEngine.set(value)
         }

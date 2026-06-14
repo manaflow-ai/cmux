@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 import Darwin
 
@@ -100,7 +102,7 @@ struct DetectedSSHSession: Equatable {
                     ])
                 }
 
-                let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
                 let result = try Self.runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
@@ -310,11 +312,11 @@ struct DetectedSSHSession: Equatable {
         }
 
         let stdout = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading),
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         let stderr = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading),
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         if operation?.isCancelled == true {
@@ -475,7 +477,7 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,

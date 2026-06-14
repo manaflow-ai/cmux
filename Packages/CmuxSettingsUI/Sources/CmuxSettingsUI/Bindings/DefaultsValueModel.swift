@@ -86,8 +86,12 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
     }
 
-    /// Updates UI state when a host path has already persisted the same value.
-    func assumeCurrent(_ value: Value) {
+    /// Updates ``current`` after another owner has already persisted `value`.
+    ///
+    /// Use this for settings whose committed write spans multiple backing keys
+    /// and must stay in one host-owned mutation path. Unlike ``set(_:)``, this
+    /// method does not write to ``store``.
+    public func acceptCommittedValue(_ value: Value) {
         current = value
     }
 

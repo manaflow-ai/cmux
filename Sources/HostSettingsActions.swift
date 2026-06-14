@@ -1,6 +1,8 @@
 import AppKit
 import CMUXMobileCore
+import CmuxFileOpen
 import CmuxSettingsUI
+import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
@@ -75,7 +77,7 @@ final class HostSettingsActions: SettingsHostActions {
         // falling back to the OS default. Opening the config file directly
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
-        PreferredEditorSettings.open(configFileURL)
+        PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
     func sendFeedback() {
@@ -144,6 +146,11 @@ final class HostSettingsActions: SettingsHostActions {
         configWindow = window
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    func setMenuBarOnly(_ enabled: Bool) -> Bool {
+        MenuBarOnlySettings.setEnabled(enabled)
+        return true
     }
 
     func openMobilePairingWindow() {
@@ -329,7 +336,7 @@ final class HostSettingsActions: SettingsHostActions {
 /// doesn't model `Sendable`; the token is immutable and only hands the opaque
 /// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
 /// has an identical internal token, which isn't `public`, so it's duplicated.
-private final class MobileHostStatusObserverToken: @unchecked Sendable {
+final class MobileHostStatusObserverToken: @unchecked Sendable {
     private let token: NSObjectProtocol
 
     init(_ token: NSObjectProtocol) {

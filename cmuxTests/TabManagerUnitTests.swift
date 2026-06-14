@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCore
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,6 +8,10 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import CmuxGit
+import CmuxSidebarGit
+import CmuxSidebar
+import CmuxTerminal
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1163,13 +1168,13 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
     func testCloseWorkspacesWithConfirmationHonorsWarnBeforeClosingTabDisabled() {
         let defaults = UserDefaults.standard
-        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-        defaults.set(false, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
         defer {
             if let originalWarnBeforeClosingTab {
-                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+                defaults.set(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+                defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
             }
         }
 
@@ -1362,7 +1367,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testTabCloseButtonWarningHonorsCmuxJSON() throws {
         try withCloseTabConfig(warnBeforeClosingTabXButton: true) {
             XCTAssertTrue(
-                CloseTabConfirmationPolicy.shouldConfirm(
+                CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                     requiresConfirmation: false,
                     source: .tabCloseButton
                 )
@@ -1445,7 +1450,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             }
 
             XCTAssertTrue(workspace.bonsplitController.configuration.allowCloseTabs)
-            defaults.set(true, forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+            defaults.set(true, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
             manager.refreshTabCloseButtonVisibility()
 
             XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
@@ -1929,18 +1934,18 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         run: () throws -> Void
     ) throws {
         let defaults = UserDefaults.standard
-        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-        let originalHideTabCloseButton = defaults.object(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
         defer {
-            restore(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
-            restore(originalWarnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
-            restore(originalHideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
         }
 
-        setOrRemove(warnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
-        setOrRemove(warnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
-        setOrRemove(hideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
+        setOrRemove(warnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+        setOrRemove(warnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+        setOrRemove(hideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
 
         try run()
     }
@@ -1976,19 +1981,19 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     ) throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let defaults = UserDefaults.standard
-        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-        let originalHideTabCloseButton = defaults.object(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
         let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
-        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-        defaults.removeObject(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+        defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.removeObject(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            restore(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
-            restore(originalWarnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
-            restore(originalHideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
             if let originalBackups {
                 defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {

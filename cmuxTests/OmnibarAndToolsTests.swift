@@ -219,18 +219,58 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationUsesCodeTunnelBinary() {
+    func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
+        let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
+        let lruURL = cacheURL.appendingPathComponent("lru.json", isDirectory: false)
+        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let expectedExecutablePath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [
+                "ELECTRON_RUN_AS_NODE": "stale",
+            ],
+            isExecutableAtPath: { $0 == codeTunnelPath || $0 == expectedExecutablePath },
+            dataAtURL: { url in
+                if url == productURL {
+                    return Data(#"{"dataFolderName": ".vscode"}"#.utf8)
+                }
+                if url == lruURL {
+                    return Data(#"["missing","server-new"]"#.utf8)
+                }
+                return nil
+            },
+            contentsOfDirectoryAtURL: { _ in
+                XCTFail("Expected lru.json to select the cached code-server binary")
+                return []
+            },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertNil(configuration?.environment["ELECTRON_RUN_AS_NODE"])
+    }
+
+    func testLaunchConfigurationFallsBackToCodeTunnelBinary() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
         let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
             baseEnvironment: [:],
-            isExecutableAtPath: { $0 == expectedExecutablePath }
+            isExecutableAtPath: { $0 == expectedExecutablePath },
+            dataAtURL: { _ in nil },
+            contentsOfDirectoryAtURL: { _ in [] },
+            contentModificationDateAtURL: { _ in nil }
         )
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
         XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
     }
 
@@ -396,7 +436,6 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: tokenFileURL.path))
     }
 }
-
 
 final class OmnibarStateMachineTests: XCTestCase {
     func testPointerFocusCanPreserveInitialClickSelection() throws {
@@ -909,7 +948,7 @@ private final class OmnibarInlineDeletionHarness {
                 inlineCompletion: inlineCompletion,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },
