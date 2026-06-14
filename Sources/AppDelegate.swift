@@ -1749,6 +1749,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
+        // Best-effort presence goodbye; unclean exits are covered by the
+        // service's missed-heartbeat timeout.
+        PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1801,6 +1804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
+        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
