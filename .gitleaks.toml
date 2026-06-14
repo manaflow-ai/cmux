@@ -62,9 +62,9 @@ regexes = [
 [[allowlists]]
 description = "Sentry-scrubber redaction test fixtures (issue #5978)"
 paths = [
-  '''Packages/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift''',
-  '''Packages/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift''',
-  '''cmuxTests/SentryEventScrubberTests\.swift''',
+  '''(^|/)Packages/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''(^|/)Packages/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''(^|/)cmuxTests/SentryEventScrubberTests\.swift$''',
 ]
 
 # The scrubber's own doc-comment shows a `token=sk-...` redaction example. Scope
@@ -74,7 +74,7 @@ paths = [
 description = "SentryScrubber doc-comment example token (issue #5978)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''Packages/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift''']
+paths = ['''(^|/)Packages/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
 regexes = ['''token=sk-abc123def456ghij''']
 
 # ---------------------------------------------------------------------------
@@ -88,11 +88,11 @@ regexes = ['''token=sk-abc123def456ghij''']
 [[allowlists]]
 description = "Synthetic test-only tokens (attach-ticket / diff-viewer / fuzz seed / focus probe / relay token)"
 paths = [
-  '''Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift''',
-  '''cmuxTests/DiffCommentStoreTests\.swift''',
-  '''daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go''',
-  '''tests_v2/test_command_palette_focus\.py''',
-  '''Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift''',
+  '''(^|/)Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''',
+  '''(^|/)cmuxTests/DiffCommentStoreTests\.swift$''',
+  '''(^|/)daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''',
+  '''(^|/)tests_v2/test_command_palette_focus\.py$''',
+  '''(^|/)Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''',
 ]
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ paths = [
 description = "Stack Auth publishable client keys in AuthConfig.swift (public by design)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift''']
+paths = ['''(^|/)Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''']
 regexes = [
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
@@ -120,7 +120,7 @@ regexes = [
 description = "Stack Auth publishable client keys in AuthEnvironment.swift (public by design)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''Sources/Auth/AuthEnvironment\.swift''']
+paths = ['''(^|/)Sources/Auth/AuthEnvironment\.swift$''']
 regexes = [
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
@@ -130,12 +130,12 @@ regexes = [
 description = "PostHog project API key (public, intentionally embedded in the client)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''Sources/PostHogAnalytics\.swift''']
+paths = ['''(^|/)Sources/PostHogAnalytics\.swift$''']
 regexes = ['''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''']
 
 [[allowlists]]
 description = "APNs key env-var reference (not a hardcoded secret)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''web/app/api/notifications/push/route\.ts''']
+paths = ['''(^|/)web/app/api/notifications/push/route\.ts$''']
 regexes = ['''env\.CMUX_APNS_KEY_P8''']

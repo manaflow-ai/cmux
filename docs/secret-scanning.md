@@ -88,10 +88,11 @@ intended strings are suppressed and the scan is otherwise clean.
 
 [`.github/workflows/secret-scan.yml`](../.github/workflows/secret-scan.yml) runs
 `gitleaks` on every pull request and push to `main` (without checking out
-submodules). Pull requests scan the git range from the PR base to `HEAD`, so a
-secret added in one PR commit and removed before merge is still caught. After the
-initial bootstrap PR, pull requests enforce with the base branch's
-`.gitleaks.toml` so a PR cannot hide a committed secret by relaxing its own
-allowlist. CI also ignores inline `gitleaks:allow` comments and points
-`.gitleaksignore` at an empty file, so suppressions must live in the reviewed
-config. Pushes to `main` scan the pushed commit range.
+submodules). Pull requests use `pull_request_target` so the workflow code comes
+from the base branch, then check out the PR merge tree and scan the git range
+from the PR base to `HEAD`; a secret added in one PR commit and removed before
+merge is still caught. After the initial bootstrap PR, pull requests enforce
+with the base branch's `.gitleaks.toml` so a PR cannot hide a committed secret by
+relaxing its own allowlist. CI also ignores inline `gitleaks:allow` comments and
+points `.gitleaksignore` at an empty file, so suppressions must live in the
+reviewed config. Pushes to `main` scan the pushed commit range.
