@@ -6669,6 +6669,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
+        if performDiffViewerFindShortcutBeforeBrowserFind(in: context) {
+#if DEBUG
+            let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "find.shortcut.app.end target=diffViewerFileSearch result=1 " +
+                "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+            )
+#endif
+            return true
+        }
+
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
@@ -6690,6 +6701,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         return result
     }
+
+    @discardableResult
+    private func performDiffViewerFindShortcutBeforeBrowserFind(in context: MainWindowContext) -> Bool {
+        guard let browserPanel = context.tabManager.focusedBrowserPanel,
+              cmuxIsDiffViewerURL(browserPanel.webView.url) else {
+            return false
+        }
+
+        browserPanel.webView.evaluateJavaScript(Self.diffViewerFindMenuBridgeScript) { [weak browserPanel] result, error in
+            DispatchQueue.main.async {
+                guard let browserPanel else { return }
+                if let result = result as? String, result == "opened" {
+                    return
+                }
+#if DEBUG
+                if let error {
+                    cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind error=\(error.localizedDescription)")
+                } else {
+                    cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind result=\(String(describing: result))")
+                }
+#endif
+                browserPanel.startFind()
+            }
+        }
+        return true
+    }
+
+    private static let diffViewerFindMenuBridgeScript = """
+    (() => {
+      function findFileSearchInput(root) {
+        const direct = root.querySelector?.("[data-file-tree-search-input]");
+        if (direct) return direct;
+        for (const element of root.querySelectorAll?.("*") ?? []) {
+          if (!element.shadowRoot) continue;
+          const found = findFileSearchInput(element.shadowRoot);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      const toggle = document.getElementById("file-search-toggle");
+      const searchInput = findFileSearchInput(document);
+      const searchContainer = searchInput?.closest("[data-file-tree-search-container]");
+      const searchIsOpen = toggle?.getAttribute("aria-pressed") === "true" ||
+        searchContainer?.getAttribute("data-open") === "true";
+
+      if (searchIsOpen) {
+        return "already-open";
+      }
+
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: "KeyF",
+        key: "f",
+        metaKey: true
+      });
+      document.dispatchEvent(event);
+      return event.defaultPrevented ? "opened" : "unhandled";
+    })()
+    """
 
     @discardableResult
     func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
