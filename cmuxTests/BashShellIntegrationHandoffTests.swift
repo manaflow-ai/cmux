@@ -481,7 +481,7 @@ struct BashShellIntegrationHandoffTests {
         guard path.utf8.count < maxPathLength else {
             throw NSError(
                 domain: NSPOSIXErrorDomain,
-                code: ENAMETOOLONG,
+                code: Int(ENAMETOOLONG),
                 userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long"]
             )
         }
