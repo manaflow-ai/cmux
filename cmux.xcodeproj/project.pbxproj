@@ -87,6 +87,8 @@
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */; };
 		FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
+		SC000001SC000001SC000001 /* SafariBinaryCookiesParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = SC000002SC000002SC000002 /* SafariBinaryCookiesParser.swift */; };
+		SC000003SC000003SC000003 /* SafariBinaryCookiesParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SC000004SC000004SC000004 /* SafariBinaryCookiesParserTests.swift */; };
 		FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 		A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */; };
 		A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MR00 /* BrowserMediaPlaybackReport.swift */; };
@@ -1017,6 +1019,8 @@
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistorySuggestionCacheTests.swift; sourceTree = "<group>"; };
 		FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
+		SC000002SC000002SC000002 /* SafariBinaryCookiesParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SafariBinaryCookiesParser.swift; sourceTree = "<group>"; };
+		SC000004SC000004SC000004 /* SafariBinaryCookiesParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariBinaryCookiesParserTests.swift; sourceTree = "<group>"; };
 		FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 		A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackMessageHandler.swift; sourceTree = "<group>"; };
 		A500MR00 /* BrowserMediaPlaybackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackReport.swift; sourceTree = "<group>"; };
@@ -2267,6 +2271,7 @@
 				A5001412 /* BrowserPanel.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
+				SC000002SC000002SC000002 /* SafariBinaryCookiesParser.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
 				4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */,
@@ -2528,6 +2533,7 @@
 				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
 				F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
+				SC000004SC000004SC000004 /* SafariBinaryCookiesParserTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 				C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */,
 				C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */,
@@ -3207,6 +3213,7 @@
 				D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
+				SC000001SC000001SC000001 /* SafariBinaryCookiesParser.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				A5008373 /* BrowserFindJavaScript.swift in Sources */,
@@ -3762,6 +3769,7 @@
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
+				SC000003SC000003SC000003 /* SafariBinaryCookiesParserTests.swift in Sources */,
 				C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */,
 				D0B1000EA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift in Sources */,
 				1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,

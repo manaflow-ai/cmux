@@ -11632,15 +11632,11 @@ enum BrowserDataImporter {
             )
         case .webkit:
             if browser.descriptor.id == "safari" {
-                return CookieImportResult(
-                    importedCount: 0,
-                    skippedCount: 0,
-                    warnings: [
-                        String(
-                            localized: "browser.import.warning.safariCookiesUnsupported",
-                            defaultValue: "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
-                        )
-                    ]
+                return await importSafariCookies(
+                    from: browser,
+                    sourceProfiles: sourceProfiles,
+                    destinationProfileID: destinationProfileID,
+                    domainFilters: domainFilters
                 )
             }
             return CookieImportResult(
@@ -11842,6 +11838,94 @@ enum BrowserDataImporter {
         }
         let skippedCount = max(0, dedupedCookies.count - importedCount) + skippedEncryptedCookies
         return CookieImportResult(importedCount: importedCount, skippedCount: skippedCount, warnings: warnings)
+    }
+
+    private static func importSafariCookies(
+        from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        let fileManager = FileManager.default
+        var cookies: [HTTPCookie] = []
+        var warnings: [String] = []
+
+        // Per-profile cookie jars live next to each (non-default) profile root.
+        var candidateURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("Cookies.binarycookies", isDirectory: false)
+        }
+        // The global Safari cookie jar belongs to the default profile, so only add it
+        // when the default profile is part of this import. Otherwise importing a
+        // non-default profile would also pull in the default jar and cross-contaminate.
+        if sourceProfiles.contains(where: \.isDefault) {
+            // Modern sandboxed Safari stores its primary cookies file inside its container:
+            // ~/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies
+            candidateURLs.append(
+                browser.homeDirectoryURL
+                    .appendingPathComponent(
+                        "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+                        isDirectory: false
+                    )
+            )
+            // Legacy (pre-sandbox) location, kept as a fallback.
+            candidateURLs.append(
+                browser.homeDirectoryURL
+                    .appendingPathComponent("Library/Cookies/Cookies.binarycookies", isDirectory: false)
+            )
+        }
+
+        let uniqueURLs = dedupedCanonicalURLs(candidateURLs).filter { fileManager.fileExists(atPath: $0.path) }
+
+        if uniqueURLs.isEmpty {
+            return CookieImportResult(
+                importedCount: 0,
+                skippedCount: 0,
+                warnings: [
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.noCookiesFile",
+                            defaultValue: "No cookies file found for %@."
+                        ),
+                        browser.displayName
+                    )
+                ]
+            )
+        }
+
+        for cookieFileURL in uniqueURLs {
+            do {
+                let parsed = try SafariBinaryCookiesParser.parse(fileURL: cookieFileURL)
+                for p in parsed {
+                    // Reject syntactically invalid hosts from the untrusted file so a
+                    // planted cookie can't be injected for an arbitrary/garbage domain,
+                    // independent of whether a domain filter narrows the import further.
+                    guard isPlausibleCookieHost(p.domain) else { continue }
+                    guard domainMatches(host: p.domain, filters: domainFilters) else { continue }
+                    if let cookie = makeSafariHTTPCookie(from: p) {
+                        cookies.append(cookie)
+                    }
+                }
+            } catch {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesReadFailed",
+                            defaultValue: "Failed reading Safari cookies at %@: %@"
+                        ),
+                        cookieFileURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        return CookieImportResult(
+            importedCount: importedCount,
+            skippedCount: max(0, dedupedCookies.count - importedCount),
+            warnings: warnings
+        )
     }
 
     private static func importFirefoxHistory(
@@ -12122,6 +12206,93 @@ enum BrowserDataImporter {
         }
         return false
     }
+
+    // Basic hostname sanity check for cookie domains read from an untrusted file.
+    // Accepts a leading "." (cookie domain attribute). Rejects empty hosts, hosts
+    // with whitespace/control characters, and bare single-label names with no dot
+    // (e.g. "localhost" is allowed; "garbage value" or "" is not).
+    private static func isPlausibleCookieHost(_ rawHost: String) -> Bool {
+        var host = rawHost
+        while host.hasPrefix(".") { host.removeFirst() }
+        guard !host.isEmpty, host.count <= 253 else { return false }
+        guard host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+        guard host.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
+        // No empty labels (rejects "..", leading/trailing/double dots).
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.allSatisfy { !$0.isEmpty }
+    }
+
+    // Builds an HTTPCookie from a parsed Safari cookie, preserving the secure and
+    // HttpOnly attributes. Internal (not private) so the mapping — especially the
+    // easy-to-drop HttpOnly flag — can be covered by a regression test. Returns nil
+    // for an empty name (an unusable cookie).
+    static func makeSafariHTTPCookie(from p: SafariBinaryCookiesParser.ParsedCookie) -> HTTPCookie? {
+        guard !p.name.isEmpty else { return nil }
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .domain: p.domain,
+            .path: p.path.isEmpty ? "/" : p.path,
+            .name: p.name,
+            .value: p.value,
+        ]
+        if p.isSecure { properties[.secure] = "TRUE" }
+        if let exp = p.expiresDate { properties[.expires] = exp }
+
+        guard p.isHttpOnly else {
+            return HTTPCookie(properties: properties)
+        }
+
+        // Preserve HttpOnly so an imported cookie stays inaccessible to page
+        // JavaScript, matching how the origin server set it. There is no public
+        // HTTPCookiePropertyKey for HttpOnly: the "HttpOnly" key is honored by
+        // HTTPCookie on current macOS but is undocumented and has varied across
+        // OS versions. Try it first (it preserves arbitrary values exactly), fall
+        // back to the documented Set-Cookie header parser, and only as a last
+        // resort drop the flag rather than dropping the cookie entirely.
+        var httpOnlyProperties = properties
+        httpOnlyProperties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
+        if let cookie = HTTPCookie(properties: httpOnlyProperties), cookie.isHTTPOnly {
+            return cookie
+        }
+        if let cookie = httpOnlyCookieViaHeader(p), cookie.isHTTPOnly {
+            return cookie
+        }
+        return HTTPCookie(properties: properties)
+    }
+
+    // Builds an HttpOnly cookie via the documented Set-Cookie header parser, which
+    // honors HttpOnly on every macOS version. Returns nil when the value can't be
+    // represented unambiguously in a header (so the caller keeps the exact value via
+    // the properties path instead).
+    private static func httpOnlyCookieViaHeader(_ p: SafariBinaryCookiesParser.ParsedCookie) -> HTTPCookie? {
+        // Bail to the caller's properties path for any field that can't be safely
+        // represented in a Set-Cookie header. ";"/"," are attribute/cookie separators;
+        // a quote or ASCII control character can make the parser reinterpret the cookie
+        // (and the post-parse check below only verifies name/value, not path/scope);
+        // "=" in the name would corrupt the name=value split.
+        let disallowedInField = CharacterSet(charactersIn: ";,\"").union(.controlCharacters)
+        let disallowedInName = disallowedInField.union(CharacterSet(charactersIn: "="))
+        guard p.value.rangeOfCharacter(from: disallowedInField) == nil,
+              p.path.rangeOfCharacter(from: disallowedInField) == nil,
+              p.name.rangeOfCharacter(from: disallowedInName) == nil else { return nil }
+        let scheme = p.isSecure ? "https" : "http"
+        let host = p.domain.hasPrefix(".") ? String(p.domain.dropFirst()) : p.domain
+        guard let url = URL(string: "\(scheme)://\(host)/") else { return nil }
+        var header = "\(p.name)=\(p.value); Path=\(p.path.isEmpty ? "/" : p.path); Domain=\(p.domain); HttpOnly"
+        if p.isSecure { header += "; Secure" }
+        if let exp = p.expiresDate { header += "; Expires=\(httpCookieExpiresFormatter.string(from: exp))" }
+        let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": header], for: url)
+        guard let cookie = cookies.first, cookie.name == p.name, cookie.value == p.value else { return nil }
+        return cookie
+    }
+
+    private static let httpCookieExpiresFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return formatter
+    }()
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
         guard rawValue > 0 else { return nil }
