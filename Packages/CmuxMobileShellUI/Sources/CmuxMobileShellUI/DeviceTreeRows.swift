@@ -8,6 +8,15 @@ import SwiftUI
 // an `@Observable` store, so these rows sit safely below the tree's `List`
 // boundary (see AGENTS.md snapshot-boundary rule).
 
+/// Live presence for a device row, rolled up from the presence service's
+/// per-instance heartbeats (device online = any instance online). `nil` when
+/// the presence service has no record of the device, in which case the row
+/// falls back to its registry "last seen" hint.
+enum DeviceTreePresence: Equatable {
+    case online
+    case offline(lastSeenAt: Date)
+}
+
 /// Immutable per-device snapshot for the device (top-level) row.
 struct DeviceTreeDeviceSnapshot: Equatable {
     let deviceId: String
@@ -18,9 +27,11 @@ struct DeviceTreeDeviceSnapshot: Equatable {
     /// Whether the live connection currently targets this device.
     let isConnected: Bool
     /// The live connection status, present only for the connected device. `nil`
-    /// for every other device, which is described by its last-seen time instead
-    /// (best-effort liveness; there is no active per-host ping yet).
+    /// for every other device, which is described by live presence (below) or
+    /// its last-seen time.
     let liveStatus: MobileMacConnectionStatus?
+    /// Live presence from the heartbeat service for non-connected devices.
+    let presence: DeviceTreePresence?
 }
 
 /// Immutable per-instance snapshot for an app-instance (tag) row.
@@ -68,6 +79,14 @@ struct DeviceTreeDeviceRow: View {
                     Image(systemName: liveStatus.symbolName)
                         .foregroundStyle(liveStatus.tintColor)
                         .accessibilityLabel(liveStatus.label)
+                } else if let presence = device.presence {
+                    Image(systemName: "circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(presence == .online ? Color.green : Color.secondary.opacity(0.5))
+                        .accessibilityLabel(presenceLabel(presence))
+                        .accessibilityIdentifier(
+                            "MobileDeviceTreePresence-\(device.deviceId)-\(presence == .online ? "online" : "offline")"
+                        )
                 }
             }
             .contentShape(Rectangle())
@@ -94,17 +113,39 @@ struct DeviceTreeDeviceRow: View {
         }
     }
 
-    /// Live status text for the connected device, otherwise the relative
+    /// Live status text for the connected device, live presence for every
+    /// other device the heartbeat service knows, otherwise the relative
     /// last-seen time as a best-effort liveness hint.
     private var statusLine: String {
         if let liveStatus = device.liveStatus {
             return liveStatus.label
         }
-        let relative = device.lastSeenAt.formatted(.relative(presentation: .named))
-        return String(
+        switch device.presence {
+        case .online:
+            return L10n.string("mobile.deviceTree.online", defaultValue: "Online")
+        case .offline(let lastSeenAt):
+            // Presence heartbeats are usually fresher than the registry's
+            // last registration write; show the most recent of the two.
+            return lastSeenLine(max(lastSeenAt, device.lastSeenAt))
+        case nil:
+            return lastSeenLine(device.lastSeenAt)
+        }
+    }
+
+    private func lastSeenLine(_ lastSeenAt: Date) -> String {
+        String(
             format: L10n.string("mobile.deviceTree.lastSeenFormat", defaultValue: "Last seen %@"),
-            relative
+            lastSeenAt.formatted(.relative(presentation: .named))
         )
+    }
+
+    private func presenceLabel(_ presence: DeviceTreePresence) -> String {
+        switch presence {
+        case .online:
+            return L10n.string("mobile.deviceTree.online", defaultValue: "Online")
+        case .offline:
+            return L10n.string("mobile.deviceTree.offline", defaultValue: "Offline")
+        }
     }
 }
 
