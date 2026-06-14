@@ -302,9 +302,11 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             try exec("DELETE FROM sync_records WHERE team_id = ?;", binding: [.text(teamID)])
             try exec("DELETE FROM sync_cursors WHERE team_id = ?;", binding: [.text(teamID)])
             // Clear this team's migration markers too, so a re-sign-in re-seeds
-            // the provisional fallback rows we just deleted.
+            // the provisional fallback rows we just deleted. The stored key holds
+            // the RAW team id; escape it only for the LIKE pattern (so a team id
+            // containing `_`, `%`, or `\` still matches its own stored key).
             try exec("DELETE FROM sync_meta WHERE key LIKE ? ESCAPE '\\';",
-                     binding: [.text("\(migrationKeyPrefix(teamID: teamID))%")])
+                     binding: [.text("\(escapeLike(migrationKeyPrefix(teamID: teamID)))%")])
         }
     }
 
@@ -312,17 +314,19 @@ public actor CmuxSyncStore: CmuxSyncStoring {
 
     /// Migration marker key, scoped by team THEN account so a team's markers form
     /// a `migrated:<teamId>:` prefix `clear(teamID)` can delete. The team id is
-    /// percent/underscore-escaped for the LIKE in `clear` via the ESCAPE clause.
+    /// stored RAW (unescaped); `clear` escapes it only when building its LIKE
+    /// pattern, so a team id with `_`/`%`/`\` still matches its own stored key.
     private func migrationKey(accountID: String, teamID: String) -> String {
         "\(migrationKeyPrefix(teamID: teamID))\(accountID)"
     }
 
     private func migrationKeyPrefix(teamID: String) -> String {
-        "migrated:\(escapeLike(teamID)):"
+        "migrated:\(teamID):"
     }
 
-    /// Escape `%`, `_`, and the `\` escape char so a team id is matched literally
-    /// by the `LIKE ... ESCAPE '\'` prefix delete in `clear`.
+    /// Escape `%`, `_`, and the `\` escape char so a literal string matches
+    /// itself under `LIKE ... ESCAPE '\'`. Applied to the LIKE PATTERN only,
+    /// never to the stored key.
     private func escapeLike(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")

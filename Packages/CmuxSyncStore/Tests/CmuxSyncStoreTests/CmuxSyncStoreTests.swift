@@ -516,6 +516,22 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).count == 1)
     }
 
+    @Test func clearReSeedsForTeamIDsWithLikeMetacharacters() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mac = MobilePairedMac(macDeviceID: "mac-1", displayName: "Studio", routes: [],
+            createdAt: Date(timeIntervalSince1970: 1000), lastSeenAt: Date(timeIntervalSince1970: 2000),
+            isActive: true, stackUserID: "acct-1")
+        let migration = PairedMacMigration(pairedStore: FakePairedStore(macs: [mac]), syncStore: store)
+        // A team id with `_`, `%`, and `\` (LIKE metacharacters in the clear path).
+        let weirdTeam = #"team_50%\x"#
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: weirdTeam) == 1)
+        try await store.clear(teamID: weirdTeam)
+        // The migration marker must be cleared too, so re-sign-in re-seeds.
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: weirdTeam) == 1)
+        #expect(try await store.liveRecords(teamID: weirdTeam, collection: COLL).count == 1)
+    }
+
     @Test func provisionalNeverClobbersExistingRecordEvenWithoutMarker() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }

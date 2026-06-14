@@ -278,33 +278,51 @@ export async function gcTombstones(
 ): Promise<{ collected: number; floor: number }> {
   const index = await storage.list<string>({ prefix: tombPrefix(collection) });
   // `list` returns keys in lexical order; the padded rev makes that rev order.
-  let floor = await readGcFloor(storage, collection);
-  let collected = 0;
+  const startFloor = await readGcFloor(storage, collection);
+
+  // Pass 1: decide what to remove WITHOUT mutating yet. Separate the stale index
+  // entries (record came back to life) from the real tombstones to GC, and
+  // compute the floor we would advance to.
+  const staleIndexKeys: string[] = [];
+  const toGc: { indexKey: string; id: string; rev: number }[] = [];
+  let floor = startFloor;
   for (const [indexKey, id] of index) {
     const record = await readRecord(storage, collection, id);
-    // A tombstone may have been replaced by a live record (device came back);
-    // the index entry is then stale and is dropped without touching the record.
-    const isLiveTombstone = record !== undefined && record.deleted;
     if (record !== undefined && !record.deleted) {
-      await storage.delete(indexKey);
+      // The device came back; the index entry is stale (the live record is not a
+      // tombstone). Drop only the index entry, never the live record.
+      staleIndexKeys.push(indexKey);
       continue;
     }
-    if (isLiveTombstone && !shouldGcTombstone(record, nowMs, retentionMs)) {
+    if (record !== undefined && !shouldGcTombstone(record, nowMs, retentionMs)) {
       // Index is rev-ordered, but retention is time-ordered; a newer tombstone
       // can be older in wall-clock if clocks jump. Keep scanning rather than
       // breaking so we never strand an expired entry behind a fresh one.
       continue;
     }
     const rev = revFromTombKey(indexKey, collection);
-    await storage.delete(recordKey(collection, id));
-    await storage.delete(indexKey);
+    toGc.push({ indexKey, id, rev });
     if (rev > floor) floor = rev;
-    collected += 1;
   }
-  if (collected > 0) {
+
+  // Crash-safety: raise the floor FIRST, before deleting any tombstone (and in
+  // the same atomic write). If the alarm is interrupted after this point but
+  // before the deletes, the tombstones simply linger and are re-GC'd next pass
+  // (idempotent), while the floor already (conservatively) forces a client whose
+  // cursor predates a GC'd deletion onto a full snapshot — so a missed delete
+  // can never be silently lost (DESIGN.md §3.5). Deleting first and raising the
+  // floor last would lose the delete on a crash in between.
+  if (floor > startFloor) {
     await storage.put(gcFloorKey(collection), floor);
   }
-  return { collected, floor };
+  for (const { indexKey, id } of toGc) {
+    await storage.delete(recordKey(collection, id));
+    await storage.delete(indexKey);
+  }
+  for (const indexKey of staleIndexKeys) {
+    await storage.delete(indexKey);
+  }
+  return { collected: toGc.length, floor };
 }
 
 /** The epoch ms at which the OLDEST retained tombstone in a collection becomes
