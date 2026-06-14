@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
+import { Icon } from "../icons";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -30,11 +31,15 @@ const defaultContext: GuiModeContext = {
   copy: {
     errorMessage: "Could not create the GUI workspace.",
     homeTitle: "GUI Mode",
+    noProvidersFound: "No agents found",
     promptPlaceholder: "What should cmux build?",
     providerLabel: "Agent",
+    providerSearchPlaceholder: "Search agents",
     runtimeLabel: "Runtime",
+    setupCommandLabel: "Setup",
     submit: "Submit",
     submitting: "Submitting",
+    taskCommandLabel: "Launch",
     taskPromptLabel: "Prompt",
     taskTitle: "/task-worktree-pr",
   },
@@ -87,11 +92,13 @@ export function GuiModeApp() {
 
 function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const [prompt, setPrompt] = useState("");
+  const [providerQuery, setProviderQuery] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState(context.selectedProviderId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const selectedProvider = providerForId(context.providers, selectedProviderId);
+  const filteredProviders = filterGuiModeProviders(context.providers, providerQuery);
   const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
@@ -118,10 +125,26 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
             h("div", { className: CODEX_COMPOSER_INNER },
               h("div", { className: "gui-mode-provider-header" },
                 h("div", { className: "gui-mode-provider-label" }, context.copy.providerLabel),
-                h("div", { className: "gui-mode-provider-selected" }, selectedProvider.displayName),
+                h("div", { className: "gui-mode-provider-selected" },
+                  h("span", { className: "gui-mode-provider-count" }, `${filteredProviders.length}/${context.providers.length}`),
+                  h("span", { className: "gui-mode-provider-selected-name" }, selectedProvider.displayName),
+                ),
+              ),
+              h("label", { className: "gui-mode-provider-search" },
+                h("span", { className: "gui-mode-search-icon" }, h(Icon, { name: "search" })),
+                h("input", {
+                  "aria-label": context.copy.providerSearchPlaceholder,
+                  className: "gui-mode-provider-search-input",
+                  onInput: (event: React.FormEvent<HTMLInputElement>) => setProviderQuery(event.currentTarget.value),
+                  placeholder: context.copy.providerSearchPlaceholder,
+                  spellCheck: false,
+                  type: "search",
+                  value: providerQuery,
+                }),
               ),
               h(ProviderPicker, {
-                providers: context.providers,
+                noProvidersFound: context.copy.noProvidersFound,
+                providers: filteredProviders,
                 selectedProviderId: selectedProvider.id,
                 onSelectProvider: setSelectedProviderId,
               }),
@@ -148,7 +171,11 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
           ),
         ),
       ),
-      h(ProviderSummary, { provider: selectedProvider }),
+      h(ProviderSummary, {
+        provider: selectedProvider,
+        setupCommandLabel: context.copy.setupCommandLabel,
+        taskCommandLabel: context.copy.taskCommandLabel,
+      }),
     ),
   );
 }
@@ -174,7 +201,10 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
             key: capability,
           }, capability)),
         ),
-        h("div", { className: "gui-mode-task-command" }, provider.taskCommandPreview),
+        h("div", { className: "gui-mode-command-row gui-mode-task-command-row" },
+          h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
+          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, provider.taskCommandPreview),
+        ),
       ),
       h("div", { className: "gui-mode-task-label" }, context.copy.taskPromptLabel),
       h("div", { className: "gui-mode-task-prompt" }, context.prompt),
@@ -184,17 +214,23 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
 
 function ProviderPicker({
   onSelectProvider,
+  noProvidersFound,
   providers,
   selectedProviderId,
 }: {
   onSelectProvider: (providerId: string) => void;
+  noProvidersFound: string;
   providers: GuiModeProvider[];
   selectedProviderId: string;
 }) {
   return h("div", { className: "gui-mode-provider-grid", role: "listbox" },
+    providers.length === 0
+      ? h("div", { className: "gui-mode-provider-empty", role: "status" }, noProvidersFound)
+      : null,
     providers.map((provider) => h("button", {
       "aria-selected": provider.id === selectedProviderId,
       className: "gui-mode-provider-option",
+      "data-provider-id": provider.id,
       key: provider.id,
       onClick: () => onSelectProvider(provider.id),
       role: "option",
@@ -211,7 +247,15 @@ function ProviderPicker({
   );
 }
 
-function ProviderSummary({ provider }: { provider: GuiModeProvider }) {
+function ProviderSummary({
+  provider,
+  setupCommandLabel,
+  taskCommandLabel,
+}: {
+  provider: GuiModeProvider;
+  setupCommandLabel: string;
+  taskCommandLabel: string;
+}) {
   return h("aside", { className: "gui-mode-provider-summary", style: providerAccentStyle(provider) },
     h("div", { className: "gui-mode-summary-main" },
       h("div", { className: "gui-mode-summary-name" }, provider.displayName),
@@ -223,7 +267,16 @@ function ProviderSummary({ provider }: { provider: GuiModeProvider }) {
         key: capability,
       }, capability)),
     ),
-    h("div", { className: "gui-mode-summary-command" }, provider.setupCommand),
+    h("div", { className: "gui-mode-command-grid" },
+      h("div", { className: "gui-mode-command-row" },
+        h("span", { className: "gui-mode-command-label" }, setupCommandLabel),
+        h("code", { className: "gui-mode-command-code" }, provider.setupCommand),
+      ),
+      h("div", { className: "gui-mode-command-row" },
+        h("span", { className: "gui-mode-command-label" }, taskCommandLabel),
+        h("code", { className: "gui-mode-command-code" }, provider.taskCommandPreview),
+      ),
+    ),
   );
 }
 
@@ -239,6 +292,42 @@ function providerForId(providers: GuiModeProvider[], providerId: string): GuiMod
     taskCommandPreview: "",
     capabilities: [],
   };
+}
+
+export function filterGuiModeProviders(providers: GuiModeProvider[], query: string): GuiModeProvider[] {
+  const normalizedQuery = normalizeProviderSearchText(query);
+  if (normalizedQuery.length === 0) {
+    return providers;
+  }
+  const queryTokens = searchTokens(normalizedQuery);
+  return providers.filter((provider) => {
+    const searchable = [
+      provider.id,
+      provider.displayName,
+      provider.detail,
+      provider.runtimeMode,
+      provider.supportLabel,
+      provider.setupCommand,
+      provider.taskCommandPreview,
+      provider.capabilities.join(" "),
+    ].join(" ");
+    const normalizedSearchable = normalizeProviderSearchText(searchable);
+    if (normalizedQuery.length >= 3 && normalizedSearchable.includes(normalizedQuery)) {
+      return true;
+    }
+    const providerTokens = searchTokens(normalizedSearchable);
+    return queryTokens.every((queryToken) =>
+      providerTokens.some((providerToken) => providerToken.startsWith(queryToken))
+    );
+  });
+}
+
+function normalizeProviderSearchText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function searchTokens(value: string): string[] {
+  return value.split(/[^a-z0-9]+/).filter(Boolean);
 }
 
 function providerAccentStyle(provider: GuiModeProvider): React.CSSProperties {

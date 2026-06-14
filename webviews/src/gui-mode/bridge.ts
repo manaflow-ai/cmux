@@ -3,11 +3,15 @@ import { callNative } from "../agent-session/shared/bridge";
 export type GuiModeCopy = {
   errorMessage: string;
   homeTitle: string;
+  noProvidersFound: string;
   promptPlaceholder: string;
   providerLabel: string;
+  providerSearchPlaceholder: string;
   runtimeLabel: string;
+  setupCommandLabel: string;
   submit: string;
   submitting: string;
+  taskCommandLabel: string;
   taskPromptLabel: string;
   taskTitle: string;
 };

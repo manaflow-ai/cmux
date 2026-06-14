@@ -15,8 +15,8 @@
 
 .gui-mode-shell {
   display: grid;
-  gap: 12px;
-  width: min(880px, 100%);
+  gap: 14px;
+  width: min(940px, 100%);
 }
 
 .gui-mode-center-stack {
@@ -70,6 +70,10 @@
 
 .gui-mode-provider-selected {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   color: var(--agent-text);
   font-size: 12px;
   font-weight: 650;
@@ -77,6 +81,78 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.gui-mode-provider-count {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 32%, var(--agent-border));
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 70%, var(--agent-text));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  padding: 2px 6px;
+}
+
+.gui-mode-provider-selected-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-provider-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 10px;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 22%, var(--agent-border));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    color-mix(in srgb, var(--agent-surface) 82%, transparent);
+  padding: 0 10px;
+}
+
+.gui-mode-provider-search:focus-within {
+  border-color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 68%, var(--agent-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 16%, transparent);
+}
+
+.gui-mode-search-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 58%, var(--agent-muted));
+}
+
+.gui-mode-search-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gui-mode-provider-search-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.gui-mode-provider-search-input::placeholder {
+  color: var(--agent-muted);
 }
 
 .gui-mode-runtime-pill {
@@ -101,6 +177,18 @@
   max-height: 204px;
   overflow: auto;
   scrollbar-width: thin;
+}
+
+.gui-mode-provider-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 82px;
+  border: 1px dashed var(--agent-border);
+  border-radius: 8px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .gui-mode-provider-option {
@@ -255,16 +343,38 @@
   white-space: nowrap;
 }
 
-.gui-mode-summary-command {
+.gui-mode-command-grid {
   grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
   min-width: 0;
   border-top: 1px solid var(--agent-border);
+  padding-top: 10px;
+}
+
+.gui-mode-command-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gui-mode-command-label {
+  color: var(--agent-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.gui-mode-command-code {
+  min-width: 0;
   color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 18px;
   overflow: hidden;
-  padding-top: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -342,15 +452,16 @@
   white-space: nowrap;
 }
 
-.gui-mode-task-command {
+.gui-mode-task-command-row {
   margin-top: 2px;
   border-top: 1px solid var(--agent-border);
-  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  line-height: 18px;
-  overflow-wrap: anywhere;
   padding-top: 10px;
+}
+
+.gui-mode-task-command {
+  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .gui-mode-task-label {
@@ -377,11 +488,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .gui-mode-provider-selected {
+    justify-content: flex-start;
+  }
+
   .gui-mode-runtime-pill {
     justify-self: start;
   }
 
   .gui-mode-summary-chips {
     justify-content: flex-start;
+  }
+
+  .gui-mode-command-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

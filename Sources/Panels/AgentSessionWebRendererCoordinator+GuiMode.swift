@@ -27,14 +27,21 @@ extension AgentSessionWebRendererCoordinator {
             "copy": [
                 "homeTitle": String(localized: "guiMode.web.home.title", defaultValue: "GUI Mode"),
                 "taskTitle": String(localized: "guiMode.web.task.title", defaultValue: "/task-worktree-pr"),
+                "noProvidersFound": String(localized: "guiMode.web.noProvidersFound", defaultValue: "No agents found"),
                 "promptPlaceholder": String(
                     localized: "guiMode.web.promptPlaceholder",
                     defaultValue: "What should cmux build?"
                 ),
                 "submit": String(localized: "guiMode.web.submit", defaultValue: "Submit"),
                 "submitting": String(localized: "guiMode.web.submitting", defaultValue: "Submitting"),
+                "setupCommandLabel": String(localized: "guiMode.web.setupCommandLabel", defaultValue: "Setup"),
+                "taskCommandLabel": String(localized: "guiMode.web.taskCommandLabel", defaultValue: "Launch"),
                 "taskPromptLabel": String(localized: "guiMode.web.taskPromptLabel", defaultValue: "Prompt"),
                 "providerLabel": String(localized: "guiMode.web.providerLabel", defaultValue: "Agent"),
+                "providerSearchPlaceholder": String(
+                    localized: "guiMode.web.providerSearchPlaceholder",
+                    defaultValue: "Search agents"
+                ),
                 "runtimeLabel": String(localized: "guiMode.web.runtimeLabel", defaultValue: "Runtime"),
                 "errorMessage": String(
                     localized: "guiMode.web.errorMessage",

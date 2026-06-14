@@ -181,6 +181,24 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertNotNil(provider["taskCommandPreview"] as? String)
             XCTAssertFalse((provider["capabilities"] as? [String] ?? []).isEmpty)
         }
+        let copy = try XCTUnwrap(payload["copy"] as? [String: String])
+        for key in [
+            "errorMessage",
+            "homeTitle",
+            "noProvidersFound",
+            "promptPlaceholder",
+            "providerLabel",
+            "providerSearchPlaceholder",
+            "runtimeLabel",
+            "setupCommandLabel",
+            "submit",
+            "submitting",
+            "taskCommandLabel",
+            "taskPromptLabel",
+            "taskTitle",
+        ] {
+            XCTAssertFalse(copy[key]?.isEmpty ?? true, key)
+        }
     }
 
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {

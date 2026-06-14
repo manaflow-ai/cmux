@@ -4,12 +4,27 @@ import { JSDOM } from "jsdom";
 import React from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { GuiModeApp } from "../src/gui-mode/GuiModeApp";
+import { filterGuiModeProviders, GuiModeApp } from "../src/gui-mode/GuiModeApp";
 import { submitGuiModePrompt, type GuiModeContext } from "../src/gui-mode/bridge";
 import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
 import { createWebviewsRouter } from "../src/router";
 
 const expectedProviderIds = guiModeFallbackProviderIds;
+const testGuiModeCopy = {
+  errorMessage: "Could not create the GUI workspace.",
+  homeTitle: "GUI Mode",
+  noProvidersFound: "No agents found",
+  promptPlaceholder: "What should cmux build?",
+  providerLabel: "Agent",
+  providerSearchPlaceholder: "Search agents",
+  runtimeLabel: "Runtime",
+  setupCommandLabel: "Setup",
+  submit: "Submit",
+  submitting: "Submitting",
+  taskCommandLabel: "Launch",
+  taskPromptLabel: "Prompt",
+  taskTitle: "/task-worktree-pr",
+};
 
 test("GUI mode fallback catalog has complete provider snapshots", () => {
   expect(guiModeFallbackProviders).toHaveLength(17);
@@ -54,21 +69,25 @@ test("GUI mode renders the composer while native context is pending", async () =
     expect(rootElement.dataset.guiModePromptLength).toBe("0");
     expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
     expect(dom.window.document.querySelector(".gui-mode-submit")?.textContent).toBe("Submit");
+    expect((dom.window.document.querySelector(".gui-mode-provider-search-input") as HTMLInputElement)?.placeholder)
+      .toBe("Search agents");
     const providerOptions = Array.from(
       dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option"),
     );
     expect(providerOptions.map((element) => element.textContent)).toContain("QoderHooksHook-backed agent");
     expect(providerOptions).toHaveLength(expectedProviderIds.length);
-    expect(dom.window.document.querySelector(".gui-mode-summary-command")?.textContent)
-      .toBe("cmux hooks codex install");
+    expect(dom.window.document.querySelector(".gui-mode-provider-count")?.textContent)
+      .toBe(`${expectedProviderIds.length}/${expectedProviderIds.length}`);
+    expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
+      .toEqual(["cmux hooks codex install", "/task-worktree-pr --provider codex"]);
 
     const qoderOption = providerOptions.find((element) => element.textContent?.includes("Qoder"));
     expect(qoderOption).toBeTruthy();
     flushSync(() => {
       qoderOption?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     });
-    expect(dom.window.document.querySelector(".gui-mode-summary-command")?.textContent)
-      .toBe("cmux hooks qoder install");
+    expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
+      .toEqual(["cmux hooks qoder install", "/task-worktree-pr --provider qoder"]);
     expect((qoderOption as HTMLElement).style.getPropertyValue("--gui-provider-accent")).toBe("#c084fc");
   } finally {
     flushSync(() => root.unmount());
@@ -114,6 +133,17 @@ test("GUI mode submit sends the selected provider to native", async () => {
     restoreGlobals();
     dom.window.close();
   }
+});
+
+test("GUI mode provider search matches every provider catalog entry", () => {
+  for (const provider of guiModeFallbackProviders) {
+    expect(filterGuiModeProviders(guiModeFallbackProviders, provider.displayName).map((item) => item.id))
+      .toEqual([provider.id]);
+    expect(filterGuiModeProviders(guiModeFallbackProviders, provider.taskCommandPreview).map((item) => item.id))
+      .toContain(provider.id);
+  }
+
+  expect(filterGuiModeProviders(guiModeFallbackProviders, "provider that does not exist")).toEqual([]);
 });
 
 test("GUI mode provider picker submits every provider from the rendered composer", async () => {
@@ -193,17 +223,7 @@ test("GUI mode task page renders every provider from native context", async () =
     });
     const restoreGlobals = installDomGlobals(dom);
     const context: GuiModeContext = {
-      copy: {
-        errorMessage: "Could not create the GUI workspace.",
-        homeTitle: "GUI Mode",
-        promptPlaceholder: "What should cmux build?",
-        providerLabel: "Agent",
-        runtimeLabel: "Runtime",
-        submit: "Submit",
-        submitting: "Submitting",
-        taskPromptLabel: "Prompt",
-        taskTitle: "/task-worktree-pr",
-      },
+      copy: testGuiModeCopy,
       page: "task-worktree-pr",
       prompt: `Build with ${provider.displayName}`,
       providers: guiModeFallbackProviders,
@@ -304,6 +324,9 @@ function installDomGlobals(dom: JSDOM): () => void {
   const originalNavigator = (globalThis as any).navigator;
   const originalHistory = (globalThis as any).history;
   const originalElement = (globalThis as any).Element;
+  const originalEvent = (globalThis as any).Event;
+  const originalInputEvent = (globalThis as any).InputEvent;
+  const originalMouseEvent = (globalThis as any).MouseEvent;
   const originalNode = (globalThis as any).Node;
   const originalHTMLElement = (globalThis as any).HTMLElement;
   const originalGetSelection = (globalThis as any).getSelection;
@@ -317,6 +340,9 @@ function installDomGlobals(dom: JSDOM): () => void {
   (globalThis as any).navigator = dom.window.navigator;
   (globalThis as any).history = dom.window.history;
   (globalThis as any).Element = dom.window.Element;
+  (globalThis as any).Event = dom.window.Event;
+  (globalThis as any).InputEvent = dom.window.InputEvent;
+  (globalThis as any).MouseEvent = dom.window.MouseEvent;
   (globalThis as any).Node = dom.window.Node;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
   (globalThis as any).getSelection = dom.window.getSelection.bind(dom.window);
@@ -331,6 +357,9 @@ function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("navigator", originalNavigator);
     restoreGlobal("history", originalHistory);
     restoreGlobal("Element", originalElement);
+    restoreGlobal("Event", originalEvent);
+    restoreGlobal("InputEvent", originalInputEvent);
+    restoreGlobal("MouseEvent", originalMouseEvent);
     restoreGlobal("Node", originalNode);
     restoreGlobal("HTMLElement", originalHTMLElement);
     restoreGlobal("getSelection", originalGetSelection);
@@ -343,17 +372,7 @@ function installDomGlobals(dom: JSDOM): () => void {
 
 function taskContextForProvider(provider: (typeof guiModeFallbackProviders)[number]): GuiModeContext {
   return {
-    copy: {
-      errorMessage: "Could not create the GUI workspace.",
-      homeTitle: "GUI Mode",
-      promptPlaceholder: "What should cmux build?",
-      providerLabel: "Agent",
-      runtimeLabel: "Runtime",
-      submit: "Submit",
-      submitting: "Submitting",
-      taskPromptLabel: "Prompt",
-      taskTitle: "/task-worktree-pr",
-    },
+    copy: testGuiModeCopy,
     page: "task-worktree-pr",
     prompt: `Build with ${provider.displayName}`,
     providers: guiModeFallbackProviders,
