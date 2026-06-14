@@ -1274,12 +1274,8 @@ final class RemoteTmuxControlConnection {
             // stream-end (see `handleConnectionExited` → `handleSessionEndedRemotely`),
             // which is the path that closes the workspace / dedicated window.
             if !order.isEmpty {
-                // Replace the topology, don't merge: a window closed remotely while we
-                // were disconnected never delivers a %window-close (it lands on the dead
-                // connection), so merging would leave it lingering in
-                // windowsByID/activePaneByWindow/paneOutputByteCounts and
-                // reseedAfterReconnect (which iterates windowsByID) would re-capture its
-                // dead panes. Prune anything not in the fresh reply.
+                // Replace topology instead of merging: a remote close missed while
+                // disconnected leaves no %window-close, so prune stale panes here.
                 let liveIDs = Set(order)
                 windowsByID = next
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
