@@ -135,7 +135,11 @@ body {
   overflow-x: auto;
   text-align: center;
 }
-.cmux-mermaid svg, .cmux-vega canvas, .cmux-vega svg {
+.cmux-mermaid svg {
+  max-width: none;
+  height: auto;
+}
+.cmux-vega canvas, .cmux-vega svg {
   max-width: 100%;
   height: auto;
 }
@@ -1114,6 +1118,97 @@ html { scroll-behavior: smooth; }
   }
 
   var mermaidInitialized = false;
+  var cmuxMarkdownZoom = 1;
+
+  function normalizedMarkdownZoom(value) {
+    var zoom = Number(value);
+    if (!Number.isFinite(zoom) || zoom <= 0) { return 1; }
+    return Math.max(0.1, Math.min(zoom, 10));
+  }
+
+  function mermaidNumericLength(value) {
+    var raw = String(value || '').trim();
+    if (!raw || raw.charAt(raw.length - 1) === '%') { return NaN; }
+    var match = raw.match(/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i);
+    return match ? Number(match[1]) : NaN;
+  }
+
+  function mermaidViewBoxSize(svg) {
+    var raw = String(svg.getAttribute('viewBox') || '').trim();
+    if (!raw) { return null; }
+    var parts = raw.split(/[\s,]+/).map(Number);
+    if (
+      parts.length !== 4 ||
+      !parts.every(Number.isFinite) ||
+      parts[2] <= 0 ||
+      parts[3] <= 0
+    ) {
+      return null;
+    }
+    return { width: parts[2], height: parts[3] };
+  }
+
+  function mermaidBaseSize(svg) {
+    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-base-width'));
+    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-base-height'));
+    if (
+      Number.isFinite(cachedWidth) &&
+      cachedWidth > 0 &&
+      Number.isFinite(cachedHeight) &&
+      cachedHeight > 0
+    ) {
+      return { width: cachedWidth, height: cachedHeight };
+    }
+
+    var viewBox = mermaidViewBoxSize(svg);
+    var width = mermaidNumericLength(svg.style.maxWidth);
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('width'));
+    }
+    if ((!Number.isFinite(width) || width <= 0) && viewBox) {
+      width = viewBox.width;
+    }
+
+    var height = mermaidNumericLength(svg.getAttribute('height'));
+    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
+      height = width * (viewBox.height / viewBox.width);
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox) {
+      height = viewBox.height;
+    }
+
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+      return null;
+    }
+
+    svg.setAttribute('data-cmux-mermaid-base-width', String(width));
+    svg.setAttribute('data-cmux-mermaid-base-height', String(height));
+    return { width: width, height: height };
+  }
+
+  function applyMermaidZoomToSVG(svg) {
+    if (!svg) { return; }
+    var base = mermaidBaseSize(svg);
+    if (!base) { return; }
+    var width = Math.max(1, base.width * cmuxMarkdownZoom);
+    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    svg.style.maxWidth = 'none';
+    svg.style.width = width + 'px';
+    svg.style.height = height + 'px';
+    svg.setAttribute('data-cmux-mermaid-zoom', String(cmuxMarkdownZoom));
+  }
+
+  function applyMermaidZoom(root) {
+    var scope = root || contentEl;
+    if (!scope || !scope.querySelectorAll) { return; }
+    Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom) {
+    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    applyMermaidZoom(contentEl);
+  };
+
   function renderMermaidBlocks() {
     if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
     try {
@@ -1137,6 +1232,7 @@ html { scroll-behavior: smooth; }
       try {
         mermaid.render(id, src).then(function(res) {
           el.innerHTML = res.svg;
+          applyMermaidZoom(el);
           if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Mermaid: '
