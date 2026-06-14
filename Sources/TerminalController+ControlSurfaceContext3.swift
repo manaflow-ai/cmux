@@ -318,7 +318,8 @@ extension TerminalController {
 
         guard let rawSnapshot = readTerminalTextRawSnapshot(
             terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
+            includeScrollback: includeScrollback,
+            access: .socketRead(reason: "socket.surface.read_text")
         ) else {
             return .internalError(message: "Failed to read terminal text")
         }

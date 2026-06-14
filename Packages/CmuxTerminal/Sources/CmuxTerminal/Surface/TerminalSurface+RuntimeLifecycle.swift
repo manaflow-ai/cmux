@@ -143,6 +143,78 @@ extension TerminalSurface {
         return surface
     }
 
+    /// Returns a live runtime surface for socket/API text reads, starting one if needed.
+    ///
+    /// Background workspaces may not have a runtime surface until the user
+    /// selects them. Socket/API reads are explicit terminal demand, so this
+    /// method bootstraps the runtime in the hidden startup window when the
+    /// surface is still unopened and the lifecycle permits creation.
+    ///
+    /// - Parameter reason: A debug/logging reason describing the caller.
+    /// - Returns: A live Ghostty surface pointer, or `nil` if startup is not allowed.
+    @MainActor
+    public func liveSurfaceForSocketRead(reason: String) -> ghostty_surface_t? {
+        if let liveSurface = liveSurfaceForGhosttyAccess(reason: reason) {
+            return liveSurface
+        }
+        guard surface == nil, allowsRuntimeSurfaceCreation() else {
+#if DEBUG
+            logDebugEvent(
+                "surface.read_start.skip surface=\(id.uuidString.prefix(8)) " +
+                "hasSurface=\(surface != nil ? 1 : 0) lifecycle=\(portalLifecycleState.rawValue)"
+            )
+#endif
+            return nil
+        }
+#if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+#endif
+        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+        let liveSurface = liveSurfaceForGhosttyAccess(reason: reason)
+#if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        logDebugEvent(
+            "surface.read_start surface=\(id.uuidString.prefix(8)) " +
+            "ready=\(liveSurface != nil ? 1 : 0) headless=\(headlessStartupWindow != nil ? 1 : 0) " +
+            "ms=\(String(format: "%.2f", elapsedMs))"
+        )
+#endif
+        return liveSurface
+    }
+
+    /// Returns the filesystem work needed before an immediate socket-read surface creation.
+    ///
+    /// The caller runs the returned install work off the main actor, then records
+    /// it with ``finishClaudeCommandShimInstallForSocketRead(_:)`` before calling
+    /// ``liveSurfaceForSocketRead(reason:)``.
+    ///
+    /// - Returns: The wrapper URL, surface id, and temporary directory for the shim install.
+    @MainActor
+    public func claudeCommandShimInstallRequestForSocketRead() -> (
+        wrapperURL: URL,
+        surfaceId: UUID,
+        temporaryDirectory: URL
+    )? {
+        guard !claudeCommandShimInstallCompleted else { return nil }
+        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
+            claudeCommandShimInstallCompleted = true
+            return nil
+        }
+        return (wrapperURL, id, FileManager.default.temporaryDirectory)
+    }
+
+    /// Records a socket-read shim install that was performed off the main actor.
+    ///
+    /// - Parameter shim: The installed shim descriptor, or `nil` when no executable wrapper exists.
+    @MainActor
+    public func finishClaudeCommandShimInstallForSocketRead(_ shim: ClaudeCommandShim?) {
+        guard !claudeCommandShimInstallCompleted else { return }
+        claudeCommandShimInstallTask?.cancel()
+        claudeCommandShimInstallTask = nil
+        claudeCommandShim = shim
+        claudeCommandShimInstallCompleted = true
+    }
+
     func recordTeardownRequest(reason: String) {
         withDebugMetadataLock {
             if teardownRequestedAt == nil {
