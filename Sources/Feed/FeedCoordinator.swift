@@ -874,7 +874,8 @@ private extension FeedCoordinator {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                effects: effects
+                effects: effects,
+                runCommand: true
             )
             return
         }
@@ -1008,7 +1009,7 @@ private extension FeedCoordinator {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects,
-        runCommand: Bool = true
+        runCommand: Bool
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
         NativeNotificationDeliveryHooks.runLocalFeedback(
