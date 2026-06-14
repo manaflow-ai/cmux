@@ -1,17 +1,15 @@
 import Darwin
 import Foundation
 
-struct CommandPaletteNucleoSearchResult<Payload>: Sendable where Payload: Sendable {
-    let payload: Payload
-    let rank: Int
-    let title: String
-    let score: Int
-    let titleMatchIndices: Set<Int>
-}
-
 // Sendable is safe here because the dlopen handle and C function pointers are
 // immutable after initialization. The Rust side owns synchronization for index
 // search state.
+/// Loaded `cmux-nucleo-ffi` dylib handle with resolved C entry points.
+///
+/// `shared` caches the process-wide dlopen handle; the handle and function
+/// pointers are immutable after load, and the Rust side owns search-state
+/// synchronization, so reusing one instance per process is the existing,
+/// deliberate design (a second instance would just re-dlopen the same dylib).
 final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     private typealias CreateIndex = @convention(c) (
         UnsafePointer<UInt8>?,
@@ -122,7 +120,13 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             )
         }
 
+        // Repo source root: this file lives at
+        // Packages/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/Nucleo/.
         let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -202,7 +206,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         destroyIndex(index)
     }
 
-    fileprivate func search(
+    func search(
         index: OpaquePointer,
         query: String,
         resultLimit: Int,
@@ -253,106 +257,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     }
 }
 
-// Sendable is safe here because the Swift payload entries are immutable, the
-// raw index pointer is destroyed only in deinit, and Rust keeps per-thread
-// matcher scratch state outside the immutable index.
-final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where Payload: Sendable {
-    private let library: CommandPaletteNucleoSearchLibrary
-    private let pointer: OpaquePointer
-    private let entries: [CommandPaletteSearchCorpusEntry<Payload>]
-
-    init?(entries: [CommandPaletteSearchCorpusEntry<Payload>]) {
-        guard let library = CommandPaletteNucleoSearchLibrary.shared,
-              let pointer = library.createIndex(entries: entries) else {
-            return nil
-        }
-        self.library = library
-        self.pointer = pointer
-        self.entries = entries
-    }
-
-    deinit {
-        library.destroy(index: pointer)
-    }
-
-    func search(
-        query: String,
-        resultLimit: Int,
-        historyBoost: ((Payload, Bool) -> Int)? = nil,
-        shouldCancel: () -> Bool = { false }
-    ) -> [CommandPaletteNucleoSearchResult<Payload>]? {
-        guard resultLimit > 0 else { return [] }
-        if shouldCancel() { return [] }
-
-        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        let queryIsEmpty = preparedQuery.isEmpty
-        let boosts: [Int32]?
-        if let historyBoost {
-            var values: [Int32] = []
-            values.reserveCapacity(entries.count)
-            var hasNonZeroBoost = false
-            for entry in entries {
-                let boost = Int32(clamping: historyBoost(entry.payload, queryIsEmpty))
-                hasNonZeroBoost = hasNonZeroBoost || boost != 0
-                values.append(boost)
-            }
-            boosts = hasNonZeroBoost ? values : nil
-        } else {
-            boosts = nil
-        }
-        guard let rawMatches = library.search(
-            index: pointer,
-            query: query,
-            resultLimit: min(resultLimit, entries.count),
-            boosts: boosts
-        ) else {
-            return nil
-        }
-        if shouldCancel() { return [] }
-
-        var results: [CommandPaletteNucleoSearchResult<Payload>] = []
-        results.reserveCapacity(rawMatches.count)
-        for rawMatch in rawMatches {
-            guard entries.indices.contains(rawMatch.index) else { continue }
-            let entry = entries[rawMatch.index]
-            let titleMatchIndices: Set<Int>
-            if queryIsEmpty {
-                titleMatchIndices = []
-            } else {
-                titleMatchIndices = entry.preparedTitle.map {
-                    CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                        preparedQuery: preparedQuery,
-                        preparedCandidate: $0
-                    )
-                } ?? []
-            }
-            results.append(
-                CommandPaletteNucleoSearchResult(
-                    payload: entry.payload,
-                    rank: entry.rank,
-                    title: entry.title,
-                    score: Self.clampedRoundedScore(rawMatch.score),
-                    titleMatchIndices: titleMatchIndices
-                )
-            )
-        }
-        return results
-    }
-
-    private static func clampedRoundedScore(_ score: Double) -> Int {
-        let rounded = score.rounded()
-        guard rounded.isFinite else {
-            if rounded == .infinity { return Int.max }
-            if rounded == -.infinity { return Int.min }
-            return 0
-        }
-        if rounded >= Double(Int.max) { return Int.max }
-        if rounded <= Double(Int.min) { return Int.min }
-        return Int(rounded)
-    }
-}
-
-fileprivate struct CommandPaletteNucleoCandidateSpan {
+struct CommandPaletteNucleoCandidateSpan {
     let titleOffset: Int
     let titleLength: Int
     let searchOffset: Int
@@ -360,7 +265,7 @@ fileprivate struct CommandPaletteNucleoCandidateSpan {
     let rank: Int32
 }
 
-fileprivate struct CommandPaletteNucleoRawMatch {
+struct CommandPaletteNucleoRawMatch {
     var index: Int
     var score: Double
     var rank: Int32

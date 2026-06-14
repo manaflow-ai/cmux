@@ -8,8 +8,9 @@ import Testing
 
 /// Tests the pure projection from a classified pairing failure to the three
 /// network / authentication / trust check marks (issue #6084). Every failure
-/// resolves to exactly one failed gate, the gates it provably cleared show a
-/// check, and the rest stay untested — verified without a live connection.
+/// resolves to exactly one failed gate; the gates it provably cleared (only when
+/// the attempt reached the Mac) show a check, and the rest stay untested —
+/// verified without a live connection.
 @Suite struct MobilePairingChecklistTests {
     // MARK: - Stage assignment
 
@@ -23,6 +24,7 @@ import Testing
             .handshakeTimedOut(host: "h", port: 1),
             .connectionDropped(host: "h", port: 1),
             .accountMismatch,
+            .emailMismatch(expected: "owner@example.com", actual: "other@example.com"),
             .authFailed,
             .ticketExpired,
             .invalidCode,
@@ -64,9 +66,10 @@ import Testing
         #expect(MobilePairingFailureCategory.ticketExpired.stage == .authentication)
     }
 
-    @Test func accountAndRouteFailuresAreTrustStage() {
+    @Test func accountRouteAndEmailFailuresAreTrustStage() {
         #expect(MobilePairingFailureCategory.accountMismatch.stage == .trust)
         #expect(MobilePairingFailureCategory.unsupportedRoute.stage == .trust)
+        #expect(MobilePairingFailureCategory.emailMismatch(expected: "a@b.co", actual: "c@d.co").stage == .trust)
     }
 
     @Test func onlyOnWireAuthFailuresClearPriorGates() {
@@ -78,13 +81,14 @@ import Testing
         #expect(!MobilePairingFailureCategory.hostUnreachable(host: "h", port: 1).clearsPriorGates)
         #expect(!MobilePairingFailureCategory.unsupportedRoute.clearsPriorGates)
         #expect(!MobilePairingFailureCategory.invalidCode.clearsPriorGates)
+        #expect(!MobilePairingFailureCategory.emailMismatch(expected: "a@b.co", actual: "c@d.co").clearsPriorGates)
     }
 
     // MARK: - Resolved checklist
 
     @Test func offlineFailsNetworkAndLeavesLaterGatesUntested() {
         let category = MobilePairingFailureCategory.offline
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: false)
         #expect(checklist.network == .failed(message: category.message, guidance: category.guidance))
         #expect(checklist.authentication == .pending)
         #expect(checklist.trust == .pending)
@@ -93,16 +97,26 @@ import Testing
 
     @Test func authFailureClearsNetworkAndLeavesTrustUntested() {
         let category = MobilePairingFailureCategory.authFailed
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: true)
         #expect(checklist.network == .succeeded)
         #expect(checklist.authentication == .failed(message: category.message, guidance: category.guidance))
         #expect(checklist.trust == .pending)
         #expect(checklist.failedStage == .authentication)
     }
 
+    @Test func preNetworkAuthFailureLeavesNetworkUntested() {
+        // The ticket-identity preflight raises `authFailed` before reaching the
+        // Mac; with `reachedMac: false` the network gate must stay untested rather
+        // than show a false check mark.
+        let checklist = MobilePairingChecklist.resolving(.authFailed, reachedMac: false)
+        #expect(checklist.network == .pending)
+        #expect(checklist.authentication.isFailed)
+        #expect(checklist.trust == .pending)
+    }
+
     @Test func ticketExpiredFailsAuthenticationGate() {
         let category = MobilePairingFailureCategory.ticketExpired
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: true)
         #expect(checklist.network == .succeeded)
         #expect(checklist.authentication.isFailed)
         #expect(checklist.trust == .pending)
@@ -110,18 +124,28 @@ import Testing
 
     @Test func accountMismatchClearsNetworkAndAuthThenFailsTrust() {
         let category = MobilePairingFailureCategory.accountMismatch
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: true)
         #expect(checklist.network == .succeeded)
         #expect(checklist.authentication == .succeeded)
         #expect(checklist.trust == .failed(message: category.message, guidance: category.guidance))
         #expect(checklist.failedStage == .trust)
     }
 
+    @Test func emailMismatchFailsTrustWithoutClaimingEarlierGates() {
+        // Caught client-side from the ticket before any connect, so the earlier
+        // gates stay untested even though trust is the failed gate.
+        let category = MobilePairingFailureCategory.emailMismatch(expected: "owner@example.com", actual: "other@example.com")
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: false)
+        #expect(checklist.network == .pending)
+        #expect(checklist.authentication == .pending)
+        #expect(checklist.trust == .failed(message: category.message, guidance: category.guidance))
+    }
+
     @Test func untrustedRouteFailsTrustWithoutClaimingEarlierGates() {
-        // A route refused client-side never reaches the Mac, so the earlier gates
-        // stay untested even though trust is the failed gate.
+        // A route refused client-side never authenticates with the Mac, so even on
+        // a connect-phase failure (reachedMac) the earlier gates stay untested.
         let category = MobilePairingFailureCategory.unsupportedRoute
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: true)
         #expect(checklist.network == .pending)
         #expect(checklist.authentication == .pending)
         #expect(checklist.trust == .failed(message: category.message, guidance: category.guidance))
@@ -129,7 +153,7 @@ import Testing
 
     @Test func invalidCodeFailsNetworkGate() {
         let category = MobilePairingFailureCategory.invalidCode
-        let checklist = MobilePairingChecklist.resolving(category)
+        let checklist = MobilePairingChecklist.resolving(category, reachedMac: false)
         #expect(checklist.network.isFailed)
         #expect(checklist.authentication == .pending)
         #expect(checklist.trust == .pending)

@@ -44,6 +44,8 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case connectionDropped(host: String?, port: Int?)
     /// The Mac is signed in to a different cmux account than this device.
     case accountMismatch
+    /// The pairing code was minted for a different email than this device.
+    case emailMismatch(expected: String, actual: String?)
     /// The owner's account could not be verified with the Mac (stale/invalid
     /// token, or a release-vs-development build mismatch).
     case authFailed
@@ -80,6 +82,7 @@ extension MobilePairingFailureCategory {
         case .handshakeTimedOut: return "timeout"
         case .connectionDropped: return "connection_dropped"
         case .accountMismatch: return "account_mismatch"
+        case .emailMismatch: return "email_mismatch"
         case .authFailed: return "auth"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
@@ -95,7 +98,7 @@ extension MobilePairingFailureCategory {
     /// (Sign Out) instead of a "could not connect / Retry" banner.
     public var isAuthorizationFailure: Bool {
         switch self {
-        case .accountMismatch, .authFailed, .ticketExpired:
+        case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
             return true
         default:
             return false
@@ -167,10 +170,26 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.accountMismatch",
                 defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with the account that owns this Mac."
             )
+        case let .emailMismatch(expected, actual):
+            let format = if let actual, !actual.isEmpty {
+                L10n.string(
+                    "mobile.pairing.emailMismatchFormat",
+                    defaultValue: "This QR is for %@, but this iPhone is signed in as %@. Sign in with the same email as the Mac, then scan again."
+                )
+            } else {
+                L10n.string(
+                    "mobile.pairing.emailMissingFormat",
+                    defaultValue: "This QR is for %@. Sign in with the same email as the Mac, then scan again."
+                )
+            }
+            if let actual, !actual.isEmpty {
+                return String(format: format, expected, actual)
+            }
+            return String(format: format, expected)
         case .authFailed:
             return L10n.string(
                 "mobile.pairing.authorizationFailed",
-                defaultValue: "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
+                defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
         case .ticketExpired:
             return L10n.string(
@@ -233,7 +252,7 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.localNetwork",
                 defaultValue: "Settings > cmux > Local Network, then try again."
             )
-        case .accountMismatch, .authFailed:
+        case .accountMismatch, .emailMismatch, .authFailed:
             return L10n.string(
                 "mobile.pairing.guidance.sameAccount",
                 defaultValue: "Both devices must be signed in to the same cmux account."
@@ -384,8 +403,9 @@ extension MobilePairingFailureCategory {
     /// - **authentication** owns the credential being rejected on the wire
     ///   (invalid/expired token or attach ticket).
     /// - **trust** owns the security relationship: the Mac is a different account
-    ///   (``accountMismatch``) or the route is not trusted to carry the
-    ///   credential (``unsupportedRoute``).
+    ///   (``accountMismatch``), the pairing code was minted for a different email
+    ///   than this device (``emailMismatch``), or the route is not trusted to
+    ///   carry the credential (``unsupportedRoute``).
     var stage: MobilePairingStage? {
         switch self {
         case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
@@ -394,21 +414,27 @@ extension MobilePairingFailureCategory {
             return .network
         case .authFailed, .ticketExpired:
             return .authentication
-        case .accountMismatch, .unsupportedRoute:
+        case .accountMismatch, .emailMismatch, .unsupportedRoute:
             return .trust
         case .cancelled:
             return nil
         }
     }
 
-    /// Whether reaching this failure proves every gate before ``stage`` was
-    /// already cleared. An on-the-wire rejection from the Mac proves the device
-    /// reached it (network cleared) and, for an account mismatch, that the
-    /// credential was read (authentication cleared). A failure detected before or
-    /// during the transport — offline, unreachable, an invalid code, or a route
-    /// refused client-side as untrusted (``unsupportedRoute``) — proves nothing,
-    /// so the earlier gates stay ``MobilePairingStageStatus/pending`` (untested)
-    /// rather than falsely showing a check mark.
+    /// Whether an *on-the-wire* occurrence of this failure proves every gate
+    /// before ``stage`` was already cleared. A rejection the Mac sends back proves
+    /// the device reached it (network cleared) and, for an account mismatch, that
+    /// the credential was read (authentication cleared). Transport failures, an
+    /// invalid code, a route refused client-side as untrusted (``unsupportedRoute``),
+    /// and the email/identity mismatch caught client-side from the ticket
+    /// (``emailMismatch``) prove nothing, so their earlier gates stay
+    /// ``MobilePairingStageStatus/pending`` (untested).
+    ///
+    /// This is only valid when the attempt actually reached the wire; the same
+    /// ``authFailed`` can be raised pre-network by the ticket-identity preflight,
+    /// where it has cleared nothing. ``MobilePairingChecklist/resolving(_:reachedMac:)``
+    /// gates this with `reachedMac` so a pre-network rejection never shows a false
+    /// network check mark.
     var clearsPriorGates: Bool {
         switch self {
         case .authFailed, .ticketExpired, .accountMismatch:
@@ -425,7 +451,18 @@ extension MobilePairingChecklist {
     /// was cleared shows a check mark, and every other gate stays untested. This
     /// is the single projection from "why did pairing fail" to "which check marks
     /// the user sees", so it is pure and unit-tested without a live connection.
-    static func resolving(_ category: MobilePairingFailureCategory) -> MobilePairingChecklist {
+    ///
+    /// - Parameters:
+    ///   - category: The classified failure.
+    ///   - reachedMac: Whether the attempt got on the wire to the Mac (a
+    ///     connect/auth-phase failure), so a gate before the failed one that
+    ///     ``MobilePairingFailureCategory/clearsPriorGates`` marks cleared really
+    ///     was. A pre-network failure (validation or offline preflight) passes
+    ///     `false`, leaving the earlier gates untested instead of falsely cleared.
+    static func resolving(
+        _ category: MobilePairingFailureCategory,
+        reachedMac: Bool
+    ) -> MobilePairingChecklist {
         guard let failedStage = category.stage else {
             // `.cancelled` is handled by the `catch is CancellationError` branches
             // before classification, so this is only defensive: a cancelled
@@ -436,7 +473,7 @@ extension MobilePairingChecklist {
             message: category.message,
             guidance: category.guidance
         )
-        let priorCleared = category.clearsPriorGates
+        let priorCleared = reachedMac && category.clearsPriorGates
         func status(for stage: MobilePairingStage) -> MobilePairingStageStatus {
             if stage == failedStage { return failure }
             if stage.order < failedStage.order { return priorCleared ? .succeeded : .pending }

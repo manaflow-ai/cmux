@@ -65,6 +65,8 @@ public struct MobileRootAuthGate {
             return connectionState != .connected || !hasActiveUnexpiredTicket
         case .failed:
             return true
+        case .needsUserApproval:
+            return false
         case .superseded:
             return connectionState != .connected || !hasActiveUnexpiredTicket
         }

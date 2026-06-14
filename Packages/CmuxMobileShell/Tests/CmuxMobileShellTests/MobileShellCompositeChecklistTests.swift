@@ -26,8 +26,8 @@ import Testing
 
     @Test func authRejectionClearsNetworkThenFailsAuthenticationGate() async throws {
         let store = makeStore(errorCode: "unauthorized", message: "invalid token")
-        let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: TestClock())))
-        #expect(!connected)
+        let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
+        #expect(result == .failed)
         let checklist = try #require(store.pairingChecklist)
         #expect(checklist.network == .succeeded)
         #expect(checklist.authentication.isFailed)
@@ -36,8 +36,8 @@ import Testing
 
     @Test func accountMismatchClearsNetworkAndAuthThenFailsTrustGate() async throws {
         let store = makeStore(errorCode: "account_mismatch", message: "different account")
-        let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: TestClock())))
-        #expect(!connected)
+        let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
+        #expect(result == .failed)
         let checklist = try #require(store.pairingChecklist)
         #expect(checklist.network == .succeeded)
         #expect(checklist.authentication == .succeeded)
@@ -45,11 +45,14 @@ import Testing
     }
 
     @Test func successfulPairingClearsEveryGate() async throws {
-        let store = try await makeConnectedStore(
-            router: LivenessHostRouter(),
-            box: TransportBox(),
-            clock: TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            now: { TestClock().now }
         )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
+        #expect(result == .connected)
         #expect(store.pairingChecklist == .connected)
     }
 
@@ -64,6 +67,18 @@ import Testing
         let store = MobileShellComposite.preview(runtime: runtime)
         store.signIn()
         return store
+    }
+
+    /// Connect through the QR path, accepting the Mac/iPhone compatibility warning
+    /// if prompted (the scripted ticket carries no compatibility version, which the
+    /// host treats as a mismatch). Mirrors the user tapping "Continue anyway".
+    private func connectAcceptingVersionWarning(
+        _ store: MobileShellComposite,
+        _ url: String
+    ) async -> MobilePairingURLConnectionResult {
+        let result = await store.connectPairingURLResult(url)
+        guard result == .needsUserApproval else { return result }
+        return await store.acceptPairingVersionWarning()
     }
 }
 

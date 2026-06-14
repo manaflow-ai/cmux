@@ -4207,7 +4207,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
                 inlineCompletion: nil,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },
