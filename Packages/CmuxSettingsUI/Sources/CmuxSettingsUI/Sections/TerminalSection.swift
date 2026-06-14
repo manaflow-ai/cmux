@@ -20,6 +20,9 @@ public struct TerminalSection: View {
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
+    @State private var rendererReclaim: DefaultsValueModel<Bool>
+    @State private var rendererIdleSeconds: DefaultsValueModel<Double>
+    @State private var rendererMaxWarm: DefaultsValueModel<Int>
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -37,6 +40,9 @@ public struct TerminalSection: View {
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+        _rendererReclaim = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationEnabled))
+        _rendererIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationIdleSeconds))
+        _rendererMaxWarm = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationMaxWarmRenderers))
     }
 
     public var body: some View {
@@ -209,6 +215,49 @@ public struct TerminalSection: View {
                     step: 1
                 )
                 .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.rendererRealization.enabled"),
+                String(localized: "settings.terminal.rendererRealization", defaultValue: "Reclaim Offscreen Terminal Memory"),
+                subtitle: rendererReclaim.current
+                    ? String(localized: "settings.terminal.rendererRealization.subtitleOn", defaultValue: "Off-screen terminals release their GPU renderer memory while idle and rebuild it instantly when you switch back. The process keeps running.")
+                    : String(localized: "settings.terminal.rendererRealization.subtitleOff", defaultValue: "Every visited terminal keeps its full GPU renderer allocated until you close it, even when off-screen.")
+            ) {
+                Toggle("", isOn: Binding(get: { rendererReclaim.current }, set: { rendererReclaim.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalRendererRealizationToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.rendererRealization.idleSeconds"),
+                String(localized: "settings.terminal.rendererRealization.idleSeconds", defaultValue: "Reclaim After Idle Seconds"),
+                subtitle: String(localized: "settings.terminal.rendererRealization.idleSeconds.subtitle", defaultValue: "An off-screen terminal must stay off-screen this long before its renderer memory is reclaimed."),
+                controlWidth: 140
+            ) {
+                Stepper(
+                    "\(Int(rendererIdleSeconds.current))",
+                    value: Binding(get: { rendererIdleSeconds.current }, set: { rendererIdleSeconds.set($0) }),
+                    in: 5...604_800,
+                    step: 10
+                )
+                .accessibilityIdentifier("SettingsTerminalRendererRealizationIdleSecondsStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.rendererRealization.maxWarmRenderers"),
+                String(localized: "settings.terminal.rendererRealization.maxWarmRenderers", defaultValue: "Max Warm Renderers"),
+                subtitle: String(localized: "settings.terminal.rendererRealization.maxWarmRenderers.subtitle", defaultValue: "The most recently visible terminals keep their renderer ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."),
+                controlWidth: 120
+            ) {
+                Stepper(
+                    "\(rendererMaxWarm.current)",
+                    value: Binding(get: { rendererMaxWarm.current }, set: { rendererMaxWarm.set($0) }),
+                    in: 1...256,
+                    step: 1
+                )
+                .accessibilityIdentifier("SettingsTerminalRendererRealizationMaxWarmStepper")
             }
         }
     }
