@@ -397,7 +397,12 @@ struct WorkspaceDetailView: View {
     }
 
     private var terminalPickerListHeight: CGFloat {
-        min(max(CGFloat(workspace.terminals.count) * 44, 44), 280)
+        #if os(iOS)
+        let rowHeight = UIFontMetrics.default.scaledValue(for: 44)
+        #else
+        let rowHeight: CGFloat = 44
+        #endif
+        return min(max(CGFloat(workspace.terminals.count) * rowHeight, rowHeight), 480)
     }
 
     #if canImport(UIKit)
