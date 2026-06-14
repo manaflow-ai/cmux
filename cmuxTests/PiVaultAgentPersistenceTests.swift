@@ -1,5 +1,6 @@
 import CmuxSession
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,7 +8,38 @@ import XCTest
 @testable import cmux
 #endif
 
-final class PiVaultAgentPersistenceTests: XCTestCase {
+
+@Suite
+struct PiVaultAgentPersistenceTests {
+    private func expectEqual<T: Equatable>(_ lhs: T, _ rhs: T) {
+        #expect(lhs == rhs)
+    }
+
+    private func expectEqual<T: Equatable>(_ lhs: T?, _ rhs: T) {
+        #expect(lhs == rhs)
+    }
+
+    private func expectEqual<T: Equatable>(_ lhs: T, _ rhs: T?) {
+        #expect(lhs == rhs)
+    }
+
+    private func expectNotEqual<T: Equatable>(_ lhs: T, _ rhs: T) {
+        #expect(lhs != rhs)
+    }
+
+    private func expectTrue(_ condition: Bool) {
+        #expect(condition)
+    }
+
+    private func expectNil<T>(_ value: T?) {
+        #expect(value == nil)
+    }
+
+    private func requireUnwrapped<T>(_ value: T?) throws -> T {
+        try #require(value)
+    }
+
+    @Test
     func testRegisteredSessionAgentCodablePreservesPresentation() throws {
         let encoded = try JSONEncoder().encode(
             SessionAgent.registered(RegisteredSessionAgent(
@@ -20,40 +52,48 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
 
         guard case .registered(let agent) = decoded else {
-            return XCTFail("Expected registered agent")
+            Issue.record("Expected registered agent")
+            return
         }
-        XCTAssertEqual(agent.id, "acme-agent")
-        XCTAssertEqual(agent.name, "Acme Agent")
-        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Acme")
+        expectEqual(agent.id, "acme-agent")
+        expectEqual(agent.name, "Acme Agent")
+        expectEqual(agent.iconAssetName, "AgentIcons/Acme")
     }
 
+
+    @Test
     func testBuiltInIDWithRegisteredMetadataDecodesAsRegisteredAgent() throws {
         let encoded = Data(#"{"id":"grok","name":"Custom Grok","iconAssetName":"AgentIcons/CustomGrok"}"#.utf8)
 
         let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
 
         guard case .registered(let agent) = decoded else {
-            return XCTFail("Expected legacy registered Grok metadata to be preserved")
+            Issue.record("Expected legacy registered Grok metadata to be preserved")
+            return
         }
-        XCTAssertEqual(agent.id, "grok")
-        XCTAssertEqual(agent.name, "Custom Grok")
-        XCTAssertEqual(agent.iconAssetName, "AgentIcons/CustomGrok")
+        expectEqual(agent.id, "grok")
+        expectEqual(agent.name, "Custom Grok")
+        expectEqual(agent.iconAssetName, "AgentIcons/CustomGrok")
     }
 
+
+    @Test
     func testBuiltInIDWithoutRegisteredMetadataDecodesAsBuiltInAgent() throws {
         let encoded = Data(#"{"id":"grok"}"#.utf8)
 
         let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
 
-        XCTAssertEqual(decoded, .grok)
+        expectEqual(decoded, .grok)
     }
 
+
+    @Test
     func testRegisteredSessionAgentEqualityIncludesPresentation() {
-        XCTAssertNotEqual(
+        expectNotEqual(
             SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", name: "Acme Agent")),
             SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", name: "Renamed Agent"))
         )
-        XCTAssertEqual(
+        expectEqual(
             Set([
                 SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", iconAssetName: "AgentIcons/Acme")),
                 SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", iconAssetName: "AgentIcons/Renamed")),
@@ -62,22 +102,28 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testBuiltInPiRegistrationUsesBrandedIconAsset() {
         let agent = RegisteredSessionAgent(registration: CmuxVaultAgentRegistration.builtInPi)
 
-        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Pi")
-        XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
+        expectEqual(agent.iconAssetName, "AgentIcons/Pi")
+        expectEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
 
+
+    @Test
     func testBuiltInAntigravityRegistrationUsesBrandedIconAsset() {
         let agent = RegisteredSessionAgent(registration: CmuxVaultAgentRegistration.builtInAntigravity)
 
-        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Antigravity")
-        XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Antigravity")
-        XCTAssertEqual(CmuxVaultAgentRegistration.builtInAntigravity.detect.processNames, ["agy", "antigravity"])
+        expectEqual(agent.iconAssetName, "AgentIcons/Antigravity")
+        expectEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Antigravity")
+        expectEqual(CmuxVaultAgentRegistration.builtInAntigravity.detect.processNames, ["agy", "antigravity"])
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationLoadsHistoryDisplayAndWorkspace() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-history-\(UUID().uuidString)", isDirectory: true)
@@ -99,17 +145,19 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
-        XCTAssertEqual(entry.sessionId, "antigravity-conversation-123")
-        XCTAssertEqual(entry.title, "Implement Antigravity notifications")
-        XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
+        expectEqual(entry.sessionId, "antigravity-conversation-123")
+        expectEqual(entry.title, "Implement Antigravity notifications")
+        expectEqual(entry.cwd, "/tmp/antigravity repo")
+        expectEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ]; } && 'agy' '--conversation' 'antigravity-conversation-123'"
         )
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationIndexesEachHistoryConversation() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-conversations-\(UUID().uuidString)", isDirectory: true)
@@ -134,9 +182,9 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        XCTAssertEqual(entries.map(\.sessionId), ["conversation-a", "conversation-b"])
-        XCTAssertEqual(entries.map(\.title), ["latest prompt", "newer prompt"])
-        XCTAssertEqual(entries.map(\.cwd), ["/tmp/antigravity repo", "/tmp/antigravity repo"])
+        expectEqual(entries.map(\.sessionId), ["conversation-a", "conversation-b"])
+        expectEqual(entries.map(\.title), ["latest prompt", "newer prompt"])
+        expectEqual(entries.map(\.cwd), ["/tmp/antigravity repo", "/tmp/antigravity repo"])
 
         let filtered = await SessionIndexStore.loadRegisteredAgentEntries(
             registration: registration,
@@ -145,13 +193,15 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             offset: 0,
             limit: 10
         )
-        XCTAssertEqual(filtered.map(\.sessionId), ["conversation-b"])
-        XCTAssertEqual(
+        expectEqual(filtered.map(\.sessionId), ["conversation-b"])
+        expectEqual(
             filtered.first?.resumeCommand,
             "{ cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ]; } && 'agy' '--conversation' 'conversation-b'"
         )
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationPaginatesStableBoundedHistory() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-pagination-\(UUID().uuidString)", isDirectory: true)
@@ -183,11 +233,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        XCTAssertEqual(firstPage.map(\.sessionId), (70..<80).reversed().map { "conversation-\($0)" })
-        XCTAssertEqual(secondPage.map(\.sessionId), (60..<70).reversed().map { "conversation-\($0)" })
-        XCTAssertTrue(Set(firstPage.map(\.sessionId)).isDisjoint(with: Set(secondPage.map(\.sessionId))))
+        expectEqual(firstPage.map(\.sessionId), (70..<80).reversed().map { "conversation-\($0)" })
+        expectEqual(secondPage.map(\.sessionId), (60..<70).reversed().map { "conversation-\($0)" })
+        expectTrue(Set(firstPage.map(\.sessionId)).isDisjoint(with: Set(secondPage.map(\.sessionId))))
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationBackfillsSparseLatestHistoryMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-backfill-\(UUID().uuidString)", isDirectory: true)
@@ -210,14 +262,16 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entry.sessionId, "conversation-a")
-        XCTAssertEqual(entry.title, "original prompt")
-        XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
-        XCTAssertEqual(entry.modified, Date(timeIntervalSince1970: 1_779_263_001))
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entries.count, 1)
+        expectEqual(entry.sessionId, "conversation-a")
+        expectEqual(entry.title, "original prompt")
+        expectEqual(entry.cwd, "/tmp/antigravity repo")
+        expectEqual(entry.modified, Date(timeIntervalSince1970: 1_779_263_001))
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationUsesMaximumWindowForSparseSearch() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-sparse-search-\(UUID().uuidString)", isDirectory: true)
@@ -249,12 +303,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 1
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entry.sessionId, "conversation-needle")
-        XCTAssertEqual(entry.title, "needle prompt")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entries.count, 1)
+        expectEqual(entry.sessionId, "conversation-needle")
+        expectEqual(entry.title, "needle prompt")
     }
 
+
+    @Test
     func testBuiltInAntigravityRegistrationDoesNotSpendListBudgetOnDuplicateRows() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-duplicate-rows-\(UUID().uuidString)", isDirectory: true)
@@ -286,9 +342,11 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 2
         )
 
-        XCTAssertEqual(entries.map(\.sessionId), ["conversation-latest", "conversation-older"])
+        expectEqual(entries.map(\.sessionId), ["conversation-latest", "conversation-older"])
     }
 
+
+    @Test
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-workspace-cwd-\(UUID().uuidString)", isDirectory: true)
@@ -318,12 +376,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.title, "Resume Acme")
-        XCTAssertEqual(entry.cwd, "/tmp/acme-workspace")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.sessionId, "native-session-123")
+        expectEqual(entry.title, "Resume Acme")
+        expectEqual(entry.cwd, "/tmp/acme-workspace")
     }
 
+
+    @Test
     func testRegisteredAgentJSONLDisplayFieldIsNotSharedTitleMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-display-title-\(UUID().uuidString)", isDirectory: true)
@@ -353,15 +413,17 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.title, "")
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.sessionId, "native-session-123")
+        expectEqual(entry.title, "")
+        expectEqual(
             entry.displayTitle,
             String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
         )
     }
 
+
+    @Test
     func testRegisteredAgentJSONLSessionIDDoesNotUseAntigravityConversationID() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-session-id-\(UUID().uuidString)", isDirectory: true)
@@ -391,22 +453,26 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.resumeCommand, "{ cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ]; } && 'acme-agent' '--session' 'native-session-123'")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.sessionId, "native-session-123")
+        expectEqual(entry.resumeCommand, "{ cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ]; } && 'acme-agent' '--session' 'native-session-123'")
     }
 
+
+    @Test
     func testBuiltInGrokRegistrationUsesNativeSessionDirectory() {
         let registration = CmuxVaultAgentRegistration.builtInGrok
 
-        XCTAssertEqual(registration.id, "grok")
-        XCTAssertEqual(registration.sessionIdSource, .grokSessionDirectory)
-        XCTAssertEqual(registration.sessionDirectory, "~/.grok/sessions")
-        XCTAssertEqual(registration.detect.processNames, ["grok", "grok-macos-aarch64", "grok-macos-aarch"])
-        XCTAssertTrue(registration.detect.argvContains.isEmpty)
-        XCTAssertEqual(SessionAgent.grok.assetName, "AgentIcons/Grok")
+        expectEqual(registration.id, "grok")
+        expectEqual(registration.sessionIdSource, .grokSessionDirectory)
+        expectEqual(registration.sessionDirectory, "~/.grok/sessions")
+        expectEqual(registration.detect.processNames, ["grok", "grok-macos-aarch64", "grok-macos-aarch"])
+        expectTrue(registration.detect.argvContains.isEmpty)
+        expectEqual(SessionAgent.grok.assetName, "AgentIcons/Grok")
     }
 
+
+    @Test
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -433,9 +499,11 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             registrationOverride: registration
         )
 
-        XCTAssertNil(command)
+        expectNil(command)
     }
 
+
+    @Test
     func testRegisteredAgentTemplateUsesExplicitWorkingDirectoryForCWDPlaceholder() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -463,9 +531,11 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             includeWorkingDirectoryPrefix: false
         )
 
-        XCTAssertEqual(command, "'acme-agent' '--cwd' '/tmp/acme' '--session' 'session-123'")
+        expectEqual(command, "'acme-agent' '--cwd' '/tmp/acme' '--session' 'session-123'")
     }
 
+
+    @Test
     func testRegisteredAgentTemplatePreservesCWDArgumentWithWorkingDirectoryPrefix() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -492,12 +562,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             registrationOverride: registration
         )
 
-        XCTAssertEqual(
+        expectEqual(
             command,
             "{ cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ]; } && 'acme-agent' '--cwd' '/tmp/acme' '--session' 'session-123'"
         )
     }
 
+
+    @Test
     func testRegisteredAgentTemplateDoesNotExpandPlaceholdersInsideReplacementValues() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -525,9 +597,11 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             includeWorkingDirectoryPrefix: false
         )
 
-        XCTAssertEqual(command, "'acme-agent' '--session' 'session-{{cwd}}' '--cwd' '/tmp/acme'")
+        expectEqual(command, "'acme-agent' '--session' 'session-{{cwd}}' '--cwd' '/tmp/acme'")
     }
 
+
+    @Test
     func testRegisteredAgentCWDIgnoreSuppressesResumeWorkingDirectory() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -550,10 +624,12 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             specifics: .registered(registration)
         )
 
-        XCTAssertNil(entry.resumeWorkingDirectory)
-        XCTAssertEqual(entry.resumeCommand, "'acme-agent' '--session' 'session-123'")
+        expectNil(entry.resumeWorkingDirectory)
+        expectEqual(entry.resumeCommand, "'acme-agent' '--session' 'session-123'")
     }
 
+
+    @Test
     func testRegisteredAgentJSONLNativeSessionIDOverridesPathFallback() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-native-id-\(UUID().uuidString)", isDirectory: true)
@@ -584,13 +660,15 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.id, "acme-agent:native-session-123")
-        XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.title, "Resume Acme")
-        XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.id, "acme-agent:native-session-123")
+        expectEqual(entry.sessionId, "native-session-123")
+        expectEqual(entry.title, "Resume Acme")
+        expectEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
     }
 
+
+    @Test
     func testRegisteredAgentCWDFilterUsesJSONLMetadataNotFallback() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-cwd-filter-\(UUID().uuidString)", isDirectory: true)
@@ -620,9 +698,11 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        XCTAssertTrue(entries.isEmpty)
+        expectTrue(entries.isEmpty)
     }
 
+
+    @Test
     func testRegisteredAgentMetadataKeepsScanningForBranchWhenFallbackCWDSet() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-branch-\(UUID().uuidString)", isDirectory: true)
@@ -630,7 +710,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let cwd = "/tmp/pi repo"
-        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let projectDirectory = try requireUnwrapped(PiSessionLocator.projectDirectoryName(for: cwd))
         let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         let sessionFile = sessionDir.appendingPathComponent("018f2b35-7c75-7e1a-a6ff-cc1d5f9f0000.jsonl")
@@ -649,12 +729,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "Implement Pi restore")
-        XCTAssertEqual(entry.cwd, cwd)
-        XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "Implement Pi restore")
+        expectEqual(entry.cwd, cwd)
+        expectEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
     }
 
+
+    @Test
     func testPiJSONLTypedContentBlocksUseFirstUserTextAsTitle() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-title-blocks-\(UUID().uuidString)", isDirectory: true)
@@ -662,7 +744,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let cwd = "/tmp/pi typed blocks"
-        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let projectDirectory = try requireUnwrapped(PiSessionLocator.projectDirectoryName(for: cwd))
         let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f981.jsonl")
@@ -681,11 +763,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "ping")
-        XCTAssertEqual(entry.cwd, cwd)
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "ping")
+        expectEqual(entry.cwd, cwd)
     }
 
+
+    @Test
     func testPiJSONLTopLevelAssistantTypedContentDoesNotBecomeTitle() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-top-level-role-\(UUID().uuidString)", isDirectory: true)
@@ -693,7 +777,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let cwd = "/tmp/pi top level role"
-        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let projectDirectory = try requireUnwrapped(PiSessionLocator.projectDirectoryName(for: cwd))
         let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f982.jsonl")
@@ -712,11 +796,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "implement the vault view")
-        XCTAssertEqual(entry.cwd, cwd)
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "implement the vault view")
+        expectEqual(entry.cwd, cwd)
     }
 
+
+    @Test
     func testPiJSONLMessagesArrayUsesNilRoleTextAsTitle() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-messages-nil-role-\(UUID().uuidString)", isDirectory: true)
@@ -724,7 +810,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let cwd = "/tmp/pi nil role"
-        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let projectDirectory = try requireUnwrapped(PiSessionLocator.projectDirectoryName(for: cwd))
         let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f983.jsonl")
@@ -742,11 +828,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "restore without role")
-        XCTAssertEqual(entry.cwd, cwd)
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "restore without role")
+        expectEqual(entry.cwd, cwd)
     }
 
+
+    @Test
     func testPiJSONLTypedContentBlocksRequireTextType() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-typed-content-\(UUID().uuidString)", isDirectory: true)
@@ -754,7 +842,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let cwd = "/tmp/pi typed content"
-        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let projectDirectory = try requireUnwrapped(PiSessionLocator.projectDirectoryName(for: cwd))
         let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f984.jsonl")
@@ -772,11 +860,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "typed text title")
-        XCTAssertEqual(entry.cwd, cwd)
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "typed text title")
+        expectEqual(entry.cwd, cwd)
     }
 
+
+    @Test
     func testGrokVaultLoadsNativeChatHistoryFromEncodedDirectory() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-\(UUID().uuidString)", isDirectory: true)
@@ -811,19 +901,21 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.agent, .grok)
-        XCTAssertEqual(entry.sessionId, sessionId)
-        XCTAssertEqual(entry.title, "Implement Grok Vault")
-        XCTAssertEqual(entry.cwd, cwd)
-        XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(entry.fileURL, historyURL)
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.agent, .grok)
+        expectEqual(entry.sessionId, sessionId)
+        expectEqual(entry.title, "Implement Grok Vault")
+        expectEqual(entry.cwd, cwd)
+        expectEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
+        expectEqual(entry.fileURL, historyURL)
+        expectEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 
+
+    @Test
     func testGrokVaultTitlePrefersUserQueryOverInjectedMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-metadata-title-\(UUID().uuidString)", isDirectory: true)
@@ -873,10 +965,12 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.title, "Implement native Vault metadata")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.title, "Implement native Vault metadata")
     }
 
+
+    @Test
     func testGrokVaultFindsBranchAfterStableMetadata() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-late-branch-\(UUID().uuidString)", isDirectory: true)
@@ -909,10 +1003,12 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.gitBranch, "late-branch")
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.gitBranch, "late-branch")
     }
 
+
+    @Test
     func testGrokVaultLoadsHookObservedShellGrokHome() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-observed-home-\(UUID().uuidString)", isDirectory: true)
@@ -966,16 +1062,18 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             homeDirectory: homeDirectory.path
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sessionId, sessionId)
-        XCTAssertEqual(entry.title, "Find sessions under shell GROK_HOME")
-        XCTAssertEqual(entry.cwd, cwd)
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.sessionId, sessionId)
+        expectEqual(entry.title, "Find sessions under shell GROK_HOME")
+        expectEqual(entry.cwd, cwd)
+        expectEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/grok observed home' 2>/dev/null || [ ! -d '/tmp/grok observed home' ]; } && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 
+
+    @Test
     func testGrokVaultLoadsHookObservedShellGrokHomeFromCustomStateDir() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-custom-state-\(UUID().uuidString)", isDirectory: true)
@@ -1028,15 +1126,17 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             homeDirectory: homeDirectory.path
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.sessionId, sessionId)
-        XCTAssertEqual(entry.title, "Find sessions under custom hook state")
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.sessionId, sessionId)
+        expectEqual(entry.title, "Find sessions under custom hook state")
+        expectEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/grok custom state' 2>/dev/null || [ ! -d '/tmp/grok custom state' ]; } && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4'"
         )
     }
 
+
+    @Test
     func testRegisteredGrokSessionDirectoryUsesNativeDirectoryLayout() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-grok-vault-\(UUID().uuidString)", isDirectory: true)
@@ -1075,19 +1175,21 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entry.id, "custom-grok:\(sessionId)")
-        XCTAssertEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
-        XCTAssertEqual(entry.sessionId, sessionId)
-        XCTAssertEqual(entry.title, "Resume a custom Grok-compatible agent")
-        XCTAssertEqual(entry.cwd, cwd)
-        XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(
+        let entry = try requireUnwrapped(entries.first)
+        expectEqual(entry.id, "custom-grok:\(sessionId)")
+        expectEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
+        expectEqual(entry.sessionId, sessionId)
+        expectEqual(entry.title, "Resume a custom Grok-compatible agent")
+        expectEqual(entry.cwd, cwd)
+        expectEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
+        expectEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/custom grok repo' 2>/dev/null || [ ! -d '/tmp/custom grok repo' ]; } && 'env' 'GROK_HOME=\(tempDir.path)' 'custom-grok' '-r' '\(sessionId)'"
         )
     }
 
+
+    @Test
     func testGrokVaultCWDFilterUsesEncodedProjectDirectory() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-filter-\(UUID().uuidString)", isDirectory: true)
@@ -1122,11 +1224,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        XCTAssertEqual(entries.map(\.sessionId), ["current-session"])
-        XCTAssertEqual(entries.first?.cwd, "/tmp/current grok repo")
+        expectEqual(entries.map(\.sessionId), ["current-session"])
+        expectEqual(entries.first?.cwd, "/tmp/current grok repo")
     }
 
     @MainActor
+
+    @Test
     func testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-agent-scope-filter-\(UUID().uuidString)", isDirectory: true)
@@ -1170,10 +1274,12 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             limit: 10
         )
 
-        XCTAssertEqual(outcome.entries.map(\.sessionId), ["current-session"])
-        XCTAssertEqual(outcome.entries.first?.cwd, "/tmp/current grok search")
+        expectEqual(outcome.entries.map(\.sessionId), ["current-session"])
+        expectEqual(outcome.entries.first?.cwd, "/tmp/current grok search")
     }
 
+
+    @Test
     func testPiVaultAgentSnapshotRoundTripBuildsTargetedSessionCommand() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-agent-\(UUID().uuidString)", isDirectory: true)
@@ -1185,7 +1291,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             .appendingPathComponent("2026-05-05T12-00-00-000Z_018f2b35-7c75-7e1a-a6ff-cc1d5f9f0000.jsonl")
             .path
         let panelId = UUID(uuidString: "3D4D5F4B-CA09-4E5C-A65E-8423D7F4BEA0")!
-        let piKind = try XCTUnwrap(RestorableAgentKind(rawValue: "pi"))
+        let piKind = try requireUnwrapped(RestorableAgentKind(rawValue: "pi"))
 
         var snapshot = makeSnapshot()
         snapshot.windows[0].tabManager.workspaces[0].focusedPanelId = panelId
@@ -1236,15 +1342,15 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             schemaVersion: SessionSnapshotSchema.currentVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
-        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
-        let loadedAgent = try XCTUnwrap(
+        expectTrue(store.save(snapshot, fileURL: snapshotURL))
+        let loadedAgent = try requireUnwrapped(
             store.load(fileURL: snapshotURL)?.windows.first?
                 .tabManager.workspaces.first?.panels.first?.terminal?.agent
         )
 
-        XCTAssertEqual(loadedAgent.kind.rawValue, "pi")
-        XCTAssertEqual(loadedAgent.sessionId, sessionPath)
-        XCTAssertEqual(
+        expectEqual(loadedAgent.kind.rawValue, "pi")
+        expectEqual(loadedAgent.sessionId, sessionPath)
+        expectEqual(
             loadedAgent.resumeCommand,
             "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/opt/homebrew/bin/pi' '--session' '\(sessionPath)'"
         )

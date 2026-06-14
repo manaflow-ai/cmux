@@ -13,25 +13,6 @@ nonisolated private let sessionIndexLogger = Logger(
     category: "SessionIndexStore"
 )
 
-enum SessionIndexJSONLStreamDirection: Sendable {
-    case forward
-    case reverse
-}
-
-enum SessionIndexJSONLStreamStopReason: Sendable, Equatable {
-    case completed
-    case missingFile
-    case maxBytes
-    case maxLines
-    case stoppedByBody
-}
-
-struct SessionIndexJSONLStreamSummary: Sendable, Equatable {
-    var bytesRead: Int = 0
-    var linesVisited: Int = 0
-    var stopReason: SessionIndexJSONLStreamStopReason = .completed
-}
-
 /// Locked cancellation state shared by synchronous `Process` callbacks.
 /// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
 final class SessionIndexRipgrepCancellation: @unchecked Sendable {

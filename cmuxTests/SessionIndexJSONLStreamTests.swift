@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,7 +7,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class SessionIndexJSONLStreamTests: XCTestCase {
+@Suite
+struct SessionIndexJSONLStreamTests {
+    @Test
     func testJSONLStreamHonorsMaxLines() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-jsonl-stream-\(UUID().uuidString)", isDirectory: true)
@@ -25,11 +28,12 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
             return false
         }
 
-        XCTAssertEqual(visited, [0, 1, 2])
-        XCTAssertEqual(summary.linesVisited, 3)
-        XCTAssertEqual(summary.stopReason, .maxLines)
+        #expect(visited == [0, 1, 2])
+        #expect(summary.linesVisited == 3)
+        #expect(summary.stopReason == .maxLines)
     }
 
+    @Test
     func testReverseJSONLStreamHonorsMaxLines() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-jsonl-reverse-stream-\(UUID().uuidString)", isDirectory: true)
@@ -53,11 +57,12 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
             return false
         }
 
-        XCTAssertEqual(visited, [9, 8, 7])
-        XCTAssertEqual(summary.linesVisited, 3)
-        XCTAssertEqual(summary.stopReason, .maxLines)
+        #expect(visited == [9, 8, 7])
+        #expect(summary.linesVisited == 3)
+        #expect(summary.stopReason == .maxLines)
     }
 
+    @Test
     func testReverseJSONLStreamHonorsMaxBytes() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-jsonl-byte-stream-\(UUID().uuidString)", isDirectory: true)
@@ -82,13 +87,14 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
             return false
         }
 
-        XCTAssertLessThanOrEqual(summary.bytesRead, 512)
-        XCTAssertEqual(summary.stopReason, .maxBytes)
-        XCTAssertEqual(visited.first, 29)
-        XCTAssertTrue(visited.elementsEqual(visited.sorted(by: >)))
-        XCTAssertLessThan(visited.count, 30)
+        #expect(summary.bytesRead <= 512)
+        #expect(summary.stopReason == .maxBytes)
+        #expect(visited.first == 29)
+        #expect(visited.elementsEqual(visited.sorted(by: >)))
+        #expect(visited.count < 30)
     }
 
+    @Test
     func testReverseJSONLStreamProcessesLineStartingAtByteBoundary() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-jsonl-byte-boundary-\(UUID().uuidString)", isDirectory: true)
@@ -112,10 +118,11 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
             return false
         }
 
-        XCTAssertEqual(visited, [4, 3])
-        XCTAssertEqual(summary.stopReason, .maxBytes)
+        #expect(visited == [4, 3])
+        #expect(summary.stopReason == .maxBytes)
     }
 
+    @Test
     func testForwardJSONLStreamFlushesTrailingLineAtExactByteBudget() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-jsonl-forward-exact-budget-\(UUID().uuidString)", isDirectory: true)
@@ -141,7 +148,7 @@ final class SessionIndexJSONLStreamTests: XCTestCase {
             return false
         }
 
-        XCTAssertEqual(visited, [0, 1])
-        XCTAssertEqual(summary.stopReason, .completed)
+        #expect(visited == [0, 1])
+        #expect(summary.stopReason == .completed)
     }
 }
