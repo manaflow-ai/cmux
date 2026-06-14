@@ -40,16 +40,10 @@ struct WorkspaceRow: View {
 
                     Spacer(minLength: 8)
 
-                    // TimelineView re-evaluates the label every minute so a
-                    // quiet row's relative time ("now" -> "1m" -> ...) advances
-                    // without waiting for an unrelated state change to
-                    // invalidate the row. Minute granularity matches the label.
-                    TimelineView(.everyMinute) { context in
-                        Text(workspace.timestampOrStatus(connectionStatus: connectionStatus, now: context.date))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(workspace.timestampOrStatus(connectionStatus: connectionStatus))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Text(workspace.previewLine)

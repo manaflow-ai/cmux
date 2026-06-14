@@ -21,12 +21,18 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// which paired-Mac record the connection belongs to (reconnect-on-launch
     /// and the host switcher key on it). `nil` from older Macs.
     public let macDeviceID: String?
+    /// The Mac app's marketing version, for warning-only compatibility checks.
+    public let macAppVersion: String?
+    /// The Mac app's build number, for warning display.
+    public let macAppBuild: String?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
         case terminalFidelity = "terminal_fidelity"
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
+        case macAppVersion = "mac_app_version"
+        case macAppBuild = "mac_app_build"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -35,6 +41,8 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+        macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
+        macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
     }
 
     /// Decode a host-status response from raw JSON data.

@@ -43,6 +43,8 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case connectionDropped(host: String?, port: Int?)
     /// The Mac is signed in to a different cmux account than this device.
     case accountMismatch
+    /// The pairing code was minted for a different email than this device.
+    case emailMismatch(expected: String, actual: String?)
     /// The owner's account could not be verified with the Mac (stale/invalid
     /// token, or a release-vs-development build mismatch).
     case authFailed
@@ -79,6 +81,7 @@ extension MobilePairingFailureCategory {
         case .handshakeTimedOut: return "timeout"
         case .connectionDropped: return "connection_dropped"
         case .accountMismatch: return "account_mismatch"
+        case .emailMismatch: return "email_mismatch"
         case .authFailed: return "auth"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
@@ -94,7 +97,7 @@ extension MobilePairingFailureCategory {
     /// (Sign Out) instead of a "could not connect / Retry" banner.
     public var isAuthorizationFailure: Bool {
         switch self {
-        case .accountMismatch, .authFailed, .ticketExpired:
+        case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
             return true
         default:
             return false
@@ -166,10 +169,26 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.accountMismatch",
                 defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with the account that owns this Mac."
             )
+        case let .emailMismatch(expected, actual):
+            let format = if let actual, !actual.isEmpty {
+                L10n.string(
+                    "mobile.pairing.emailMismatchFormat",
+                    defaultValue: "This QR is for %@, but this iPhone is signed in as %@. Sign in with the same email as the Mac, then scan again."
+                )
+            } else {
+                L10n.string(
+                    "mobile.pairing.emailMissingFormat",
+                    defaultValue: "This QR is for %@. Sign in with the same email as the Mac, then scan again."
+                )
+            }
+            if let actual, !actual.isEmpty {
+                return String(format: format, expected, actual)
+            }
+            return String(format: format, expected)
         case .authFailed:
             return L10n.string(
                 "mobile.pairing.authorizationFailed",
-                defaultValue: "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
+                defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
         case .ticketExpired:
             return L10n.string(
@@ -232,7 +251,7 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.localNetwork",
                 defaultValue: "Settings > cmux > Local Network, then try again."
             )
-        case .accountMismatch, .authFailed:
+        case .accountMismatch, .emailMismatch, .authFailed:
             return L10n.string(
                 "mobile.pairing.guidance.sameAccount",
                 defaultValue: "Both devices must be signed in to the same cmux account."
