@@ -21,53 +21,71 @@ final class SSHPTYAttachReconnectInputFilter {
         isFiltering = enabled
     }
 
-    static func startStdinPump(fd: Int32, filterEnabled: Bool) {
+    static func startStdinPump(fd: Int32, filterEnabled: Bool) throws {
+        if filterEnabled {
+            // Must complete before bridge output is relayed; after that, probe replies are live input.
+            try drainQueuedProbeReplies(fd: fd)
+        }
         DispatchQueue.global(qos: .userInteractive).async {
-            let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: filterEnabled)
-            if filterEnabled,
-               !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
+            pumpStdin(fd: fd)
+        }
+    }
+
+    private static func drainQueuedProbeReplies(fd: Int32) throws {
+        let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: true)
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            guard stdinHasReadyInput(timeoutMilliseconds: initialProbeDrainTimeoutMilliseconds) else {
+                let input = reconnectInputFilter.flushPendingInput()
+                if !input.isEmpty {
+                    try writeAll(fd: fd, data: input)
+                }
                 reconnectInputFilter.stopFilteringAtProbeBoundary()
+                return
             }
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            while true {
-                let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
-                if count > 0 {
-                    var input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
-                    if input.isEmpty {
-                        if reconnectInputFilter.hasPendingInput {
-                            if !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
-                                input = reconnectInputFilter.flushPendingInput()
-                            }
-                        } else if reconnectInputFilter.isFilteringAtProbeBoundary,
-                                  !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
-                            reconnectInputFilter.stopFilteringAtProbeBoundary()
-                        }
-                    }
-                    guard !input.isEmpty else {
-                        continue
-                    }
-                    do {
-                        try Self.writeAll(fd: fd, data: input)
-                    } catch {
-                        _ = shutdown(fd, SHUT_WR)
-                        return
-                    }
-                } else if count == 0 {
-                    let input = reconnectInputFilter.finish()
-                    if !input.isEmpty {
-                        do {
-                            try Self.writeAll(fd: fd, data: input)
-                        } catch {
-                            _ = shutdown(fd, SHUT_WR)
-                            return
-                        }
-                    }
-                    _ = shutdown(fd, SHUT_WR)
+
+            let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+            if count > 0 {
+                let input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
+                if !input.isEmpty {
+                    try writeAll(fd: fd, data: input)
+                }
+                if !reconnectInputFilter.hasPendingInput,
+                   !reconnectInputFilter.isFilteringAtProbeBoundary {
                     return
-                } else if errno != EINTR {
+                }
+            } else if count == 0 {
+                let input = reconnectInputFilter.finish()
+                if !input.isEmpty {
+                    try writeAll(fd: fd, data: input)
+                }
+                _ = shutdown(fd, SHUT_WR)
+                return
+            } else if errno != EINTR {
+                _ = shutdown(fd, SHUT_WR)
+                return
+            }
+        }
+    }
+
+    private static func pumpStdin(fd: Int32) {
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+            if count > 0 {
+                let input = Data(buffer.prefix(count))
+                do {
+                    try Self.writeAll(fd: fd, data: input)
+                } catch {
                     _ = shutdown(fd, SHUT_WR)
                     return
                 }
+            } else if count == 0 {
+                _ = shutdown(fd, SHUT_WR)
+                return
+            } else if errno != EINTR {
+                _ = shutdown(fd, SHUT_WR)
+                return
             }
         }
     }
