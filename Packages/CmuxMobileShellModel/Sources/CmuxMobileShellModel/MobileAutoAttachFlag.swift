@@ -7,6 +7,10 @@ public import Foundation
 /// the macOS beta-feature convention of a `UserDefaults`-backed boolean. The flag
 /// is read once at the composition root and injected into the shell as a plain
 /// `Bool`, so the shell stays testable without touching `UserDefaults`.
+///
+/// Pure flag-resolution policy with no per-instance state; its only dependency
+/// (`UserDefaults`) is passed per call, so there is nothing to instantiate.
+// lint:allow namespace-type, namespace-enum — stateless policy namespace, see above.
 public enum MobileAutoAttachFlag {
     /// The `UserDefaults` key. Present-and-set overrides the build default, so a
     /// dogfood Release build can opt in (or a DEBUG build can opt out) without a

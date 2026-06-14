@@ -9,6 +9,10 @@ public import CMUXMobileCore
 /// the model package (not privately on the shell) so the pure auto-attach target
 /// selector can rank devices by their best reachable route without importing the
 /// shell.
+///
+/// Pure route-priority transform over values passed per call; the shared source
+/// of truth for route ordering holds no per-instance state, nothing to instantiate.
+// lint:allow namespace-type, namespace-enum — stateless policy namespace, see above.
 public enum MobileAttachRoutePriority {
     /// Whether `left` should be tried before `right`: lower `priority` wins, with
     /// the route `id` as a stable lexicographic tiebreak so the ordering is

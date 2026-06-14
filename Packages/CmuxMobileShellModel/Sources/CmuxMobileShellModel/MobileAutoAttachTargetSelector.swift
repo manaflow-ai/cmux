@@ -17,6 +17,10 @@ public import Foundation
 /// the registry is scoped to the signed-in user's team, so a different-account
 /// Mac never appears here, and even a stray route would be rejected at mint by
 /// the Mac's same-Stack-account authorization check.
+///
+/// Pure, deterministic target-selection policy over values passed per call (no
+/// I/O, no injected dependencies, no per-instance state), nothing to instantiate.
+// lint:allow namespace-type, namespace-enum — stateless policy namespace, see above.
 public enum MobileAutoAttachTargetSelector {
     /// A device that is a viable auto-attach target: a controllable host with at
     /// least one instance reachable on a supported route.
