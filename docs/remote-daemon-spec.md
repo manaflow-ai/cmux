@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: March 12, 2026
+Last updated: June 3, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -40,6 +40,8 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` `workspace.remote.configure.local_proxy_port` exists as an internal deterministic test hook for bind-conflict regression coverage.
 - `DONE` bootstrap/probe failures surface actionable details.
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
+- `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<version>/<slot>/` and a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`.
+- `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
 
 ### 3.5 CLI Relay (Running cmux Commands From Remote)
 - `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.
@@ -49,8 +51,10 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` relay address written to `~/.cmux/socket_addr` on the remote only after the reverse forward survives startup validation.
 - `DONE` Go CLI no longer polls for relay readiness. It dials the published relay once and only refreshes `~/.cmux/socket_addr` a single time to recover from a stale shared address rewrite.
 - `DONE` `cmux ssh` startup exports session-local `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` so parallel sessions pin to their own relay instead of racing on shared socket_addr.
+- `DONE` session snapshots persist the relay port for persistent SSH PTYs and mint fresh relay credentials on restore, so a reattached remote shell can keep using its existing `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` after app relaunch.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
+- `DONE` SSH agent forwarding is opt-in. `cmux ssh` preserves its live `SSH_AUTH_SOCK` for app-launched OpenSSH transports so `ForwardAgent yes` from ssh_config works normally, and accepts `-A` / `--forward-agent` or `-a` / `--no-forward-agent` for explicit forwarding control.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
 - `DONE` orphaned relay SSH processes from previous app sessions are cleaned up before starting a new relay.
@@ -135,6 +139,7 @@ Recompute effective size on:
 | M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
 | M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
+| M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, CLI contract tests, and `tests_v2/test_ssh_remote_detachable_pty.py` |
 
 ## 7. Acceptance Test Matrix (With Status)
 
@@ -178,9 +183,22 @@ Recompute effective size on:
 |---|---|---|
 | RZ-001 | two attachments, smallest wins | DONE |
 | RZ-002 | grow one attachment, PTY stays bounded by smallest | DONE |
-| RZ-003 | detach smallest, PTY expands to next smallest | DONE |
-| RZ-004 | reconnect preserves session + applies recomputed size | DONE |
-| RZ-005 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
+| RZ-003 | detach all attachments, keep last-known PTY size | DONE |
+| RZ-004 | reattach existing session, recompute effective size from active attachments | DONE |
+| RZ-005 | detach smallest, PTY expands to next smallest | DONE |
+| RZ-006 | reconnect preserves session + applies recomputed size | DONE |
+| RZ-007 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
+
+### 7.5 Detachable SSH PTY
+
+| ID | Scenario | Status |
+|---|---|---|
+| DP-001 | `cmux ssh` creates a persistent daemon slot and PTY session ID | IN PROGRESS |
+| DP-002 | closing the local SSH surface detaches the attachment without killing the remote shell | IN PROGRESS |
+| DP-003 | `cmux ssh-session-list` reports detached persisted sessions with bounded scrollback metadata | IN PROGRESS |
+| DP-004 | `cmux ssh-session-attach` reattaches to the same remote shell PID and env | IN PROGRESS |
+| DP-005 | app relaunch restores saved remote PTY session IDs only when the snapshot has a persistent daemon slot | IN PROGRESS |
+| DP-006 | `cmux ssh-session-cleanup` terminates persisted PTY sessions explicitly | DONE |
 
 ## 8. Removal Checklist (Port Mirroring)
 

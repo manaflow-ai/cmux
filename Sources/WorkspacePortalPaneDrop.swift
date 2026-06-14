@@ -1,5 +1,6 @@
 import Bonsplit
 import Foundation
+import CmuxWorkspaceCore
 
 extension Workspace {
     func portalPaneDropZone(
