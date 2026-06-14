@@ -45,6 +45,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var activeAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var pendingManualCallbackState: String?
+    @ObservationIgnored private var pendingFallbackCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
 
     /// Creates the flow.
@@ -101,7 +102,7 @@ public final class HostBrowserSignInFlow {
     }
 
     /// The hosted sign-in URL for the in-flight attempt, to open in the user's
-    /// real default browser when the Safari-backed popup hangs (issue #6015).
+    /// real default browser when the hosted-browser popup hangs (issue #6015).
     /// Reuses the active attempt's callback state, so the resulting
     /// `cmux://auth-callback` deep link routes back into the in-flight attempt
     /// through ``handleCallbackURL(_:)`` instead of being rejected as a
@@ -109,6 +110,7 @@ public final class HostBrowserSignInFlow {
     /// flight.
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }
+        pendingFallbackCallbackState = activeCallbackState
         return makeSignInURL(activeCallbackState)
     }
 
@@ -154,6 +156,13 @@ public final class HostBrowserSignInFlow {
         if callbackRouter.isAuthCallbackURL(url), callbackState(from: url) == nil {
             log.log("auth.callback.external.routeToFallback")
             return await completeCallback(url: url, attemptID: nil)
+        }
+        if callbackRouter.isAuthCallbackURL(url),
+           let state = callbackState(from: url),
+           state == pendingFallbackCallbackState {
+            log.log("auth.callback.external.routeToIssuedFallback")
+            pendingFallbackCallbackState = nil
+            return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")
         return false
@@ -314,6 +323,7 @@ public final class HostBrowserSignInFlow {
         cancelSlowSignInHint()
         activeAttemptID = nil
         activeCallbackState = nil
+        pendingFallbackCallbackState = nil
         activeSession?.cancel()
         activeSession = nil
         isSigningIn = false
@@ -370,7 +380,7 @@ public final class HostBrowserSignInFlow {
 
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
-    private func completeCallback(url: URL, attemptID: UInt64?) async -> Bool {
+    private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
@@ -381,7 +391,7 @@ public final class HostBrowserSignInFlow {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
                 return false
             }
-        } else if callbackState(from: url) != nil {
+        } else if let state = callbackState(from: url), state != acceptedExternalState {
             log.log("auth.callback rejected: stateful external callback without active attempt")
             return false
         }
@@ -432,6 +442,9 @@ public final class HostBrowserSignInFlow {
                 refreshToken: payload.refreshToken
             )
             return false
+        }
+        if callbackState(from: url) == pendingFallbackCallbackState {
+            pendingFallbackCallbackState = nil
         }
         return true
     }
