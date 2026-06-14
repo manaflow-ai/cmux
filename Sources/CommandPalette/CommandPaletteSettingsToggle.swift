@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 struct CommandPaletteSettingToggleDescriptor: Sendable {
     let commandId: String
@@ -110,12 +111,12 @@ enum CommandPaletteSettingsToggleCommands {
             String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
         }
         let sidebarDetailsAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
-            !SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            !UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
         }
         let sidebarPullRequestLinksAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             sidebarDetailsAvailable(defaults)
                 && SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: defaults)
-                && SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
+                && UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.makePullRequestsClickable)
         }
         let sidebarPortLinksAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             sidebarDetailsAvailable(defaults)
@@ -138,8 +139,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
-                defaultValue: WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
-                defaultsKey: WorkspaceWorkingDirectoryInheritanceSettings.key
+                defaultValue: SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
+                defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
@@ -152,9 +153,15 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.keepWorkspaceOpenWhenClosingLastSurface", "close", "last", "surface", "pane", "workspace"],
-                isOn: { defaults in !LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults) },
+                isOn: { defaults in
+                    // Stored value carries close-on-last-surface semantics; the
+                    // "Keep Workspace Open" toggle binds to its inverse.
+                    !UserDefaultsSettingsClient(defaults: defaults)
+                        .value(for: SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface)
+                },
                 setOn: { newValue, defaults, _ in
-                    defaults.set(!newValue, forKey: LastSurfaceCloseShortcutSettings.key)
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(!newValue, for: SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface)
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -247,8 +254,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
-                defaultValue: WorkspaceAutoReorderSettings.defaultValue,
-                defaultsKey: WorkspaceAutoReorderSettings.key
+                defaultValue: SettingCatalog().app.reorderOnNotification.defaultValue,
+                defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
@@ -499,8 +506,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.hideAllDetails", "sidebar", "hide", "details", "compact", "title"],
-                defaultValue: SidebarWorkspaceDetailSettings.defaultHideAllDetails,
-                defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
+                defaultValue: SettingCatalog().sidebar.hideAllDetails.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.hideAllDetails.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "wrapWorkspaceTitlesInSidebar",
@@ -527,8 +534,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.showWorkspaceDescription", "sidebar", "workspace", "description", "notes"],
-                defaultValue: SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
-                defaultsKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey,
+                defaultValue: SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.showWorkspaceDescription.userDefaultsKey,
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -539,8 +546,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.branchLayout", "sidebar", "branch", "layout", "vertical", "inline", "directory"],
-                defaultValue: SidebarBranchLayoutSettings.defaultVerticalLayout,
-                defaultsKey: SidebarBranchLayoutSettings.key,
+                defaultValue: SettingCatalog().sidebar.branchVerticalLayout.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey,
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -554,8 +561,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.showNotificationMessage", "sidebar", "notification", "message", "latest", "unread"],
-                defaultValue: SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
-                defaultsKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey,
+                defaultValue: SettingCatalog().sidebar.showNotificationMessage.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.showNotificationMessage.userDefaultsKey,
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -605,8 +612,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.makePullRequestsClickable", "sidebar", "pull", "request", "pr", "click", "link"],
-                defaultValue: SidebarPullRequestClickabilitySettings.defaultClickable,
-                defaultsKey: SidebarPullRequestClickabilitySettings.key,
+                defaultValue: SettingCatalog().sidebar.makePullRequestsClickable.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.makePullRequestsClickable.userDefaultsKey,
                 isAvailable: { defaults in
                     sidebarDetailsAvailable(defaults)
                         && SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: defaults)

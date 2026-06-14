@@ -48,6 +48,12 @@ struct WorkspaceListView: View {
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Optional: mark a workspace read/unread on the Mac. When present, each
+    /// row offers a leading swipe action.
+    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Optional: close a workspace on the Mac. When present, each row offers a
+    /// destructive Delete context-menu and swipe action.
+    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     /// Optional: collapse/expand a group on the Mac. When present, group headers
     /// toggle their section; when `nil` the chevron renders as a passive
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
@@ -60,6 +66,10 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
+    /// The workspace whose destructive close action is awaiting confirmation.
+    /// Stored at list scope so reusable rows do not own transient presentation
+    /// state while `List` is recycling swipe-action rows.
+    @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,7 +253,13 @@ struct WorkspaceListView: View {
             previewLineLimit: previewLineLimit,
             selectWorkspace: selectWorkspace,
             renameWorkspace: renameWorkspace,
-            setPinned: setPinned
+            setPinned: setPinned,
+            setUnread: setUnread,
+            closeWorkspace: requestWorkspaceClose,
+            isConfirmingClose: closeConfirmationBinding(for: workspace.id),
+            confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
+                confirmCloseWorkspace()
+            }
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
@@ -307,5 +323,35 @@ struct WorkspaceListView: View {
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         #endif
+    }
+
+    private var requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard closeWorkspace != nil else {
+            return nil
+        }
+        return { workspaceID in
+            workspacePendingCloseID = workspaceID
+        }
+    }
+
+    private func closeConfirmationBinding(for workspaceID: MobileWorkspacePreview.ID) -> Binding<Bool> {
+        Binding(
+            get: { workspacePendingCloseID == workspaceID },
+            set: { isPresented in
+                if isPresented {
+                    workspacePendingCloseID = workspaceID
+                } else if workspacePendingCloseID == workspaceID {
+                    workspacePendingCloseID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmCloseWorkspace() {
+        guard let workspaceID = workspacePendingCloseID else {
+            return
+        }
+        workspacePendingCloseID = nil
+        closeWorkspace?(workspaceID)
     }
 }

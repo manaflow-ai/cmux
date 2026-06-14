@@ -52,6 +52,29 @@ Useful built-ins:
 - `cmux.vaultPane`
 - `cmux.newNote`
 
+## `app.windowTitleTemplate`
+
+Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
+
+```json
+{
+  "app": {
+    "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}"
+  }
+}
+```
+
+Supported placeholders:
+
+- `{windowId}`: the persisted per-window UUID.
+- `{windowToken}`: the first 8 characters of the persisted window UUID.
+- `{activeWorkspace}`: the active workspace title, falling back to the default title when the workspace title is blank.
+- `{activeDirectory}`: the active workspace's current directory.
+- `{defaultTitle}`: the title cmux would have used without a template.
+- `{appName}`: `cmux`.
+
+For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.
+
 ## `shortcuts.bindings`
 
 Shortcut overrides are keyed by action id under `shortcuts.bindings`. `newNote` creates or focuses a note for the current surface.

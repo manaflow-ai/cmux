@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -59,6 +59,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let workspaceReadStateCapability = "workspace.read_state.v1"
+    private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -78,7 +80,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
 
-    public private(set) var isSignedIn: Bool
+    public private(set) var isSignedIn: Bool {
+        didSet {
+            guard oldValue != isSignedIn else { return }
+            // Presence follows the session: subscribe while signed in, tear
+            // down (and blank the map) the moment the user signs out so a
+            // shared device never renders the previous account's devices.
+            evaluatePresenceSubscription()
+        }
+    }
     public private(set) var connectionState: MobileConnectionState {
         didSet {
             // Collapse the ~15 `connectionState = .disconnected/.connected` sites
@@ -190,23 +200,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// Whether the connected Mac advertises the `workspace.groups.v1` capability
-    /// (group sections in the list + `workspace.group.collapse`/`expand` over the
-    /// mobile RPC). `false` until host status is read, and for older Macs that
-    /// lack the handler, so the UI can render a flat list instead of group UI that
-    /// would not round-trip.
-    public private(set) var supportsWorkspaceGroups: Bool = false
-    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
-    /// (rename/pin over the mobile RPC). `false` until host status is read, and
-    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
-    /// than offer actions that would fail with `method_not_found`.
-    public private(set) var supportsWorkspaceActions: Bool = false
-    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
-    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
-    /// and for older Macs that lack the handler, so the privileged Send Feedback
-    /// route falls back to email rather than failing with `method_not_found`
-    /// under client/server version skew.
-    public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
+    /// computed from this set so version-skew checks cannot drift from the raw
+    /// host payload.
+    public private(set) var supportedHostCapabilities: Set<String> = []
+    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
+    public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
+    /// Whether the Mac supports rename/pin workspace actions.
+    public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports mark read/unread workspace actions.
+    public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
+    /// Whether the Mac supports workspace close requests.
+    public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports dogfood feedback submission.
+    public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -402,9 +409,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
     private let deviceRegistry: (any DeviceRegistryRefreshing)?
+    /// Live presence subscription (the `workers/presence` Durable Object edge).
+    /// Optional and failure-tolerant like the registry: when `nil` or down, the
+    /// device tree simply keeps its registry "last seen" hints.
+    private let presence: (any PresenceSubscribing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    // Internal (not private): used by the dismiss-sync extension file.
+    let deliveredNotificationClearer: any DeliveredNotificationClearing
+    /// Durable outbox for phone→Mac dismissals (see
+    /// ``PendingNotificationDismissQueue``): ids are enqueued before the RPC is
+    /// attempted, removed only on confirmed delivery, and re-flushed on every
+    /// successful (re)subscribe.
+    let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -446,6 +466,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -513,6 +535,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
+    var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    var terminalOutputStreamTokensBySurfaceID: [String: UUID]
+    var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    var terminalScrollQueueTokensBySurfaceID: [String: UUID]
+    var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -566,9 +593,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
+        presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
+        pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -580,8 +610,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
+        self.presence = presence
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.deliveredNotificationClearer = deliveredNotificationClearer
+        self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -628,11 +661,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalOutputTransport = .rawBytes
+        self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputStreamTokensBySurfaceID = [:]
+        self.terminalOutputQueuesBySurfaceID = [:]
+        self.terminalScrollQueueTokensBySurfaceID = [:]
+        self.terminalScrollQueuesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
 
     isolated deinit {
+        presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
@@ -649,7 +688,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+        CMUXMobileShellStore(
+            runtime: runtime,
+            workspaces: PreviewMobileHost.workspaces,
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
     }
 
     public func signIn() {
@@ -749,37 +792,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
+        // Covers stores constructed already-signed-in (no isSignedIn edge) and
+        // restarts a subscription torn down while backgrounded.
+        evaluatePresenceSubscription()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
-    }
-
-    /// Forward a scroll gesture to the Mac's real surface. libghostty does the
-    /// mode-correct thing: normal screen moves the viewport into scrollback;
-    /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
-    /// program. The render-grid mirrors the result (it exports the live
-    /// `vp_top`), so no local-mirror scroll or scrollback cache is needed.
-    /// Fire-and-forget (called per display-link frame during a drag).
-    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
-        guard lines != 0,
-              let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            return
-        }
-        do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.scroll",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "delta_lines": lines,
-                    "col": col,
-                    "row": row,
-                ]
-            )
-            _ = try await client.sendRequest(request)
-        } catch {
-            mobileShellLog.error("scroll forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-        }
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid
@@ -806,113 +822,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// Privileged direct-to-agent feedback round-trip: export the structured
-    /// diagnostic log, package it with the supplied debug-log text, visible
-    /// terminal text, and an optional freeform note, and submit it to the paired
-    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
-    /// `~/.cache/cmux-dogfood-feedback/` catches it.
-    ///
-    /// This is the privileged path of the Send Feedback feature: it is offered
-    /// only to `@manaflow.ai` users on an active mobile-host connection (see
-    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
-    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
-    ///
-    /// The structured log is exported here (the store owns ``diagnosticLog``);
-    /// the string snapshots are gathered by the caller on the UI layer, where the
-    /// `GhosttySurfaceView`/`MobileDebugLog` accessors live. Fire-and-forget; a
-    /// transport failure is logged and surfaced via the returned `Bool`.
-    ///
-    /// - Parameters:
-    ///   - text: An optional freeform note from the user.
-    ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
-    ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
-    ///   - buildStamp: The build-identity stamp (build type + version + OS +
-    ///     device) written into the bundle. Defaults to the diagnostic log's
-    ///     stamp when not supplied.
-    /// - Returns: `true` when the Mac acknowledged the bundle.
-    @discardableResult
-    public func submitPrivilegedAgentFeedback(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String? = nil
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
-        let clientID = clientID
-        // Cap inputs and build the (potentially multi-MiB) combined blob +
-        // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
-        // doing the concat/encode here would block the UI on a large bundle. A
-        // detached task returns the finished request bytes (`Data` is `Sendable`).
-        let request: Data?
-        do {
-            request = try await Task.detached(priority: .utility) { () -> Data in
-                try Self.buildDogfoodFeedbackRequest(
-                    text: text,
-                    debugLogText: debugLogText,
-                    terminalText: terminalText,
-                    buildStamp: buildStamp,
-                    clientID: clientID,
-                    diagnosticBlob: diagnosticBlob
-                )
-            }.value
-        } catch {
-            mobileShellLog.error("dogfood feedback encode failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-        guard let request else { return false }
-        do {
-            _ = try await client.sendRequest(request)
-            return true
-        } catch {
-            mobileShellLog.error("dogfood feedback submit failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-    }
-
-    /// Client-side caps mirroring the Mac sink, applied before any large
-    /// allocation so a huge debug log or note can't be encoded into a multi-MiB
-    /// request on the phone. `nonisolated` so the off-main request builder can
-    /// read them.
-    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
-    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
-    nonisolated private static let dogfoodFeedbackMaxDebugLogChars = 1_048_576
-
-    /// Combine the structured + string diagnostics into one self-contained blob,
-    /// base64-encode it, and build the RPC request — all off the main actor.
-    ///
-    /// The string debug log rides inside the same diagnostic file as the compact
-    /// structured rows (rows, a divider, then the human-readable log) so the Mac
-    /// bundle is self-contained. Inputs are size-capped first.
-    nonisolated private static func buildDogfoodFeedbackRequest(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String,
-        clientID: String,
-        diagnosticBlob: Data
-    ) throws -> Data {
-        let cappedText = String(text.prefix(dogfoodFeedbackMaxTextChars))
-        let cappedTerminal = String(terminalText.prefix(dogfoodFeedbackMaxTerminalChars))
-        let cappedDebugLog = String(debugLogText.prefix(dogfoodFeedbackMaxDebugLogChars))
-        var combined = diagnosticBlob
-        if !cappedDebugLog.isEmpty {
-            combined.append(Data("\n----- mobile debug log -----\n".utf8))
-            combined.append(Data(cappedDebugLog.utf8))
-        }
-        return try MobileCoreRPCClient.requestData(
-            method: "dogfood.feedback.submit",
-            params: [
-                "text": cappedText,
-                "terminal_text": cappedTerminal,
-                "build_stamp": buildStamp,
-                "diagnostic_blob_base64": combined.base64EncodedString(),
-                "client_id": clientID,
-            ]
-        )
     }
 
     // MARK: - Feedback routing
@@ -1078,10 +987,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
         case manual
+        case presencePush
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
+            case .presencePush: return "presencePush"
             }
         }
     }
@@ -1567,6 +1478,202 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if lhsConnected != rhsConnected { return lhsConnected }
                 return lhs.lastSeenAt > rhs.lastSeenAt
             }
+    }
+
+    // MARK: - Live presence
+
+    /// Live per-instance presence from the presence service (`workers/presence`),
+    /// applied snapshot-first then event-by-event. Empty until the first
+    /// snapshot; the device tree then overlays live online/offline state on the
+    /// registry rows instead of registry "last seen" staleness guesses.
+    public private(set) var presenceMap = PresenceMap()
+    private var presenceTask: Task<Void, Never>?
+
+    /// Start or stop the presence subscription to match the session: running
+    /// while signed in (and a client is injected), torn down with a blanked map
+    /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
+    /// `resumeForegroundRefresh()` for stores constructed already-signed-in.
+    private func evaluatePresenceSubscription() {
+        if isSignedIn, presence != nil {
+            startPresenceSubscription()
+        } else {
+            presenceTask?.cancel()
+            presenceTask = nil
+            presenceMap = PresenceMap()
+        }
+    }
+
+    /// Run the subscribe stream with exponential backoff (1s..60s, reset on
+    /// every received frame). The server bounds each stream to the token's
+    /// expiry, so a clean finish (resubscribe with a fresh token) is the
+    /// steady state, not an error. Backoff sleeps are cancellable and the task
+    /// is cancelled on sign-out/deinit, so the loop never outlives the store.
+    private func startPresenceSubscription() {
+        guard presenceTask == nil, let presence else { return }
+        presenceTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            var backoff: Duration = .seconds(1)
+            while !Task.isCancelled {
+                do {
+                    let stream = try await presence.subscribe()
+                    for try await update in stream {
+                        guard let self, !Task.isCancelled else { return }
+                        backoff = .seconds(1)
+                        self.applyPresenceUpdate(update)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    mobileShellLog.debug(
+                        "presence stream ended: \(String(describing: error), privacy: .public)"
+                    )
+                }
+                if Task.isCancelled { return }
+                guard (try? await clock.sleep(for: backoff)) != nil else { return }
+                backoff = min(backoff * 2, .seconds(60))
+            }
+        }
+    }
+
+    private func applyPresenceUpdate(_ update: PresenceUpdate) {
+        presenceMap.apply(update)
+        switch update {
+        case .routes(let instance), .online(let instance):
+            // Both events can carry fresh attach routes (online = a host that
+            // re-announced after moving networks while the phone was watching).
+            syncPushedRoutes(from: instance)
+        case .snapshot(let snapshot):
+            // The snapshot is the reconcile-on-(re)subscribe path: a port that
+            // changed while the phone was offline lands here. One batch (not
+            // one task per instance) so a multi-tag Mac syncs routes in
+            // deterministic order and kicks at most one reconnect.
+            syncPushedRoutes(from: snapshot.devices.flatMap { device in
+                device.instances.filter(\.online)
+            })
+        case .offline, .seen:
+            break
+        }
+    }
+
+    /// Write presence-pushed attach routes through to the local paired-Mac
+    /// store (the same merge the registry refresh uses), so the next reconnect
+    /// dials the host's fresh port/IP without a registry round trip — and kick
+    /// a reconnect when the phone is sitting disconnected from that very Mac.
+    ///
+    /// Presence only updates Macs the user already paired; it never creates a
+    /// pairing. A live, healthy connection is never torn down here: if the
+    /// route the live session uses disappeared, the transport notices on its
+    /// own and the next reconnect picks up the stored fresh routes.
+    private func syncPushedRoutes(from instance: PresenceInstance) {
+        syncPushedRoutes(from: [instance])
+    }
+
+    /// Batch form: one sequential task for the whole delivery (a snapshot can
+    /// carry several online instances, including multiple tags on one Mac),
+    /// so route upserts apply in deterministic order and the reconnect kick
+    /// fires at most once per delivery instead of once per instance.
+    private func syncPushedRoutes(from instances: [PresenceInstance]) {
+        let candidates = instances.filter { $0.platform.lowercased() != "ios" }
+        guard !candidates.isEmpty else { return }
+        let stackUserID = identityProvider?.currentUserID
+        // Every await below suspends the main actor, so re-check after
+        // each one that the frame's user is still the signed-in user: a
+        // stale presence frame from a previous account must never write
+        // routes into, or kick reconnects for, the next session (mirrors
+        // refreshRegistryDevices' account-switch guard).
+        let userIsCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
+        }
+        // Serialized on the paired-Mac write chain: a (re)subscribe delivers
+        // a snapshot immediately followed by online/routes events for the
+        // same device, and two concurrent deliveries would race their
+        // pairedMacStore upserts and could each kick a reconnect. The chain
+        // appends synchronously on the main actor, so deliveries execute
+        // strictly in arrival order.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSerializedPairedMacWrite(ifStillCurrent: userIsCurrent) {
+                [weak self] in
+                guard let self else { return }
+                if self.pairedMacs.isEmpty {
+                    // A presence frame can land before the first paired-Mac
+                    // load (snapshot arrives fast on launch); resolve the
+                    // pairing list before deciding these devices are unknown.
+                    await self.loadPairedMacs()
+                }
+                var onlineDeviceIds: Set<String> = []
+                for instance in candidates {
+                    guard userIsCurrent() else { return }
+                    if instance.online { onlineDeviceIds.insert(instance.deviceId) }
+                    await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
+                }
+                guard userIsCurrent() else { return }
+                // The Mac this phone wants is online and we are not
+                // connected: reconnect now instead of waiting for the user to
+                // pull Retry. Unambiguous pushes were persisted above, so the
+                // reconnect dials fresh routes; under the multi-instance
+                // ambiguity guard the stored last-known-good routes are
+                // deliberately kept and the reconnect uses those, the same
+                // outcome a manual Retry would have.
+                if self.connectionState != .connected,
+                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+                   onlineDeviceIds.contains(activeMacID) {
+                    self.recoverMobileConnection(trigger: .presencePush)
+                }
+            }
+        }
+    }
+
+    /// Per-instance store/registry write-through for the batch sync above.
+    private func applyPushedRoutes(from instance: PresenceInstance, stackUserID: String?) async {
+        // `nil` means the host did not announce routes on this record
+        // ("unchanged" on the wire); an explicit `[]` is a live clear.
+        guard let routes = instance.routes else { return }
+        let deviceId = instance.deviceId
+        guard let mac = pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
+            return
+        }
+        // Mirror the in-memory registry tree's Connect affordances first, so
+        // an explicit empty set drops stale endpoints from the tree instead
+        // of leaving a Connect affordance pointing at routes the host no
+        // longer advertises.
+        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
+           let instanceIndex = registryDevices[deviceIndex].instances
+               .firstIndex(where: { $0.tag == instance.tag }) {
+            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
+        }
+        // The paired-Mac store keeps last-known-good reconnect routes, so only
+        // a non-empty push updates it (same merge the registry refresh uses).
+        // The store is device-level (no tag), so substitution must also stay
+        // unambiguous: persist only when this device has exactly one online
+        // route-advertising instance and it is the one that pushed, mirroring
+        // the registry refresh's multi-instance guard. With a stable build and
+        // a tagged debug build both live, keep the locally persisted routes
+        // rather than risk reconnecting the phone to the wrong build's
+        // workspaces.
+        guard !routes.isEmpty,
+              let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
+              sole.tag == instance.tag,
+              let pairedMacStore,
+              let updated = DeviceRegistryService.selectReconnectRoutes(
+                  local: mac.routes,
+                  registry: routes
+              ) else { return }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: deviceId,
+                displayName: mac.displayName,
+                routes: updated,
+                markActive: mac.isActive,
+                stackUserID: stackUserID
+            )
+            await loadPairedMacs()
+        } catch {
+            mobileShellLog.debug(
+                "presence route upsert failed: \(String(describing: error), privacy: .public)"
+            )
+        }
     }
 
     /// Connect the live session to a specific registry app instance (a tag on a
@@ -2967,10 +3074,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalOutputQueuesBySurfaceID = [:]
+        terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
+        terminalScrollQueueTokensBySurfaceID = [:]
+        terminalScrollQueuesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
-        supportsWorkspaceActions = false
-        supportsDogfoodFeedback = false
-        supportsWorkspaceGroups = false
+        supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -3194,26 +3303,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryFailed = true
     }
 
-    private func markMacConnectionUnavailableIfNeeded(after error: Error) {
-        guard Self.isMacAvailabilityFailure(error) else { return }
+    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
+        guard MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
-    }
-
-    private static func isMacAvailabilityFailure(_ error: Error) -> Bool {
-        if error is CmxNetworkByteTransportError {
-            return true
-        }
-        guard let shellError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch shellError {
-        case .connectionClosed, .requestTimedOut:
-            return true
-        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
-            // .accountMismatch means the Mac is reachable but signed in to a
-            // different account; that is an auth problem, not a Mac-availability one.
-            return false
-        }
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -3710,15 +3802,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
-                supportsWorkspaceActions = false
-                supportsDogfoodFeedback = false
-                supportsWorkspaceGroups = false
+                // Preserve learned capabilities during transient status decode failures.
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
-            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
-            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            supportsWorkspaceGroups = payload.capabilities.contains(Self.workspaceGroupsCapability)
+            supportedHostCapabilities = Set(payload.capabilities)
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -3738,9 +3826,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
-            supportsWorkspaceActions = false
-            supportsDogfoodFeedback = false
-            supportsWorkspaceGroups = false
+            // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
@@ -3829,6 +3915,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // pty-tee. This is the compatibility fallback when the Mac
                     // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
+                } else if event.topic == "notification.dismissed" {
+                    // The Mac dismissed/cleared notifications; clear the matching
+                    // mirrored banners on this phone.
+                    await self.handleNotificationDismissedEvent(event)
+                } else if event.topic == "notification.badge" {
+                    // The Mac's unread count changed; SET the app-icon badge to
+                    // the authoritative total.
+                    self.handleNotificationBadgeEvent(event)
                 }
             }
             guard let self else { return }
@@ -3870,6 +3964,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Lane 3 of dismiss-sync: every successful (re)subscribe — initial
+            // connect, app foreground, network recovery, liveness restart —
+            // runs one reconcile sweep so banners/badge heal anything missed
+            // while the app was closed or detached.
+            self.scheduleNotificationReconcile(client: client)
         }
     }
 
@@ -4220,18 +4319,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return bytes
     }
 
-    /// Per-surface output continuations for the libghostty render path. A mounted
-    /// `GhosttySurfaceView` obtains a stream via ``terminalOutputStream(surfaceID:)``
-    /// and receives VT patch bytes derived from render-grid frames. Raw PTY bytes
-    /// flow through the same continuation as a compatibility fallback for older
-    /// Mac hosts.
-    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
-
-    /// Yield a chunk of output bytes to the surface's stream, if one is attached.
-    private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
-    }
-
     /// Whether a surface currently has an attached output stream consumer.
     private func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
@@ -4239,9 +4326,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func registerTerminalOutput(
         surfaceID: String,
-        continuation: AsyncStream<Data>.Continuation
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
@@ -4252,6 +4341,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func unregisterTerminalOutput(surfaceID: String) {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -4266,7 +4359,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<Data> {
+    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
             continuation.onTermination = { [weak self] _ in
@@ -4397,7 +4490,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 let deliverBytes: Data?
                 if let renderGrid {
-                    deliverBytes = renderGrid.vtPatchBytes()
+                    deliverBytes = nil
                     MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
@@ -4408,6 +4501,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                }
+                if let renderGrid {
+                    self.deliverTerminalRenderGrid(renderGrid, surfaceID: surfaceID)
+                    return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     return
@@ -4443,13 +4540,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
-        let bytes = renderGrid.vtPatchBytes()
         markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        guard !bytes.isEmpty else { return }
-        deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
+        deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+    }
+
+    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationDismissedEvent.decode(json)
+        else {
+            return
+        }
+        if !payload.ids.isEmpty {
+            await clearDeliveredNotifications(ids: payload.ids)
+        }
+        if let unreadCount = payload.unreadCount {
+            applyAuthoritativeUnreadBadge(unreadCount)
+        }
+    }
+
+    private func handleNotificationBadgeEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationBadgeEvent.decode(json),
+            let unreadCount = payload.unreadCount
+        else {
+            return
+        }
+        applyAuthoritativeUnreadBadge(unreadCount)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
@@ -4659,7 +4780,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }

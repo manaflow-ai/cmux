@@ -1,4 +1,5 @@
 import Combine
+import CmuxCore
 import Foundation
 
 private struct SidebarPanelObservationState: Equatable {

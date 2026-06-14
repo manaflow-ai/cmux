@@ -266,6 +266,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
