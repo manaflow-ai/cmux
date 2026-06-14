@@ -969,22 +969,22 @@ final class SidebarDropPlannerTests: XCTestCase {
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
-        let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)
+        let topPlan = SidebarDragAutoScrollPlanner(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(topPlan?.direction, .up)
         XCTAssertNotNil(topPlan)
 
-        let bottomPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12)
+        let bottomPlan = SidebarDragAutoScrollPlanner(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(bottomPlan?.direction, .down)
         XCTAssertNotNil(bottomPlan)
 
         XCTAssertNil(
-            SidebarDragAutoScrollPlanner.plan(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12)
+            SidebarDragAutoScrollPlanner(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12).plan
         )
     }
 
     func testAutoScrollPlanSpeedsUpCloserToEdge() {
-        let nearTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12)
-        let midTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12)
+        let nearTop = SidebarDragAutoScrollPlanner(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12).plan
+        let midTop = SidebarDragAutoScrollPlanner(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12).plan
 
         XCTAssertNotNil(nearTop)
         XCTAssertNotNil(midTop)
@@ -992,11 +992,11 @@ final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     }
 
     func testAutoScrollPlanStillTriggersWhenPointerIsPastEdge() {
-        let aboveTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12)
+        let aboveTop = SidebarDragAutoScrollPlanner(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(aboveTop?.direction, .up)
         XCTAssertEqual(aboveTop?.pointsPerTick, 12)
 
-        let belowBottom = SidebarDragAutoScrollPlanner.plan(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12)
+        let belowBottom = SidebarDragAutoScrollPlanner(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(belowBottom?.direction, .down)
         XCTAssertEqual(belowBottom?.pointsPerTick, 12)
     }

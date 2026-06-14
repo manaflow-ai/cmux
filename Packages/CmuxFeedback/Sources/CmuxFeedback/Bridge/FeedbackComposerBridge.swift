@@ -3,20 +3,35 @@ import Foundation
 
 /// Validates feedback input, drives ``FeedbackComposerClient`` to upload it, and
 /// posts the ``Notification/Name/feedbackComposerRequested`` request to present
-/// the composer. The public entry points the app and command surfaces call.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum FeedbackComposerBridge {
+/// the composer. The entry point the app and command surfaces construct and call.
+public struct FeedbackComposerBridge {
+    /// The configured client the bridge uploads through.
+    public let client: FeedbackComposerClient
+    private let userDefaults: UserDefaults
+
+    /// Creates a bridge over a feedback client and the defaults store the
+    /// submitter's email is persisted in.
+    public init(
+        client: FeedbackComposerClient = FeedbackComposerClient(),
+        userDefaults: UserDefaults = .standard
+    ) {
+        self.client = client
+        self.userDefaults = userDefaults
+    }
+
+    private var settings: FeedbackComposerSettings { client.settings }
+
     /// Requests the feedback composer be presented, targeting `window` (defaults
     /// to the key/main window). `@MainActor` because it reads `NSApp` and posts a
     /// window-scoped notification.
     @MainActor
-    public static func openComposer(in window: NSWindow? = NSApp.keyWindow ?? NSApp.mainWindow) {
+    public func openComposer(in window: NSWindow? = NSApp.keyWindow ?? NSApp.mainWindow) {
         NotificationCenter.default.post(name: .feedbackComposerRequested, object: window)
     }
 
     /// Validates and submits feedback, persisting the email on success. Returns
     /// the attachment count that was uploaded.
-    public static func submit(
+    public func submit(
         email: String,
         message: String,
         imagePaths: [String]
@@ -30,10 +45,10 @@ public enum FeedbackComposerBridge {
         guard normalizedMessage.isEmpty == false else {
             throw FeedbackComposerBridgeError.emptyMessage
         }
-        guard message.count <= FeedbackComposerSettings.maxMessageLength else {
+        guard message.count <= settings.maxMessageLength else {
             throw FeedbackComposerBridgeError.messageTooLong
         }
-        guard imagePaths.count <= FeedbackComposerSettings.maxAttachmentCount else {
+        guard imagePaths.count <= settings.maxAttachmentCount else {
             throw FeedbackComposerBridgeError.tooManyImages
         }
 
@@ -47,20 +62,20 @@ public enum FeedbackComposerBridge {
         }
 
         do {
-            try await FeedbackComposerClient.submit(
+            try await client.submit(
                 email: trimmedEmail,
                 message: normalizedMessage,
                 attachments: attachments
             )
         } catch {
-            throw FeedbackComposerBridgeError.submissionFailed(userFacingMessage(for: error))
+            throw FeedbackComposerBridgeError.submissionFailed(Self.userFacingMessage(for: error))
         }
 
-        UserDefaults.standard.set(trimmedEmail, forKey: FeedbackComposerSettings.storedEmailKey)
+        userDefaults.set(trimmedEmail, forKey: settings.storedEmailKey)
         return attachments.count
     }
 
-    private static func isValidEmail(_ rawValue: String) -> Bool {
+    private func isValidEmail(_ rawValue: String) -> Bool {
         let email = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard email.isEmpty == false else { return false }
         let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
