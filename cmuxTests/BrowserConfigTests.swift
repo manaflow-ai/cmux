@@ -10,6 +10,7 @@ import UserNotifications
 import Network
 import CmuxBrowserPanel
 import CmuxSettings
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

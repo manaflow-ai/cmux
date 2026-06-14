@@ -1,6 +1,8 @@
 import XCTest
 import CmuxCore
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -12,6 +14,9 @@ import CmuxWorkspaces
 import CmuxSidebar
 import UserNotifications
 import Combine
+import CmuxTerminal
+
+import CmuxWorkspaceCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3569,7 +3574,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.browser
+            SurfaceKind.browser
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -5648,7 +5653,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool
         )
     }
 

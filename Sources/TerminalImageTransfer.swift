@@ -3,6 +3,7 @@ import CmuxTerminalServices
 import AppKit
 import CmuxRemoteSession
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 enum TerminalImageTransferMode {
     case paste
