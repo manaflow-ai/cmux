@@ -1,0 +1,33 @@
+# Snyk (https://snyk.io) policy file.
+#
+# CI rollout default: report high and critical findings. The threshold is
+# enforced in .github/workflows/security-snyk.yml with --severity-threshold=high.
+#
+# Code SAST is intentionally scoped to cmux Swift sources for v1. SCA remains
+# scoped by command line to web/package.json.
+version: v1.25.0
+
+exclude:
+  code:
+    - .github/**
+    - cmuxd/**
+    - daemon/**
+    - docs/**
+    - dogfood/**
+    - Examples/**
+    - ghostty/**
+    - homebrew-cmux/**
+    - Prototypes/**
+    - Resources/**
+    - scripts/**
+    - tests/**
+    - tests_v2/**
+    - vendor/**
+    - web/**
+
+# Add temporary ignores with:
+#   snyk ignore --id=<SNYK-ID> --expiry=YYYY-MM-DD --reason="..."
+# Keep every ignore narrow, justified, and expiring.
+ignore: {}
+
+patch: {}
