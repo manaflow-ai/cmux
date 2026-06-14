@@ -70,6 +70,7 @@ final class CmuxSettingsFileStore {
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -152,6 +153,7 @@ final class CmuxSettingsFileStore {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
+                whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
             )
@@ -169,6 +171,7 @@ final class CmuxSettingsFileStore {
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
+            whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -177,13 +180,22 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+        if previousState.shortcuts != resolved.shortcuts
+            || previousState.whenClauses != resolved.whenClauses
+            || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// The `when`-clause override for an action parsed from `shortcuts.when` in
+    /// cmux.json, or `nil` when the action has no configured override (so the
+    /// caller falls back to the action's built-in ``shortcutContext``).
+    func whenClause(for action: KeyboardShortcutSettings.Action) -> ShortcutWhenClause? {
+        synchronized { whenClausesByAction[action] }
     }
 
     func isManagedByFile(_ action: KeyboardShortcutSettings.Action) -> Bool {
@@ -246,6 +258,7 @@ final class CmuxSettingsFileStore {
                 ResolvedSettingsSnapshot(
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
+                    whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
                     managedCustomSettings: activeManagedCustomSettings
@@ -379,7 +392,6 @@ final class CmuxSettingsFileStore {
 
         return snapshot
     }
-
     private func parseAppSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -390,7 +402,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("app.language", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[LanguageSettings.languageKey] = .string(language.rawValue)
+            snapshot.managedUserDefaults[AppCatalogSection().language.userDefaultsKey] = .string(language.rawValue)
         }
         if let raw = jsonString(section["appearance"]) {
             let normalized = AppearanceSettings.mode(for: raw).rawValue
@@ -410,13 +422,17 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
+            if value {
+                snapshot.managedUserDefaults[MenuBarOnlySettings.explicitEnableKey] = .bool(true)
+            }
         }
+        if let raw = jsonString(section["windowTitleTemplate"]) { snapshot.managedUserDefaults[WindowTitleTemplate.userDefaultsKey] = .string(raw) } else if section.keys.contains("windowTitleTemplate") { logInvalid("app.windowTitleTemplate", sourcePath: sourcePath) }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
-            guard let placement = NewWorkspacePlacement(rawValue: raw) else {
+            guard let placement = WorkspacePlacement(rawValue: raw) else {
                 logInvalid("app.newWorkspacePlacement", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
+            snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
@@ -432,23 +448,25 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
         }
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
-            snapshot.managedUserDefaults[LastSurfaceCloseShortcutSettings.key] = .bool(!value)
+            snapshot.managedUserDefaults[SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.userDefaultsKey] = .bool(!value)
         }
-        var parsedConfirmQuitMode: QuitConfirmationMode?
+        var parsedConfirmQuitMode: ConfirmQuitMode?
+        let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey
         if let raw = jsonString(section["confirmQuit"]) {
-            if let mode = QuitConfirmationMode(rawValue: raw) {
+            if let mode = ConfirmQuitMode(rawValue: raw) {
                 parsedConfirmQuitMode = mode
-                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+                snapshot.managedUserDefaults[confirmQuitKey] = .string(mode.rawValue)
             } else {
                 logInvalid("app.confirmQuit", sourcePath: sourcePath)
             }
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
-            snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+            snapshot.managedUserDefaults[warnBeforeQuitKey] = .bool(value)
             if parsedConfirmQuitMode == nil {
-                let mode: QuitConfirmationMode = value ? .always : .never
-                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
-                snapshot.legacyDerivedManagedUserDefaultKeys.insert(QuitWarningSettings.confirmQuitKey)
+                let mode: ConfirmQuitMode = value ? .always : .never
+                snapshot.managedUserDefaults[confirmQuitKey] = .string(mode.rawValue)
+                snapshot.legacyDerivedManagedUserDefaultKeys.insert(confirmQuitKey)
             }
         }
     }
@@ -512,6 +530,31 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("agentHibernation") {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
+        }
+
+        if let rawRendererRealization = section["rendererRealization"],
+           let rendererRealization = rawRendererRealization as? [String: Any] {
+            if let value = jsonBool(rendererRealization["enabled"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.enabledKey] = .bool(value)
+            } else if rendererRealization.keys.contains("enabled") {
+                logInvalid("terminal.rendererRealization.enabled", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(rendererRealization["idleSeconds"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.idleSecondsKey] = .double(
+                    RendererRealizationSettings.sanitizedIdleSeconds(TimeInterval(value))
+                )
+            } else if rendererRealization.keys.contains("idleSeconds") {
+                logInvalid("terminal.rendererRealization.idleSeconds", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(rendererRealization["maxWarmRenderers"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.maxWarmRenderersKey] = .int(
+                    RendererRealizationSettings.sanitizedMaxWarmRenderers(value)
+                )
+            } else if rendererRealization.keys.contains("maxWarmRenderers") {
+                logInvalid("terminal.rendererRealization.maxWarmRenderers", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("rendererRealization") {
+            logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
         }
 
         if let value = jsonInt(section["textBoxMaxLines"]) {
@@ -608,15 +651,16 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let raw = jsonString(section["indicatorStyle"]) {
-            let normalized = SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: raw).rawValue
-            let accepted = Set(SidebarActiveTabIndicatorStyle.allCases.map(\.rawValue)).union([
+            let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
+            let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue
+            let accepted = Set(WorkspaceIndicatorStyle.allCases.map(\.rawValue)).union([
                 "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail",
             ])
             guard accepted.contains(raw) else {
                 logInvalid("workspaceColors.indicatorStyle", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[SidebarActiveTabIndicatorSettings.styleKey] = .string(normalized)
+            snapshot.managedUserDefaults[indicatorKey.userDefaultsKey] = .string(normalized)
         }
         if section.keys.contains("selectionColor") {
             guard let value = parseNullableHex(
@@ -771,8 +815,8 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if let raw = jsonString(section["kiroNotificationLevel"]) {
-            if KiroIntegrationSettings.NotificationLevel(rawValue: raw) != nil {
-                snapshot.managedUserDefaults[KiroIntegrationSettings.notificationLevelKey] = .string(raw)
+            if KiroNotificationLevel(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
             } else {
                 logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
             }
@@ -847,7 +891,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("workspaceGroups.newWorkspacePlacement", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[WorkspaceGroupNewWorkspacePlacementSettings.key] = .string(placement.rawValue)
+            snapshot.managedUserDefaults[SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
     }
 
@@ -862,7 +906,7 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" {
+        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
 
@@ -876,6 +920,37 @@ final class CmuxSettingsFileStore {
                 continue
             }
             snapshot.shortcuts[action] = shortcut
+        }
+
+        parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
+    /// — into per-action ``ShortcutWhenClause`` overrides. A binding's `when`
+    /// clause gates it to a focus context, letting the same keystroke drive
+    /// different actions in different contexts (e.g. `⌃1` selects a workspace
+    /// unless the sidebar is focused). Invalid entries are logged and skipped.
+    private func parseShortcutWhenClauses(
+        _ rawValue: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let whenSection = rawValue as? [String: Any] else {
+            logInvalid("shortcuts.when", sourcePath: sourcePath)
+            return
+        }
+        for (rawAction, rawClause) in whenSection {
+            guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring shortcuts.when for unknown action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            guard let expression = jsonString(rawClause),
+                  let clause = ShortcutWhenClause.parse(expression) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcuts.when clause for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            snapshot.whenClauses[action] = clause
         }
     }
 
@@ -1047,7 +1122,7 @@ final class CmuxSettingsFileStore {
                     forceApply: changedManagedDefaultKeys.contains(defaultsKey),
                     synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme,
                     isDerivedFromLegacyWarnBeforeQuit: snapshot.legacyDerivedManagedUserDefaultKeys.contains(defaultsKey),
-                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[QuitWarningSettings.warnBeforeQuitKey]
+                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[AppCatalogSection().warnBeforeQuit.userDefaultsKey]
                 )
             )
         }
@@ -1379,10 +1454,10 @@ final class CmuxSettingsFileStore {
         importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
         defaults: UserDefaults
     ) -> Bool {
-        if defaultsKey == QuitWarningSettings.confirmQuitKey,
+        if defaultsKey == AppCatalogSection().confirmQuitMode.userDefaultsKey,
            isDerivedFromLegacyWarnBeforeQuit,
            case .bool(let importedLegacyValue)? = importedLegacyWarnBeforeQuitDefault,
-           let currentLegacyValue = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool,
+           let currentLegacyValue = defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool,
            currentLegacyValue != importedLegacyValue {
             return false
         }
@@ -1452,6 +1527,7 @@ final class CmuxSettingsFileStore {
         let apply = {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
+            var rendererRealizationDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1470,10 +1546,15 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey {
                     agentHibernationDidChange = true
                 }
+                if change.defaultsKey == RendererRealizationSettings.enabledKey ||
+                    change.defaultsKey == RendererRealizationSettings.idleSecondsKey ||
+                    change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
+                    rendererRealizationDidChange = true
+                }
 
-                if change.defaultsKey == LanguageSettings.languageKey {
+                if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
-                    LanguageSettings.apply(AppLanguage(rawValue: rawValue) ?? .system)
+                    LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppearanceSettings.appearanceModeKey {
                     AppearanceSettings.applyStoredMode(
                         rawValue: UserDefaults.standard.string(forKey: change.defaultsKey),
@@ -1492,6 +1573,9 @@ final class CmuxSettingsFileStore {
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if rendererRealizationDidChange {
+                RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {
@@ -1517,10 +1601,10 @@ final class CmuxSettingsFileStore {
            ) as? Bool {
             imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
         }
-        if imported[QuitWarningSettings.confirmQuitKey] == nil,
-           case .bool(let importedLegacyValue)? = imported[QuitWarningSettings.warnBeforeQuitKey] {
-            imported[QuitWarningSettings.confirmQuitKey] = .string(
-                (importedLegacyValue ? QuitConfirmationMode.always : .never).rawValue
+        if imported[AppCatalogSection().confirmQuitMode.userDefaultsKey] == nil,
+           case .bool(let importedLegacyValue)? = imported[AppCatalogSection().warnBeforeQuit.userDefaultsKey] {
+            imported[AppCatalogSection().confirmQuitMode.userDefaultsKey] = .string(
+                (importedLegacyValue ? ConfirmQuitMode.always : .never).rawValue
             )
         }
         return imported
@@ -1647,6 +1731,9 @@ typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 private struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+    /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
+    /// binding to a focus context (see ``ShortcutWhenClause``).
+    var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
@@ -1659,6 +1746,9 @@ private struct ResolvedSettingsSnapshot {
         }
         for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
             shortcuts[action] = shortcut
+        }
+        for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
+            whenClauses[action] = clause
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value

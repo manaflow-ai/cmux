@@ -68,6 +68,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: "Max Live Agent Terminals", synonyms: "terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),
+            .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
+            .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
+            .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
 
             // TextBox
@@ -102,6 +105,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+
+            // Custom Sidebars
+            .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
+            .init(section: .customSidebars, id: "renderer", title: String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), synonyms: "customSidebars.renderer renderer in-process in app remote worker isolated process hover focus typing input"),
 
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),

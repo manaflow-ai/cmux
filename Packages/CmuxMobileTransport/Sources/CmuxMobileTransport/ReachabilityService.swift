@@ -25,6 +25,18 @@ public actor ReachabilityService: ReachabilityProviding {
     private var lastInterfaceType: NWInterface.InterfaceType?
     private var nextSubscriptionID = 0
     private var subscribers: [Int: AsyncStream<Void>.Continuation] = [:]
+    /// Whether `NWPathMonitor` has delivered its first path since `start`.
+    /// Until then the cached `online` value is just the optimistic initial
+    /// constant, so ``isOnline`` must not answer from it (a cold-launch offline
+    /// pairing preflight would wrongly see `true` and dial into the slow
+    /// timeout path this preflight exists to avoid).
+    private var receivedFirstPath = false
+    private var firstPathWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var nextFirstPathWaiterID = 0
+    /// Waiter IDs whose cancellation handler ran before the waiter stored its
+    /// continuation (a task cancelled right as it began waiting), so the store
+    /// step resumes immediately instead of parking a dead task.
+    private var cancelledFirstPathWaiterIDs: Set<Int> = []
 
     /// Creates a reachability monitor and begins observing path updates.
     ///
@@ -37,9 +49,45 @@ public actor ReachabilityService: ReachabilityProviding {
     }
 
     /// Whether the system currently has a satisfied network path.
+    ///
+    /// Suspends until `NWPathMonitor` has delivered its first path (it posts
+    /// the current path promptly on `start`), so the answer always reflects a
+    /// real observation instead of the optimistic initial constant.
     public var isOnline: Bool {
-        startIfNeeded()
-        return online
+        get async {
+            startIfNeeded()
+            await waitForFirstPathIfNeeded()
+            return online
+        }
+    }
+
+    /// Parks the caller until the first path delivery, honoring task
+    /// cancellation: a cancelled waiter resumes immediately (the caller then
+    /// reads the provisional `online` value and its own cancellation checks
+    /// take over) instead of staying suspended until the monitor fires.
+    private func waitForFirstPathIfNeeded() async {
+        guard !receivedFirstPath else { return }
+        let id = nextFirstPathWaiterID
+        nextFirstPathWaiterID += 1
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if receivedFirstPath || cancelledFirstPathWaiterIDs.remove(id) != nil || Task.isCancelled {
+                    continuation.resume()
+                    return
+                }
+                firstPathWaiters[id] = continuation
+            }
+        } onCancel: {
+            Task { await self.cancelFirstPathWaiter(id: id) }
+        }
+    }
+
+    private func cancelFirstPathWaiter(id: Int) {
+        if let continuation = firstPathWaiters.removeValue(forKey: id) {
+            continuation.resume()
+        } else {
+            cancelledFirstPathWaiterIDs.insert(id)
+        }
     }
 
     /// A stream that yields once per meaningful path change.
@@ -85,6 +133,14 @@ public actor ReachabilityService: ReachabilityProviding {
         let previousType = lastInterfaceType
         self.online = online
         if online { lastInterfaceType = primaryType }
+        if !receivedFirstPath {
+            receivedFirstPath = true
+            for waiter in firstPathWaiters.values {
+                waiter.resume()
+            }
+            firstPathWaiters.removeAll()
+            cancelledFirstPathWaiterIDs.removeAll()
+        }
         let regainedOnline = online && !wasOnline
         let interfaceChanged = online && previousType != nil && primaryType != previousType
         guard regainedOnline || interfaceChanged else { return }
@@ -107,6 +163,9 @@ public actor ReachabilityService: ReachabilityProviding {
         monitor.cancel()
         for continuation in subscribers.values {
             continuation.finish()
+        }
+        for waiter in firstPathWaiters.values {
+            waiter.resume()
         }
     }
 }
