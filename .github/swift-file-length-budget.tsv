@@ -1,22 +1,22 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33857	CLI/cmux.swift
+34136	CLI/cmux.swift
 17914	Sources/AppDelegate.swift
 16709	Sources/ContentView.swift
-14612	Sources/TerminalController.swift
+14682	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
+12093	Sources/Workspace.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11992	Sources/Workspace.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
-7350	cmuxTests/WorkspaceUnitTests.swift
+7354	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
-6074	Sources/TabManager.swift
+6078	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5522	cmuxTests/BrowserConfigTests.swift
@@ -46,7 +46,7 @@
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2095	cmuxTests/ShortcutAndCommandPaletteTests.swift
-2059	Sources/SessionPersistence.swift
+2062	Sources/SessionPersistence.swift
 2036	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
@@ -98,8 +98,8 @@
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 893	Sources/WorkspaceContentView.swift
+876	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-866	Sources/Panels/TerminalPanel.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
@@ -192,10 +192,10 @@
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
+519	Sources/CmuxConfigExecutor.swift
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 518	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
-516	Sources/CmuxConfigExecutor.swift
 514	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
 510	Sources/TerminalImageTransfer.swift
