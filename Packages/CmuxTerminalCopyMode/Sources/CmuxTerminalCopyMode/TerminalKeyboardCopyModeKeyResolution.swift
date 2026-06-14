@@ -39,6 +39,34 @@ public func terminalKeyboardCopyModeShouldBypassForShortcut(
     return normalized.contains(.command)
 }
 
+/// Resolves a Command-Shift arrow key equivalent to the native terminal
+/// selection movement it should perform.
+///
+/// Command-Shift arrows are macOS text-selection shortcuts. The terminal host
+/// calls this after the app menu misses so the shortcut starts or extends
+/// terminal selection instead of leaking Super-Shift arrow input to the shell.
+///
+/// - Parameters:
+///   - keyCode: The hardware key code for the event.
+///   - modifiers: The event modifiers converted to ``TerminalKeyboardCopyModeModifiers``.
+/// - Returns: The native selection movement, or `nil` when the event is not a
+///   Command-Shift arrow equivalent.
+public func terminalKeyboardSelectionMoveForCommandEquivalent(
+    keyCode: UInt16,
+    modifiers: TerminalKeyboardCopyModeModifiers
+) -> TerminalKeyboardCopyModeSelectionMove? {
+    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifiers)
+    guard normalized == [.command, .shift] else { return nil }
+
+    switch keyCode {
+    case 123: return .beginningOfLine
+    case 124: return .endOfLine
+    case 126: return .home
+    case 125: return .end
+    default: return nil
+    }
+}
+
 /// Resolves a single key event to a terminal copy-mode action.
 ///
 /// This stateless resolver handles one key at a time. For count prefixes and

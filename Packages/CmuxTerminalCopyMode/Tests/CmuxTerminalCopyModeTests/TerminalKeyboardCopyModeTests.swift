@@ -53,6 +53,39 @@ struct TerminalKeyboardCopyModeResolverTests {
         }
     }
 
+    @Test func commandShiftArrowsMapToNativeSelectionMoves() {
+        #expect(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: 123,
+                modifiers: [.command, .shift]
+            ) == .beginningOfLine
+        )
+        #expect(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: 124,
+                modifiers: [.command, .shift]
+            ) == .endOfLine
+        )
+        #expect(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: 126,
+                modifiers: [.command, .shift]
+            ) == .home
+        )
+        #expect(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: 125,
+                modifiers: [.command, .shift]
+            ) == .end
+        )
+        #expect(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: 123,
+                modifiers: [.shift]
+            ) == nil
+        )
+    }
+
     @Test func lineBoundaryKeysMoveCursorOutsideVisualMode() {
         #expect(
             terminalKeyboardCopyModeAction(

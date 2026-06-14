@@ -237,50 +237,6 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
     }
 }
 
-func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
-    )
-}
-
-func terminalKeyboardCopyModeAction(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeAction? {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
-}
-
-func terminalKeyboardCopyModeResolve(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    state: inout TerminalKeyboardCopyModeInputState,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        state: &state,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
-}
-
 // GhosttySurfaceCallbackContext moved to CmuxTerminalCore behind the
 // TerminalSurfaceControlling/TerminalSurfaceHosting seams; the conformances
 // and concrete-typed convenience accessors live here.
@@ -5521,6 +5477,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Explicit after-menu-miss path used by the window-level direct-to-menu
+        // router before an unclaimed Cmd+Shift+Arrow can fall through to keyDown.
+        if !shouldRetryMainMenu,
+           handleTerminalSelectionCommandEquivalent(event, surface: surface) {
+            return true
+        }
+
         let equivalent: String
         switch event.charactersIgnoringModifiers {
         case "\r":
@@ -5562,6 +5525,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lastPerformKeyEvent = event.timestamp; return false
         }
 
+        // AppKit can re-enter performKeyEquivalent with the same timestamp after
+        // the local two-call menu dance; handle that path before synthesizing keyDown.
+        if handleTerminalSelectionCommandEquivalent(event, surface: surface) {
+            return true
+        }
+
         let finalEvent = NSEvent.keyEvent(
             with: .keyDown,
             location: event.locationInWindow,
@@ -5581,6 +5550,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    @discardableResult
+    private func handleTerminalSelectionCommandEquivalent(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        guard let move = terminalKeyboardSelectionMoveForCommandEquivalent(
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags
+        ) else {
+            return false
+        }
+
+        keyboardCopyModeInputState.reset()
+        let activatedCopyMode = !keyboardCopyModeActive
+        if activatedCopyMode { setKeyboardCopyModeActive(true) }
+        if !keyboardCopyModeVisualActive {
+            guard selectKeyboardCopyModeCursorCell(surface: surface) else {
+                if activatedCopyMode { setKeyboardCopyModeActive(false) }
+                keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+                invalidateTextInputCoordinates(selectionChanged: false)
+                return true
+            }
+            keyboardCopyModeVisualActive = true
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
+        }
+        adjustKeyboardCopyModeSelection(move, count: 1, surface: surface)
+        keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+        invalidateTextInputCoordinates(selectionChanged: true)
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
