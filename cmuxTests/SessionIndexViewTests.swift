@@ -437,25 +437,6 @@ final class SessionIndexViewTests: XCTestCase {
         return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
     }
 
-    // MARK: - Open Working Directory routing (issue #5977)
-
-    /// The session-index row "Open Working Directory" action must route its
-    /// `cwd` through the shared ``WorkspaceFinderDirectoryOpener`` (which reveals
-    /// the directory in Finder and beeps on a stale/deleted path) instead of
-    /// `NSWorkspace.shared.open`, which silently does nothing when the directory
-    /// was moved or removed.
-    ///
-    /// The opener seam is the single shared path used by both the full row and
-    /// the popover row; injecting a capturing closure asserts the routed URL
-    /// without touching NSWorkspace. (Pre-fix, the action called
-    /// `NSWorkspace.shared.open` directly and ignored the opener, so this fails.)
-    func testOpenWorkingDirectoryRoutesCwdThroughFinderOpener() async {
-        let cwd = "/private/tmp/cmux-openwd-\(UUID().uuidString)"
-        var routed: [URL] = []
-        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd) { routed.append($0) }
-        XCTAssertEqual(routed, [URL(fileURLWithPath: cwd)])
-    }
-
     private func makeEntry(
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,

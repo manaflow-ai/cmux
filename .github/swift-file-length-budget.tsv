@@ -33,7 +33,7 @@
 3397	Sources/CmuxConfig.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3199	Sources/Update/UpdateTitlebarAccessory.swift
-2899	Sources/SessionIndexView.swift
+2880	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
 2573	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
@@ -143,12 +143,12 @@
 649	Sources/CmuxTopSnapshot.swift
 648	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
-633	cmuxTests/SessionIndexViewTests.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 621	cmuxTests/FinderFileDropRegressionTests.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 614	Sources/PortScanner.swift
+614	cmuxTests/SessionIndexViewTests.swift
 611	Sources/TerminalController+ControlPaneContext.swift
 608	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 604	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
