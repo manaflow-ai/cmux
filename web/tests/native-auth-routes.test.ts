@@ -9,7 +9,7 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "454ecd03-1db2-4050-845e-4ce5b0cd98
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test";
 
 const { GET: nativeSignInGET } = await import("../app/handler/native-sign-in/route");
-const { isAllowedNativeReturnTo } = await import("../app/handler/after-sign-in/route");
+const { isAllowedNativeReturnTo } = await import("../app/handler/native-auth-helpers");
 
 describe("native auth routes", () => {
   test("preserves LAN origin when redirecting native sign-in to Stack", () => {
