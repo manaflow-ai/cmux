@@ -99,6 +99,7 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
+        isFiltering = false
         return output
     }
 
@@ -171,7 +172,7 @@ final class SSHPTYAttachReconnectInputFilter {
             }
             cursor += 1
         }
-        return .passThrough
+        return .incomplete
     }
 
     private static func csiProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
@@ -229,7 +230,7 @@ final class SSHPTYAttachReconnectInputFilter {
                 } else if written < 0 && errno == EINTR {
                     continue
                 } else {
-                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                    throw POSIXError(.EIO)
                 }
             }
         }
