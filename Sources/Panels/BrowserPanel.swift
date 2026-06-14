@@ -3510,6 +3510,35 @@ final class BrowserPanel: Panel, ObservableObject {
         case attached
         case detached
     }
+    private enum DeveloperToolsLifecyclePhase: String {
+        case hidden
+        case opening
+        case visible
+        case closing
+        case restoring
+
+        var preservesVisibleIntent: Bool {
+            switch self {
+            case .opening, .visible, .restoring:
+                return true
+            case .hidden, .closing:
+                return false
+            }
+        }
+
+        var allowsHostHiddenManualClose: Bool {
+            self == .visible
+        }
+
+        var isPendingVisibleIntent: Bool {
+            switch self {
+            case .opening, .restoring:
+                return true
+            case .hidden, .visible, .closing:
+                return false
+            }
+        }
+    }
     private var activePortalHostLease: PortalHostLease?
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
@@ -3609,6 +3638,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
     private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    private var developerToolsLifecyclePhase: DeveloperToolsLifecyclePhase = .hidden
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
@@ -6435,7 +6465,7 @@ extension BrowserPanel {
         setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .unknown
         forceDeveloperToolsRefreshOnNextAttach = false
-        developerToolsDetachedOpenGraceDeadline = nil
+        markDeveloperToolsLifecycleHidden()
         developerToolsRestoreRetryAttempt = 0
         preferredAttachedDeveloperToolsWidth = nil
         preferredAttachedDeveloperToolsWidthFraction = nil
@@ -6776,29 +6806,13 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
-    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if cmuxIsWebInspectorObject(root) {
-            return true
-        }
-        for subview in root.subviews where windowContainsInspectorViews(subview) {
-            return true
-        }
-        return false
-    }
-
-    static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
-        guard window.title.hasPrefix("Web Inspector") else { return false }
-        guard let contentView = window.contentView else { return false }
-        return windowContainsInspectorViews(contentView)
+    private func isDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
+        detachedDeveloperToolsWindowBelongsToPanel(window)
     }
 
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
-        let mainWindow = webView.window
         return NSApp.windows.filter { candidate in
-            if let mainWindow, candidate === mainWindow {
-                return false
-            }
-            return Self.isDetachedInspectorWindow(candidate)
+            isDetachedDeveloperToolsWindow(candidate)
         }
     }
 
@@ -6819,6 +6833,30 @@ extension BrowserPanel {
     private func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
+    }
+
+    private func markDeveloperToolsLifecycleVisible() {
+        developerToolsLifecyclePhase = .visible
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = Date()
+    }
+
+    private func markDeveloperToolsLifecycleHidden() {
+        developerToolsLifecyclePhase = .hidden
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+    }
+
+    private func markDeveloperToolsLifecyclePendingVisible() {
+        guard preferredDeveloperToolsVisible else { return }
+        switch developerToolsLifecyclePhase {
+        case .visible:
+            developerToolsLifecyclePhase = .restoring
+        case .hidden, .closing:
+            developerToolsLifecyclePhase = .opening
+        case .opening, .restoring:
+            break
+        }
     }
 
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
@@ -6846,7 +6884,7 @@ extension BrowserPanel {
                   let window = notification.object as? NSWindow else { return }
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
-                guard Self.isDetachedInspectorWindow(window) else { return false }
+                guard self.isDetachedDeveloperToolsWindow(window) else { return false }
                 return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
             }
             guard handledDetachedInspector else { return }
@@ -6855,8 +6893,8 @@ extension BrowserPanel {
                 guard self.preferredDeveloperToolsPresentation == .detached else { return }
                 guard self.preferredDeveloperToolsVisible else { return }
                 guard !self.isDeveloperToolsVisible() else { return }
-                self.developerToolsDetachedOpenGraceDeadline = nil
                 self.setPreferredDeveloperToolsVisible(false)
+                self.markDeveloperToolsLifecycleHidden()
                 self.reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
                 self.cancelDeveloperToolsRestoreRetry()
 #if DEBUG
@@ -6899,6 +6937,9 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
         guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
               let contentView = window.contentView else {
             return false
@@ -6912,9 +6953,8 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        for window in detachedDeveloperToolsWindows() {
 #if DEBUG
             cmuxDebugLog(
                 "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
@@ -6949,8 +6989,7 @@ extension BrowserPanel {
     private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
-            developerToolsDetachedOpenGraceDeadline = nil
-            developerToolsLastKnownVisibleAt = Date()
+            markDeveloperToolsLifecycleVisible()
             return true
         }
 
@@ -6961,7 +7000,7 @@ extension BrowserPanel {
         inspector.cmuxCallVoid(selector: showSelector)
         let visibleAfterShow = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         if visibleAfterShow {
-            developerToolsLastKnownVisibleAt = Date()
+            markDeveloperToolsLifecycleVisible()
         }
         if preferredDeveloperToolsPresentation == .detached {
             developerToolsDetachedOpenGraceDeadline = visibleAfterShow
@@ -7004,6 +7043,9 @@ extension BrowserPanel {
         if let developerToolsTransitionTargetVisible {
             return developerToolsTransitionTargetVisible
         }
+        if preferredDeveloperToolsVisible || developerToolsLifecyclePhase.preservesVisibleIntent {
+            return true
+        }
         return isDeveloperToolsVisible()
     }
 
@@ -7022,8 +7064,24 @@ extension BrowserPanel {
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
 
-        guard let pendingTargetVisible else { return }
-        guard pendingTargetVisible != isDeveloperToolsVisible() else { return }
+        guard let pendingTargetVisible else {
+            if isDeveloperToolsVisible() {
+                markDeveloperToolsLifecycleVisible()
+            } else if preferredDeveloperToolsVisible {
+                markDeveloperToolsLifecyclePendingVisible()
+            } else {
+                markDeveloperToolsLifecycleHidden()
+            }
+            return
+        }
+        guard pendingTargetVisible != isDeveloperToolsVisible() else {
+            if pendingTargetVisible {
+                markDeveloperToolsLifecycleVisible()
+            } else {
+                markDeveloperToolsLifecycleHidden()
+            }
+            return
+        }
         _ = performDeveloperToolsVisibilityTransition(to: pendingTargetVisible, source: "\(source).queued")
     }
 
@@ -7036,9 +7094,12 @@ extension BrowserPanel {
             pendingDeveloperToolsTransitionTargetVisible = targetVisible
             setPreferredDeveloperToolsVisible(targetVisible)
             if !targetVisible {
+                developerToolsLifecyclePhase = .closing
                 developerToolsDetachedOpenGraceDeadline = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
+            } else {
+                developerToolsLifecyclePhase = .opening
             }
 #if DEBUG
             cmuxDebugLog(
@@ -7062,6 +7123,7 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         setPreferredDeveloperToolsVisible(targetVisible)
+        developerToolsLifecyclePhase = targetVisible ? .opening : .closing
         developerToolsTransitionTargetVisible = targetVisible
         if targetVisible {
             reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
@@ -7078,6 +7140,7 @@ extension BrowserPanel {
                 syncDeveloperToolsPresentationPreferenceFromUI()
                 guard concealDeveloperTools(inspector) else {
                     developerToolsTransitionTargetVisible = nil
+                    markDeveloperToolsLifecycleVisible()
                     return false
                 }
             }
@@ -7087,14 +7150,17 @@ extension BrowserPanel {
         if targetVisible {
             let visibleAfterTransition = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
             if visibleAfterTransition {
+                markDeveloperToolsLifecycleVisible()
                 syncDeveloperToolsPresentationPreferenceFromUI()
                 cancelDeveloperToolsRestoreRetry()
                 scheduleDetachedDeveloperToolsWindowDismissal()
             } else {
+                markDeveloperToolsLifecyclePendingVisible()
                 developerToolsRestoreRetryAttempt = 0
                 scheduleDeveloperToolsRestoreRetry()
             }
         } else {
+            markDeveloperToolsLifecycleHidden()
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
             reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
@@ -7167,12 +7233,11 @@ extension BrowserPanel {
         developerToolsTransitionSettleWorkItem = nil
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
-        developerToolsDetachedOpenGraceDeadline = nil
-        developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
         cancelDeveloperToolsRestoreRetry()
 
         let closed = WebViewInspectorTeardown.closeInspector(for: webView)
+        markDeveloperToolsLifecycleHidden()
         setPreferredDeveloperToolsVisible(false)
         return closed
     }
@@ -7185,31 +7250,55 @@ extension BrowserPanel {
             let targetVisible = pendingDeveloperToolsTransitionTargetVisible ?? developerToolsTransitionTargetVisible ?? visible
             setPreferredDeveloperToolsVisible(targetVisible)
             if targetVisible, visible {
-                developerToolsDetachedOpenGraceDeadline = nil
+                markDeveloperToolsLifecycleVisible()
                 syncDeveloperToolsPresentationPreferenceFromUI()
                 cancelDeveloperToolsRestoreRetry()
             } else if !targetVisible {
-                developerToolsDetachedOpenGraceDeadline = nil
+                markDeveloperToolsLifecycleHidden()
                 forceDeveloperToolsRefreshOnNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
+            } else {
+                markDeveloperToolsLifecyclePendingVisible()
             }
             return
         }
         if visible {
-            developerToolsDetachedOpenGraceDeadline = nil
+            markDeveloperToolsLifecycleVisible()
             syncDeveloperToolsPresentationPreferenceFromUI()
             setPreferredDeveloperToolsVisible(true)
-            developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
             return
         }
+        if preferredDeveloperToolsVisible && developerToolsLifecyclePhase.isPendingVisibleIntent {
+            markDeveloperToolsLifecyclePendingVisible()
+            return
+        }
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
+            markDeveloperToolsLifecyclePendingVisible()
             return
         }
         setPreferredDeveloperToolsVisible(false)
-        developerToolsLastKnownVisibleAt = nil
+        markDeveloperToolsLifecycleHidden()
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
+    }
+
+    private func recordDeveloperToolsManualCloseDuringStableHostUpdate() {
+        developerToolsTransitionSettleWorkItem?.cancel()
+        developerToolsTransitionSettleWorkItem = nil
+        developerToolsTransitionTargetVisible = nil
+        pendingDeveloperToolsTransitionTargetVisible = nil
+        setPreferredDeveloperToolsVisible(false)
+        markDeveloperToolsLifecycleHidden()
+        forceDeveloperToolsRefreshOnNextAttach = false
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+        cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools stableHost.manualClose panel=\(id.uuidString.prefix(5)) " +
+            "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
     }
 
     func noteDeveloperToolsHostAttached() {
@@ -7227,7 +7316,54 @@ extension BrowserPanel {
             developerToolsLastAttachedHostAt = Date()
         }
         if isDeveloperToolsVisible() {
-            developerToolsLastKnownVisibleAt = Date()
+            markDeveloperToolsLifecycleVisible()
+        } else if preferredDeveloperToolsVisible && developerToolsLifecyclePhase.isPendingVisibleIntent {
+            markDeveloperToolsLifecyclePendingVisible()
+        }
+    }
+
+    func reconcileDeveloperToolsAfterHostUpdate(
+        wasVisibleBeforeHostUpdate: Bool,
+        didAttachHost: Bool,
+        didChangeHostVisibility: Bool,
+        preserveVisibleIntentWhileDetached: Bool = false
+    ) {
+        guard webView.superview != nil, webView.window != nil else {
+            syncDeveloperToolsPreferenceFromInspector(
+                preserveVisibleIntent: preserveVisibleIntentWhileDetached ||
+                    shouldPreserveDeveloperToolsIntentWhileDetached()
+            )
+            return
+        }
+
+        noteDeveloperToolsHostAttached()
+
+        let hasPendingRestore =
+            forceDeveloperToolsRefreshOnNextAttach ||
+            developerToolsRestoreRetryWorkItem != nil ||
+            (preferredDeveloperToolsVisible && developerToolsLifecyclePhase.isPendingVisibleIntent && !isDeveloperToolsVisible())
+        let shouldRestore =
+            hasPendingRestore ||
+            (wasVisibleBeforeHostUpdate && (didAttachHost || didChangeHostVisibility))
+
+        if wasVisibleBeforeHostUpdate,
+           !isDeveloperToolsVisible(),
+           !didAttachHost,
+           !didChangeHostVisibility,
+           developerToolsLifecyclePhase.allowsHostHiddenManualClose,
+           !isDeveloperToolsTransitionInFlight,
+           !hasPendingRestore {
+            recordDeveloperToolsManualCloseDuringStableHostUpdate()
+            return
+        }
+
+        if shouldRestore {
+            restoreDeveloperToolsAfterAttachIfNeeded()
+        } else {
+            syncDeveloperToolsPreferenceFromInspector(
+                preserveVisibleIntent: preserveVisibleIntentWhileDetached ||
+                    developerToolsLifecyclePhase.isPendingVisibleIntent
+            )
         }
     }
 
@@ -7269,6 +7405,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
+        guard developerToolsLifecyclePhase.allowsHostHiddenManualClose else { return false }
         guard webView.superview != nil, webView.window != nil else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
@@ -7278,13 +7415,12 @@ extension BrowserPanel {
         guard let inspector = inspector ?? webView.cmuxInspectorObject() else { return false }
         guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return false }
         guard !visible else {
-            developerToolsLastKnownVisibleAt = Date()
+            markDeveloperToolsLifecycleVisible()
             return false
         }
 
         setPreferredDeveloperToolsVisible(false)
-        developerToolsDetachedOpenGraceDeadline = nil
-        developerToolsLastKnownVisibleAt = nil
+        markDeveloperToolsLifecycleHidden()
         forceDeveloperToolsRefreshOnNextAttach = false
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
@@ -7302,9 +7438,23 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
+            if !isDeveloperToolsVisible() {
+                markDeveloperToolsLifecycleHidden()
+            }
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        markDeveloperToolsLifecyclePendingVisible()
+        let transitionTargetVisible =
+            pendingDeveloperToolsTransitionTargetVisible ??
+            developerToolsTransitionTargetVisible ??
+            preferredDeveloperToolsVisible
+        let canForceRefreshDuringVisibleTransition =
+            forceDeveloperToolsRefreshOnNextAttach &&
+            isDeveloperToolsTransitionInFlight &&
+            transitionTargetVisible
+        guard !isDeveloperToolsTransitionInFlight || canForceRefreshDuringVisibleTransition else {
+            return
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
@@ -7315,9 +7465,8 @@ extension BrowserPanel {
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
-            developerToolsDetachedOpenGraceDeadline = nil
+            markDeveloperToolsLifecycleVisible()
             syncDeveloperToolsPresentationPreferenceFromUI()
-            developerToolsLastKnownVisibleAt = Date()
             #if DEBUG
             if shouldForceRefresh {
                 cmuxDebugLog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -7330,7 +7479,7 @@ extension BrowserPanel {
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
             setPreferredDeveloperToolsVisible(false)
-            developerToolsDetachedOpenGraceDeadline = nil
+            markDeveloperToolsLifecycleHidden()
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
             cmuxDebugLog(
@@ -7359,11 +7508,12 @@ extension BrowserPanel {
         setPreferredDeveloperToolsVisible(true)
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
+            markDeveloperToolsLifecycleVisible()
             syncDeveloperToolsPresentationPreferenceFromUI()
-            developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
             scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
+            markDeveloperToolsLifecyclePendingVisible()
             scheduleDeveloperToolsRestoreRetry()
         }
     }
@@ -7389,6 +7539,9 @@ extension BrowserPanel {
     func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {
         guard preferredDeveloperToolsVisible else { return }
         forceDeveloperToolsRefreshOnNextAttach = true
+        if !isDeveloperToolsVisible() {
+            markDeveloperToolsLifecyclePendingVisible()
+        }
         #if DEBUG
         cmuxDebugLog("browser.devtools refresh.request panel=\(id.uuidString.prefix(5)) reason=\(reason) \(debugDeveloperToolsStateSummary())")
         #endif
@@ -7409,7 +7562,9 @@ extension BrowserPanel {
     }
 
     func shouldUseLocalInlineDeveloperToolsHosting() -> Bool {
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
+        guard preferredDeveloperToolsVisible ||
+            developerToolsLifecyclePhase.preservesVisibleIntent ||
+            isDeveloperToolsVisible() else { return false }
         if preferredDeveloperToolsPresentation == .detached {
             return false
         }
@@ -8468,6 +8623,9 @@ private extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return }
         guard developerToolsRestoreRetryWorkItem == nil else { return }
         guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
+        if !isDeveloperToolsVisible() {
+            markDeveloperToolsLifecyclePendingVisible()
+        }
 
         developerToolsRestoreRetryAttempt += 1
         let work = DispatchWorkItem { [weak self] in
@@ -8504,6 +8662,10 @@ extension BrowserPanel {
             }
             return browserFallbackInteractiveModalHostWindow()
         }
+    }
+
+    func debugDismissDetachedDeveloperToolsWindowsForTesting() {
+        dismissDetachedDeveloperToolsWindowsIfNeeded()
     }
 
     func presentInsecureHTTPAlertForTesting(
@@ -8555,7 +8717,7 @@ extension BrowserPanel {
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
-        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) tx=\(transitionTarget) pending=\(pendingTarget)"
+        return "pref=\(preferred) vis=\(visible) phase=\(developerToolsLifecyclePhase.rawValue) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) tx=\(transitionTarget) pending=\(pendingTarget)"
     }
 
     func debugDeveloperToolsGeometrySummary() -> String {
