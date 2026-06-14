@@ -92,5 +92,22 @@ struct TerminalInputAccessoryShiftTests {
         #expect(backspaces == 1)
         #expect(text == ["a"])
     }
+
+    @Test("a one-shot ⇧ is consumed by the arrow nub and does not leak to the next key")
+    func shiftConsumedByArrowNub() {
+        let view = TerminalInputTextView()
+        var sequences: [Data] = []
+        var text: [String] = []
+        view.onEscapeSequence = { sequences.append($0) }
+        view.onText = { text.append($0) }
+
+        let up = Data([0x1B, 0x5B, 0x41]) // ESC [ A
+        view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
+        view.simulateNubArrowForTesting(up) // nub sends a raw arrow, consumes ⇧
+        view.insertText("a") // ⇧ already spent → lowercase, not "A"
+
+        #expect(sequences == [up]) // arrow forwarded unmodified
+        #expect(text == ["a"]) // ⇧ did not leak
+    }
 }
 #endif

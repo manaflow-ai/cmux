@@ -71,8 +71,8 @@
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1276	cmuxTests/MobileHostAuthorizationTests.swift
 1270	cmuxTests/RestorableAgentSessionIndexTests.swift
+1257	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1257	Sources/Feed/FeedCoordinator.swift
-1242	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1216	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
