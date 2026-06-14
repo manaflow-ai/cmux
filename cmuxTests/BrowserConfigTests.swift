@@ -8,7 +8,9 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Network
+import CmuxBrowserPanel
 import CmuxSettings
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1306,8 +1308,13 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
 
+        guard let bypass = AppDelegate.shared?.browserFirstResponderBypass else {
+            XCTFail("Expected AppDelegate.shared for the first-responder bypass the swizzle reads")
+            return
+        }
+
         _ = window.makeFirstResponder(nil)
-        cmuxWithWindowFirstResponderBypass {
+        bypass.withBypass {
             XCTAssertFalse(
                 window.makeFirstResponder(responder),
                 "Bypass scope should block transient first-responder changes during devtools auto-restore"

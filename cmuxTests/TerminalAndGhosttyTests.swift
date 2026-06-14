@@ -1,6 +1,8 @@
 import XCTest
+import CmuxTerminalServices
 import Testing
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl
@@ -12,6 +14,7 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -45,8 +48,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testCapturedStandardClipboardWriteDoesNotTouchGeneralPasteboard() {
@@ -55,8 +58,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("existing clipboard text", forType: .string)
         let initialChangeCount = pasteboard.changeCount
 
-        let captured = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
-            GhosttyPasteboardHelper.writeString(
+        let captured = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
                 "/tmp/cmux-screen.txt",
                 to: GHOSTTY_CLIPBOARD_STANDARD
             )
@@ -73,15 +76,15 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("existing clipboard text", forType: .string)
 
-        _ = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
-            GhosttyPasteboardHelper.writeString(
+        _ = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
                 "/tmp/cmux-screen.txt",
                 to: GHOSTTY_CLIPBOARD_STANDARD
             )
             return true
         }
 
-        GhosttyPasteboardHelper.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
+        GhosttyApp.terminalPasteboard.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
         XCTAssertEqual(pasteboard.string(forType: .string), "normal clipboard text")
     }
 
@@ -94,7 +97,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from public.plain-text"
         )
     }
@@ -120,7 +123,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString(koreanText, forType: utf8Type)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -139,7 +142,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>\(chineseText)</p>", forType: .html)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             chineseText
         )
     }
@@ -156,7 +159,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("plain ascii", forType: legacyType)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "plain ascii"
         )
     }
@@ -174,7 +177,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from rtf fallback"
         )
     }
@@ -247,7 +250,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
     }
 
     func testPublicURLPastePreservesOriginalURLText() throws {
@@ -260,7 +263,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
         XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), rawURL)
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -293,9 +296,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -317,9 +320,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -345,9 +348,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -369,8 +372,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testJPEGClipboardFallsBackToImagePath() throws {
@@ -396,7 +399,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)
         )
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".jpeg"))
@@ -422,9 +425,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -454,9 +457,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -478,8 +481,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testRTFDClipboardWithVisibleTextPrefersText() throws {
@@ -503,8 +506,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testImageOnlyPasteboardProducesTempFileURL() throws {
@@ -512,7 +515,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setData(try make1x1PNG(color: .red), forType: .png)
 
-        let fileURL = try XCTUnwrap(cmuxPasteboardImageFileURLForTesting(pasteboard))
+        let fileURL = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveImageFileURLIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         XCTAssertEqual(fileURL.pathExtension, "png")
@@ -526,7 +529,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         try Data("report".utf8).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([fileURL])
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([fileURL])
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }

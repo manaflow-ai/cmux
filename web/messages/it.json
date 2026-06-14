@@ -923,6 +923,8 @@
         "surfaces": "Superfici",
         "surfacesBlurb": "Le superfici sono tab all'interno di un pannello.",
         "splitPanes": "Pannelli divisi",
+        "canvas": "Canvas",
+        "canvasBlurb": "Una modalità di layout 2D libera in cui i riquadri fluttuano su un canvas infinito e scorrevole. I comandi di allineamento e distribuzione sono disponibili dalla palette dei comandi.",
         "browser": "Browser",
         "notifications": "Notifiche",
         "find": "Ricerca",

@@ -6,43 +6,6 @@ import Testing
 import UserNotifications
 @testable import CmuxMobileShell
 
-/// Records the ids passed to `removeDelivered` and the counts passed to
-/// `setBadgeCount` so a test can assert the Mac->iOS dismiss-sync clears exactly
-/// the notifications the Mac dismissed and sets exactly the badge totals the Mac
-/// computed, without touching the real `UNUserNotificationCenter`.
-/// `@MainActor`-isolated because the composite under test calls the seam
-/// synchronously on the main actor, so no lock is needed to keep the recorded
-/// state consistent.
-@MainActor
-private final class RecordingDeliveredNotificationClearer: DeliveredNotificationClearing {
-    private(set) var clearedIDs: [[String]] = []
-    private(set) var badgeCounts: [Int] = []
-    var deliveredIDs: [String] = []
-
-    nonisolated init() {}
-
-    nonisolated func removeDelivered(ids: [String]) async {
-        await MainActor.run {
-            clearedIDs.append(ids)
-        }
-    }
-
-    nonisolated func deliveredIdentifiers() async -> [String] {
-        await MainActor.run { deliveredIDs }
-    }
-
-    nonisolated func setBadgeCount(_ count: Int) {
-        MainActor.assumeIsolated {
-            badgeCounts.append(count)
-        }
-    }
-}
-
-/// Behavior tests for the phone-side half of cross-device notification
-/// dismiss-sync: a Mac `notification.dismissed` event must clear the matching
-/// delivered banners, badge events/reconcile results must SET the app-icon
-/// badge to the Mac's authoritative total, all through the injected
-/// ``DeliveredNotificationClearing`` seam.
 @MainActor
 @Suite struct MobileShellDismissSyncTests {
     private func makeStore(
@@ -85,11 +48,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         #expect(clearer.clearedIDs.isEmpty)
     }
 
-    // MARK: - Durable phone→Mac dismiss outbox
-
-    /// A swipe while the attach channel is down (no remote client) must not be
-    /// dropped: the id is parked in the durable outbox so the next successful
-    /// (re)subscribe can flush it to the Mac.
     @Test func dismissWithoutChannelParksIDsInDurableOutbox() async {
         let queue = PendingNotificationDismissQueue(
             defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
@@ -118,8 +76,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         #expect(queue.pendingIDs.isEmpty)
     }
 
-    // MARK: - Badge
-
     @Test func setsBadgeToAuthoritativeTotal() {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
@@ -138,8 +94,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 
         #expect(clearer.badgeCounts == [0])
     }
-
-    // MARK: - Reconcile sweep
 
     @Test func reconcileClearsHandledBannersAndSetsBadge() async throws {
         let clearer = RecordingDeliveredNotificationClearer()
@@ -180,12 +134,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         #expect(clearer.badgeCounts.isEmpty)
     }
 
-    // MARK: - Mac-id mapping for delivered banners
-
-    /// The clearer must address delivered banners by the authoritative
-    /// `cmux.notificationId` payload key, not by trusting that the request
-    /// identifier equals the Mac id (collapse-id equivalence is observed OS
-    /// behavior, not a contract).
     @Test func macNotificationIDPrefersPayloadKeyOverRequestIdentifier() {
         let content = UNMutableNotificationContent()
         content.userInfo = ["cmux": ["notificationId": " mac-id-1 "]]
@@ -198,9 +146,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         #expect(SystemDeliveredNotificationClearer.macNotificationID(for: request) == "mac-id-1")
     }
 
-    /// Without the payload key (older Macs), the request identifier is the only
-    /// candidate: it matches when it happens to be the collapse-id and is a
-    /// harmless non-match (the Mac ignores unknown ids) otherwise.
     @Test func macNotificationIDFallsBackToRequestIdentifier() {
         let content = UNMutableNotificationContent()
         let request = UNNotificationRequest(
@@ -211,8 +156,6 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 
         #expect(SystemDeliveredNotificationClearer.macNotificationID(for: request) == "legacy-collapse-id")
     }
-
-    // MARK: - Event payload decoding
 
     @Test func dismissedEventDecodesUnreadCount() {
         let event = MobileNotificationDismissedEvent.decode(Data("""

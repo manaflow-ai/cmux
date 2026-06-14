@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTerminal
 import Foundation
 import Observation
 

@@ -4,11 +4,14 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import CmuxBrowserPanel
+import CmuxTerminalCore
 import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -3368,6 +3371,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
+    /// True while a canvas pane hosts this browser's webview inline (in the
+    /// pane's own hierarchy). Portal-side reconcilers must not rebind or
+    /// re-sync the webview into the window portal while this is set.
+    var canvasInlineHostingActive: Bool = false
+
     /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
         !shouldRenderWebView && preferredURLStringForOmnibar() == nil
@@ -5346,7 +5354,8 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
-            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
         )
     }
 
@@ -7326,7 +7335,7 @@ extension BrowserPanel {
         // WebKit inspector show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
-        cmuxWithWindowFirstResponderBypass {
+        AppDelegate.shared?.browserFirstResponderBypass.withBypass {
             _ = revealDeveloperTools(inspector)
         }
         setPreferredDeveloperToolsVisible(true)
