@@ -43,6 +43,17 @@ import Testing
         store.signIn()
         store.pairingCode = "debug"
         store.connectPreviewHost()
+        // Group sections are account-scoped: the previous account's group
+        // names must not survive sign-out into the next session.
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-1",
+                name: "previous account group",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-main"
+            )
+        ]
 
         store.signOut()
 
@@ -50,6 +61,7 @@ import Testing
         #expect(store.connectionState == .disconnected)
         #expect(store.connectedHostName.isEmpty)
         #expect(store.selectedWorkspace?.name == "cmux")
+        #expect(store.workspaceGroups.isEmpty)
     }
 
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {

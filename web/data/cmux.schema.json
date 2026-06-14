@@ -266,6 +266,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -433,6 +439,32 @@
               "maximum": 256,
               "default": 12,
               "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
+            }
+          }
+        },
+        "rendererRealization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Reclaim off-screen terminal renderer memory."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 30,
+              "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
+            },
+            "maxWarmRenderers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }
         },
@@ -1047,6 +1079,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",
@@ -1098,6 +1152,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1137,6 +1192,7 @@
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
               "attachTextBoxFile",
+              "sendCtrlFToTerminal",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1170,6 +1226,7 @@
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
               "toggleReactGrab",
+              "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
               "diffViewerScrollToBottom",
@@ -1196,6 +1253,15 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        },
+        "when": {
+          "type": "object",
+          "default": {},
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "descriptionKey": "schemaDescriptions.shortcuts.when",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }

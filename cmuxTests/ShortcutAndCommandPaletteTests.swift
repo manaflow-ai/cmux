@@ -1,3 +1,5 @@
+import CmuxCommandPalette
+import CmuxFoundation
 import XCTest
 import AppKit
 import SwiftUI
@@ -8,11 +10,19 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
+import CmuxCommandPaletteUI
+
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
@@ -677,7 +687,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
 
-        XCTAssertTrue(isCommandPaletteFocusStealingTerminalOrBrowserResponder(surfaceView))
+        XCTAssertTrue(surfaceView.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testTreatsTextFieldInsideTerminalHostedViewAsFocusStealer() {
@@ -688,7 +698,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textField)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField),
+            textField.isCommandPaletteFocusStealingTerminalOrBrowser,
             "Terminal-owned overlay text inputs should not be allowed to reclaim focus from the command palette"
         )
     }
@@ -696,13 +706,13 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testDoesNotTreatUnrelatedTextFieldAsFocusStealer() {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
+        XCTAssertFalse(textField.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
+        XCTAssertFalse(textView.isCommandPaletteFocusStealingTerminalOrBrowser)
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
@@ -720,7 +730,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate is not a view"
         )
     }
@@ -735,7 +745,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate view is unrelated"
         )
     }
@@ -826,9 +836,9 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 
 final class CommandPaletteAuthCommandTests: XCTestCase {
     func testSignedOutContextShowsSignInCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -836,9 +846,9 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
     }
 
     func testSignedInContextShowsSignOutCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -847,15 +857,15 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
     func testWorkingAuthContextHidesSignInAndSignOutCommands() {
         for signedIn in [false, true] {
-            var context = ContentView.CommandPaletteContextSnapshot()
-            context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(ContentView.CommandPaletteContextKeys.authWorking, true)
+            var context = CommandPaletteContextSnapshot()
+            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
+            context.setBool(CommandPaletteContextKeys.authWorking, true)
 
             XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
         }
     }
 
-    private func visibleAuthCommandIds(_ context: ContentView.CommandPaletteContextSnapshot) -> [String] {
+    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
         ContentView.commandPaletteAuthCommandContributions()
             .filter { $0.when(context) }
             .map(\.commandId)
@@ -1223,6 +1233,22 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
         XCTAssertNil(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
+        )
+    }
+
+    func testModeShortcutHonorsActionGate() {
+        let feedEvent = makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)
+
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: feedEvent) { action in
+                action != .switchRightSidebarToFeed
+            }
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: feedEvent) { action in
+                action == .switchRightSidebarToFeed
+            },
+            .feed
         )
     }
 
@@ -1620,7 +1646,8 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredTrueClosesWorkspace() {
@@ -1631,8 +1658,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(true, forKey: key.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredFalseKeepsWorkspaceOpen() {
@@ -1643,8 +1671,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(false, forKey: key.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 }
 
@@ -2067,41 +2096,5 @@ private final class UpdateChoiceRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return choices
-    }
-}
-
-@MainActor
-final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
-    func testShouldPromoteWhenBecomingVisible() {
-        XCTAssertTrue(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: false,
-                isVisible: true
-            )
-        )
-    }
-
-    func testShouldNotPromoteWhenAlreadyVisible() {
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: true,
-                isVisible: true
-            )
-        )
-    }
-
-    func testShouldNotPromoteWhenHidden() {
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: true,
-                isVisible: false
-            )
-        )
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: false,
-                isVisible: false
-            )
-        )
     }
 }

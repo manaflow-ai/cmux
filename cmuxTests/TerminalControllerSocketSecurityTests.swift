@@ -1,6 +1,8 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
+import CmuxTerminal
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)

@@ -73,5 +73,12 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .testTarget(
+            name: "CmuxSidebarRemoteRenderTests",
+            dependencies: ["CmuxSidebarRemoteRender"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
     ]
 )

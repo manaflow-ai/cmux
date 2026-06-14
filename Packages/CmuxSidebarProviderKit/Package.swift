@@ -12,9 +12,13 @@ let package = Package(
             targets: ["CmuxSidebarProviderKit"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
-            name: "CmuxSidebarProviderKit"
+            name: "CmuxSidebarProviderKit",
+            dependencies: ["CmuxFoundation"]
         ),
     ]
 )
