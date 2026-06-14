@@ -128,6 +128,27 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Re-enabling after a disable restarts the poll timer")
+    func reEnablingRestartsPolling() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(runner: runner, terminalStartupCommand: "true")
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanningEnabledLocked(false)
+            coordinator.updateRemotePortPollingStateLocked()
+        }
+        #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == false)
+
+        coordinator.queue.sync {
+            coordinator.updateRemotePortScanningEnabledLocked(true)
+        }
+
+        #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == true)
+        coordinator.queue.sync { coordinator.stopRemotePortPollingLocked() }
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
     private static func makeCoordinator(

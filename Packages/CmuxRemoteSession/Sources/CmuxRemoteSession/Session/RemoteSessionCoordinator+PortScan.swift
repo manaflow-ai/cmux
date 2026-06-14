@@ -40,7 +40,40 @@ extension RemoteSessionCoordinator {
     }
 
     func updateRemotePortScanningEnabledLocked(_ enabled: Bool) {
+        guard remotePortScanningEnabled != enabled else { return }
         remotePortScanningEnabled = enabled
+        guard enabled else {
+            suspendRemotePortScanningLocked()
+            return
+        }
+        updateRemotePortPollingStateLocked()
+        // TTY-scoped workspaces without a fallback poll timer only refresh
+        // ports on a shell-activity kick, so re-arm one refresh burst now to
+        // repopulate the display promptly when it is turned back on. The
+        // host-wide/delta poll modes already refresh themselves through the
+        // timer restarted above, so skip the burst when that timer is live.
+        if daemonReady, !isStopping, !remotePortScanTTYNames.isEmpty, remotePortPollTimer == nil {
+            remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
+            scheduleRemotePortScanCoalesceLocked()
+        }
+    }
+
+    /// Tears down every ssh-spawning port-scan activity and clears detected
+    /// ports. Mirrors the scan teardown on the proxy-error path so a disabled
+    /// scanner leaves no poll timer, burst, or stale ports behind.
+    private func suspendRemotePortScanningLocked() {
+        remotePortScanGeneration &+= 1
+        remotePortScanBurstTask?.cancel()
+        remotePortScanBurstTask = nil
+        remotePortScanBurstActive = false
+        remotePortScanActiveReason = nil
+        remotePortScanPendingReason = nil
+        cancelRemotePortScanCoalesceLocked()
+        remoteScannedPortsByPanel.removeAll()
+        stopRemotePortPollingLocked()
+        polledRemotePorts = []
+        keepPolledRemotePortsUntilTTYScan = false
+        publishPortsSnapshotLocked()
     }
 
     func updateRemotePortScanTTYsLocked(_ ttyNames: [UUID: String]) {
@@ -76,6 +109,7 @@ extension RemoteSessionCoordinator {
 
     func kickRemotePortScanLocked(panelId: UUID, reason: PortScanKickReason) {
         guard !isStopping else { return }
+        guard remotePortScanningEnabled else { return }
         guard daemonReady else { return }
         guard remotePortScanTTYNames[panelId] != nil else { return }
         if remotePortScanBurstActive, remotePortScanActiveReason == .command, reason == .refresh {
@@ -166,6 +200,7 @@ extension RemoteSessionCoordinator {
     }
 
     func performRemotePortScanLocked() {
+        guard remotePortScanningEnabled else { return }
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
             remoteScannedPortsByPanel.removeAll()
@@ -352,6 +387,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func remotePortPollingModeLocked() -> RemotePortPollingMode? {
+        guard remotePortScanningEnabled else { return nil }
         if !remotePortScanTTYNames.isEmpty {
             return shouldUseTTYFallbackRemotePortPollingLocked() ? .ttyScoped : nil
         }
