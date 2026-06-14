@@ -108,14 +108,20 @@ public struct ChatTranscriptProjector: Sendable {
         return end
     }
 
-    /// Whether a message participates in bubble grouping. Status rows and
-    /// actionable cards always stand alone.
+    /// Whether a message participates in bubble grouping. Only the bubble-
+    /// rendered kinds (prose, attachment) group: they are the rows that consume
+    /// `groupPosition`/`showsTimestamp`. The thought row and the full-width
+    /// cards (toolUse, terminal, fileEdit) ignore both, so grouping them would
+    /// tighten a neighbor bubble's corner toward a card and could land the
+    /// group timestamp on a card that never draws it. Status/permission/
+    /// question/unsupported also stand alone.
     private func isGroupable(_ message: ChatMessage) -> Bool {
         switch message.kind {
-        case .status, .permissionRequest, .question, .unsupported:
-            return false
-        case .prose, .thought, .toolUse, .terminal, .fileEdit, .attachment:
+        case .prose, .attachment:
             return true
+        case .status, .permissionRequest, .question, .unsupported,
+             .thought, .toolUse, .terminal, .fileEdit:
+            return false
         }
     }
 

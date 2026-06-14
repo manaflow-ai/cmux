@@ -86,6 +86,14 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
+    /// Every session id the registry already tracks. Title-detected adoption
+    /// passes this to the transcript resolver so a second hook-bypassed claude
+    /// in the same directory resolves to a *different* (unclaimed) transcript
+    /// instead of colliding on the newest file.
+    func claimedSessionIDs() -> Set<String> {
+        Set(records.keys)
+    }
+
     /// Re-reads the hook store for one session and adopts its bindings,
     /// for callers that just failed to resolve the recorded terminal (an
     /// app relaunch regenerates panel UUIDs; the store is rewritten by
