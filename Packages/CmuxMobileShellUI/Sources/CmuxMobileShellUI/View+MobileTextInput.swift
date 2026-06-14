@@ -27,13 +27,15 @@ extension View {
         #endif
     }
 
-    /// Numeric one-time-code field with SMS autofill content type (iOS).
+    /// Alphanumeric one-time-code field with SMS autofill content type (iOS).
     @ViewBuilder
     func mobileOneTimeCodeInput() -> some View {
         #if os(iOS)
         self
-            .keyboardType(.numberPad)
+            .keyboardType(.asciiCapable)
             .textContentType(.oneTimeCode)
+            .textInputAutocapitalization(.characters)
+            .autocorrectionDisabled()
         #else
         self
         #endif

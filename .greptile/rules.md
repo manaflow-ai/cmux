@@ -18,6 +18,8 @@ Review production Swift and runtime changes for:
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
 - Algorithmic complexity regressions on scalable user-owned collections.
+- Expensive synchronous index/disk/syscall loads (such as `RestorableAgentSessionIndex.load()`) on the main actor or interactive paths instead of the off-main cached accessor.
+- Substituting a cached value for a fresh authoritative read in persistence/history/undo paths without handling cold and stale caches.
 - Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
 
 ## Runtime No Hacky Sleeps

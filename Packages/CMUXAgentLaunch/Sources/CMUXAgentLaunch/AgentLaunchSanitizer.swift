@@ -7,6 +7,15 @@ public enum AgentLaunchSanitizer {
     private static let runtimeOnlyOptionWidths: [String: Int] = [
         "--use-system-ca": 1,
     ]
+    private static let claudeCmuxSettingsKeys: Set<String> = [
+        "hooks",
+        "preferredNotifChannel",
+    ]
+
+    private enum ClaudeHookSettingsReplacement {
+        case drop
+        case settings(String)
+    }
 
     struct Policy {
         var valueOptions: Set<String>
@@ -327,7 +336,9 @@ public enum AgentLaunchSanitizer {
                 continue
             }
 
-            if policy.skipClaudeHookSettings, isClaudeHookSettingsOption(args, index: index) {
+            if policy.skipClaudeHookSettings,
+               let replacement = claudeHookSettingsReplacement(args, index: index) {
+                result.append(contentsOf: replacement)
                 index += width
                 continue
             }
@@ -464,15 +475,87 @@ public enum AgentLaunchSanitizer {
         return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
     }
 
-    private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
+    private static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
+            let value = String(arg.dropFirst("--settings=".count))
+            switch claudeHookSettingsReplacementValue(value) {
+            case .none:
+                return nil
+            case .some(.drop):
+                return []
+            case .some(.settings(let userSettings)):
+                return ["--settings=\(userSettings)"]
+            }
         }
         guard arg == "--settings", index + 1 < args.count else {
+            return nil
+        }
+        let value = args[index + 1]
+        switch claudeHookSettingsReplacementValue(value) {
+        case .none:
+            return nil
+        case .some(.drop):
+            return []
+        case .some(.settings(let userSettings)):
+            return ["--settings", userSettings]
+        }
+    }
+
+    private static func claudeHookSettingsReplacementValue(_ value: String) -> ClaudeHookSettingsReplacement? {
+        if let object = claudeSettingsObject(from: value) {
+            guard isClaudeHookSettingsObject(object) else { return nil }
+            guard let userSettings = userClaudeSettingsJSON(fromMergedHookSettingsObject: object) else {
+                return .drop
+            }
+            return .settings(userSettings)
+        }
+        return isLegacyClaudeHookSettingsValue(value) ? .drop : nil
+    }
+
+    private static func isLegacyClaudeHookSettingsValue(_ value: String) -> Bool {
+        value.contains("claude-hook") || value.contains("hooks claude")
+    }
+
+    private static func claudeSettingsObject(from value: String) -> [String: Any]? {
+        guard let data = value.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
+    private static func isClaudeHookSettingsObject(_ object: [String: Any]) -> Bool {
+        if object["preferredNotifChannel"] as? String == "notifications_disabled" {
+            return true
+        }
+        return containsLegacyClaudeHookSettingsValue(object["hooks"])
+    }
+
+    private static func containsLegacyClaudeHookSettingsValue(_ value: Any?) -> Bool {
+        switch value {
+        case let string as String:
+            return isLegacyClaudeHookSettingsValue(string)
+        case let array as [Any]:
+            return array.contains { containsLegacyClaudeHookSettingsValue($0) }
+        case let dictionary as [String: Any]:
+            return dictionary.values.contains { containsLegacyClaudeHookSettingsValue($0) }
+        default:
             return false
         }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
+    }
+
+    private static func userClaudeSettingsJSON(fromMergedHookSettingsObject object: [String: Any]) -> String? {
+        var object = object
+        for key in claudeCmuxSettingsKeys {
+            object.removeValue(forKey: key)
+        }
+        guard !object.isEmpty,
+              JSONSerialization.isValidJSONObject(object),
+              let userData = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: userData, encoding: .utf8)
     }
 
     private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
