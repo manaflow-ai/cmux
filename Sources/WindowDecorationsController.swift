@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
@@ -36,7 +37,11 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
+        let isMainWindow = isMainWorkspaceWindow(window)
+        if isMainWindow {
+            configureCmuxMainWindowDragBehavior(window)
+        }
+        if isMainWindow, WorkspacePresentationModeSettings.isMinimal() {
             WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
         } else {
             WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)

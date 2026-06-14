@@ -889,6 +889,7 @@ enum WindowMoveSuppressionReason: String {
     case bonsplitPaneTabDrag
 }
 
+@MainActor
 func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
     guard event.type == .leftMouseDown else {
         return false
@@ -897,6 +898,7 @@ func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSE
     return BonsplitTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
 }
 
+@MainActor
 func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
     if shouldSuppressWindowMoveForFolderDrag(window: window, event: event) {
         return .folderDrag
@@ -907,6 +909,7 @@ func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMove
     return nil
 }
 
+@MainActor
 func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     window: NSWindow,
     event: NSEvent,
@@ -929,6 +932,7 @@ func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     return beginWindowMoveSuppressionSequence(window: window, reason: reason)
 }
 
+@MainActor
 func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
     activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
 }

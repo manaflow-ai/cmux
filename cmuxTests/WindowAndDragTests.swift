@@ -1975,7 +1975,38 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         )
     }
 
-    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+    func testMainWindowDragBehaviorKeepsOSMovabilityWithoutBackgroundDraggingInStandardMode() {
+        let suiteName = "cmuxTests.standardDragBehavior.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.isMovable = false
+        window.isMovableByWindowBackground = true
+
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
+        XCTAssertTrue(
+            window.isMovable,
+            "Standard main windows must keep AppKit movability enabled for macOS tiling and third-party window managers"
+        )
+        XCTAssertFalse(
+            window.isMovableByWindowBackground,
+            "App content gestures and titlebar controls must not become implicit AppKit background-drag regions"
+        )
+    }
+
+    func testMainWindowDragBehaviorDisablesNativeMovabilityInMinimalMode() {
+        let suiteName = "cmuxTests.minimalDragBehavior.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -1986,22 +2017,107 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         window.isMovable = true
         window.isMovableByWindowBackground = true
 
-        configureCmuxMainWindowDragBehavior(window)
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
 
         XCTAssertFalse(
             window.isMovable,
-            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+            "Minimal mode has no native titlebar; explicit cmux drag zones must own window movement so Bonsplit tabs cannot move the window"
         )
         XCTAssertFalse(window.isMovableByWindowBackground)
+    }
 
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
-            XCTAssertTrue(window.isMovable)
-        }
+    func testMainWindowDragBehaviorDoesNotReenableActiveSuppressionSequence() {
+        let suiteName = "cmuxTests.suppressedDragBehavior.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+        XCTAssertTrue(window.isMovable)
 
-        XCTAssertEqual(previous, false)
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
         XCTAssertFalse(
             window.isMovable,
-            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+            "Re-applying window configuration during a tab drag must not re-enable native AppKit movement"
+        )
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isMovable)
+    }
+
+    func testMainWindowDragBehaviorRestoresMinimalBaselineAfterModeChangeDuringSuppression() {
+        let suiteName = "cmuxTests.suppressedDragBehavior.standardToMinimal.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+        XCTAssertTrue(window.isMovable)
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertFalse(
+            window.isMovable,
+            "A mode change during suppression must update the post-drag baseline instead of restoring stale standard-mode movability"
+        )
+    }
+
+    func testMainWindowDragBehaviorRestoresStandardBaselineAfterModeChangeDuringSuppression() {
+        let suiteName = "cmuxTests.suppressedDragBehavior.minimalToStandard.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+        XCTAssertFalse(window.isMovable)
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(
+            window.isMovable,
+            "A mode change during suppression must restore the current standard-mode baseline once the protected drag ends"
         )
     }
 }
@@ -2212,6 +2328,23 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
         XCTAssertFalse(isWindowDragSuppressed(window: window))
         XCTAssertTrue(window.isMovable)
+    }
+
+    func testFinishingMatchingSuppressionRestoresMovableWindow() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .folderDrag),
+            .folderDrag
+        )
+        XCTAssertFalse(window.isMovable)
+        XCTAssertNil(finishWindowMoveSuppressionSequence(window: window, matching: .bonsplitPaneTabDrag))
+        XCTAssertFalse(window.isMovable)
+
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window, matching: .folderDrag), .folderDrag)
+        XCTAssertTrue(window.isMovable)
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
     }
 
     func testWindowDragSuppressionDepthLifecycle() {

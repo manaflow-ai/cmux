@@ -46,10 +46,35 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+/// Applies the main-window AppKit movability baseline for the active presentation mode.
+///
+/// Standard mode keeps native OS-level window movability enabled for macOS
+/// tiling and third-party window managers. Minimal mode disables native
+/// movability so cmux-owned chrome can decide exactly when to call
+/// `performDrag`. If a protected drag suppression sequence is active, the
+/// window remains immovable and only the post-suppression restore baseline is
+/// updated.
 @MainActor
-func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+func configureCmuxMainWindowDragBehavior(
+    _ window: NSWindow,
+    defaults: UserDefaults = .standard
+) {
+    // Keep background dragging disabled so app content gestures and titlebar
+    // controls receive clicks. In standard mode, leave the OS-level movable bit
+    // enabled for macOS tiling and third-party window managers. In minimal mode,
+    // there is no native titlebar: app-owned chrome must explicitly call
+    // performDrag so Bonsplit pane tabs cannot be stolen by AppKit window moves.
     window.isMovableByWindowBackground = false
-    window.isMovable = false
+    let baselineIsMovable = !WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    if activeWindowMoveSuppressionSequenceReason(window: window) == nil {
+        window.isMovable = baselineIsMovable
+    } else {
+        updateActiveWindowMoveSuppressionSequencePreviousMovableState(
+            window: window,
+            previousMovableState: baselineIsMovable
+        )
+        ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+    }
 }
 
 @MainActor
