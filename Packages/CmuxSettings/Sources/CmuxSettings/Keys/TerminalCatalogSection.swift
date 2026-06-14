@@ -38,6 +38,30 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
+    /// Whether off-screen terminals release their GPU renderer memory while
+    /// idle (rebuilt instantly on re-show). Non-destructive; on by default.
+    public let rendererRealizationEnabled = DefaultsKey<Bool>(
+        id: "terminal.rendererRealization.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.rendererRealization.enabled"
+    )
+
+    /// Seconds a terminal must stay off-screen before its renderer memory is
+    /// reclaimed.
+    public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
+        id: "terminal.rendererRealization.idleSeconds",
+        defaultValue: 30,
+        userDefaultsKey: "terminal.rendererRealization.idleSeconds"
+    )
+
+    /// Most-recently-visible terminals to keep renderer-ready so switching stays
+    /// instant. Extra off-screen renderers are reclaimed oldest first.
+    public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
+        id: "terminal.rendererRealization.maxWarmRenderers",
+        defaultValue: 12,
+        userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
+    )
+
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.showTextBoxOnNewTerminals",
         defaultValue: false,

@@ -1,15 +1,19 @@
 import AppKit
+import CmuxFoundation
+import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdater
 import CmuxUpdaterUI
 import SwiftUI
 import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -446,6 +450,13 @@ struct cmuxApp: App {
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
+                Menu("Show Update Error…") {
+                    ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
+                        Button(scenario.menuTitle) {
+                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                        }
+                    }
+                }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
                 }
@@ -552,6 +563,14 @@ struct cmuxApp: App {
                     }
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
+                    }
+                    Button(
+                        String(
+                            localized: "debug.menu.devWindowDisplay",
+                            defaultValue: "Dev Window Display…"
+                        )
+                    ) {
+                        DevWindowDisplayDebugWindowController.shared.show()
                     }
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
@@ -696,6 +715,20 @@ struct cmuxApp: App {
                         )
                     } else {
                         activeTabManager.addWorkspace()
+                    }
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.performNewBrowserWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newBrowserWorkspace"
+                        )
+                    } else if BrowserAvailabilitySettings.isEnabled() {
+                        // Last-resort fallback for a missing AppDelegate; keep
+                        // the browser-availability gate identical to the
+                        // shared action path.
+                        activeTabManager.addWorkspace(initialSurface: .browser)
                     }
                 }
 
@@ -986,6 +1019,23 @@ struct cmuxApp: App {
             }
 
             equalizeSplitsCommandButton()
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasTidy", defaultValue: "Tidy Canvas"), shortcut: menuShortcut(for: .canvasTidy)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.alignment(.tidy))
+            }
+
             Divider()
 
             // Numbered workspace selection (9 = last workspace)
@@ -1422,6 +1472,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
+    "cmux.devWindowDisplay",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1857,10 +1908,10 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
-        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
-        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarBranchDirectoryStackedSettings.key, fallback: SidebarBranchDirectoryStackedSettings.defaultStacked))
-        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
-        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
+        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
@@ -1950,8 +2001,8 @@ private final class DebugWindowControlsWindowController: NSWindowController, NSW
 }
 
 private struct DebugWindowControlsView: View {
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1963,8 +2014,9 @@ private struct DebugWindowControlsView: View {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarActiveTabIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -2081,14 +2133,14 @@ private struct DebugWindowControlsView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
 
                         Button("Reset Indicator Style") {
-                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                            sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -2909,17 +2961,21 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
-    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
+    @AppStorage(SidebarCatalogSection().branchVerticalLayout.userDefaultsKey)
+    private var sidebarBranchVerticalLayout = SidebarCatalogSection().branchVerticalLayout.defaultValue
+    @AppStorage(SidebarCatalogSection().stackBranchDirectory.userDefaultsKey)
+    private var sidebarBranchDirectoryStacked = SidebarCatalogSection().stackBranchDirectory.defaultValue
+    @AppStorage(SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey)
+    private var sidebarPathLastSegmentOnly = SidebarCatalogSection().pathLastSegmentOnly.defaultValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
-    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -3024,7 +3080,7 @@ private struct SidebarDebugView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
@@ -3068,7 +3124,7 @@ private struct SidebarDebugView: View {
                         sidebarCornerRadius = 0.0
                     }
                     Button("Reset Active Indicator") {
-                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         sidebarSelectionColorHex = nil
                     }
                 }

@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 
+import CmuxFoundation
+import CmuxSettings
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -177,7 +180,9 @@ struct WorkspaceGroupTests {
 
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []
+        var visibleRowIds: [UUID] = []
         for item in items {
+            visibleRowIds.append(item.rowWorkspaceId)
             switch item {
             case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
                 groupMemberIds = memberWorkspaceIds
@@ -195,6 +200,11 @@ struct WorkspaceGroupTests {
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+        #expect(visibleRowIds == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[3],
+        ])
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
@@ -698,8 +708,10 @@ struct WorkspaceGroupTests {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
-        WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
-        defer { WorkspaceGroupAnchorCloseSettings.setSuppressed(false) }
+        let anchorCloseKey = SettingCatalog().workspaceGroups.anchorCloseSuppressed
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        settings.set(true, for: anchorCloseKey)
+        defer { settings.reset(anchorCloseKey) }
         let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
         let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
 

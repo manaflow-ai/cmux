@@ -28,6 +28,8 @@ public actor RenderWorkerClient {
     nonisolated let arguments: [String]
     /// Extra environment for the worker process (used by tests for fault injection).
     nonisolated let extraEnvironment: [String: String]
+    /// Optional cache key for owners that reuse a client only for one source.
+    public nonisolated let sourceKey: String?
     /// How long to wait for a scene ack before declaring the worker hung.
     nonisolated let ackTimeout: Duration
     /// Synchronously readable mirror of the live worker's context id, so a
@@ -56,17 +58,20 @@ public actor RenderWorkerClient {
     ///   - executableURL: The worker binary to run.
     ///   - arguments: Arguments for the worker process (the re-exec-self
     ///     factory passes the render-worker mode flag).
+    ///   - sourceKey: Optional owner-defined key for cache/substitution checks.
     ///   - ackTimeout: Deadline for a scene ack before the worker is treated
     ///     as hung and discarded. Defaults to 3 seconds.
     ///   - extraEnvironment: Additional environment for the worker process.
     public init(
         executableURL: URL,
         arguments: [String] = [],
+        sourceKey: String? = nil,
         ackTimeout: Duration = .seconds(3),
         environment extraEnvironment: [String: String] = [:]
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
+        self.sourceKey = sourceKey
         self.ackTimeout = ackTimeout
         self.extraEnvironment = extraEnvironment
     }

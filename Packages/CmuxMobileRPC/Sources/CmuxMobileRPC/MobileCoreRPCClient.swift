@@ -174,7 +174,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            requestNeedsAuth,
            hasAttachToken,
            requestIsCoveredByAttachTicket {
-            if ticket.expiresAt > runtime.now() {
+            // Expiry is enforced only here, where the RPC-minted attach token
+            // is actually used. QR-decoded tickets carry no token (and no
+            // expiry), so they never reach this branch.
+            if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
             } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
                 throw MobileShellConnectionError.attachTicketExpired
@@ -215,6 +218,21 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 )
             }
         }
+        // The status probe is deliberately unauthenticated (it must answer
+        // before the phone has anything to present), but the host reports its
+        // identity (`mac_device_id`, `mac_display_name`) only to a verified
+        // same-account caller, so attach the Stack token opportunistically
+        // when policy allows sending it on this route. Never fail the probe
+        // over a missing token: reachability and capabilities don't need one,
+        // and a QR-pairing connect (where the identity matters) is always
+        // signed in, so the token is present there.
+        if !requestNeedsAuth,
+           isHostStatusRequest(request),
+           allowsStackAuthFallback,
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           let stackAccessToken = try? await runtime.stackAccessTokenProvider() {
+            auth["stack_access_token"] = stackAccessToken
+        }
         if !auth.isEmpty {
             request["auth"] = auth
         }
@@ -229,9 +247,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let params = request["params"] as? [String: Any] ?? [:]
         let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
-            containsIgnoredAliasParameters(params) {
+            ticketCoverage.containsIgnoredAliasParameters(params) {
             return true
         }
 
@@ -240,13 +259,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create":
             return false
+        case "workspace.action", "workspace.close":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport":
-            return !ticketCoversTerminalRequest(
+            return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
@@ -264,33 +289,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // attach token yet (it mints the ticket), so requiring auth routes it through
         // the Stack Auth account token: a ticket can only be created by a signed-in user.
         return method != "mobile.host.status"
-    }
-
-    private static func ticketCoversTerminalRequest(
-        ticket: CmxAttachTicket,
-        workspaceSelection: String?,
-        terminalSelection: String?
-    ) -> Bool {
-        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Empty workspaceID means the ticket is Mac-wide (general pairing).
-        // It covers any workspace/terminal on the paired Mac.
-        if ticketWorkspaceID.isEmpty {
-            return true
-        }
-        if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
-            return false
-        }
-
-        if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !ticketTerminalID.isEmpty {
-            return terminalSelection == ticketTerminalID
-        }
-
-        return workspaceSelection == ticketWorkspaceID
-    }
-
-    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
-        params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
     private static func stringParamSelection(
@@ -358,3 +356,12 @@ extension MobileCoreRPCClient {
     }
 }
 #endif
+
+private extension MobileCoreRPCClient {
+    /// Whether `request` is the unauthenticated `mobile.host.status` probe, the
+    /// one verb whose reply may carry host identity for verified callers.
+    func isHostStatusRequest(_ request: [String: Any]) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return method == "mobile.host.status"
+    }
+}

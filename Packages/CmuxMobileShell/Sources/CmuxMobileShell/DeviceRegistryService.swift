@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxMobileShellModel
 public import Foundation
 import os
 
@@ -154,7 +155,119 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return Self.routes(forMacDeviceID: macDeviceID, in: data)
     }
 
+    public func listDevices() async -> DeviceRegistryListOutcome {
+        // No request could be built (no valid session/tokens): treat as a
+        // transient failure rather than an auth rejection, since this is the
+        // signed-out / not-yet-bootstrapped case, not the registry actively
+        // rejecting the caller's scope.
+        guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
+            return .transientFailure
+        }
+        let data: Data
+        do {
+            let (responseData, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .transientFailure
+            }
+            // An auth/scope rejection (401/403) must clear the cached team-scoped
+            // data; any other non-2xx (5xx, etc.) is transient and keeps it.
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return .authRejected
+            }
+            guard (200...299).contains(http.statusCode) else {
+                return .transientFailure
+            }
+            data = responseData
+        } catch {
+            deviceRegistryLog.debug("listDevices request failed: \(String(describing: error), privacy: .public)")
+            return .transientFailure
+        }
+        // A 2xx with an undecodable body is a server/contract glitch, not an auth
+        // rejection: keep the current tree rather than blanking it.
+        guard let devices = Self.parseDeviceList(in: data) else {
+            return .transientFailure
+        }
+        return .ok(devices)
+    }
+
     // MARK: - Parsing (pure, testable)
+
+    /// Decode the `/api/devices` list response into the full two-level device
+    /// tree (devices → app instances), for the device tree UI. Returns `nil` only
+    /// when the top-level envelope is undecodable; individual bad routes are
+    /// dropped (not fatal) so one malformed sibling can't blank the whole tree.
+    ///
+    /// Each route is decoded *failably* and individually (same forward-compat
+    /// contract as ``routes(forMacDeviceID:in:)``): a malformed or unknown-kind
+    /// route is skipped rather than failing its instance, so an old client stays
+    /// forward-compatible when a newer build advertises a route kind it cannot
+    /// decode. `lastSeenAt` is parsed leniently (ISO8601, with or without
+    /// fractional seconds), defaulting to ``Date/distantPast`` when absent so a
+    /// device still renders, just sorted oldest.
+    static func parseDeviceList(in data: Data) -> [RegistryDevice]? {
+        struct FailableRoute: Decodable {
+            let value: CmxAttachRoute?
+            init(from decoder: Decoder) throws {
+                value = try? CmxAttachRoute(from: decoder)
+            }
+        }
+        struct Instance: Decodable {
+            let tag: String?
+            let routes: [FailableRoute]?
+            let lastSeenAt: String?
+        }
+        struct Device: Decodable {
+            let deviceId: String
+            let platform: String?
+            let displayName: String?
+            let lastSeenAt: String?
+            let instances: [Instance]?
+        }
+        struct ListResponse: Decodable {
+            let devices: [Device]
+        }
+        guard let decoded = try? JSONDecoder().decode(ListResponse.self, from: data) else {
+            return nil
+        }
+        return decoded.devices.compactMap { device -> RegistryDevice? in
+            let deviceId = device.deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !deviceId.isEmpty else { return nil }
+            let instances = (device.instances ?? []).map { instance in
+                RegistryAppInstance(
+                    tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? instance.tag! : "default",
+                    routes: (instance.routes ?? []).compactMap(\.value),
+                    lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
+                )
+            }
+            return RegistryDevice(
+                deviceId: deviceId,
+                platform: device.platform?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? device.platform! : "mac",
+                displayName: device.displayName,
+                lastSeenAt: Self.parseTimestamp(device.lastSeenAt),
+                instances: instances
+            )
+        }
+    }
+
+    /// Lenient ISO8601 parse for the registry's `lastSeenAt` strings. The server
+    /// emits `Date.toISOString()` (always fractional seconds), but tolerate the
+    /// non-fractional form too. An absent/unparseable value yields
+    /// ``Date/distantPast`` so the device still renders rather than being dropped.
+    ///
+    /// The formatters are created per call rather than cached in a `static` so
+    /// this stays `Sendable`-clean under strict concurrency (`ISO8601DateFormatter`
+    /// is not `Sendable`). This runs once per `/api/devices` response, not on any
+    /// hot path, so the allocation is negligible.
+    static func parseTimestamp(_ value: String?) -> Date {
+        guard let value, !value.isEmpty else { return .distantPast }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: value) { return date }
+        if let date = ISO8601DateFormatter().date(from: value) { return date }
+        return .distantPast
+    }
 
     /// Decode the `/api/devices` list response and return the routes for the
     /// device whose id matches `macDeviceID`, preferring its most recently seen

@@ -24,6 +24,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Workspace
     case toggleSidebar
     case newTab
+    case newBrowserWorkspace
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
@@ -82,6 +83,23 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
+
+    // MARK: Canvas
+    case toggleCanvasLayout
+    case canvasRevealFocusedPane
+    case canvasOverview
+    case canvasZoomIn
+    case canvasZoomOut
+    case canvasZoomReset
+    case canvasTidy
+    case canvasAlignLeft
+    case canvasAlignRight
+    case canvasAlignTop
+    case canvasAlignBottom
+    case canvasEqualizeWidths
+    case canvasEqualizeHeights
+    case canvasDistributeHorizontally
+    case canvasDistributeVertically
 
     // MARK: Browser & Find
     case openDiffViewer
@@ -145,7 +163,7 @@ extension ShortcutAction {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
@@ -162,7 +180,12 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar:
+             .toggleRightSidebar,
+             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
@@ -277,6 +300,8 @@ extension ShortcutAction {
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
+        case .newBrowserWorkspace:
+            return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .openFolder: return "Open Folder"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
@@ -331,6 +356,36 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .toggleCanvasLayout:
+            return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+        case .canvasRevealFocusedPane:
+            return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
+        case .canvasOverview:
+            return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+        case .canvasZoomIn:
+            return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas: Zoom In")
+        case .canvasZoomOut:
+            return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas: Zoom Out")
+        case .canvasZoomReset:
+            return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas: Actual Size")
+        case .canvasTidy:
+            return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
+        case .canvasAlignLeft:
+            return String(localized: "shortcut.canvasAlignLeft.label", defaultValue: "Canvas: Align Left Edges")
+        case .canvasAlignRight:
+            return String(localized: "shortcut.canvasAlignRight.label", defaultValue: "Canvas: Align Right Edges")
+        case .canvasAlignTop:
+            return String(localized: "shortcut.canvasAlignTop.label", defaultValue: "Canvas: Align Top Edges")
+        case .canvasAlignBottom:
+            return String(localized: "shortcut.canvasAlignBottom.label", defaultValue: "Canvas: Align Bottom Edges")
+        case .canvasEqualizeWidths:
+            return String(localized: "shortcut.canvasEqualizeWidths.label", defaultValue: "Canvas: Equalize Widths")
+        case .canvasEqualizeHeights:
+            return String(localized: "shortcut.canvasEqualizeHeights.label", defaultValue: "Canvas: Equalize Heights")
+        case .canvasDistributeHorizontally:
+            return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
+        case .canvasDistributeVertically:
+            return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"
