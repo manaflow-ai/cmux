@@ -13752,7 +13752,6 @@ struct TabItemView: View, Equatable {
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
                     markdown: description,
-                    isActive: usesInvertedActiveForeground,
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
@@ -13786,7 +13785,6 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         fontScale: fontScale,
@@ -15210,7 +15208,6 @@ struct TabItemView: View, Equatable {
 
 private struct SidebarWorkspaceDescriptionText: View {
     let markdown: String
-    let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
 
@@ -15260,7 +15257,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        activeForegroundColor
     }
 
     private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
@@ -15303,7 +15300,7 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(activeSecondaryForegroundColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -15379,7 +15376,7 @@ private struct SidebarMetadataEntryRow: View {
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        return activeForegroundColor
     }
 
     private var iconView: AnyView? {
@@ -15429,7 +15426,6 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
-    let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
@@ -15443,7 +15439,6 @@ private struct SidebarMetadataMarkdownBlocks: View {
             ForEach(visibleBlocks, id: \.key) { block in
                 SidebarMetadataMarkdownBlockRow(
                     block: block,
-                    isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
                     fontScale: fontScale,
                     onFocus: onFocus
@@ -15459,7 +15454,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(activeSecondaryForegroundColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -15477,7 +15472,6 @@ private struct SidebarMetadataMarkdownBlocks: View {
 
 private struct SidebarMetadataMarkdownBlockRow: View {
     let block: SidebarMetadataBlock
-    let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
@@ -15506,7 +15500,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary
+        activeForegroundColor
     }
 }
 
