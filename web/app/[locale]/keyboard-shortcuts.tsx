@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
+import {
+  shortcutCategories,
+  shortcutSequences,
+  type LocalizedText,
+  type Shortcut,
+  type ShortcutSequence,
+} from "../../data/cmux-shortcuts";
 
 function localizedText(text: LocalizedText, locale: string) {
   return locale.startsWith("ja") ? text.ja : text.en;
@@ -14,6 +20,10 @@ function normalize(s: string) {
 
 function comboToText(combo: string[]) {
   return combo.join(" ");
+}
+
+function sequenceToText(sequence: ShortcutSequence, separator: string) {
+  return sequence.map(comboToText).join(` ${separator} `);
 }
 
 function KeyCombo({ combo }: { combo: string[] }) {
@@ -33,9 +43,35 @@ function KeyCombo({ combo }: { combo: string[] }) {
   );
 }
 
-function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string }) {
+function KeySequence({ sequence, separator }: { sequence: ShortcutSequence; separator: string }) {
+  return (
+    <span className="inline-flex items-center">
+      {sequence.map((combo, idx) => (
+        <span key={`stroke-${idx}`} className="inline-flex items-center">
+          {idx > 0 && (
+            <span className="text-muted/40 mx-2 select-none text-[11px]">
+              {separator}
+            </span>
+          )}
+          <KeyCombo combo={combo} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ShortcutRow({
+  shortcut,
+  locale,
+  sequenceSeparator,
+}: {
+  shortcut: Shortcut;
+  locale: string;
+  sequenceSeparator: string;
+}) {
   const description = localizedText(shortcut.description, locale);
   const note = shortcut.note ? localizedText(shortcut.note, locale) : undefined;
+  const sequences = shortcutSequences(shortcut);
 
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-[11px] transition-colors hover:bg-foreground/[0.025]">
@@ -44,14 +80,14 @@ function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string 
         {note && <span className="ml-2 text-[12px] text-muted/50">{note}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-3">
-        {shortcut.combos.map((combo, idx) => (
-          <span key={`${shortcut.id}-combo-${idx}`} className="inline-flex items-center">
+        {sequences.map((sequence, idx) => (
+          <span key={`${shortcut.id}-sequence-${idx}`} className="inline-flex items-center">
             {idx > 0 && (
               <span className="mr-3 select-none font-mono text-[11px] text-muted/30">
                 /
               </span>
             )}
-            <KeyCombo combo={combo} />
+            <KeySequence sequence={sequence} separator={sequenceSeparator} />
           </span>
         ))}
       </div>
@@ -63,6 +99,7 @@ export function KeyboardShortcuts() {
   const [query, setQuery] = useState("");
   const locale = useLocale();
   const t = useTranslations("docs.keyboardShortcuts");
+  const sequenceSeparator = t("sequenceSeparator");
 
   const trimmedQuery = query.trim();
 
@@ -75,11 +112,13 @@ export function KeyboardShortcuts() {
         const catTitle = t(`cat.${cat.titleKey}`);
         const description = localizedText(shortcut.description, locale);
         const note = shortcut.note ? localizedText(shortcut.note, locale) : "";
-        const combos = shortcut.combos.map(comboToText).join(" ");
+        const combos = shortcutSequences(shortcut)
+          .map((sequence) => sequenceToText(sequence, sequenceSeparator))
+          .join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),
     })).filter((cat) => cat.shortcuts.length > 0);
-  }, [locale, query, t]);
+  }, [locale, query, sequenceSeparator, t]);
 
   return (
     <div className="mb-12 mt-2">
@@ -148,7 +187,12 @@ export function KeyboardShortcuts() {
               <div className="overflow-hidden rounded-xl border border-border">
                 <div className="divide-y divide-border/60">
                   {cat.shortcuts.map((shortcut) => (
-                    <ShortcutRow key={shortcut.id} shortcut={shortcut} locale={locale} />
+                    <ShortcutRow
+                      key={shortcut.id}
+                      shortcut={shortcut}
+                      locale={locale}
+                      sequenceSeparator={sequenceSeparator}
+                    />
                   ))}
                 </div>
               </div>

@@ -912,6 +912,7 @@
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
+      "sequenceSeparator": "poi",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
       "searchPlaceholder": "Cerca scorciatoie...",
       "searchLabel": "Cerca scorciatoie da tastiera",

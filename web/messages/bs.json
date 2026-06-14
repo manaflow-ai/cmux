@@ -912,6 +912,7 @@
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
+      "sequenceSeparator": "zatim",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
       "searchPlaceholder": "Pretraži prečice...",
       "searchLabel": "Pretraži prečice na tastaturi",

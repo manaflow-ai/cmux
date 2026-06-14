@@ -29,6 +29,9 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
+/// Default keyboard-driven split resize distance in pixels.
+let splitResizeShortcutStepPixels: UInt16 = 120
+
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
@@ -3752,13 +3755,28 @@ class TabManager: ObservableObject {
             return false
         }
 
-        return paneLayout.resizeSplit(
+        let didResize = paneLayout.resizeSplit(
             in: tab.bonsplitController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             direction: direction,
             amountPixels: amount,
             controller: tab.bonsplitController
         )
+        if didResize {
+            tab.didProgrammaticallyChangeSplitGeometry()
+        }
+        return didResize
+    }
+
+    /// Resize the currently focused split edge in the selected workspace.
+    @discardableResult
+    func resizeFocusedSplit(
+        direction: ResizeDirection,
+        amount: UInt16 = splitResizeShortcutStepPixels
+    ) -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return resizeSplit(tabId: tab.id, surfaceId: focusedPanelId, direction: direction, amount: amount)
     }
 
     /// Toggle zoom on a panel.

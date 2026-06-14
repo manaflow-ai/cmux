@@ -2,131 +2,149 @@ import Foundation
 
 extension ShortcutAction {
     /// The factory-default shortcut for this action, including two-stroke chords.
+    ///
+    /// Mirrors the table in `Sources/KeyboardShortcutSettings.swift` so the package's
+    /// settings UI can show built-in bindings next to unbound rows and reset through
+    /// the JSON store without losing chorded defaults.
     public var defaultShortcut: StoredShortcut? {
         switch self {
+        case .openSettings: return Self.shortcut(key: ",", command: true)
+        case .reloadConfiguration: return Self.shortcut(key: ",", command: true, shift: true)
+        case .showHideAllWindows: return Self.shortcut(key: ".", command: true, option: true, control: true)
+        case .globalSearch: return Self.shortcut(key: "f", command: true, option: true)
+        case .newWindow: return Self.shortcut(key: "n", command: true, shift: true)
+        case .closeWindow: return Self.shortcut(key: "w", command: true, control: true)
+        case .toggleFullScreen: return Self.shortcut(key: "f", command: true, control: true)
+        case .quit: return Self.shortcut(key: "q", command: true)
+        case .toggleSidebar: return Self.shortcut(key: "b", command: true)
+        case .newTab: return Self.shortcut(key: "n", command: true)
+        case .newBrowserWorkspace: return Self.shortcut(key: "n", command: true, option: true)
+        case .openFolder: return Self.shortcut(key: "o", command: true)
+        case .reopenPreviousSession: return Self.shortcut(key: "o", command: true, shift: true)
+        case .goToWorkspace: return Self.shortcut(key: "p", command: true)
+        case .commandPalette: return Self.shortcut(key: "p", command: true, shift: true)
+        case .commandPaletteNext: return Self.shortcut(key: "n", control: true)
+        case .commandPalettePrevious: return Self.shortcut(key: "p", control: true)
+        case .sendFeedback: return nil
+        case .showNotifications: return Self.shortcut(key: "i", command: true)
+        case .jumpToUnread: return Self.shortcut(key: "u", command: true, shift: true)
+        case .toggleUnread: return Self.shortcut(key: "u", command: true, option: true)
+        case .markOldestUnreadAndJumpNext: return Self.shortcut(key: "u", command: true, control: true)
+        case .focusRightSidebar: return Self.shortcut(key: "e", command: true, shift: true)
+        case .switchRightSidebarToFiles: return Self.shortcut(key: "1", control: true)
+        case .switchRightSidebarToFind: return Self.shortcut(key: "2", control: true)
+        case .switchRightSidebarToSessions: return Self.shortcut(key: "3", control: true)
+        case .switchRightSidebarToFeed: return Self.shortcut(key: "4", control: true)
+        case .switchRightSidebarToDock: return Self.shortcut(key: "5", control: true)
+        case .triggerFlash: return Self.shortcut(key: "h", command: true, shift: true)
+        case .nextSidebarTab: return Self.shortcut(key: "]", command: true, control: true)
+        case .prevSidebarTab: return Self.shortcut(key: "[", command: true, control: true)
+        case .focusHistoryBack: return Self.shortcut(key: "[", command: true)
+        case .focusHistoryForward: return Self.shortcut(key: "]", command: true)
+        case .renameTab: return Self.shortcut(key: "r", command: true)
+        case .renameWorkspace: return Self.shortcut(key: "r", command: true, shift: true)
+        case .editWorkspaceDescription: return Self.shortcut(key: "e", command: true, option: true)
+        case .closeTab: return Self.shortcut(key: "w", command: true)
+        case .closeOtherTabsInPane: return Self.shortcut(key: "t", command: true, option: true)
+        case .closeWorkspace: return Self.shortcut(key: "w", command: true, shift: true)
+        case .groupSelectedWorkspaces: return Self.shortcut(key: "g", command: true, shift: true)
+        case .toggleFocusedWorkspaceGroupCollapsed: return Self.shortcut(key: ".", command: true, control: true)
+        case .reopenClosedBrowserPanel: return Self.shortcut(key: "t", command: true, shift: true)
+        case .focusLeft: return Self.shortcut(key: "←", command: true, option: true)
+        case .focusRight: return Self.shortcut(key: "→", command: true, option: true)
+        case .focusUp: return Self.shortcut(key: "↑", command: true, option: true)
+        case .focusDown: return Self.shortcut(key: "↓", command: true, option: true)
+        case .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown:
+            return nil
+        case .splitRight: return Self.shortcut(key: "d", command: true)
+        case .splitDown: return Self.shortcut(key: "d", command: true, shift: true)
+        case .toggleSplitZoom: return Self.shortcut(key: "\r", command: true, shift: true)
+        case .equalizeSplits: return Self.shortcut(key: "=", command: true, control: true)
+        case .splitBrowserRight: return Self.shortcut(key: "d", command: true, option: true)
+        case .splitBrowserDown: return Self.shortcut(key: "d", command: true, shift: true, option: true)
+        case .toggleCanvasLayout: return Self.shortcut(key: "c", command: true, control: true)
+        case .canvasRevealFocusedPane: return Self.shortcut(key: "r", command: true, control: true)
+        case .canvasOverview: return Self.shortcut(key: "o", command: true, control: true)
+        case .canvasZoomIn: return Self.shortcut(key: "=", command: true, option: true)
+        case .canvasZoomOut: return Self.shortcut(key: "-", command: true, option: true)
+        case .canvasZoomReset: return Self.shortcut(key: "0", command: true, option: true)
+        case .canvasTidy: return Self.shortcut(key: "t", command: true, control: true)
+        case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return nil
+        case .nextSurface: return Self.shortcut(key: "]", command: true, shift: true)
+        case .prevSurface: return Self.shortcut(key: "[", command: true, shift: true)
+        case .selectSurfaceByNumber: return Self.shortcut(key: "1", control: true)
+        case .selectWorkspaceByNumber: return Self.shortcut(key: "1", command: true)
+        case .newSurface: return Self.shortcut(key: "t", command: true)
+        case .toggleTerminalCopyMode: return Self.shortcut(key: "m", command: true, shift: true)
+        case .focusTextBoxInput: return Self.shortcut(key: "a", command: true, shift: true)
+        case .attachTextBoxFile: return Self.shortcut(key: "a", command: true, shift: true, option: true)
+        case .sendCtrlFToTerminal: return nil
+        case .toggleRightSidebar: return Self.shortcut(key: "b", command: true, option: true)
+        case .openDiffViewer: return Self.shortcut(key: "d", command: true, shift: true, control: true)
+        case .saveFilePreview: return Self.shortcut(key: "s", command: true)
+        case .openBrowser: return Self.shortcut(key: "l", command: true, shift: true)
+        case .focusBrowserAddressBar: return Self.shortcut(key: "l", command: true)
+        case .browserBack: return Self.shortcut(key: "[", command: true)
+        case .browserForward: return Self.shortcut(key: "]", command: true)
+        case .browserReload: return Self.shortcut(key: "r", command: true)
+        case .browserZoomIn: return Self.shortcut(key: "=", command: true)
+        case .browserZoomOut: return Self.shortcut(key: "-", command: true)
+        case .browserZoomReset: return Self.shortcut(key: "0", command: true)
+        case .markdownZoomIn: return Self.shortcut(key: "=", command: true)
+        case .markdownZoomOut: return Self.shortcut(key: "-", command: true)
+        case .markdownZoomReset: return Self.shortcut(key: "0", command: true)
+        case .find: return Self.shortcut(key: "f", command: true)
+        case .findInDirectory: return Self.shortcut(key: "f", command: true, shift: true)
+        case .findNext: return Self.shortcut(key: "g", command: true)
+        case .findPrevious: return Self.shortcut(key: "g", command: true, option: true)
+        case .hideFind: return Self.shortcut(key: "f", command: true, shift: true, option: true)
+        case .useSelectionForFind: return Self.shortcut(key: "e", command: true)
+        case .toggleBrowserDeveloperTools: return Self.shortcut(key: "i", command: true, option: true)
+        case .showBrowserJavaScriptConsole: return Self.shortcut(key: "c", command: true, option: true)
+        case .toggleBrowserFocusMode: return Self.shortcut(key: "\r", command: true, option: true)
+        case .toggleReactGrab: return Self.shortcut(key: "g", command: true, shift: true)
+        case .diffViewerScrollDown: return Self.shortcut(key: "j")
+        case .diffViewerScrollUp: return Self.shortcut(key: "k")
+        case .diffViewerScrollToBottom: return Self.shortcut(key: "g", shift: true)
         case .diffViewerScrollToTop:
             return StoredShortcut(
                 first: ShortcutStroke(key: "g"),
                 second: ShortcutStroke(key: "g")
             )
-        default:
-            return defaultStroke.map { StoredShortcut(first: $0) }
+        case .diffViewerOpenFileSearch: return Self.shortcut(key: "/")
         }
     }
 
-    /// The factory-default ``ShortcutStroke`` for this action.
+    /// The factory-default first stroke for single-stroke shortcuts.
     ///
-    /// Mirrors the table in
-    /// `Sources/KeyboardShortcutSettings.swift` so the package's
-    /// settings UI can show "(default: ⌘N)" instead of "(default)"
-    /// next to unbound rows, and so the Reset action in the Settings
-    /// UI can restore a row by writing the default stroke through
-    /// the JSON store.
+    /// Chorded defaults return `nil`; use ``defaultShortcut`` when callers
+    /// need to preserve the whole binding.
     public var defaultStroke: ShortcutStroke? {
-        switch self {
-        case .openSettings: return ShortcutStroke(key: ",", command: true)
-        case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
-        case .showHideAllWindows: return ShortcutStroke(key: ".", command: true, option: true, control: true)
-        case .globalSearch: return ShortcutStroke(key: "f", command: true, option: true)
-        case .newWindow: return ShortcutStroke(key: "n", command: true, shift: true)
-        case .closeWindow: return ShortcutStroke(key: "w", command: true, control: true)
-        case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)
-        case .quit: return ShortcutStroke(key: "q", command: true)
-        case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
-        case .newTab: return ShortcutStroke(key: "n", command: true)
-        case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
-        case .openFolder: return ShortcutStroke(key: "o", command: true)
-        case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
-        case .goToWorkspace: return ShortcutStroke(key: "p", command: true)
-        case .commandPalette: return ShortcutStroke(key: "p", command: true, shift: true)
-        case .commandPaletteNext: return ShortcutStroke(key: "n", control: true)
-        case .commandPalettePrevious: return ShortcutStroke(key: "p", control: true)
-        case .sendFeedback: return nil
-        case .showNotifications: return ShortcutStroke(key: "i", command: true)
-        case .jumpToUnread: return ShortcutStroke(key: "u", command: true, shift: true)
-        case .toggleUnread: return ShortcutStroke(key: "u", command: true, option: true)
-        case .markOldestUnreadAndJumpNext: return ShortcutStroke(key: "u", command: true, control: true)
-        case .focusRightSidebar: return ShortcutStroke(key: "e", command: true, shift: true)
-        case .switchRightSidebarToFiles: return ShortcutStroke(key: "1", control: true)
-        case .switchRightSidebarToFind: return ShortcutStroke(key: "2", control: true)
-        case .switchRightSidebarToSessions: return ShortcutStroke(key: "3", control: true)
-        case .switchRightSidebarToFeed: return ShortcutStroke(key: "4", control: true)
-        case .switchRightSidebarToDock: return ShortcutStroke(key: "5", control: true)
-        case .triggerFlash: return ShortcutStroke(key: "h", command: true, shift: true)
-        case .nextSidebarTab: return ShortcutStroke(key: "]", command: true, control: true)
-        case .prevSidebarTab: return ShortcutStroke(key: "[", command: true, control: true)
-        case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
-        case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
-        case .renameTab: return ShortcutStroke(key: "r", command: true)
-        case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
-        case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
-        case .closeTab: return ShortcutStroke(key: "w", command: true)
-        case .closeOtherTabsInPane: return ShortcutStroke(key: "t", command: true, option: true)
-        case .closeWorkspace: return ShortcutStroke(key: "w", command: true, shift: true)
-        case .groupSelectedWorkspaces: return ShortcutStroke(key: "g", command: true, shift: true)
-        case .toggleFocusedWorkspaceGroupCollapsed: return ShortcutStroke(key: ".", command: true, control: true)
-        case .reopenClosedBrowserPanel: return ShortcutStroke(key: "t", command: true, shift: true)
-        case .focusLeft: return ShortcutStroke(key: "←", command: true, option: true)
-        case .focusRight: return ShortcutStroke(key: "→", command: true, option: true)
-        case .focusUp: return ShortcutStroke(key: "↑", command: true, option: true)
-        case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
-        case .splitRight: return ShortcutStroke(key: "d", command: true)
-        case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
-        case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)
-        case .equalizeSplits: return ShortcutStroke(key: "=", command: true, control: true)
-        case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
-        case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
-        case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
-        case .canvasRevealFocusedPane: return ShortcutStroke(key: "r", command: true, control: true)
-        case .canvasOverview: return ShortcutStroke(key: "o", command: true, control: true)
-        case .canvasZoomIn: return ShortcutStroke(key: "=", command: true, option: true)
-        case .canvasZoomOut: return ShortcutStroke(key: "-", command: true, option: true)
-        case .canvasZoomReset: return ShortcutStroke(key: "0", command: true, option: true)
-        case .canvasTidy: return ShortcutStroke(key: "t", command: true, control: true)
-        case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
-             .canvasEqualizeWidths, .canvasEqualizeHeights,
-             .canvasDistributeHorizontally, .canvasDistributeVertically:
-            // Unbound by default; reachable through the command palette and
-            // the canvas.* socket verbs.
+        guard let shortcut = defaultShortcut, shortcut.second == nil else {
             return nil
-        case .nextSurface: return ShortcutStroke(key: "]", command: true, shift: true)
-        case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
-        case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
-        case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
-        case .newSurface: return ShortcutStroke(key: "t", command: true)
-        case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
-        case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
-        case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
-        case .sendCtrlFToTerminal: return nil
-        case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
-        case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
-        case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
-        case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
-        case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)
-        case .browserBack: return ShortcutStroke(key: "[", command: true)
-        case .browserForward: return ShortcutStroke(key: "]", command: true)
-        case .browserReload: return ShortcutStroke(key: "r", command: true)
-        case .browserZoomIn: return ShortcutStroke(key: "=", command: true)
-        case .browserZoomOut: return ShortcutStroke(key: "-", command: true)
-        case .browserZoomReset: return ShortcutStroke(key: "0", command: true)
-        case .markdownZoomIn: return ShortcutStroke(key: "=", command: true)
-        case .markdownZoomOut: return ShortcutStroke(key: "-", command: true)
-        case .markdownZoomReset: return ShortcutStroke(key: "0", command: true)
-        case .find: return ShortcutStroke(key: "f", command: true)
-        case .findInDirectory: return ShortcutStroke(key: "f", command: true, shift: true)
-        case .findNext: return ShortcutStroke(key: "g", command: true)
-        case .findPrevious: return ShortcutStroke(key: "g", command: true, option: true)
-        case .hideFind: return ShortcutStroke(key: "f", command: true, shift: true, option: true)
-        case .useSelectionForFind: return ShortcutStroke(key: "e", command: true)
-        case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
-        case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
-        case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
-        case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
-        case .diffViewerScrollDown: return ShortcutStroke(key: "j")
-        case .diffViewerScrollUp: return ShortcutStroke(key: "k")
-        case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
-        case .diffViewerScrollToTop: return nil
-        case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
         }
+        return shortcut.first
     }
+
+    private static func shortcut(
+        key: String,
+        command: Bool = false,
+        shift: Bool = false,
+        option: Bool = false,
+        control: Bool = false
+    ) -> StoredShortcut {
+        StoredShortcut(
+            first: ShortcutStroke(
+                key: key,
+                command: command,
+                shift: shift,
+                option: option,
+                control: control
+            )
+        )
+    }
+
 }

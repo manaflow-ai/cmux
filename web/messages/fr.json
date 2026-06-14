@@ -912,6 +912,7 @@
     "keyboardShortcuts": {
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
+      "sequenceSeparator": "puis",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",
       "searchPlaceholder": "Rechercher des raccourcis...",
       "searchLabel": "Rechercher les raccourcis clavier",

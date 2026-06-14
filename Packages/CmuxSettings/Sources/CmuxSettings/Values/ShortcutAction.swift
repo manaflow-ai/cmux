@@ -76,6 +76,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusRight
     case focusUp
     case focusDown
+    case resizeSplitLeft
+    case resizeSplitRight
+    case resizeSplitUp
+    case resizeSplitDown
     case splitRight
     case splitDown
     case toggleSplitZoom
@@ -178,9 +182,10 @@ extension ShortcutAction {
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
             return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar,
+        case .focusLeft, .focusRight, .focusUp, .focusDown,
+             .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown,
+             .splitRight, .splitDown, .toggleSplitZoom, .equalizeSplits,
+             .splitBrowserRight, .splitBrowserDown, .toggleRightSidebar,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
@@ -349,6 +354,10 @@ extension ShortcutAction {
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
         case .focusDown: return "Focus Pane Down"
+        case .resizeSplitLeft: return String(localized: "shortcut.resizeSplitLeft.label", defaultValue: "Resize Split Left")
+        case .resizeSplitRight: return String(localized: "shortcut.resizeSplitRight.label", defaultValue: "Resize Split Right")
+        case .resizeSplitUp: return String(localized: "shortcut.resizeSplitUp.label", defaultValue: "Resize Split Up")
+        case .resizeSplitDown: return String(localized: "shortcut.resizeSplitDown.label", defaultValue: "Resize Split Down")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"

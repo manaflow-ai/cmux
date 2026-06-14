@@ -912,6 +912,7 @@
     "keyboardShortcuts": {
       "title": "Atajos de teclado",
       "description": "Todos los atajos de teclado disponibles en cmux, agrupados por categoría.",
+      "sequenceSeparator": "luego",
       "metaDescription": "Todos los atajos de teclado de cmux para workspaces, superficies, paneles divididos, navegador, notificaciones, búsqueda y gestión de ventanas en macOS.",
       "searchPlaceholder": "Buscar atajos...",
       "searchLabel": "Buscar atajos de teclado",

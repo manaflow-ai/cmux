@@ -9,10 +9,10 @@ import Testing
 // interpolated into remote shell, and must strip internal markers from the
 // stdout used in user-facing error detail.
 //
-// `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
-// suite shares the process-global fd table and is not parallel-safe, matching
-// RemoteSessionProcessRunnerTests.
-@Suite("RemotePlatformProbeScript", .serialized)
+// Nested under `RemoteSessionProcessTestIsolation` so probe script pipe captures
+// do not overlap with the fd-closing process-runner regression suite.
+extension RemoteSessionProcessTestIsolation {
+@Suite("RemotePlatformProbeScript")
 struct RemotePlatformProbeScriptTests {
     private struct ProcessResult {
         let status: Int32
@@ -211,4 +211,5 @@ struct RemotePlatformProbeScriptTests {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+}
 }

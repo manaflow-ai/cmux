@@ -128,7 +128,7 @@ public struct GlobalHotkeySection: View {
 
     private var currentShortcut: StoredShortcut? {
         if let override = bindings[hotkeyAction.rawValue] { return override }
-        return hotkeyAction.defaultStroke.map { StoredShortcut(first: $0) }
+        return hotkeyAction.defaultShortcut
     }
 
     private func placeholderText(for shortcut: StoredShortcut?) -> String {

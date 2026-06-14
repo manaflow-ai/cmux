@@ -912,6 +912,7 @@
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
+      "sequenceSeparator": "derefter",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
       "searchPlaceholder": "Søg efter genveje...",
       "searchLabel": "Søg i tastaturgenveje",
