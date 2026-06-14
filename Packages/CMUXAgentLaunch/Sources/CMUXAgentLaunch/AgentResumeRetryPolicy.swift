@@ -3,8 +3,9 @@ import Foundation
 /// Describes when an agent resume command should be retried after a transient startup failure.
 ///
 /// The policy is intentionally narrow: callers opt in for known retryable agents, and shell
-/// launchers only retry failures that exit inside a short startup window. Callers that already have
-/// failed process output can use ``matches(output:)`` to check the same known retryable signatures.
+/// launchers only retry fast failures whose bounded startup capture contains one of
+/// ``outputNeedles``. Callers that already have failed process output can use ``matches(output:)``
+/// to check the same known retryable signatures.
 public struct AgentResumeRetryPolicy: Sendable, Equatable {
     /// The maximum number of retries after the first failed launch attempt.
     public let maximumRetries: Int
@@ -87,11 +88,30 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
         return outputNeedles.contains { lowercasedOutput.contains($0.lowercased()) }
     }
 
+    var shellGrepPattern: String {
+        outputNeedles
+            .filter { !$0.isEmpty }
+            .map(Self.extendedGrepEscaped)
+            .joined(separator: "|")
+    }
+
     private static func normalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed.lowercased()
+    }
+
+    private static func extendedGrepEscaped(_ value: String) -> String {
+        let specialCharacters = #"[]\.^$*+?{}()|"#
+        var result = ""
+        for character in value {
+            if specialCharacters.contains(character) {
+                result.append("\\")
+            }
+            result.append(character)
+        }
+        return result
     }
 }

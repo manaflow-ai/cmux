@@ -71,6 +71,7 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
 
     private func retryingCommandLines(command: String, retryPolicy: AgentResumeRetryPolicy) -> [String] {
         let quotedCommand = quoting.singleQuoted(command)
+        let quotedPattern = quoting.singleQuoted(retryPolicy.shellGrepPattern)
         let retryCount = max(0, retryPolicy.maximumRetries)
         let retryDelay = String(format: "%.3f", max(0, retryPolicy.delaySeconds))
         let retryStartupSeconds = max(0, retryPolicy.startupFailureWindowSeconds)
@@ -89,26 +90,40 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"  ''|*[!0-9]*) _cmux_resume_retry_startup_seconds=\#(retryStartupSeconds) ;;"#,
             #"esac"#,
             #"_cmux_resume_retry=0"#,
+            #"_cmux_resume_log="""#,
+            #"_cmux_resume_cleanup_log() {"#,
+            #"  if [ -n "$_cmux_resume_log" ]; then"#,
+            #"    rm -f -- "$_cmux_resume_log" 2>/dev/null || true"#,
+            #"  fi"#,
+            #"}"#,
+            #"_cmux_resume_capture_log() {"#,
+            #"  /bin/dd bs=4096 count=1 of="$1" 2>/dev/null"#,
+            #"  /bin/cat >/dev/null"#,
+            #"}"#,
+            #"trap _cmux_resume_cleanup_log EXIT INT TERM"#,
             #"while true; do"#,
+            #"  _cmux_resume_log="${TMPDIR:-/tmp}/cmux-agent-resume-${$}-${_cmux_resume_retry}.log""#,
+            #"  rm -f -- "$_cmux_resume_log" 2>/dev/null || true"#,
+            #"  : > "$_cmux_resume_log" 2>/dev/null && chmod 600 "$_cmux_resume_log" 2>/dev/null || true"#,
             #"  _cmux_resume_started_at=$(/bin/date +%s 2>/dev/null || echo 0)"#,
             #"  case "${_cmux_resume_shell:t}" in"#,
             #"    zsh|bash)"#,
             #"      if [ -x /usr/bin/script ]; then"#,
-            #"        /usr/bin/script -q -F /dev/null "$_cmux_resume_shell" -lic "$_cmux_resume_command""#,
+            #"        /usr/bin/script -q -F >(_cmux_resume_capture_log "$_cmux_resume_log") "$_cmux_resume_shell" -lic "$_cmux_resume_command""#,
             #"      else"#,
             #"        "$_cmux_resume_shell" -lic "$_cmux_resume_command""#,
             #"      fi"#,
             #"      ;;"#,
             #"    csh|tcsh)"#,
             #"      if [ -x /usr/bin/script ]; then"#,
-            #"        /usr/bin/script -q -F /dev/null "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
+            #"        /usr/bin/script -q -F >(_cmux_resume_capture_log "$_cmux_resume_log") "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
             #"      else"#,
             #"        "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
             #"      fi"#,
             #"      ;;"#,
             #"    *)"#,
             #"      if [ -x /usr/bin/script ]; then"#,
-            #"        /usr/bin/script -q -F /dev/null "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
+            #"        /usr/bin/script -q -F >(_cmux_resume_capture_log "$_cmux_resume_log") "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
             #"      else"#,
             #"        "$_cmux_resume_shell" -c "$_cmux_resume_command""#,
             #"      fi"#,
@@ -126,6 +141,9 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"  if [ "$_cmux_resume_elapsed" -gt "$_cmux_resume_retry_startup_seconds" ]; then"#,
             #"    break"#,
             #"  fi"#,
+            #"  if ! /usr/bin/grep -Eiq \#(quotedPattern) "$_cmux_resume_log" 2>/dev/null; then"#,
+            #"    break"#,
+            #"  fi"#,
             #"  if [ "$_cmux_resume_retry" -ge "$_cmux_resume_retry_limit" ]; then"#,
             #"    break"#,
             #"  fi"#,
@@ -138,6 +156,8 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"    fi"#,
             #"  fi"#,
             #"done"#,
+            #"_cmux_resume_cleanup_log"#,
+            #"trap - EXIT INT TERM"#,
         ]
     }
 }

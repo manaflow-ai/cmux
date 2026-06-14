@@ -29,9 +29,11 @@ struct AgentResumeShellScriptBuilderTests {
         #expect(script.contains(#"_cmux_resume_retry_limit="${CMUX_AGENT_RESUME_RETRY_LIMIT:-3}""#))
         #expect(script.contains(#"_cmux_resume_retry_delay="${CMUX_AGENT_RESUME_RETRY_DELAY_SECONDS:-0.250}""#))
         #expect(script.contains(#"_cmux_resume_retry_startup_seconds="${CMUX_AGENT_RESUME_RETRY_STARTUP_SECONDS:-5}""#))
-        #expect(script.contains(#"/usr/bin/script -q -F /dev/null"#))
+        #expect(script.contains(#"/bin/dd bs=4096 count=1 of="$1" 2>/dev/null"#))
+        #expect(script.contains(#"/usr/bin/script -q -F >(_cmux_resume_capture_log "$_cmux_resume_log")"#))
         #expect(script.contains(#"if [ "$_cmux_resume_elapsed" -gt "$_cmux_resume_retry_startup_seconds" ]; then"#))
-        #expect(!script.contains("_cmux_resume_log"))
+        #expect(script.contains("database is locked|another Codex process is using its local data"))
+        #expect(!script.contains(#"-F "$_cmux_resume_log""#))
         #expect(script.contains(#"if [ "$_cmux_resume_retry" -ge "$_cmux_resume_retry_limit" ]; then"#))
         #expect(lines.contains(#"{ cd -- '/tmp/project' 2>/dev/null || true; }"#))
     }
@@ -47,6 +49,20 @@ struct AgentResumeShellScriptBuilderTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(try harness.attemptCount() == 2)
         #expect(result.stdout.contains("resume-ok attempt=2"))
+        #expect(try harness.fallbackWorkingDirectory() == harness.workingDirectory.path)
+    }
+
+    @Test("Generated Codex retry launcher does not retry fast non-matching failures")
+    func generatedRetryLauncherDoesNotRetryNonMatchingFailure() throws {
+        let harness = try RetryLauncherHarness.make()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+
+        try harness.writeFakeCodex(succeedOnAttempt: nil, retryableFailure: false)
+        let result = try harness.runLauncher()
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try harness.attemptCount() == 1)
+        #expect(!result.stdout.contains("resume-ok"))
         #expect(try harness.fallbackWorkingDirectory() == harness.workingDirectory.path)
     }
 
@@ -107,7 +123,7 @@ private struct RetryLauncherHarness {
         return harness
     }
 
-    func writeFakeCodex(succeedOnAttempt: Int?) throws {
+    func writeFakeCodex(succeedOnAttempt: Int?, retryableFailure: Bool = true) throws {
         let successCondition: String
         if let succeedOnAttempt {
             successCondition = #"""
@@ -119,6 +135,15 @@ fi
         } else {
             successCondition = ""
         }
+        let failureLines = retryableFailure
+            ? #"""
+echo "Codex couldn't start because another Codex process is using its local data." >&2
+echo "Location: ${HOME}/.codex/state_5.sqlite" >&2
+echo "Cause: failed to initialize state runtime: error returned from database: (code: 5) database is locked" >&2
+"""#
+            : #"""
+echo "permission denied" >&2
+"""#
 
         let script = #"""
 #!/bin/sh
@@ -130,9 +155,7 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" > "$count_file"
 \#(successCondition)
-echo "Codex couldn't start because another Codex process is using its local data." >&2
-echo "Location: ${HOME}/.codex/state_5.sqlite" >&2
-echo "Cause: failed to initialize state runtime: error returned from database: (code: 5) database is locked" >&2
+\#(failureLines)
 exit 1
 """#
         try script.write(to: codexURL, atomically: true, encoding: .utf8)
