@@ -39,6 +39,78 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesSSHURLWithTeleportTransport() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "node"),
+            URLQueryItem(name: "user", value: "admin"),
+            URLQueryItem(name: "via", value: "tsh")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.transport, .teleport)
+            XCTAssertEqual(request.cliArguments, ["ssh", "--via", "tsh", "admin@node"])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testDefaultsToOpenSSHTransportWithoutVia() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [URLQueryItem(name: "host", value: "node")]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.transport, .openssh)
+            XCTAssertFalse(request.cliArguments.contains("--via"))
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesStandardSSHURLWithTeleportTransport() throws {
+        let url = try XCTUnwrap(URL(string: "ssh://admin@node?via=tsh"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.transport, .teleport)
+            XCTAssertEqual(request.cliArguments, ["ssh", "--via", "tsh", "admin@node"])
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsInvalidTransport() throws {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = "ssh"
+        components.queryItems = [
+            URLQueryItem(name: "host", value: "node"),
+            URLQueryItem(name: "via", value: "mosh")
+        ]
+        let url = try XCTUnwrap(components.url)
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success:
+            XCTFail("Expected invalid transport to be rejected")
+        case .failure(let error):
+            XCTAssertEqual(error, .invalidTransport("via"))
+        }
+    }
+
     func testParsesSSHURLWithAllowedConnectionKnobs() throws {
         var components = URLComponents()
         components.scheme = supportedScheme

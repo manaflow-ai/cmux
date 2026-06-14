@@ -50,6 +50,7 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
           <tr><td><code>-p, --port</code></td><td>{t("flagPort")}</td></tr>
           <tr><td><code>-i, --identity</code></td><td>{t("flagIdentity")}</td></tr>
           <tr><td><code>-o, --ssh-option</code></td><td>{t("flagSshOption")}</td></tr>
+          <tr><td><code>--via &lt;ssh|tsh&gt;</code></td><td>{t("flagVia")}</td></tr>
           <tr><td><code>--no-focus</code></td><td>{t("flagNoFocus")}</td></tr>
         </tbody>
       </table>
@@ -92,6 +93,7 @@ const href = "https://cmux.com/deeplink/ssh?" + params.toString();`}</CodeBlock>
           <tr><td><code>server-alive-interval</code></td><td>{t("deepLinkServerAliveInterval")}</td></tr>
           <tr><td><code>server-alive-count-max</code></td><td>{t("deepLinkServerAliveCountMax")}</td></tr>
           <tr><td><code>host-key-policy</code></td><td>{t("deepLinkHostKeyPolicy")}</td></tr>
+          <tr><td><code>via</code></td><td>{t("deepLinkVia")}</td></tr>
           <tr><td><code>no-focus</code></td><td>{t("deepLinkNoFocus")}</td></tr>
         </tbody>
       </table>
