@@ -59,18 +59,6 @@ extension KeyboardShortcutSettings {
         configuredShortcutIfPresent(for: action).exists
     }
 
-    static func inheritsLegacySurfaceSelectionConfiguration(for action: Action) -> Bool {
-        guard action.surfaceSelectionDigit != nil else { return false }
-        if configuredShortcutIfPresent(for: action).exists {
-            return false
-        }
-        return legacySurfaceSelectionShortcutIfPresent(for: action).exists
-    }
-
-    static func effectiveWhenClauseAction(for action: Action) -> Action {
-        inheritsLegacySurfaceSelectionConfiguration(for: action) ? .selectSurfaceByNumber : action
-    }
-
     static func menuShortcut(for action: Action) -> StoredShortcut {
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
               !RecorderHostButton.isActivelyRecording else {
@@ -109,8 +97,20 @@ extension KeyboardShortcutSettings {
     /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a
     /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
     /// detection so the same keystroke can be context-routed.
+    ///
+    /// A per-surface action (`selectSurface1…9`) with no `when` override of its
+    /// own inherits a legacy `shortcuts.when.selectSurfaceByNumber` override, so a
+    /// user who scoped only the legacy family keeps that predicate after the split
+    /// into per-surface actions — regardless of whether they also rebound the keys.
     static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
-        settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
+        if let clause = settingsFileStore.whenClause(for: action) {
+            return clause
+        }
+        if action.surfaceSelectionDigit != nil,
+           let legacyClause = settingsFileStore.whenClause(for: .selectSurfaceByNumber) {
+            return legacyClause
+        }
+        return action.shortcutContext.defaultWhenClause
     }
 
     /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.
