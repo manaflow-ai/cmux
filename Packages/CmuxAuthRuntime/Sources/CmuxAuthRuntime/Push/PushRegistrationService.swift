@@ -85,6 +85,28 @@ public actor PushRegistrationService: PushRegistering {
         await sendDelete(tokenHex: hex)
     }
 
+    /// Delete the device token from the server at sign-out, authenticating
+    /// with the credentials captured before the local-first clear destroyed
+    /// the live session.
+    ///
+    /// - Parameters:
+    ///   - accessToken: The captured (or teardown-minted) access token.
+    ///   - refreshToken: The captured refresh token.
+    public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
+        guard let hex = cachedTokenHex else { return }
+        // Sign-out path: never fall back to the live token provider. The
+        // local-first sign-out cleared it, and a sign-in racing the bounded
+        // teardown can repopulate it with the NEXT account's tokens; the
+        // DELETE must authenticate as the signing-out account or not run at
+        // all. An incomplete pair means the access-token mint failed
+        // (offline), where the DELETE could not have succeeded anyway.
+        guard let accessToken, let refreshToken else {
+            pushLog.info("Skipping push-token unregister at sign-out: captured credentials incomplete")
+            return
+        }
+        await sendDelete(tokenHex: hex, capturedAccessToken: accessToken, capturedRefreshToken: refreshToken)
+    }
+
     private var cachedTokenHex: String? {
         let hex = defaults.string(forKey: Self.cachedTokenKey)
         return (hex?.isEmpty == false) ? hex : nil
@@ -104,23 +126,44 @@ public actor PushRegistrationService: PushRegistering {
         await perform(request, label: "register")
     }
 
-    private func sendDelete(tokenHex: String) async {
+    private func sendDelete(
+        tokenHex: String,
+        capturedAccessToken: String? = nil,
+        capturedRefreshToken: String? = nil
+    ) async {
         guard let request = await makeRequest(
             method: "DELETE",
             path: "/api/device-tokens",
-            body: ["deviceToken": tokenHex]
+            body: ["deviceToken": tokenHex],
+            capturedAccessToken: capturedAccessToken,
+            capturedRefreshToken: capturedRefreshToken
         ) else { return }
         await perform(request, label: "unregister")
     }
 
-    private func makeRequest(method: String, path: String, body: [String: String]) async -> URLRequest? {
+    private func makeRequest(
+        method: String,
+        path: String,
+        body: [String: String],
+        capturedAccessToken: String? = nil,
+        capturedRefreshToken: String? = nil
+    ) async -> URLRequest? {
         let accessToken: String
-        do {
-            accessToken = try await tokenProvider.accessToken()
-        } catch {
-            return nil
+        let refreshToken: String
+        if let capturedAccessToken, let capturedRefreshToken {
+            // Sign-out path: the live provider is already cleared by the
+            // local-first sign-out; the captured pair is the only credential.
+            accessToken = capturedAccessToken
+            refreshToken = capturedRefreshToken
+        } else {
+            do {
+                accessToken = try await tokenProvider.accessToken()
+            } catch {
+                return nil
+            }
+            guard let liveRefreshToken = await tokenProvider.refreshToken() else { return nil }
+            refreshToken = liveRefreshToken
         }
-        guard let refreshToken = await tokenProvider.refreshToken() else { return nil }
         guard let url = URL(string: apiBaseURL + path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method

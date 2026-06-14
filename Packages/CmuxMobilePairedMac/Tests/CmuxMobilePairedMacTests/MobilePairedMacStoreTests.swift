@@ -80,6 +80,28 @@ import Testing
         #expect(active.first?.macDeviceID == "mac-c")
     }
 
+    @Test func setActiveScopesClearToTargetStackUser() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.3", port: 8443)
+        )
+        // user-1 has two macs, user-2 one; each starts active within its scope.
+        try await store.upsert(macDeviceID: "mac-a1", displayName: nil, routes: [route], markActive: true, stackUserID: "user-1", now: Date())
+        try await store.upsert(macDeviceID: "mac-a2", displayName: nil, routes: [route], markActive: true, stackUserID: "user-1", now: Date())
+        try await store.upsert(macDeviceID: "mac-b", displayName: nil, routes: [route], markActive: true, stackUserID: "user-2", now: Date())
+
+        // Switching user-1's active Mac must not disturb user-2's active pairing.
+        try await store.setActive(macDeviceID: "mac-a1")
+
+        let activeUser1 = try await store.loadAll(stackUserID: "user-1").filter(\.isActive)
+        #expect(activeUser1.map(\.macDeviceID) == ["mac-a1"])
+        #expect(try await store.activeMac(stackUserID: "user-2")?.macDeviceID == "mac-b")
+    }
+
     @Test func removePersistsAcrossReopen() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

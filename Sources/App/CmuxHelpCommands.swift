@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFeedback
 import SwiftUI
 
 extension cmuxApp {
