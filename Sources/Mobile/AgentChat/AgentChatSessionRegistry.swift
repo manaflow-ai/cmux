@@ -6,13 +6,8 @@ import Foundation
 /// hook events and the on-disk hook session stores.
 @MainActor
 final class AgentChatSessionRegistry {
-    private struct BindingKey: Hashable {
-        var workspaceID: String
-        var surfaceID: String
-    }
-
     private var records: [String: AgentChatSessionRecord] = [:]
-    private var sessionIDsByBinding: [BindingKey: Set<String>] = [:]
+    private var sessionIDsByBinding: [AgentChatSessionBindingKey: Set<String>] = [:]
     private var sessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
 
@@ -61,7 +56,7 @@ final class AgentChatSessionRegistry {
     /// This is the title-detected adoption fast path: it preserves stale-process
     /// sweeping, but bounds it to records already indexed to the visible binding.
     func hasLiveSession(workspaceID: String, surfaceID: String) -> Bool {
-        let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
         guard let sessionIDs = sessionIDsByBinding[key], !sessionIDs.isEmpty else { return false }
         sweepDeadProcesses(sessionIDs: sessionIDs)
         return sessionIDs.contains { sessionID in
@@ -296,7 +291,7 @@ final class AgentChatSessionRegistry {
         var result: Set<String> = []
         for (workspaceID, surfaceIDs) in workspaceAndSurfaceIDs {
             for surfaceID in surfaceIDs {
-                let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
                 guard let ids = sessionIDsByBinding[key] else { continue }
                 result.formUnion(ids)
             }
@@ -332,7 +327,7 @@ final class AgentChatSessionRegistry {
         if let surfaceID = record.surfaceID {
             sessionIDsBySurfaceID[surfaceID, default: []].insert(record.sessionID)
             if let workspaceID = record.workspaceID {
-                sessionIDsByBinding[BindingKey(workspaceID: workspaceID, surfaceID: surfaceID), default: []]
+                sessionIDsByBinding[AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID), default: []]
                     .insert(record.sessionID)
             }
         }
@@ -345,7 +340,7 @@ final class AgentChatSessionRegistry {
                 sessionIDsBySurfaceID.removeValue(forKey: surfaceID)
             }
             if let workspaceID = record.workspaceID {
-                let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
                 sessionIDsByBinding[key]?.remove(record.sessionID)
                 if sessionIDsByBinding[key]?.isEmpty == true {
                     sessionIDsByBinding.removeValue(forKey: key)
