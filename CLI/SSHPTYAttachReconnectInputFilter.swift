@@ -116,7 +116,8 @@ final class SSHPTYAttachReconnectInputFilter {
             return .passThrough
         }
         guard start + 1 < bytes.count else {
-            return .passThrough
+            // read() can split immediately after ESC; wait for one more byte before deciding.
+            return .incomplete
         }
 
         switch bytes[start + 1] {

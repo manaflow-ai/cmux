@@ -31,10 +31,20 @@ import Testing
         #expect(filter.filter(Data(";rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
     }
 
-    @Test func passesThroughAmbiguousEscapeInput() {
+    @Test func buffersInitialEscapeUntilProbeContinuationArrives() {
         let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
         let escape = Data([0x1B])
-        #expect(filter.filter(escape) == escape)
+        #expect(filter.filter(escape) == Data())
+
+        let normalInput = Data("printf keep\n".utf8)
+        #expect(filter.filter(Data("]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
+    }
+
+    @Test func passesThroughAmbiguousEscapeAfterNonProbeContinuation() {
+        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+        let escape = Data([0x1B])
+        #expect(filter.filter(escape) == Data())
+        #expect(filter.filter(Data("x".utf8)) == Data("\u{1B}x".utf8))
 
         let keyInput = Data("\u{1B}[13;2u".utf8)
         #expect(filter.filter(keyInput) == keyInput)
