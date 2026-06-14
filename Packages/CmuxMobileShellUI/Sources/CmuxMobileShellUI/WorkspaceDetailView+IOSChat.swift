@@ -31,7 +31,7 @@ extension WorkspaceDetailView {
         let liveSessionsAreCurrent = hasLoadedLiveChatSessions && chatSessionsWorkspaceID == workspace.id
         let currentChatSessions = chatSessionsWorkspaceID == workspace.id ? chatSessions : []
         return liveSessionsAreCurrent
-            ? chatSessions
+            ? Self.openableByTerminal(currentChatSessions)
             : Self.mergedChatSessions(
                 primary: currentChatSessions,
                 fallback: store.seededChatSessions(workspaceID: workspace.id.rawValue)
