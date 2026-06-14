@@ -93,9 +93,10 @@ import Testing
 
     @Test func acceptCommittedValueUpdatesCurrentWithoutStoreWrite() {
         let suiteName = "defaults-value-model-committed-value"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        let store = UserDefaultsSettingsStore(defaults: defaults)
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
         let key = SettingCatalog().betaFeatures.extensions
         let (stream, _) = AsyncStream<Bool>.makeStream()
         let model = DefaultsValueModel(
@@ -107,6 +108,6 @@ import Testing
         #expect(model.current == false)
         model.acceptCommittedValue(true)
         #expect(model.current == true)
-        #expect(defaults.object(forKey: key.userDefaultsKey) == nil)
+        #expect(UserDefaults(suiteName: suiteName)?.object(forKey: key.userDefaultsKey) == nil)
     }
 }
