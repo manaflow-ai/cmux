@@ -29413,14 +29413,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let activePromptDepth = max(mapped?.activePromptDepth ?? 0, activePromptTurnStack.count)
             let incomingTurnId = normalizedHookValue(input.turnId)
             let terminalPromptTurnIds = Set((mapped?.terminalPromptTurnIds ?? []).compactMap { normalizedHookValue($0) })
-            if def.name == "codex",
-               let incomingTurnId,
-               terminalPromptTurnIds.contains(incomingTurnId) {
-                telemetry.breadcrumb("\(def.name)-hook.prompt-submit.stale-terminal-turn")
-                didSendFeedTelemetry = true
-                print("{}")
-                return
-            }
+            let incomingCodexTurnIsTerminal = def.name == "codex" &&
+                (incomingTurnId.map { terminalPromptTurnIds.contains($0) } ?? false)
             func codexPromptTurnWentTerminal() -> Bool {
                 def.name == "codex"
                     && ((try? store.codexPromptTurnIsTerminal(sessionId: sessionId, turnId: input.turnId)) == true)
@@ -29539,26 +29533,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
-                let recordResult = (try? store.recordPromptSubmit(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    transcriptPath: transcriptPathForStore,
-                    turnId: input.turnId,
-                    previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
-                    terminalActivePromptTurnIds: terminalActivePromptTurnIds,
-                    pid: pid,
-                    launchCommand: launchCommand,
-                    agentLifecycle: .running,
-                    rejectTerminalTurn: def.name == "codex"
-                )) ?? .recorded(nested: false)
-                switch recordResult {
-                case .staleTerminalTurn:
-                    stopStaleCodexPromptSubmit()
-                    return
-                case .recorded(let nested):
-                    nestedPromptSubmit = nested
+                if incomingCodexTurnIsTerminal {
+                    nestedPromptSubmit = false
+                } else {
+                    let recordResult = (try? store.recordPromptSubmit(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: hookCwd ?? mapped?.cwd,
+                        transcriptPath: transcriptPathForStore,
+                        turnId: input.turnId,
+                        previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
+                        terminalActivePromptTurnIds: terminalActivePromptTurnIds,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        agentLifecycle: .running,
+                        rejectTerminalTurn: def.name == "codex"
+                    )) ?? .recorded(nested: false)
+                    switch recordResult {
+                    case .staleTerminalTurn:
+                        stopStaleCodexPromptSubmit()
+                        return
+                    case .recorded(let nested):
+                        nestedPromptSubmit = nested
+                    }
                 }
             } else {
                 nestedPromptSubmit = false
@@ -29568,13 +29566,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            if codexPromptTurnWentTerminal() {
-                stopStaleCodexPromptSubmit()
-                return
-            }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
-            if !suppressVisibleMutations {
-                if codexPromptTurnWentTerminal() {
+            if !suppressVisibleMutations || incomingCodexTurnIsTerminal {
+                if !incomingCodexTurnIsTerminal, codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
                 }
@@ -29590,6 +29583,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
                 )
             }
+            if incomingCodexTurnIsTerminal || codexPromptTurnWentTerminal() {
+                stopStaleCodexPromptSubmit()
+                return
+            }
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let acceptedRunningUpdate: Bool
                 if def.name == "codex" {
