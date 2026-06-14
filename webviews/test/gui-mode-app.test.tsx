@@ -6,6 +6,26 @@ import { createRoot } from "react-dom/client";
 import { GuiModeApp } from "../src/gui-mode/GuiModeApp";
 import { submitGuiModePrompt } from "../src/gui-mode/bridge";
 
+const expectedProviderIds = [
+  "codex",
+  "claude",
+  "opencode",
+  "grok",
+  "pi",
+  "omp",
+  "amp",
+  "cursor",
+  "gemini",
+  "kiro",
+  "antigravity",
+  "rovodev",
+  "hermes-agent",
+  "copilot",
+  "codebuddy",
+  "factory",
+  "qoder",
+];
+
 test("GUI mode renders the composer while native context is pending", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "file:///tmp/gui-mode.html",
@@ -29,25 +49,21 @@ test("GUI mode renders the composer while native context is pending", async () =
     expect(dom.window.document.querySelector(".gui-mode-home")).toBeTruthy();
     expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
     expect(dom.window.document.querySelector(".gui-mode-submit")?.textContent).toBe("Submit");
-    expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-provider-option"))
-      .map((element) => element.textContent)).toEqual([
-        "CodexNative cmux session",
-        "Claude CodeNative cmux session",
-        "OpenCodeNative cmux session",
-        "GrokHook-backed terminal",
-        "PiPlugin-backed terminal",
-        "OMPPlugin-backed terminal",
-        "AmpPlugin-backed terminal",
-        "CursorPlugin-backed terminal",
-        "GeminiHook-backed terminal",
-        "KiroHook-backed terminal",
-        "AntigravityHook-backed terminal",
-        "Rovo DevHook-backed terminal",
-        "Hermes AgentHook-backed terminal",
-        "CopilotHook-backed terminal",
-        "CodeBuddyHook-backed terminal",
-        "FactoryHook-backed terminal",
-      ]);
+    const providerOptions = Array.from(
+      dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option"),
+    );
+    expect(providerOptions.map((element) => element.textContent)).toContain("QoderHooksHook-backed agent");
+    expect(providerOptions).toHaveLength(expectedProviderIds.length);
+    expect(dom.window.document.querySelector(".gui-mode-summary-command")?.textContent)
+      .toBe("cmux hooks codex install");
+
+    const qoderOption = providerOptions.find((element) => element.textContent?.includes("Qoder"));
+    expect(qoderOption).toBeTruthy();
+    flushSync(() => {
+      qoderOption?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    expect(dom.window.document.querySelector(".gui-mode-summary-command")?.textContent)
+      .toBe("cmux hooks qoder install");
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -74,13 +90,18 @@ test("GUI mode submit sends the selected provider to native", async () => {
   };
 
   try {
-    await expect(submitGuiModePrompt("build the GUI", "gemini")).resolves.toEqual({ workspaceId: "workspace-1" });
-    expect(postedMessages).toHaveLength(1);
+    for (const providerId of expectedProviderIds) {
+      await expect(submitGuiModePrompt("build the GUI", providerId)).resolves.toEqual({
+        workspaceId: "workspace-1",
+      });
+    }
+    expect(postedMessages).toHaveLength(expectedProviderIds.length);
+    expect(postedMessages.map((message) => (message as any).params.providerId)).toEqual(expectedProviderIds);
     expect(postedMessages[0]).toMatchObject({
       method: "guiMode.submit",
       params: {
         prompt: "build the GUI",
-        providerId: "gemini",
+        providerId: "codex",
       },
     });
   } finally {

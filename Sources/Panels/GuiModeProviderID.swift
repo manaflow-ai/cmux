@@ -17,6 +17,7 @@ enum GuiModeProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
     case copilot
     case codebuddy
     case factory
+    case qoder
 
     var id: String { rawValue }
 
@@ -54,17 +55,21 @@ enum GuiModeProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
             return String(localized: "taskManager.agent.codebuddy", defaultValue: "CodeBuddy")
         case .factory:
             return String(localized: "taskManager.agent.factory", defaultValue: "Factory")
+        case .qoder:
+            return String(localized: "taskManager.agent.qoder", defaultValue: "Qoder")
         }
     }
 
     var runtimeMode: String {
         switch self {
-        case .codex, .claude, .opencode:
+        case .claude:
             return "native"
-        case .grok, .gemini, .kiro, .antigravity, .rovodev, .hermesAgent, .copilot, .codebuddy, .factory:
+        case .codex, .opencode:
+            return "native-hooks"
+        case .grok, .pi, .omp, .antigravity:
+            return "vault-hooks"
+        case .amp, .cursor, .gemini, .kiro, .rovodev, .hermesAgent, .copilot, .codebuddy, .factory, .qoder:
             return "hooks"
-        case .pi, .omp, .amp, .cursor:
-            return "plugin"
         }
     }
 
@@ -72,10 +77,79 @@ enum GuiModeProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
         switch runtimeMode {
         case "native":
             return String(localized: "guiMode.provider.detail.native", defaultValue: "Native cmux session")
+        case "native-hooks":
+            return String(localized: "guiMode.provider.detail.nativeHooks", defaultValue: "Native session with hook telemetry")
+        case "vault-hooks":
+            return String(localized: "guiMode.provider.detail.vaultHooks", defaultValue: "Vault-registered hook agent")
         case "hooks":
-            return String(localized: "guiMode.provider.detail.hooks", defaultValue: "Hook-backed terminal")
+            return String(localized: "guiMode.provider.detail.hooks", defaultValue: "Hook-backed agent")
         default:
-            return String(localized: "guiMode.provider.detail.plugin", defaultValue: "Plugin-backed terminal")
+            return String(localized: "guiMode.provider.detail.hooks", defaultValue: "Hook-backed agent")
+        }
+    }
+
+    var supportLabel: String {
+        switch runtimeMode {
+        case "native":
+            return String(localized: "guiMode.provider.support.native", defaultValue: "Native")
+        case "native-hooks":
+            return String(localized: "guiMode.provider.support.nativeHooks", defaultValue: "Native + hooks")
+        case "vault-hooks":
+            return String(localized: "guiMode.provider.support.vaultHooks", defaultValue: "Vault + hooks")
+        default:
+            return String(localized: "guiMode.provider.support.hooks", defaultValue: "Hooks")
+        }
+    }
+
+    var setupCommand: String {
+        switch self {
+        case .claude:
+            return "claude auth login"
+        default:
+            return "cmux hooks \(rawValue) install"
+        }
+    }
+
+    var taskCommandPreview: String {
+        "/task-worktree-pr --provider \(rawValue)"
+    }
+
+    var capabilityLabels: [String] {
+        var labels: [String] = []
+        switch runtimeMode {
+        case "native", "native-hooks":
+            labels.append(String(localized: "guiMode.provider.capability.nativeSession", defaultValue: "Native session"))
+        default:
+            break
+        }
+        if runtimeMode != "native" {
+            labels.append(String(localized: "guiMode.provider.capability.hookTelemetry", defaultValue: "Hook telemetry"))
+        }
+        if isVaultRegistered {
+            labels.append(String(localized: "guiMode.provider.capability.vaultRegistry", defaultValue: "Vault registry"))
+        }
+        if isRestorable {
+            labels.append(String(localized: "guiMode.provider.capability.restorable", defaultValue: "Restorable"))
+        }
+        return labels
+    }
+
+    private var isVaultRegistered: Bool {
+        switch self {
+        case .grok, .pi, .omp, .antigravity:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isRestorable: Bool {
+        switch self {
+        case .claude, .codex, .opencode, .grok, .pi, .amp, .cursor, .gemini, .kiro, .antigravity,
+             .rovodev, .hermesAgent, .copilot, .codebuddy, .factory, .qoder:
+            return true
+        case .omp:
+            return false
         }
     }
 }

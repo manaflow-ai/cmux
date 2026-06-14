@@ -45,12 +45,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 "copilot",
                 "codebuddy",
                 "factory",
+                "qoder",
             ]
         )
 
         for provider in GuiModeProviderID.allCases {
             XCTAssertFalse(provider.displayName.isEmpty)
             XCTAssertFalse(provider.detail.isEmpty)
+            XCTAssertFalse(provider.supportLabel.isEmpty)
+            XCTAssertFalse(provider.setupCommand.isEmpty)
+            XCTAssertFalse(provider.taskCommandPreview.isEmpty)
+            XCTAssertFalse(provider.capabilityLabels.isEmpty)
         }
     }
 
@@ -63,6 +68,29 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 ),
                 "/task-worktree-pr --provider \(provider.rawValue) 'build Lawrence'\\''s thing'"
             )
+        }
+    }
+
+    @MainActor
+    func testGuiModeContextPayloadIncludesEveryProviderSnapshotField() throws {
+        let payload = AgentSessionWebRendererCoordinator.guiModeContextPayload(
+            page: .home,
+            prompt: nil,
+            selectedProviderID: .qoder
+        )
+
+        XCTAssertEqual(payload["selectedProviderId"] as? String, "qoder")
+        let providers = try XCTUnwrap(payload["providers"] as? [[String: Any]])
+        XCTAssertEqual(providers.map { $0["id"] as? String }, GuiModeProviderID.allCases.map(\.rawValue))
+
+        for provider in providers {
+            XCTAssertNotNil(provider["displayName"] as? String)
+            XCTAssertNotNil(provider["detail"] as? String)
+            XCTAssertNotNil(provider["runtimeMode"] as? String)
+            XCTAssertNotNil(provider["supportLabel"] as? String)
+            XCTAssertNotNil(provider["setupCommand"] as? String)
+            XCTAssertNotNil(provider["taskCommandPreview"] as? String)
+            XCTAssertFalse((provider["capabilities"] as? [String] ?? []).isEmpty)
         }
     }
 

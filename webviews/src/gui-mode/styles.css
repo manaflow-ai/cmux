@@ -2,7 +2,7 @@
   min-height: 100vh;
   color: var(--agent-text);
   background:
-    linear-gradient(180deg, rgba(11, 12, 13, 0.22), rgba(11, 12, 13, 0.06)),
+    linear-gradient(180deg, rgba(14, 17, 18, 0.28), rgba(14, 17, 18, 0.06)),
     var(--agent-page-bg);
 }
 
@@ -13,17 +13,44 @@
   padding: 24px;
 }
 
-.gui-mode-home > .agent-composer-stack {
-  width: min(820px, 100%);
+.gui-mode-shell {
+  display: grid;
+  gap: 12px;
+  width: min(880px, 100%);
+}
+
+.gui-mode-center-stack {
+  width: 100%;
+}
+
+.gui-mode-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.gui-mode-title {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gui-mode-composer {
   border-radius: 8px;
   overflow: hidden;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .gui-mode-editor {
-  padding: 14px 14px 4px;
+  padding: 16px 14px 4px;
 }
 
 .gui-mode-provider-header {
@@ -41,30 +68,45 @@
   line-height: 16px;
 }
 
-.gui-mode-runtime-pill {
-  max-width: 100%;
-  border: 1px solid var(--agent-border);
-  border-radius: 999px;
-  color: var(--agent-muted);
-  font-size: 11px;
+.gui-mode-provider-selected {
+  min-width: 0;
+  color: var(--agent-text);
+  font-size: 12px;
+  font-weight: 650;
   line-height: 16px;
   overflow: hidden;
-  padding: 2px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-runtime-pill {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 42%, var(--agent-border));
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+  overflow: hidden;
+  padding: 4px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .gui-mode-provider-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(154px, 1fr));
   gap: 6px;
   padding: 0 12px 10px;
+  max-height: 204px;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
 .gui-mode-provider-option {
   display: grid;
-  gap: 2px;
-  min-height: 52px;
+  gap: 5px;
+  min-height: 62px;
   border: 1px solid var(--agent-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-surface) 82%, transparent);
@@ -78,8 +120,18 @@
 
 .gui-mode-provider-option:hover,
 .gui-mode-provider-option[aria-selected="true"] {
-  border-color: var(--agent-accent);
-  background: color-mix(in srgb, var(--agent-accent) 12%, var(--agent-surface));
+  border-color: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-border));
+  background:
+    linear-gradient(135deg, rgba(55, 97, 110, 0.14), rgba(136, 94, 51, 0.08)),
+    color-mix(in srgb, var(--agent-accent) 10%, var(--agent-surface));
+}
+
+.gui-mode-provider-option-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .gui-mode-provider-name,
@@ -90,6 +142,18 @@
   font-size: 13px;
   font-weight: 650;
   line-height: 17px;
+}
+
+.gui-mode-provider-support {
+  max-width: 86px;
+  color: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .gui-mode-provider-detail,
@@ -123,6 +187,76 @@
   line-height: 18px;
 }
 
+.gui-mode-provider-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 14px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(63, 102, 112, 0.12), rgba(112, 94, 59, 0.1)),
+    color-mix(in srgb, var(--agent-surface) 72%, transparent);
+  padding: 12px;
+}
+
+.gui-mode-summary-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gui-mode-summary-name {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-summary-detail {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-summary-chips {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gui-mode-summary-chip {
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  color: var(--agent-muted);
+  font-size: 11px;
+  line-height: 15px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.gui-mode-summary-command {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--agent-border);
+  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: hidden;
+  padding-top: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gui-mode-status {
   min-height: 100vh;
   display: grid;
@@ -153,6 +287,15 @@
   padding-bottom: 12px;
 }
 
+.gui-mode-task-command {
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
 .gui-mode-task-label {
   font-size: 12px;
   line-height: 16px;
@@ -164,4 +307,24 @@
   overflow-wrap: anywhere;
   font-size: 14px;
   line-height: 20px;
+}
+
+@media (max-width: 640px) {
+  .gui-mode-home {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .gui-mode-topline,
+  .gui-mode-provider-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gui-mode-runtime-pill {
+    justify-self: start;
+  }
+
+  .gui-mode-summary-chips {
+    justify-content: flex-start;
+  }
 }

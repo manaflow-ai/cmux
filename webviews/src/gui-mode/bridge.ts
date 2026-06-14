@@ -13,10 +13,14 @@ export type GuiModeCopy = {
 };
 
 export type GuiModeProvider = {
+  capabilities: string[];
   detail: string;
   displayName: string;
   id: string;
   runtimeMode: string;
+  setupCommand: string;
+  supportLabel: string;
+  taskCommandPreview: string;
 };
 
 export type GuiModeContext = {

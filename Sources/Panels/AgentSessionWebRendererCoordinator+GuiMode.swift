@@ -16,7 +16,11 @@ extension AgentSessionWebRendererCoordinator {
                     "id": provider.rawValue,
                     "displayName": provider.displayName,
                     "detail": provider.detail,
-                    "runtimeMode": provider.runtimeMode
+                    "runtimeMode": provider.runtimeMode,
+                    "supportLabel": provider.supportLabel,
+                    "setupCommand": provider.setupCommand,
+                    "taskCommandPreview": provider.taskCommandPreview,
+                    "capabilities": provider.capabilityLabels
                 ] as [String: Any]
             },
             "copy": [

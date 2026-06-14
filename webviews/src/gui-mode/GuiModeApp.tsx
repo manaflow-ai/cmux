@@ -25,23 +25,44 @@ type LoadState =
   | { status: "ready"; context: GuiModeContext }
   | { status: "error"; message: string };
 
+function fallbackProvider(
+  id: string,
+  displayName: string,
+  detail: string,
+  runtimeMode: string,
+  supportLabel: string,
+  capabilities: string[],
+): GuiModeProvider {
+  return {
+    capabilities,
+    detail,
+    displayName,
+    id,
+    runtimeMode,
+    setupCommand: id === "claude" ? "claude auth login" : `cmux hooks ${id} install`,
+    supportLabel,
+    taskCommandPreview: `/task-worktree-pr --provider ${id}`,
+  };
+}
+
 const fallbackProviders: GuiModeProvider[] = [
-  { detail: "Native cmux session", displayName: "Codex", id: "codex", runtimeMode: "native" },
-  { detail: "Native cmux session", displayName: "Claude Code", id: "claude", runtimeMode: "native" },
-  { detail: "Native cmux session", displayName: "OpenCode", id: "opencode", runtimeMode: "native" },
-  { detail: "Hook-backed terminal", displayName: "Grok", id: "grok", runtimeMode: "hooks" },
-  { detail: "Plugin-backed terminal", displayName: "Pi", id: "pi", runtimeMode: "plugin" },
-  { detail: "Plugin-backed terminal", displayName: "OMP", id: "omp", runtimeMode: "plugin" },
-  { detail: "Plugin-backed terminal", displayName: "Amp", id: "amp", runtimeMode: "plugin" },
-  { detail: "Plugin-backed terminal", displayName: "Cursor", id: "cursor", runtimeMode: "plugin" },
-  { detail: "Hook-backed terminal", displayName: "Gemini", id: "gemini", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Kiro", id: "kiro", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Antigravity", id: "antigravity", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Rovo Dev", id: "rovodev", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Hermes Agent", id: "hermes-agent", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Copilot", id: "copilot", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "CodeBuddy", id: "codebuddy", runtimeMode: "hooks" },
-  { detail: "Hook-backed terminal", displayName: "Factory", id: "factory", runtimeMode: "hooks" },
+  fallbackProvider("codex", "Codex", "Native session with hook telemetry", "native-hooks", "Native + hooks", ["Native session", "Hook telemetry", "Restorable"]),
+  fallbackProvider("claude", "Claude Code", "Native cmux session", "native", "Native", ["Native session", "Restorable"]),
+  fallbackProvider("opencode", "OpenCode", "Native session with hook telemetry", "native-hooks", "Native + hooks", ["Native session", "Hook telemetry", "Restorable"]),
+  fallbackProvider("grok", "Grok", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
+  fallbackProvider("pi", "Pi", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
+  fallbackProvider("omp", "OMP", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry"]),
+  fallbackProvider("amp", "Amp", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("cursor", "Cursor", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("gemini", "Gemini", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("kiro", "Kiro", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("antigravity", "Antigravity", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
+  fallbackProvider("rovodev", "Rovo Dev", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("hermes-agent", "Hermes Agent", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("copilot", "Copilot", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("codebuddy", "CodeBuddy", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("factory", "Factory", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
+  fallbackProvider("qoder", "Qoder", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
 ];
 
 const defaultContext: GuiModeContext = {
@@ -127,43 +148,48 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   }, [canSubmit, context.copy.errorMessage, selectedProvider.id, trimmedPrompt]);
 
   return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle },
-    h("div", { className: CODEX_COMPOSER_STACK },
-      h("div", { className: CODEX_COMPOSER_FRAME },
-        h("div", { className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer` },
-          h("div", { className: CODEX_COMPOSER_INNER },
-            h("div", { className: "gui-mode-provider-header" },
-              h("div", { className: "gui-mode-provider-label" }, context.copy.providerLabel),
-              h("div", { className: "gui-mode-runtime-pill" },
-                `${context.copy.runtimeLabel}: ${selectedProvider.runtimeMode}`,
+    h("div", { className: "gui-mode-shell" },
+      h("div", { className: "gui-mode-topline" },
+        h("div", { className: "gui-mode-title" }, context.copy.homeTitle),
+        h("div", { className: "gui-mode-runtime-pill" }, selectedProvider.supportLabel),
+      ),
+      h("div", { className: `${CODEX_COMPOSER_STACK} gui-mode-center-stack` },
+        h("div", { className: CODEX_COMPOSER_FRAME },
+          h("div", { className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer` },
+            h("div", { className: CODEX_COMPOSER_INNER },
+              h("div", { className: "gui-mode-provider-header" },
+                h("div", { className: "gui-mode-provider-label" }, context.copy.providerLabel),
+                h("div", { className: "gui-mode-provider-selected" }, selectedProvider.displayName),
               ),
-            ),
-            h(ProviderPicker, {
-              providers: context.providers,
-              selectedProviderId: selectedProvider.id,
-              onSelectProvider: setSelectedProviderId,
-            }),
-            h(PromptEditor, {
-              ref: editorRef,
-              ariaLabel: context.copy.promptPlaceholder,
-              className: "gui-mode-editor",
-              minHeight: "5.5rem",
-              onSubmit: submit,
-              onTextChange: setPrompt,
-              placeholder: context.copy.promptPlaceholder,
-              value: prompt,
-            }),
-            h("div", { className: "gui-mode-footer" },
-              h("div", { className: "gui-mode-error", role: "alert" }, error),
-              h("button", {
-                className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} gui-mode-submit`,
-                disabled: !canSubmit,
-                onClick: submit,
-                type: "button",
-              }, isSubmitting ? context.copy.submitting : context.copy.submit),
+              h(ProviderPicker, {
+                providers: context.providers,
+                selectedProviderId: selectedProvider.id,
+                onSelectProvider: setSelectedProviderId,
+              }),
+              h(PromptEditor, {
+                ref: editorRef,
+                ariaLabel: context.copy.promptPlaceholder,
+                className: "gui-mode-editor",
+                minHeight: "6.25rem",
+                onSubmit: submit,
+                onTextChange: setPrompt,
+                placeholder: context.copy.promptPlaceholder,
+                value: prompt,
+              }),
+              h("div", { className: "gui-mode-footer" },
+                h("div", { className: "gui-mode-error", role: "alert" }, error),
+                h("button", {
+                  className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} gui-mode-submit`,
+                  disabled: !canSubmit,
+                  onClick: submit,
+                  type: "button",
+                }, isSubmitting ? context.copy.submitting : context.copy.submit),
+              ),
             ),
           ),
         ),
       ),
+      h(ProviderSummary, { provider: selectedProvider }),
     ),
   );
 }
@@ -175,6 +201,7 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
       h("div", { className: "gui-mode-task-provider" },
         h("div", { className: "gui-mode-task-provider-name" }, provider.displayName),
         h("div", { className: "gui-mode-task-provider-detail" }, provider.detail),
+        h("div", { className: "gui-mode-task-command" }, provider.taskCommandPreview),
       ),
       h("div", { className: "gui-mode-task-label" }, context.copy.taskPromptLabel),
       h("div", { className: "gui-mode-task-prompt" }, context.prompt),
@@ -200,9 +227,28 @@ function ProviderPicker({
       role: "option",
       type: "button",
     },
-      h("span", { className: "gui-mode-provider-name" }, provider.displayName),
+      h("span", { className: "gui-mode-provider-option-top" },
+        h("span", { className: "gui-mode-provider-name" }, provider.displayName),
+        h("span", { className: "gui-mode-provider-support" }, provider.supportLabel),
+      ),
       h("span", { className: "gui-mode-provider-detail" }, provider.detail),
     )),
+  );
+}
+
+function ProviderSummary({ provider }: { provider: GuiModeProvider }) {
+  return h("aside", { className: "gui-mode-provider-summary" },
+    h("div", { className: "gui-mode-summary-main" },
+      h("div", { className: "gui-mode-summary-name" }, provider.displayName),
+      h("div", { className: "gui-mode-summary-detail" }, provider.detail),
+    ),
+    h("div", { className: "gui-mode-summary-chips" },
+      provider.capabilities.map((capability) => h("span", {
+        className: "gui-mode-summary-chip",
+        key: capability,
+      }, capability)),
+    ),
+    h("div", { className: "gui-mode-summary-command" }, provider.setupCommand),
   );
 }
 
@@ -212,5 +258,9 @@ function providerForId(providers: GuiModeProvider[], providerId: string): GuiMod
     displayName: providerId,
     id: providerId,
     runtimeMode: "",
+    setupCommand: "",
+    supportLabel: "",
+    taskCommandPreview: "",
+    capabilities: [],
   };
 }
