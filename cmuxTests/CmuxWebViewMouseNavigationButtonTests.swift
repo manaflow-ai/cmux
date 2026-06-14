@@ -98,6 +98,27 @@ struct CmuxWebViewMouseNavigationButtonTests {
         #expect(snapshot.forwardHistoryURLStrings == ["https://example.com/c"])
     }
 
+    @Test("Reattaching workspace refreshes browser panel association")
+    func reattachingWorkspaceRefreshesBrowserPanelAssociation() {
+        let initialWorkspaceId = UUID()
+        let panel = BrowserPanel(workspaceId: initialWorkspaceId)
+        defer { panel.close() }
+
+        #expect(panel.webView.browserPanelAssociation?.panelId == panel.id)
+        #expect(panel.webView.browserPanelAssociation?.workspaceId == initialWorkspaceId)
+
+        let movedWorkspaceId = UUID()
+        panel.reattachToWorkspace(
+            movedWorkspaceId,
+            isRemoteWorkspace: false,
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+
+        #expect(panel.webView.browserPanelAssociation?.panelId == panel.id)
+        #expect(panel.webView.browserPanelAssociation?.workspaceId == movedWorkspaceId)
+    }
+
     @Test("Side-button navigation posts browser click notification")
     func sideButtonNavigationPostsBrowserClickNotification() throws {
         let panel = BrowserPanel(workspaceId: UUID())

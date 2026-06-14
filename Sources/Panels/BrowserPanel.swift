@@ -4174,8 +4174,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
-        DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
-        webView.associateBrowserPanel(panelId: id, workspaceId: workspaceId)
+        refreshPanelAssociations(for: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }
@@ -4199,6 +4198,11 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+    }
+
+    private func refreshPanelAssociations(for webView: CmuxWebView) {
+        DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
+        webView.associateBrowserPanel(panelId: id, workspaceId: workspaceId)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4777,6 +4781,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+        refreshPanelAssociations(for: webView)
     }
 
     func reattachToWorkspace(
@@ -4787,6 +4792,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
+        refreshPanelAssociations(for: webView)
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
