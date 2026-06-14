@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CmuxTerminal
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {

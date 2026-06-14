@@ -1,6 +1,8 @@
 import XCTest
 import CmuxCore
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -12,6 +14,9 @@ import CmuxWorkspaces
 import CmuxSidebar
 import UserNotifications
 import Combine
+import CmuxTerminal
+
+import CmuxWorkspaceCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -258,6 +263,44 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(first.customColor, "#1565C0")
         XCTAssertEqual(second.customColor, "#C0392B")
         XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testMoveFocusRoutesSpatiallyInCanvasMode() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.orderedPanelIds.first)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let secondPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        workspace.setLayoutMode(.canvas)
+        // Pin deterministic canvas geometry: first pane left, second right.
+        workspace.canvasModel.restoreFrames([
+            (id: firstPanelId, frame: CGRect(x: 0, y: 0, width: 400, height: 300)),
+            (id: secondPanel.id, frame: CGRect(x: 500, y: 0, width: 400, height: 300)),
+        ])
+        workspace.focusPanel(firstPanelId)
+
+        workspace.moveFocus(direction: .right)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            secondPanel.id,
+            "Canvas mode routes moveFocus through spatial navigation"
+        )
+
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        // No pane further right: focus stays put instead of wrapping.
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
     }
 
     @MainActor
@@ -3569,7 +3612,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.browser
+            SurfaceKind.browser
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -5648,7 +5691,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool
         )
     }
 

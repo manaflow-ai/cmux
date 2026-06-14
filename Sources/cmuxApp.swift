@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
@@ -12,6 +13,7 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -1017,6 +1019,23 @@ struct cmuxApp: App {
             }
 
             equalizeSplitsCommandButton()
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasTidy", defaultValue: "Tidy Canvas"), shortcut: menuShortcut(for: .canvasTidy)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.alignment(.tidy))
+            }
+
             Divider()
 
             // Numbered workspace selection (9 = last workspace)

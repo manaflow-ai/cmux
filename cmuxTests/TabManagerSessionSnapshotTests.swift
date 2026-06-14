@@ -1,7 +1,9 @@
+import CmuxSession
 import CmuxWorkspaceNavigation
 import Darwin
 import CmuxCore
 import XCTest
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2008,9 +2010,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let remoteSnapshot = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Remote Mac mini" }?.remote
@@ -2142,9 +2148,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let persistedWorkspace = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Persistent SSH" }
@@ -3020,9 +3030,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
 
         let restored = TabManager()

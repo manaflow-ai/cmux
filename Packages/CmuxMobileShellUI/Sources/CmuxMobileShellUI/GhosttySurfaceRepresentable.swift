@@ -132,10 +132,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak surfaceView] in
-                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+            outputTask = Task { @MainActor [weak surfaceView, weak store] in
+                guard let store else { return }
+                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
-                    surfaceView?.processOutput(data)
+                    guard let surfaceView else { return }
+                    await surfaceView.processOutputAndWait(chunk.data)
+                    store.terminalOutputDidProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
                 }
             }
         }
