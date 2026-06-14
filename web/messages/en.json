@@ -1536,13 +1536,7 @@
       "envSocket": "Path to the cmux control socket for the shim to connect to"
     },
     "ohMyCodex": {
-      "title": "oh-my-pi"
-    },
-    "oh-my-codex": {
       "title": "oh-my-codex",
-      "metaTitle": "oh-my-pi - cmux"
-    },
-    "oh-my-codex": {
       "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "Run Oh My Codex (OMX) inside cmux with native split pane integration for team mode and agent orchestration.",
       "intro": "cmux omx launches Oh My Codex (OMX) in a cmux-aware environment. OMX is a multi-agent orchestration layer for OpenAI Codex CLI with 30+ specialized agent roles, workflow skills, and tmux-based parallel team execution. When OMX spawns team panes or HUD displays, they become native cmux splits.",
@@ -1562,6 +1556,39 @@
       "shimStep2": "Sets TMUX and TMUX_PANE to simulate a tmux session",
       "shimStep3": "Prepends the shim directory to PATH",
       "shimStep4": "Execs into omx with all remaining arguments forwarded",
+      "directories": "Directories",
+      "dirPath": "Path",
+      "dirPurpose": "Purpose",
+      "dirShim": "Contains the tmux shim script",
+      "dirStore": "Persistent storage for tmux-compat buffers and hooks",
+      "envVars": "Environment variables",
+      "envVarName": "Variable",
+      "envVarPurpose": "Purpose",
+      "envTmux": "Fake tmux socket path encoding the current cmux workspace and pane",
+      "envTmuxPane": "Fake tmux pane identifier mapped to the current cmux pane",
+      "envSocket": "Path to the cmux control socket for the shim to connect to"
+    },
+    "ohMyPi": {
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
+      "metaDescription": "Run Oh My Pi (OMP) inside cmux with native split pane integration for team mode and agent orchestration.",
+      "intro": "cmux omp launches Oh My Pi (OMP) in a cmux-aware environment. OMP is a multi-agent orchestration layer for the Pi coding agent with specialized agent roles, workflow skills, and tmux-based parallel team execution. When OMP spawns team panes or HUD displays, they become native cmux splits.",
+      "usage": "Usage",
+      "usageDesc": "All arguments after omp are forwarded to the omp CLI.",
+      "whatYouGet": "What you get",
+      "whatYouGetDesc": "OMP's team mode and HUD use tmux for pane management. With cmux omp, those panes become native cmux splits:",
+      "whatYouGet1": "Team worker panes appear as cmux splits in the workspace",
+      "whatYouGet2": "HUD status display shows model, branch, context, and token usage in a split pane",
+      "whatYouGet3": "Auto-layout management arranges agent panes in a main-vertical grid",
+      "whatYouGet4": "Your main session stays in the primary pane while workers operate beside it",
+      "prerequisites": "Prerequisites",
+      "prerequisitesDesc": "OMP requires the Pi coding agent installed and configured. Run omp doctor to verify your installation.",
+      "howItWorks": "How it works",
+      "howItWorksDesc": "Same pattern as other cmux agent integrations. A tmux shim intercepts tmux commands from OMP and translates them into cmux API calls.",
+      "shimStep1": "Creates a tmux shim at ~/.cmuxterm/omp-bin/tmux that redirects to cmux __tmux-compat",
+      "shimStep2": "Sets TMUX and TMUX_PANE to simulate a tmux session",
+      "shimStep3": "Prepends the shim directory to PATH",
+      "shimStep4": "Execs into omp with all remaining arguments forwarded",
       "directories": "Directories",
       "dirPath": "Path",
       "dirPurpose": "Purpose",
