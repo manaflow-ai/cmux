@@ -83,7 +83,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
+    /// Opens the selected File Explorer item from File Explorer focus.
     case fileExplorerOpenSelection
+    /// Mirrors Finder's Command-Down open-selection shortcut from File Explorer focus.
     case fileExplorerOpenSelectionFinderAlias
 
     // MARK: Browser & Find
