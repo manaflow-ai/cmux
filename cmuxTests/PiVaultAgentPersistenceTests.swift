@@ -1,3 +1,4 @@
+import CmuxSession
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -1231,9 +1232,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         ]
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let loadedAgent = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?
+            store.load(fileURL: snapshotURL)?.windows.first?
                 .tabManager.workspaces.first?.panels.first?.terminal?.agent
         )
 

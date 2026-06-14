@@ -53,6 +53,44 @@ enum UnixSocketFixture {
         return fd
     }
 
+    /// Connects a blocking client to the Unix socket at `path`.
+    static func connectClient(to path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(client)")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let didFit = path.withCString { ptr -> Bool in
+            guard strlen(ptr) < maxLength else { return false }
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                memset(pathBuf, 0, maxLength)
+                strncpy(pathBuf, ptr, maxLength - 1)
+            }
+            return true
+        }
+        guard didFit else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            let error = posixError("connect(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+
+        return fd
+    }
+
     /// Accepts a single client on a background thread and runs `handler` with
     /// the client fd. Returns after the handler finishes via the continuation
     /// stored in the returned closure-waitable.

@@ -40,6 +40,20 @@
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
 
+## Web and JS Tooling
+
+Run Biome from the repository root with:
+
+```bash
+bun run biome:check
+```
+
+The root `biome.json` intentionally scopes `biome check .` to maintained web and JS/TS sources.
+It excludes generated bundles, build outputs, vendored trees, and review-tool metadata such as
+`.greptile/`.
+Biome formatting and import sorting are disabled for now; do not wire this into required CI until
+the remaining source lint diagnostics are paid down.
+
 ## Rebuilding GhosttyKit
 
 If you make changes to the ghostty submodule, rebuild the xcframework:
