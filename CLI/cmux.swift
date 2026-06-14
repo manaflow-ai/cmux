@@ -8110,6 +8110,7 @@ struct CMUXCLI {
         let workspaceName: String?
         let windowRaw: String?
         let noFocus: Bool
+        let reuseCurrentPane: Bool
         let sshOptions: [String]
         let extraArguments: [String]
         let agentSocketPath: String?
@@ -8127,6 +8128,7 @@ struct CMUXCLI {
             workspaceName: String?,
             windowRaw: String? = nil,
             noFocus: Bool,
+            reuseCurrentPane: Bool = false,
             sshOptions: [String],
             extraArguments: [String],
             agentSocketPath: String? = nil,
@@ -8141,6 +8143,7 @@ struct CMUXCLI {
             self.workspaceName = workspaceName
             self.windowRaw = windowRaw
             self.noFocus = noFocus
+            self.reuseCurrentPane = reuseCurrentPane
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
             self.agentSocketPath = agentSocketPath
@@ -8398,6 +8401,24 @@ struct CMUXCLI {
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
+        if sshOptions.reuseCurrentPane {
+            // Reuse the pane the CLI is running in instead of creating a new workspace, then exec
+            // the same startup command in place. Never returns normally (execs or throws).
+            try connectRemoteInCurrentPane(
+                options: sshOptions,
+                client: client,
+                relayID: relayID,
+                relayToken: relayToken,
+                remoteSSHOptions: remoteSSHOptions,
+                startupCommand: initialSSHStartupCommand,
+                reusableTerminalStartupCommand: reusableTerminalStartupCommand,
+                autoConnect: deferredRemoteReconnectCommandScript == nil,
+                foregroundAuthToken: configuredForegroundAuthToken,
+                persistentDaemonSlot: persistentDaemonSlot
+            )
+            return
+        }
+
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
@@ -8568,6 +8589,139 @@ struct CMUXCLI {
         }
     }
 
+    /// `cmux ssh --here`: reuse the workspace/pane the CLI is running in instead of creating a new
+    /// one. The CLI is a child of the current pane's shell, so it configures the current workspace
+    /// as remote and then execs the same SSH startup command in place — the connection runs in the
+    /// pane you typed it in, and the workspace stays in whatever sidebar group it already belongs to.
+    private func connectRemoteInCurrentPane(
+        options: SSHCommandOptions,
+        client: SocketClient,
+        relayID: String,
+        relayToken: String,
+        remoteSSHOptions: [String],
+        startupCommand: String,
+        reusableTerminalStartupCommand: String,
+        autoConnect: Bool,
+        foregroundAuthToken: String?,
+        persistentDaemonSlot: String?
+    ) throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceId.isEmpty else {
+            cliDebugLog("cli.ssh.here.guard missing=CMUX_WORKSPACE_ID")
+            throw CLIError(message: "ssh --here must be run from an active cmux terminal pane.")
+        }
+        guard let surfaceId = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceId.isEmpty else {
+            cliDebugLog("cli.ssh.here.guard missing=CMUX_SURFACE_ID")
+            throw CLIError(message: "ssh --here must be run from an active cmux terminal pane.")
+        }
+        // --here always connects in the current pane, so an explicit window target makes no sense.
+        if options.windowRaw != nil {
+            throw CLIError(message: "ssh --here uses the current pane and cannot target another window; drop --window or use `cmux ssh`.")
+        }
+
+        // Guard: --here connects in the workspace's single terminal. Splits would leave remote
+        // tracking ambiguous, so require exactly one terminal surface — and that it is the surface
+        // this command is running in, so the exec'd startup/session-end scripts (which key off
+        // CMUX_SURFACE_ID) bind to the right TTY and the workspace can demote cleanly on exit.
+        let surfaceList = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let surfaces = (surfaceList["surfaces"] as? [[String: Any]]) ?? []
+        let terminalSurfaceIds = surfaces
+            .filter { ($0["type"] as? String) == "terminal" }
+            .compactMap { $0["id"] as? String }
+        guard terminalSurfaceIds.count == 1 else {
+            throw CLIError(
+                message: "ssh --here: needs a single-terminal workspace (this one has \(terminalSurfaceIds.count)). "
+                    + "Run `cmux ssh` to open a new workspace instead."
+            )
+        }
+        guard terminalSurfaceIds[0].caseInsensitiveCompare(surfaceId) == .orderedSame else {
+            throw CLIError(message: "ssh --here: must be run from the workspace's own terminal surface.")
+        }
+
+        // Guard: don't stack a connection on a workspace that is already remote.
+        let workspaceList = try client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceId])
+        let workspaces = (workspaceList["workspaces"] as? [[String: Any]]) ?? []
+        let currentRemote = workspaces.first { ($0["id"] as? String) == workspaceId }?["remote"] as? [String: Any]
+        if (currentRemote?["enabled"] as? Bool) == true {
+            throw CLIError(
+                message: "ssh --here: this workspace is already a remote session. "
+                    + "Disconnect it first, or run `cmux ssh` for a new one."
+            )
+        }
+
+        cliDebugLog(
+            "cli.ssh.here.start target=\(options.displayDestination) workspace=\(String(workspaceId.prefix(8))) "
+                + "relayPort=\(options.remoteRelayPort) autoConnect=\(autoConnect ? 1 : 0)"
+        )
+
+        if let workspaceName = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceName.isEmpty {
+            _ = try client.sendV2(method: "workspace.rename", params: [
+                "workspace_id": workspaceId,
+                "title": workspaceName,
+            ])
+        }
+
+        var configureParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "destination": options.displayDestination,
+            "auto_connect": autoConnect,
+            "terminal_startup_command": reusableTerminalStartupCommand,
+        ]
+        if let foregroundAuthToken {
+            configureParams["foreground_auth_token"] = foregroundAuthToken
+        }
+        if let port = options.port {
+            configureParams["port"] = port
+        }
+        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
+            configureParams["identity_file"] = identityFile
+        }
+        if !remoteSSHOptions.isEmpty {
+            configureParams["ssh_options"] = remoteSSHOptions
+        }
+        if let agentSocketPath = options.agentSocketPath {
+            configureParams["ssh_auth_sock"] = agentSocketPath
+        }
+        if options.remoteRelayPort > 0 {
+            configureParams["relay_port"] = options.remoteRelayPort
+            configureParams["relay_id"] = relayID
+            configureParams["relay_token"] = relayToken
+            configureParams["local_socket_path"] = options.localSocketPath
+        }
+        if options.skipDaemonBootstrap {
+            configureParams["skip_daemon_bootstrap"] = true
+        }
+        if let persistentDaemonSlot {
+            configureParams["preserve_after_terminal_exit"] = true
+            configureParams["persistent_daemon_slot"] = persistentDaemonSlot
+        }
+        _ = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+
+        cliDebugLog("cli.ssh.here.configured workspace=\(String(workspaceId.prefix(8)))")
+
+        // Hand this pane to ssh. The app would normally run `startupCommand` as the new workspace's
+        // initial command via the shell; we replicate that with `sh -c` so execv replaces this CLI
+        // process (a child of the pane's shell). On exit the startup script's session-end trap fires
+        // and control returns to the shell prompt.
+        let argvStrings = ["/bin/sh", "-c", startupCommand]
+        var argv: [UnsafeMutablePointer<CChar>?] = argvStrings.map { strdup($0) }
+        defer { for item in argv { free(item) } }
+        argv.append(nil)
+        execv("/bin/sh", &argv)
+        // execv only returns on failure — and we have already configured this workspace as remote.
+        // Roll it back to local so the pane isn't stranded in a dangling remote-configured state.
+        let code = errno
+        cliDebugLog("cli.ssh.here.exec.failed errno=\(code) detail=\(String(cString: strerror(code)))")
+        _ = try? client.sendV2(method: "workspace.remote.disconnect", params: [
+            "workspace_id": workspaceId,
+            "clear": true,
+        ])
+        throw CLIError(message: "ssh --here: could not start the ssh session in this pane.")
+    }
+
     private func parseSSHCommandOptions(
         _ commandArgs: [String],
         localSocketPath: String = "",
@@ -8580,6 +8734,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var windowRaw: String?
         var noFocus = false
+        var reuseCurrentPane = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
@@ -8628,6 +8783,9 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--here":
+                reuseCurrentPane = true
+                index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1
@@ -8675,6 +8833,7 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
+            reuseCurrentPane: reuseCurrentPane,
             sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
@@ -14412,9 +14571,13 @@ struct CMUXCLI {
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
+              --here                  Reuse the current pane instead of creating a new workspace.
+                                      Must be run inside a cmux pane; the workspace must have a single
+                                      terminal and not already be remote. Keeps it in its sidebar group.
 
             Example:
               cmux ssh dev@my-host
+              cmux ssh --here dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
@@ -33661,7 +33824,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [--here] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
