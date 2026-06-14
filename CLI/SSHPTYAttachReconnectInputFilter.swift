@@ -2,12 +2,6 @@ import Darwin
 import Foundation
 
 final class SSHPTYAttachReconnectInputFilter {
-    private enum SequenceMatch {
-        case strip(length: Int)
-        case incomplete
-        case passThrough
-    }
-
     private static let escape: UInt8 = 0x1B
     private static let bell: UInt8 = 0x07
     private static let leftBracket: UInt8 = 0x5B
@@ -152,7 +146,10 @@ final class SSHPTYAttachReconnectInputFilter {
         isFiltering = false
     }
 
-    private static func reconnectProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
+    private static func reconnectProbeReplySequence(
+        in bytes: [UInt8],
+        at start: Int
+    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
         guard start < bytes.count, bytes[start] == escape else {
             return .passThrough
         }
@@ -171,7 +168,10 @@ final class SSHPTYAttachReconnectInputFilter {
         }
     }
 
-    private static func oscColorReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
+    private static func oscColorReplySequence(
+        in bytes: [UInt8],
+        at start: Int
+    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
         var cursor = start + 2
         var command = [UInt8]()
 
@@ -216,7 +216,10 @@ final class SSHPTYAttachReconnectInputFilter {
         return .incomplete
     }
 
-    private static func csiProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
+    private static func csiProbeReplySequence(
+        in bytes: [UInt8],
+        at start: Int
+    ) -> SSHPTYAttachReconnectInputFilterSequenceMatch {
         var cursor = start + 2
         while cursor < bytes.count {
             let byte = bytes[cursor]

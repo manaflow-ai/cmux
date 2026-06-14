@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
@@ -29,7 +29,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             switch method {
             case "workspace.remote.pty_bridge":
-                XCTAssertEqual((payload["params"] as? [String: Any])?["require_existing"] as? Bool, true)
+                #expect((payload["params"] as? [String: Any])?["require_existing"] as? Bool == true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -93,18 +93,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [socketHandled, bridgeHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        wait(for: [socketHandled], timeout: 5)
+        #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(result.stderr.isEmpty)
         let forwardedBridgeInput = bridgeInput.snapshot()
-        XCTAssertEqual(
-            String(data: forwardedBridgeInput, encoding: .utf8),
-            queuedProbeReplies + forwardedInput,
-            "Probe-like bytes from piped stdin must stay byte-for-byte because reconnect filtering only applies to terminal stdin."
-        )
+        #expect(String(data: forwardedBridgeInput, encoding: .utf8) == queuedProbeReplies + forwardedInput)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
+        #expect(methods == [
             "workspace.remote.pty_bridge",
             "workspace.remote.pty_sessions",
             "workspace.remote.pty_attach_end",

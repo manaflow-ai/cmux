@@ -1,8 +1,7 @@
 import Darwin
 import Foundation
-import XCTest
 
-// Protects test capture bytes written from a bridge thread and read by XCTest assertions.
+// Protects test capture bytes written from a bridge thread and read by assertions.
 final class MockBridgeInputCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var input = Data()
@@ -25,10 +24,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startBridgeReadyCapturingInputUntilEOF(
         listenerFD: Int32,
         capture: MockBridgeInputCapture
-    ) -> XCTestExpectation {
-        let handled = expectation(description: "pty bridge ready input capture server handled")
+    ) -> DispatchGroup {
+        let handled = DispatchGroup()
+        handled.enter()
         DispatchQueue.global(qos: .userInitiated).async {
-            defer { handled.fulfill() }
+            defer { handled.leave() }
 
             var clientAddr = sockaddr_in()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
