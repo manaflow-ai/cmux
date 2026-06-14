@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -192,22 +193,44 @@ extension CMUXCLI {
         var input: DiffInput
         var allowedFiles: [DiffViewerAllowedFile]
         var deferredSourceSet: DiffViewerDeferredSourceSet? = nil
+        var completeDeferred: (() throws -> DiffViewerWriteResult)? = nil
     }
 
     private struct DiffViewerDeferredSourceSet {
         var pages: [DiffViewerDeferredSourcePage]
         var layout: String
+        var layoutSource: String
         var appearance: DiffViewerAppearance
+        var runtime: URL?
     }
 
     private struct DiffViewerDeferredSourcePage {
         var source: DiffSource
         var url: URL
+        var viewerURL: URL
         var titleOverride: String?
         var context: DiffSourceContext
         var sourceOptions: [DiffViewerSourceOption]
         var repoOptions: [DiffViewerSourceOption]
         var baseOptions: [DiffViewerSourceOption]
+        var allowsSourceFallback: Bool = false
+        var sourceFallbacks: [DiffSource: DiffViewerDeferredSourceFallback] = [:]
+    }
+
+    private struct DiffViewerDeferredSourceFallback {
+        var url: URL
+        var viewerURL: URL
+        var context: DiffSourceContext
+        var sourceOptions: [DiffViewerSourceOption]
+        var repoOptions: [DiffViewerSourceOption]
+        var baseOptions: [DiffViewerSourceOption]
+    }
+
+    private struct DiffViewerDeferredCompletion {
+        var input: DiffInput
+        var fileURL: URL
+        var viewerURL: URL
+        var completedPageURLs: Set<URL>
     }
 
     private struct DiffViewerRepoOption {
@@ -218,6 +241,13 @@ extension CMUXCLI {
     private struct DiffViewerBranchBaseOption {
         var ref: String
         var label: String
+    }
+
+    private struct DiffViewerGitHTMLSetTarget {
+        var directory: URL
+        var mapper: DiffViewerURLMapper
+        var groupID: String
+        var runtime: URL?
     }
 
     private struct DiffViewerSourceOption {
@@ -244,6 +274,7 @@ extension CMUXCLI {
     }
 
     private struct DiffViewerAssets {
+        var appModuleURL: String
         var diffsModuleURL: String
         var treesModuleURL: String
         var workerPoolModuleURL: String
@@ -349,9 +380,12 @@ extension CMUXCLI {
         var port: Int
         var pid: Int32
         var rootPath: String
+        var protocolVersion: String?
+        var executablePath: String?
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v2 remote-stream\n".utf8)
+    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v2 executable-bound"
+    private static let diffViewerHTTPServerHealthResponse = Data("ok \(diffViewerHTTPServerProtocolVersion)\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -367,11 +401,22 @@ extension CMUXCLI {
         static func localized() -> DiffViewerLabels {
             DiffViewerLabels(values: [
                 "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
+                "addComment": CMUXDiffViewerLocalization.string("diffViewer.addComment", defaultValue: "Add comment"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
+                "cancelComment": CMUXDiffViewerLocalization.string("diffViewer.cancelComment", defaultValue: "Cancel"),
+                "comments": CMUXDiffViewerLocalization.string("diffViewer.comments", defaultValue: "Comments"),
+                "commentPlaceholder": CMUXDiffViewerLocalization.string("diffViewer.commentPlaceholder", defaultValue: "Leave a comment"),
+                "deleteComment": CMUXDiffViewerLocalization.string("diffViewer.deleteComment", defaultValue: "Delete"),
+                "editComment": CMUXDiffViewerLocalization.string("diffViewer.editComment", defaultValue: "Edit"),
+                "noComments": CMUXDiffViewerLocalization.string("diffViewer.noComments", defaultValue: "No comments yet"),
+                "outdatedComment": CMUXDiffViewerLocalization.string("diffViewer.outdatedComment", defaultValue: "Outdated"),
+                "saveComment": CMUXDiffViewerLocalization.string("diffViewer.saveComment", defaultValue: "Comment"),
                 "changedFiles": CMUXDiffViewerLocalization.string("diffViewer.changedFiles", defaultValue: "Changed files"),
                 "classic": CMUXDiffViewerLocalization.string("diffViewer.classic", defaultValue: "Classic"),
+                "commit": CMUXDiffViewerLocalization.string("about.commit", defaultValue: "Commit"),
                 "collapseAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
                 "collapseUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
+                "copyFailedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyFailedGitApplyCommand", defaultValue: "Could not copy git apply command."),
                 "copiedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
                 "copyGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
                 "deletions": CMUXDiffViewerLocalization.string("diffViewer.deletions", defaultValue: "Deletions"),
@@ -411,6 +456,78 @@ extension CMUXCLI {
                 "switchToUnifiedDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
                 "untitled": CMUXDiffViewerLocalization.string("diffViewer.untitled", defaultValue: "Untitled"),
             ])
+        }
+    }
+
+    private enum DiffViewerShortcutAction: String, CaseIterable {
+        case scrollDown = "diffViewerScrollDown"
+        case scrollUp = "diffViewerScrollUp"
+        case scrollToBottom = "diffViewerScrollToBottom"
+        case scrollToTop = "diffViewerScrollToTop"
+        case openFileSearch = "diffViewerOpenFileSearch"
+
+        var defaultShortcut: DiffViewerShortcut {
+            switch self {
+            case .scrollDown:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "j"))
+            case .scrollUp:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "k"))
+            case .scrollToBottom:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "g", shift: true))
+            case .scrollToTop:
+                return DiffViewerShortcut(
+                    first: DiffViewerShortcutStroke(key: "g"),
+                    second: DiffViewerShortcutStroke(key: "g")
+                )
+            case .openFileSearch:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
+            }
+        }
+    }
+
+    private struct DiffViewerShortcutStroke: Equatable {
+        var key: String
+        var command: Bool
+        var shift: Bool
+        var option: Bool
+        var control: Bool
+
+        init(key: String, command: Bool = false, shift: Bool = false, option: Bool = false, control: Bool = false) {
+            self.key = key
+            self.command = command
+            self.shift = shift
+            self.option = option
+            self.control = control
+        }
+
+        var jsonObject: [String: Any] {
+            [
+                "key": key,
+                "command": command,
+                "shift": shift,
+                "option": option,
+                "control": control,
+            ]
+        }
+    }
+
+    private struct DiffViewerShortcut: Equatable {
+        var first: DiffViewerShortcutStroke?
+        var second: DiffViewerShortcutStroke?
+
+        static let unbound = DiffViewerShortcut(first: nil, second: nil)
+
+        var isUnbound: Bool { first == nil }
+
+        var jsonObject: [String: Any] {
+            if isUnbound {
+                return ["unbound": true]
+            }
+            var object: [String: Any] = ["first": first?.jsonObject ?? [:]]
+            if let second {
+                object["second"] = second.jsonObject
+            }
+            return object
         }
     }
 
@@ -492,6 +609,7 @@ extension CMUXCLI {
     }
 
     private struct DiffViewerAppearance {
+        var backgroundOpacity: Double
         var fontFamily: String
         var fontSize: Double
         var lightTheme: DiffViewerTheme
@@ -507,6 +625,7 @@ extension CMUXCLI {
 
         var jsonObject: [String: Any] {
             [
+                "backgroundOpacity": backgroundOpacity,
                 "fontFamily": fontFamily,
                 "fontSize": fontSize,
                 "lineHeight": lineHeight,
@@ -674,10 +793,9 @@ extension CMUXCLI {
             focus = false
         }
 
-        let layout = parsedArgs.layout ?? "split"
-        guard layout == "split" || layout == "unified" else {
-            throw CLIError(message: "--layout must be split|unified")
-        }
+        let resolvedLayout = try resolveDiffViewerLayout(rawLayout: parsedArgs.layout)
+        let layout = resolvedLayout.layout
+        let layoutSource = resolvedLayout.source
 
         let fontSizeOverride: Double?
         if let rawFontSize = parsedArgs.fontSize {
@@ -725,6 +843,12 @@ extension CMUXCLI {
         )
         if let cwd = parsedArgs.cwd {
             diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+        } else if parsedArgs.source == nil {
+            // Piped patches get a best-effort repo root from the CLI's cwd so
+            // diff comments can persist per repository.
+            diffSourceContext.repoRoot = try? gitRepoRoot(
+                startingAt: FileManager.default.currentDirectoryPath
+            )
         }
         if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
@@ -745,13 +869,16 @@ extension CMUXCLI {
             socketPath: socketPath,
             fontSizeOverride: fontSizeOverride
         )
+        let runtime = diffViewerRuntime(socketPath: socketPath)
         let viewer = try writeDiffViewer(
             rawInput: parsedArgs.inputs.first,
             source: parsedArgs.source,
             titleOverride: parsedArgs.title,
             layout: layout,
+            layoutSource: layoutSource,
             appearance: appearance,
-            context: diffSourceContext
+            context: diffSourceContext,
+            runtime: runtime
         )
 
         try resolveTargetIfNeeded()
@@ -761,6 +888,7 @@ extension CMUXCLI {
             "url": viewer.url.absoluteString,
             "focus": focus,
             "show_omnibar": false,
+            "transparent_background": true,
             "bypass_remote_proxy": true
         ]
         if viewer.url.scheme == DiffViewerURLMapper.scheme {
@@ -774,20 +902,75 @@ extension CMUXCLI {
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
 
         if jsonOutput {
+            let completedViewer = try completeDeferredDiffViewer(viewer)
             var response = payload
-            response["path"] = viewer.fileURL.path
-            response["url"] = viewer.url.absoluteString
-            response["title"] = viewer.title
-            response["source"] = viewer.input.sourceLabel
+            response["path"] = completedViewer.fileURL.path
+            response["url"] = completedViewer.url.absoluteString
+            response["title"] = completedViewer.title
+            response["source"] = completedViewer.input.sourceLabel
             print(jsonString(formatIDs(response, mode: idFormat)))
-            completeDeferredDiffViewerSources(viewer.deferredSourceSet)
             return
         }
 
+        // Finalize the deferred viewer (writes the real diff HTML in place of the
+        // opening placeholder); its temp file path is an internal detail, so keep it
+        // out of the human output. Scripts that need it can use `--json`.
+        _ = try completeDeferredDiffViewer(viewer)
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-        print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.fileURL.path)")
-        completeDeferredDiffViewerSources(viewer.deferredSourceSet)
+        print("OK surface=\(surfaceText) pane=\(paneText)")
+    }
+
+    private func diffViewerRuntime(socketPath: String) -> URL? {
+        if let taggedExecutableURL = taggedDiffViewerExecutableURL(socketPath: socketPath) {
+            return taggedExecutableURL
+        }
+        return nil
+    }
+
+    private func diffViewerExecutableURL(for runtime: URL?) -> URL? {
+        runtime ?? resolvedExecutableURL()
+    }
+
+    private func taggedDiffViewerExecutableURL(socketPath: String) -> URL? {
+        let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
+        let prefix = "cmux-debug-"
+        let suffix = ".sock"
+        guard socketName.hasPrefix(prefix), socketName.hasSuffix(suffix) else {
+            return nil
+        }
+
+        let tagStart = socketName.index(socketName.startIndex, offsetBy: prefix.count)
+        let tagEnd = socketName.index(socketName.endIndex, offsetBy: -suffix.count)
+        let tag = String(socketName[tagStart..<tagEnd])
+        guard !tag.isEmpty,
+              tag.allSatisfy({ character in
+                  character.isLetter || character.isNumber || character == "-" || character == "_"
+              }) else {
+            return nil
+        }
+
+        let homePath = ProcessInfo.processInfo.environment["HOME"]
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            ?? NSHomeDirectory()
+        let candidate = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent("Library/Developer/Xcode/DerivedData/cmux-\(tag)", isDirectory: true)
+            .appendingPathComponent("Build/Products/Debug/cmux DEV \(tag).app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+            .standardizedFileURL
+
+        guard FileManager.default.isExecutableFile(atPath: candidate.path) else {
+            return nil
+        }
+        return canonicalFileURL(candidate)
+    }
+
+    private func canonicalFileURL(_ url: URL) -> URL {
+        if let resolvedPath = realpath(url.path, nil) {
+            defer { free(resolvedPath) }
+            return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL
+        }
+        return url.standardizedFileURL
     }
 
     private func canonicalDiffSourceContext(
@@ -1080,6 +1263,57 @@ extension CMUXCLI {
         return roundedDiffViewerMetric(size)
     }
 
+    private func resolveDiffViewerLayout(rawLayout: String?) throws -> (layout: String, source: String) {
+        if let rawLayout {
+            return (try parseDiffViewerLayout(rawLayout, errorMessage: "--layout must be split|unified"), "explicit")
+        }
+        return (diffViewerDefaultLayoutSetting() ?? "unified", "default")
+    }
+
+    private func parseDiffViewerLayout(_ rawValue: String, errorMessage: String) throws -> String {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalized == "split" || normalized == "unified" else {
+            throw CLIError(message: errorMessage)
+        }
+        return normalized
+    }
+
+    private func diffViewerDefaultLayoutSetting() -> String? {
+        for path in diffViewerDefaultSettingsPaths() {
+            guard let root = diffViewerSettingsRoot(at: path),
+                  let section = root["diffViewer"] as? [String: Any],
+                  let rawLayout = section["defaultLayout"] as? String,
+                  let layout = try? parseDiffViewerLayout(
+                      rawLayout,
+                      errorMessage: "diffViewer.defaultLayout must be split|unified"
+                  ) else {
+                continue
+            }
+            return layout
+        }
+        return nil
+    }
+
+    private func diffViewerDefaultSettingsPaths() -> [String] {
+        [
+            Self.primarySettingsDisplayPath,
+            Self.legacySettingsDisplayPath,
+            Self.fallbackSettingsDisplayPath,
+        ].map(Self.absoluteDiffViewerSettingsPath)
+    }
+
+    private func diffViewerSettingsRoot(at path: String) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              !data.isEmpty,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
+            return nil
+        }
+        return root
+    }
+
     private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
         if let url = URL(string: raw),
            let scheme = url.scheme?.lowercased(),
@@ -1219,17 +1453,23 @@ extension CMUXCLI {
             }
             let env = ProcessInfo.processInfo.environment
             let baselineStorePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
-            let record = try latestAgentTurnDiffBaseline(
+            if let record = try latestAgentTurnDiffBaseline(
                 repoRoot: repoRoot,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 env: env
-            )
-            _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
-            patch = try joinedGitDiffPatches([
-                gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
-                gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
-            ])
+            ) {
+                _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
+                patch = try joinedGitDiffPatches([
+                    gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
+                    gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
+                ])
+            } else {
+                // No last-turn baseline recorded yet: emit an empty patch so the
+                // viewer renders the friendly empty diff state (with the source
+                // switcher) instead of throwing a developer-facing CLI error.
+                patch = ""
+            }
             sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
         }
         return DiffInput(
@@ -2196,12 +2436,18 @@ extension CMUXCLI {
         "refs/cmux/last-turn/untracked/\(blob)"
     }
 
+    /// Returns the most recent last-turn diff baseline recorded for the given
+    /// workspace/surface, or `nil` when no baseline has been recorded yet.
+    ///
+    /// A missing baseline is not an error: it means there is simply nothing to
+    /// diff for the last turn, so callers render the friendly empty diff state
+    /// (with the source switcher) rather than surfacing a raw CLI error.
     private func latestAgentTurnDiffBaseline(
         repoRoot: String,
         workspaceId: String,
         surfaceId: String,
         env: [String: String]
-    ) throws -> CMUXAgentTurnDiffBaselineRecord {
+    ) throws -> CMUXAgentTurnDiffBaselineRecord? {
         let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
         let repoRoot = standardizedDiffSourcePath(repoRoot)
         let candidates = store.records.filter { record in
@@ -2209,10 +2455,7 @@ extension CMUXCLI {
                 && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
                 && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
         }
-        guard let record = candidates.max(by: { $0.capturedAt < $1.capturedAt }) else {
-            throw CLIError(message: "No last-turn diff baseline recorded for this workspace and surface yet. Run another agent turn with cmux hooks active, or use --unstaged, --staged, or --branch.")
-        }
-        return record
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })
     }
 
     private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
@@ -2421,6 +2664,7 @@ extension CMUXCLI {
         applyDiffViewerThemeContents(diffViewerDefaultThemeConfigContents(preferredColorScheme: .dark), to: &darkTheme)
 
         return DiffViewerAppearance(
+            backgroundOpacity: 1,
             fontFamily: "Menlo",
             fontSize: 10,
             lightTheme: lightTheme,
@@ -2441,6 +2685,10 @@ extension CMUXCLI {
             case "font-size":
                 if let fontSize = diffViewerConfigFontSize(value) {
                     appearance.fontSize = fontSize
+                }
+            case "background-opacity":
+                if let backgroundOpacity = diffViewerConfigUnitInterval(value) {
+                    appearance.backgroundOpacity = backgroundOpacity
                 }
             case "theme":
                 applyDiffViewerThemeDirective(value, to: &appearance)
@@ -2729,6 +2977,24 @@ extension CMUXCLI {
         return roundedDiffViewerMetric(size)
     }
 
+    private func diffViewerConfigUnitInterval(_ rawValue: String) -> Double? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let rawNumber: String
+        let divisor: Double
+        if trimmed.hasSuffix("%") {
+            rawNumber = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            divisor = 100
+        } else {
+            rawNumber = trimmed
+            divisor = 1
+        }
+        guard let value = Double(rawNumber), value.isFinite else { return nil }
+
+        return roundedDiffViewerMetric(min(1, max(0, value / divisor)))
+    }
+
     private func roundedDiffViewerMetric(_ value: Double) -> Double {
         (value * 100).rounded() / 100
     }
@@ -2789,16 +3055,20 @@ extension CMUXCLI {
         source: DiffSource?,
         titleOverride: String?,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
-        context: DiffSourceContext
+        context: DiffSourceContext,
+        runtime: URL?
     ) throws -> DiffViewerWriteResult {
         if let source {
             return try writeGitDiffViewerHTMLSet(
                 selectedSource: source,
                 titleOverride: titleOverride,
                 layout: layout,
+                layoutSource: layoutSource,
                 appearance: appearance,
-                context: context
+                context: context,
+                runtime: runtime
             )
         }
 
@@ -2812,7 +3082,7 @@ extension CMUXCLI {
 
         let title = titleOverride ?? input.defaultTitle
         let directory = try diffViewerDirectory()
-        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory)
+        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
         let mapper = DiffViewerURLMapper(
             token: UUID().uuidString.lowercased(),
             rootDirectory: directory,
@@ -2829,10 +3099,13 @@ extension CMUXCLI {
             externalURL: input.externalURL,
             remotePatchURL: input.remotePatchURL,
             layout: layout,
+            layoutSource: layoutSource,
             appearance: appearance,
-            sourceOptions: []
+            sourceOptions: [],
+            repoRoot: context.repoRoot,
+            runtime: runtime
         )
-        let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL)
+        let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL, runtime: runtime)
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
             assets: assets,
@@ -2857,11 +3130,37 @@ extension CMUXCLI {
         selectedSource: DiffSource,
         titleOverride: String?,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
-        context: DiffSourceContext
+        context: DiffSourceContext,
+        runtime: URL?
     ) throws -> DiffViewerWriteResult {
+        let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
+        if selectedSource != .lastTurn {
+            return try writeOpeningGitDiffViewerHTMLSet(
+                selectedSource: selectedSource,
+                titleOverride: titleOverride,
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                context: context,
+                target: target
+            )
+        }
+        return try writeCompleteGitDiffViewerHTMLSet(
+            selectedSource: selectedSource,
+            titleOverride: titleOverride,
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            context: context,
+            target: target
+        )
+    }
+
+    private func makeDiffViewerGitHTMLSetTarget(runtime: URL?) throws -> DiffViewerGitHTMLSetTarget {
         let directory = try diffViewerDirectory()
-        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory)
+        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
         let mapper = DiffViewerURLMapper(
             token: UUID().uuidString.lowercased(),
             rootDirectory: directory,
@@ -2869,10 +3168,172 @@ extension CMUXCLI {
         )
         let timestamp = Int(Date().timeIntervalSince1970)
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
+        return DiffViewerGitHTMLSetTarget(directory: directory, mapper: mapper, groupID: groupID, runtime: runtime)
+    }
+
+    private func diffViewerLoadingDiffMessage(_ target: String) -> String {
+        let format = CMUXDiffViewerLocalization.string(
+            "diffViewer.loadingDiffTarget",
+            defaultValue: "Loading diff: %@"
+        )
+        return String(format: format, locale: Locale.current, target)
+    }
+
+    private func writeOpeningGitDiffViewerHTMLSet(
+        selectedSource: DiffSource,
+        titleOverride: String?,
+        layout: String,
+        layoutSource: String,
+        appearance: DiffViewerAppearance,
+        context: DiffSourceContext,
+        target: DiffViewerGitHTMLSetTarget
+    ) throws -> DiffViewerWriteResult {
+        let directory = target.directory
+        let mapper = target.mapper
+        let groupID = target.groupID
+        let repoRoot = try gitRepoRootForDiff(context)
+        let openingFileURL = directory.appendingPathComponent(
+            "diff-\(groupID)-opening.html",
+            isDirectory: false
+        )
+        let openingURL = try mapper.viewerURL(for: openingFileURL)
+        let sourceLabel = "git \(selectedSource.slug)"
+        let title = titleOverride ?? selectedSource.title
+        let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
+        try writeDiffViewerStatusHTML(
+            to: openingFileURL,
+            title: title,
+            sourceLabel: sourceLabel,
+            message: message,
+            isError: false,
+            pollForReplacement: true,
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            sourceOptions: [],
+            repoOptions: [],
+            baseOptions: [],
+            repoRoot: repoRoot,
+            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
+            runtime: target.runtime
+        )
+        let assets = try ensureDiffViewerAssets(nextTo: openingFileURL, runtime: target.runtime)
+        let allowedFiles = try diffViewerAllowedFiles(
+            pageURLs: [openingFileURL],
+            assets: assets,
+            mapper: mapper
+        )
+        try writeDiffViewerHTTPManifest(
+            token: mapper.token,
+            files: allowedFiles,
+            rootDirectory: directory
+        )
+
+        let responseInput = DiffInput(
+            patch: "",
+            sourceLabel: sourceLabel,
+            defaultTitle: selectedSource.title,
+            emptyMessage: selectedSource.emptyMessage,
+            externalURL: nil
+        )
+        return DiffViewerWriteResult(
+            fileURL: openingFileURL,
+            url: openingURL,
+            title: title,
+            input: responseInput,
+            allowedFiles: allowedFiles,
+            completeDeferred: { [self] in
+                do {
+                    let completed = try writeCompleteGitDiffViewerHTMLSet(
+                        selectedSource: selectedSource,
+                        titleOverride: titleOverride,
+                        layout: layout,
+                        layoutSource: layoutSource,
+                        appearance: appearance,
+                        context: context,
+                        target: target,
+                        extraAllowedPageURL: openingFileURL
+                    )
+                    var finalized = completed
+
+                    var completedPageURLs = Set<URL>()
+                    do {
+                        if let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
+                            completed.deferredSourceSet,
+                            selectedURL: completed.fileURL
+                        ) {
+                            completedPageURLs.formUnion(selectedCompletion.completedPageURLs)
+                            finalized.fileURL = selectedCompletion.fileURL
+                            finalized.url = selectedCompletion.viewerURL
+                            finalized.input = selectedCompletion.input
+                            finalized.title = titleOverride ?? selectedCompletion.input.defaultTitle
+                        }
+                    } catch {
+                        try? writeDiffViewerRedirectHTML(
+                            to: openingFileURL,
+                            title: title,
+                            targetURL: completed.url,
+                            appearance: appearance,
+                            runtime: target.runtime
+                        )
+                        throw error
+                    }
+                    try writeDiffViewerRedirectHTML(
+                        to: openingFileURL,
+                        title: finalized.title,
+                        targetURL: finalized.url,
+                        appearance: appearance,
+                        runtime: target.runtime
+                    )
+                    _ = try completeDeferredDiffViewerSources(
+                        completed.deferredSourceSet,
+                        selectedURL: completed.fileURL,
+                        completedPageURLs: completedPageURLs
+                    )
+                    return finalized
+                } catch {
+                    let message = diffViewerErrorMessage(error)
+                    try? writeDiffViewerStatusHTML(
+                        to: openingFileURL,
+                        title: title,
+                        sourceLabel: sourceLabel,
+                        message: message,
+                        isError: true,
+                        pollForReplacement: false,
+                        layout: layout,
+                        layoutSource: layoutSource,
+                        appearance: appearance,
+                        sourceOptions: [],
+                        repoOptions: [],
+                        baseOptions: [],
+                        repoRoot: repoRoot,
+                        branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
+                        runtime: target.runtime
+                    )
+                    throw error
+                }
+            }
+        )
+    }
+
+    private func writeCompleteGitDiffViewerHTMLSet(
+        selectedSource: DiffSource,
+        titleOverride: String?,
+        layout: String,
+        layoutSource: String,
+        appearance: DiffViewerAppearance,
+        context: DiffSourceContext,
+        target: DiffViewerGitHTMLSetTarget,
+        extraAllowedPageURL: URL? = nil
+    ) throws -> DiffViewerWriteResult {
+        let directory = target.directory
+        let mapper = target.mapper
+        let groupID = target.groupID
         let requestedSource = selectedSource
         let repoRoot = try gitRepoRootForDiff(context)
         let explicitBranchBaseRef = normalizedDiffSourceValue(context.branchBaseRef)
         var selectedSource = requestedSource
+        let shouldDeferSelectedSource = requestedSource != .lastTurn
         func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
             var sourceContext = context
             sourceContext.repoRoot = repoRoot
@@ -2887,26 +3348,41 @@ extension CMUXCLI {
             return sourceContext
         }
         var selectedContext = try sourceContext(for: selectedSource, repoRoot: repoRoot)
-        let selectedInput: DiffInput
-        do {
-            selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
-        } catch let error as EmptyDiffSourceError {
-            guard selectedSource != .lastTurn else {
-                throw CLIError(message: error.message)
-            }
-            var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
-            for candidate in DiffSource.allCases where candidate != selectedSource {
-                guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
-                      let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
-                    continue
+        var selectedInput: DiffInput?
+        // When non-nil, the selected source has no changes: render the friendly,
+        // non-error empty diff state (with the source switcher) instead of failing.
+        var selectedEmptyMessage: String?
+        if !shouldDeferSelectedSource {
+            do {
+                selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
+            } catch let error as EmptyDiffSourceError {
+                if selectedSource == .lastTurn {
+                    // Last turn is the user's explicit intent, so never silently
+                    // switch sources; show its empty state and keep the switcher.
+                    selectedEmptyMessage = error.message
+                    selectedInput = nil
+                } else {
+                    var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
+                    for candidate in DiffSource.allCases where candidate != selectedSource {
+                        guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
+                              let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
+                            continue
+                        }
+                        fallback = (candidate, candidateContext, candidateInput)
+                        break
+                    }
+                    if let fallback {
+                        selectedSource = fallback.source
+                        selectedContext = fallback.context
+                        selectedInput = fallback.input
+                    } else {
+                        // Every source is empty: show the originally selected
+                        // source's empty state rather than a raw error.
+                        selectedEmptyMessage = error.message
+                        selectedInput = nil
+                    }
                 }
-                fallback = (candidate, candidateContext, candidateInput)
-                break
             }
-            guard let fallback else { throw CLIError(message: error.message) }
-            selectedSource = fallback.source
-            selectedContext = fallback.context
-            selectedInput = fallback.input
         }
         let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
@@ -2999,24 +3475,94 @@ extension CMUXCLI {
         )
 
         var deferredPages: [DiffViewerDeferredSourcePage] = []
+        if shouldDeferSelectedSource {
+            try writeDiffViewerStatusHTML(
+                to: selectedFileURL,
+                title: titleOverride ?? selectedSource.title,
+                sourceLabel: "git \(selectedSource.slug)",
+                message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
+                isError: false,
+                pollForReplacement: true,
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                sourceOptions: sourceOptions,
+                repoOptions: selectedRepoOptions,
+                baseOptions: selectedSource == .branch ? baseOptions : [],
+                repoRoot: repoRoot,
+                branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                runtime: target.runtime
+            )
+            let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
+                guard source != selectedSource,
+                      let fallbackContext = try? sourceContext(for: source, repoRoot: repoRoot),
+                      let fallbackFileURL = fileURLs[source],
+                      let fallbackViewerURL = urls[source] else {
+                    return nil
+                }
+                return (
+                    source,
+                    DiffViewerDeferredSourceFallback(
+                        url: fallbackFileURL,
+                        viewerURL: fallbackViewerURL,
+                        context: fallbackContext,
+                        sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
+                        repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
+                        baseOptions: source == .branch ? baseOptions : []
+                    )
+                )
+            })
+            deferredPages.append(
+                DiffViewerDeferredSourcePage(
+                    source: selectedSource,
+                    url: selectedFileURL,
+                    viewerURL: selectedURL,
+                    titleOverride: titleOverride,
+                    context: selectedContext,
+                    sourceOptions: sourceOptions,
+                    repoOptions: selectedRepoOptions,
+                    baseOptions: selectedSource == .branch ? baseOptions : [],
+                    allowsSourceFallback: true,
+                    sourceFallbacks: sourceFallbacks
+                )
+            )
+        }
         for source in DiffSource.allCases where source != selectedSource {
             if let url = fileURLs[source] {
-                try writePendingDiffViewerHTML(
-                    to: url,
-                    title: source.title,
-                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(source.menuLabel)",
-                    pollForReplacement: true
-                )
                 var pageContext = selectedContext
                 if source == .branch {
                     pageContext.branchBaseRef = branchBaseForOptions
                 } else {
                     pageContext.branchBaseRef = nil
                 }
+                let viewerURL: URL
+                if let sourceURL = urls[source] {
+                    viewerURL = sourceURL
+                } else {
+                    viewerURL = try mapper.viewerURL(for: url)
+                }
+                try writeDiffViewerStatusHTML(
+                    to: url,
+                    title: source.title,
+                    sourceLabel: "git \(source.slug)",
+                    message: diffViewerLoadingDiffMessage(source.menuLabel),
+                    isError: false,
+                    pollForReplacement: true,
+                    layout: layout,
+                    layoutSource: layoutSource,
+                    appearance: appearance,
+                    sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
+                    repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
+                    baseOptions: source == .branch ? baseOptions : [],
+                    repoRoot: repoRoot,
+                    branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
+                    runtime: target.runtime
+                )
                 deferredPages.append(
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
+                        viewerURL: viewerURL,
                         titleOverride: nil,
                         context: pageContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
@@ -3030,23 +3576,42 @@ extension CMUXCLI {
         for source in DiffSource.allCases {
             for option in repoCandidates where option.repoRoot != repoRoot {
                 guard let url = repoFileURLsBySource[source]?[option.repoRoot] else { continue }
-                try writePendingDiffViewerHTML(
+                let viewerURL: URL
+                if let repoURL = repoURLsBySource[source]?[option.repoRoot] {
+                    viewerURL = repoURL
+                } else {
+                    viewerURL = try mapper.viewerURL(for: url)
+                }
+                let pageContext = DiffSourceContext(
+                    workspaceId: selectedContext.workspaceId,
+                    surfaceId: selectedContext.surfaceId,
+                    repoRoot: option.repoRoot,
+                    branchBaseRef: source == .branch ? explicitBranchBaseRef : selectedContext.branchBaseRef
+                )
+                try writeDiffViewerStatusHTML(
                     to: url,
                     title: option.label,
-                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
-                    pollForReplacement: true
+                    sourceLabel: "git \(source.slug)",
+                    message: diffViewerLoadingDiffMessage(option.label),
+                    isError: false,
+                    pollForReplacement: true,
+                    layout: layout,
+                    layoutSource: layoutSource,
+                    appearance: appearance,
+                    sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
+                    repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
+                    baseOptions: [],
+                    repoRoot: option.repoRoot,
+                    branchBaseRef: source == .branch ? explicitBranchBaseRef : nil,
+                    runtime: target.runtime
                 )
                 deferredPages.append(
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
+                        viewerURL: viewerURL,
                         titleOverride: source == selectedSource ? titleOverride : nil,
-                        context: DiffSourceContext(
-                            workspaceId: selectedContext.workspaceId,
-                            surfaceId: selectedContext.surfaceId,
-                            repoRoot: option.repoRoot,
-                            branchBaseRef: source == .branch ? explicitBranchBaseRef : selectedContext.branchBaseRef
-                        ),
+                        context: pageContext,
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
                         baseOptions: []
@@ -3057,18 +3622,40 @@ extension CMUXCLI {
 
         for option in baseCandidates where !(branchBaseForOptions.map { $0 == option.ref } ?? false) {
             guard let url = baseFileURLs[option.ref] else { continue }
-            try writePendingDiffViewerHTML(
-                to: url,
-                title: option.label,
-                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
-                pollForReplacement: true
-            )
+            let viewerURL: URL
+            if let baseURL = baseURLs[option.ref] {
+                viewerURL = baseURL
+            } else {
+                viewerURL = try mapper.viewerURL(for: url)
+            }
             var pageContext = selectedContext
             pageContext.branchBaseRef = option.ref
+            try writeDiffViewerStatusHTML(
+                to: url,
+                title: option.label,
+                sourceLabel: "git \(DiffSource.branch.slug)",
+                message: diffViewerLoadingDiffMessage(option.label),
+                isError: false,
+                pollForReplacement: true,
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
+                repoOptions: repoOptionsForSource(.branch, selectedRepoRoot: repoRoot),
+                baseOptions: diffViewerBranchBaseOptions(
+                    selectedBaseRef: option.ref,
+                    candidates: baseCandidates,
+                    urls: baseURLs
+                ),
+                repoRoot: repoRoot,
+                branchBaseRef: option.ref,
+                runtime: target.runtime
+            )
             deferredPages.append(
                 DiffViewerDeferredSourcePage(
                     source: .branch,
                     url: url,
+                    viewerURL: viewerURL,
                     titleOverride: selectedSource == .branch ? titleOverride : nil,
                     context: pageContext,
                     sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
@@ -3082,79 +3669,335 @@ extension CMUXCLI {
             )
         }
 
-        try writeDiffViewerHTML(
-            to: selectedFileURL,
-            patch: selectedInput.patch,
-            title: titleOverride ?? selectedInput.defaultTitle,
-            sourceLabel: selectedInput.sourceLabel,
-            externalURL: selectedInput.externalURL,
-            remotePatchURL: selectedInput.remotePatchURL,
-            layout: layout,
-            appearance: appearance,
-            sourceOptions: sourceOptions,
-            repoOptions: selectedRepoOptions,
-            baseOptions: selectedSource == .branch ? baseOptions : [],
-            repoRoot: repoRoot,
-            branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
-        )
-        let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
+        if let selectedInput {
+            try writeDiffViewerHTML(
+                to: selectedFileURL,
+                patch: selectedInput.patch,
+                title: titleOverride ?? selectedInput.defaultTitle,
+                sourceLabel: selectedInput.sourceLabel,
+                externalURL: selectedInput.externalURL,
+                remotePatchURL: selectedInput.remotePatchURL,
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                sourceOptions: sourceOptions,
+                repoOptions: selectedRepoOptions,
+                baseOptions: selectedSource == .branch ? baseOptions : [],
+                repoRoot: repoRoot,
+                branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                runtime: target.runtime
+            )
+        } else if let selectedEmptyMessage {
+            // Friendly, non-error empty diff state: the panel shows plain-language
+            // text plus the source switcher so the user can pick another diff.
+            try writeDiffViewerStatusHTML(
+                to: selectedFileURL,
+                title: titleOverride ?? selectedSource.title,
+                sourceLabel: "git \(selectedSource.slug)",
+                message: selectedEmptyMessage,
+                isError: false,
+                pollForReplacement: false,
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                sourceOptions: sourceOptions,
+                repoOptions: selectedRepoOptions,
+                baseOptions: selectedSource == .branch ? baseOptions : [],
+                repoRoot: repoRoot,
+                branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                runtime: target.runtime
+            )
+        }
+        let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL, runtime: target.runtime)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
-        let allowedFiles = try diffViewerAllowedFiles(
+        var allowedFiles = try diffViewerAllowedFiles(
             pageURLs: pageURLs,
             assets: assets,
             mapper: mapper
         )
+        if let extraAllowedPageURL {
+            allowedFiles = try diffViewerAllowedFilesWithExtraPage(
+                extraAllowedPageURL,
+                files: allowedFiles,
+                mapper: mapper
+            )
+        }
         try writeDiffViewerHTTPManifest(
             token: mapper.token,
             files: allowedFiles,
             rootDirectory: directory
         )
 
+        let responseInput = selectedInput ?? DiffInput(
+            patch: "",
+            sourceLabel: "git \(selectedSource.slug)",
+            defaultTitle: selectedSource.title,
+            emptyMessage: selectedSource.emptyMessage,
+            externalURL: nil
+        )
+
         return DiffViewerWriteResult(
             fileURL: selectedFileURL,
             url: selectedURL,
-            title: titleOverride ?? selectedInput.defaultTitle,
-            input: selectedInput,
+            title: titleOverride ?? responseInput.defaultTitle,
+            input: responseInput,
             allowedFiles: allowedFiles,
             deferredSourceSet: DiffViewerDeferredSourceSet(
                 pages: deferredPages,
                 layout: layout,
-                appearance: appearance
+                layoutSource: layoutSource,
+                appearance: appearance,
+                runtime: target.runtime
             )
         )
     }
 
-    private func completeDeferredDiffViewerSources(_ sourceSet: DiffViewerDeferredSourceSet?) {
-        guard let sourceSet else { return }
+    private func completeDeferredDiffViewer(_ viewer: DiffViewerWriteResult) throws -> DiffViewerWriteResult {
+        do {
+            if let completeDeferred = viewer.completeDeferred {
+                return try completeDeferred()
+            }
+            let selectedCompletion = try completeDeferredDiffViewerSources(
+                viewer.deferredSourceSet,
+                selectedURL: viewer.fileURL
+            )
+            guard let selectedCompletion else { return viewer }
+            var finalized = viewer
+            finalized.fileURL = selectedCompletion.fileURL
+            finalized.url = selectedCompletion.viewerURL
+            finalized.input = selectedCompletion.input
+            finalized.title = selectedCompletion.input.defaultTitle
+            return finalized
+        } catch {
+            throw diffViewerCommandError(error)
+        }
+    }
+
+    private func completeDeferredDiffViewerSelectedSource(
+        _ sourceSet: DiffViewerDeferredSourceSet?,
+        selectedURL: URL
+    ) throws -> DiffViewerDeferredCompletion? {
+        guard let sourceSet else { return nil }
+        guard let page = sourceSet.pages.first(where: { $0.url == selectedURL }) else {
+            return nil
+        }
+        do {
+            return try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+        } catch {
+            writeDeferredDiffViewerError(error, page: page, sourceSet: sourceSet)
+            throw error
+        }
+    }
+
+    private func completeDeferredDiffViewerSources(
+        _ sourceSet: DiffViewerDeferredSourceSet?,
+        selectedURL: URL? = nil,
+        completedPageURLs initialCompletedPageURLs: Set<URL> = []
+    ) throws -> DiffViewerDeferredCompletion? {
+        guard let sourceSet else { return nil }
+        var completedPageURLs = initialCompletedPageURLs
+        var selectedCompletion: DiffViewerDeferredCompletion?
+        var selectedError: Error?
         for page in sourceSet.pages {
+            guard !completedPageURLs.contains(page.url) else { continue }
             do {
-                var pageContext = page.context
-                if page.source == .branch {
-                    let repoRoot = try gitRepoRootForDiff(pageContext)
-                    pageContext.repoRoot = repoRoot
-                    pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
+                let completion = try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+                completedPageURLs.formUnion(completion.completedPageURLs)
+                if page.url == selectedURL {
+                    selectedCompletion = completion
                 }
-                let input = try nonEmptyGitDiffInput(source: page.source, context: pageContext)
-                try writeDiffViewerHTML(
-                    to: page.url,
-                    patch: input.patch,
-                    title: page.titleOverride ?? input.defaultTitle,
-                    sourceLabel: input.sourceLabel,
-                    externalURL: input.externalURL,
-                    remotePatchURL: input.remotePatchURL,
-                    layout: sourceSet.layout,
-                    appearance: sourceSet.appearance,
-                    sourceOptions: page.sourceOptions,
-                    repoOptions: page.repoOptions,
-                    baseOptions: page.baseOptions,
-                    repoRoot: pageContext.repoRoot,
-                    branchBaseRef: page.source == .branch ? pageContext.branchBaseRef : nil
-                )
             } catch {
-                let message = diffViewerErrorMessage(error)
-                try? writePendingDiffViewerHTML(to: page.url, title: page.source.title, message: message, pollForReplacement: false)
+                writeDeferredDiffViewerError(error, page: page, sourceSet: sourceSet)
+                if page.url == selectedURL {
+                    selectedError = error
+                }
             }
         }
+        if let selectedError {
+            throw selectedError
+        }
+        return selectedCompletion
+    }
+
+    private func writeDeferredDiffViewerError(
+        _ error: Error,
+        page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) {
+        let message = diffViewerErrorMessage(error)
+        try? writeDiffViewerStatusHTML(
+            to: page.url,
+            title: page.titleOverride ?? page.source.title,
+            sourceLabel: "git \(page.source.slug)",
+            message: message,
+            isError: true,
+            pollForReplacement: false,
+            layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
+            appearance: sourceSet.appearance,
+            sourceOptions: page.sourceOptions,
+            repoOptions: page.repoOptions,
+            baseOptions: page.baseOptions,
+            repoRoot: page.context.repoRoot,
+            branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil,
+            runtime: sourceSet.runtime
+        )
+    }
+
+    private func completeDeferredDiffViewerSource(
+        _ page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws -> DiffViewerDeferredCompletion {
+        do {
+            return try writeDeferredDiffViewerSource(
+                page: page,
+                source: page.source,
+                context: page.context,
+                sourceOptions: page.sourceOptions,
+                repoOptions: page.repoOptions,
+                baseOptions: page.baseOptions,
+                sourceSet: sourceSet
+            )
+        } catch let error as EmptyDiffSourceError where page.allowsSourceFallback {
+            for source in DiffSource.allCases where source != page.source {
+                guard let fallback = page.sourceFallbacks[source] else { continue }
+                do {
+                    let fallbackPage = DiffViewerDeferredSourcePage(
+                        source: source,
+                        url: fallback.url,
+                        viewerURL: fallback.viewerURL,
+                        titleOverride: page.titleOverride,
+                        context: fallback.context,
+                        sourceOptions: fallback.sourceOptions,
+                        repoOptions: fallback.repoOptions,
+                        baseOptions: fallback.baseOptions
+                    )
+                    var completion = try writeDeferredDiffViewerSource(
+                        page: fallbackPage,
+                        source: source,
+                        context: fallback.context,
+                        sourceOptions: fallback.sourceOptions,
+                        repoOptions: fallback.repoOptions,
+                        baseOptions: fallback.baseOptions,
+                        sourceSet: sourceSet
+                    )
+                    // The originally selected source is empty; leave its own page as
+                    // a friendly empty state so switching back to it never shows a
+                    // raw error. This is a secondary page (the fallback page is the
+                    // returned result), so a write failure here is best-effort.
+                    try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+                    completion.completedPageURLs.insert(page.url)
+                    return completion
+                } catch is EmptyDiffSourceError {
+                    continue
+                } catch let fallbackError {
+                    throw fallbackError
+                }
+            }
+            // No source has changes: render the selected source's friendly empty
+            // state. A write failure must propagate so the deferred pipeline does
+            // not report success while a stale loading page remains.
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
+        } catch let error as EmptyDiffSourceError {
+            // Sources that never fall back (last turn) still render their own
+            // friendly empty state rather than surfacing a developer-facing error.
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
+        }
+    }
+
+    /// Writes the friendly, non-error empty diff state for a deferred source page.
+    ///
+    /// Used when a source has no changes to show: the panel renders plain-language
+    /// text plus the source switcher instead of a raw error, and the CLI exits
+    /// successfully so the launcher never emits an error beep. Throws if the
+    /// replacement page cannot be written, so callers never report success while a
+    /// stale loading page remains.
+    private func writeDiffViewerEmptyStatePage(
+        message: String,
+        page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws {
+        try writeDiffViewerStatusHTML(
+            to: page.url,
+            title: page.titleOverride ?? page.source.title,
+            sourceLabel: "git \(page.source.slug)",
+            message: message,
+            isError: false,
+            pollForReplacement: false,
+            layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
+            appearance: sourceSet.appearance,
+            sourceOptions: page.sourceOptions,
+            repoOptions: page.repoOptions,
+            baseOptions: page.source == .branch ? page.baseOptions : [],
+            repoRoot: page.context.repoRoot,
+            branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil,
+            runtime: sourceSet.runtime
+        )
+    }
+
+    /// Builds the completion describing a rendered empty diff state for a deferred
+    /// source page. Pure value construction; the page must already be written via
+    /// ``writeDiffViewerEmptyStatePage(message:page:sourceSet:)``.
+    private func deferredDiffViewerEmptyStateCompletion(
+        message: String,
+        page: DiffViewerDeferredSourcePage
+    ) -> DiffViewerDeferredCompletion {
+        DiffViewerDeferredCompletion(
+            input: DiffInput(
+                patch: "",
+                sourceLabel: "git \(page.source.slug)",
+                defaultTitle: page.titleOverride ?? page.source.title,
+                emptyMessage: message,
+                externalURL: nil
+            ),
+            fileURL: page.url,
+            viewerURL: page.viewerURL,
+            completedPageURLs: [page.url]
+        )
+    }
+
+    private func writeDeferredDiffViewerSource(
+        page: DiffViewerDeferredSourcePage,
+        source: DiffSource,
+        context: DiffSourceContext,
+        sourceOptions: [DiffViewerSourceOption],
+        repoOptions: [DiffViewerSourceOption],
+        baseOptions: [DiffViewerSourceOption],
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws -> DiffViewerDeferredCompletion {
+        var pageContext = context
+        if source == .branch {
+            let repoRoot = try gitRepoRootForDiff(pageContext)
+            pageContext.repoRoot = repoRoot
+            pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
+        }
+        let input = try nonEmptyGitDiffInput(source: source, context: pageContext)
+        try writeDiffViewerHTML(
+            to: page.url,
+            patch: input.patch,
+            title: page.titleOverride ?? input.defaultTitle,
+            sourceLabel: input.sourceLabel,
+            externalURL: input.externalURL,
+            remotePatchURL: input.remotePatchURL,
+            layout: sourceSet.layout,
+            layoutSource: sourceSet.layoutSource,
+            appearance: sourceSet.appearance,
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            baseOptions: baseOptions,
+            repoRoot: pageContext.repoRoot,
+            branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
+            runtime: sourceSet.runtime
+        )
+        return DiffViewerDeferredCompletion(
+            input: input,
+            fileURL: page.url,
+            viewerURL: page.viewerURL,
+            completedPageURLs: [page.url]
+        )
     }
 
     private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
@@ -3173,6 +4016,13 @@ extension CMUXCLI {
             return error.message
         }
         return error.localizedDescription
+    }
+
+    private func diffViewerCommandError(_ error: Error) -> Error {
+        if let error = error as? EmptyDiffSourceError {
+            return CLIError(message: error.message)
+        }
+        return error
     }
 
     private func diffViewerSourceOptions(
@@ -3345,100 +4195,6 @@ extension CMUXCLI {
         }
     }
 
-    private func writePendingDiffViewerHTML(
-        to url: URL,
-        title: String,
-        message: String,
-        pollForReplacement: Bool
-    ) throws {
-        let escapedTitle = htmlEscaped(title)
-        let escapedMessage = htmlEscaped(message)
-        let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
-        let pollScript = pollForReplacement ? """
-          <script>
-            function replaceDocumentWith(text) {
-              document.open();
-              document.write(text);
-              document.close();
-            }
-
-            async function applyReplacementFrom(response) {
-              const text = await response.text();
-              if (!response.ok) {
-                if (text.trim() !== "") {
-                  replaceDocumentWith(text);
-                }
-                return false;
-              }
-              if (text.includes("data-cmux-diff-pending=\\"true\\"")) {
-                return false;
-              }
-              replaceDocumentWith(text);
-              return true;
-            }
-
-            async function waitForReplacement() {
-              try {
-                const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
-                await applyReplacementFrom(response);
-              } catch (error) {
-                document.documentElement.dataset.cmuxDiffWait = "failed";
-                console.warn("cmux diff viewer deferred load failed", error);
-              }
-            }
-
-            waitForReplacement();
-          </script>
-        """ : ""
-        let html = """
-        <!doctype html>
-        <html\(pendingAttribute)>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>\(escapedTitle)</title>
-          <style>
-            :root { color-scheme: light dark; }
-            body {
-              margin: 0;
-              min-height: 100vh;
-              display: grid;
-              place-items: center;
-              background: Canvas;
-              color: CanvasText;
-              font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-            }
-            main {
-              display: grid;
-              gap: 10px;
-              padding: 24px;
-              max-width: 520px;
-            }
-            h1 {
-              margin: 0;
-              font-size: 14px;
-              font-weight: 600;
-            }
-            p {
-              margin: 0;
-              opacity: 0.72;
-              line-height: 1.45;
-            }
-          </style>
-        </head>
-        <body>
-          <main>
-            <h1>\(escapedTitle)</h1>
-            <p>\(escapedMessage)</p>
-          </main>
-        \(pollScript)
-        </body>
-        </html>
-        """
-        try writeDiffViewerPatchSidecar("", for: url)
-        try html.write(to: url, atomically: true, encoding: .utf8)
-    }
-
     private func diffViewerDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(getuid())", isDirectory: true)
@@ -3512,13 +4268,15 @@ extension CMUXCLI {
         try runDiffViewerHTTPServer(rootDirectory: rootDirectory)
     }
 
-    private func diffViewerHTTPServerOrigin(rootDirectory: URL) throws -> URL {
+    private func diffViewerHTTPServerOrigin(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
         let rootDirectory = rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
         try validateSecureDiffViewerDirectory(rootDirectory, repairPermissions: false)
 
         if let state = try? readDiffViewerHTTPServerState(rootDirectory: rootDirectory),
            state.rootPath == rootDirectory.path,
+           state.protocolVersion == Self.diffViewerHTTPServerProtocolVersion,
            (1...65535).contains(state.port),
+           diffViewerHTTPServerStateMatchesRuntimeExecutable(state, runtime: runtime),
            diffViewerHTTPServerIsReachable(port: state.port) {
             guard let url = URL(string: "http://127.0.0.1:\(state.port)") else {
                 throw CLIError(message: "Failed to build diff viewer server URL")
@@ -3526,7 +4284,7 @@ extension CMUXCLI {
             return url
         }
 
-        return try startDiffViewerHTTPServer(rootDirectory: rootDirectory)
+        return try startDiffViewerHTTPServer(rootDirectory: rootDirectory, runtime: runtime)
     }
 
     private func readDiffViewerHTTPServerState(rootDirectory: URL) throws -> DiffViewerHTTPServerState {
@@ -3542,8 +4300,40 @@ extension CMUXCLI {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func startDiffViewerHTTPServer(rootDirectory: URL) throws -> URL {
-        guard let executableURL = resolvedExecutableURL() else {
+    private func diffViewerHTTPServerStateMatchesRuntimeExecutable(_ state: DiffViewerHTTPServerState, runtime: URL?) -> Bool {
+        guard state.pid > 0,
+              let currentExecutablePath = diffViewerExecutableURL(for: runtime)?.path,
+              let serverExecutablePath = diffViewerHTTPServerExecutablePath(pid: state.pid),
+              serverExecutablePath == currentExecutablePath else {
+            return false
+        }
+
+        guard let recordedExecutablePath = state.executablePath else {
+            return true
+        }
+        return recordedExecutablePath == currentExecutablePath
+    }
+
+    private func diffViewerHTTPServerExecutablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let count = buffer.withUnsafeMutableBufferPointer { pointer -> Int32 in
+            guard let baseAddress = pointer.baseAddress else { return 0 }
+            return proc_pidpath(pid, baseAddress, UInt32(pointer.count))
+        }
+        guard count > 0 else {
+            return nil
+        }
+
+        let rawPath = String(cString: buffer)
+        if let resolvedPath = realpath(rawPath, nil) {
+            defer { free(resolvedPath) }
+            return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: rawPath).standardizedFileURL.path
+    }
+
+    private func startDiffViewerHTTPServer(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
+        guard let executableURL = diffViewerExecutableURL(for: runtime) else {
             throw CLIError(message: "Failed to resolve cmux executable for diff viewer server")
         }
 
@@ -3675,7 +4465,13 @@ extension CMUXCLI {
         defer { close(serverFD) }
 
         try writeDiffViewerHTTPServerState(
-            DiffViewerHTTPServerState(port: port, pid: getpid(), rootPath: rootDirectory.path),
+            DiffViewerHTTPServerState(
+                port: port,
+                pid: getpid(),
+                rootPath: rootDirectory.path,
+                protocolVersion: Self.diffViewerHTTPServerProtocolVersion,
+                executablePath: resolvedExecutableURL()?.path
+            ),
             rootDirectory: rootDirectory
         )
         FileHandle.standardOutput.write(Data("\(port)\n".utf8))
@@ -3712,7 +4508,15 @@ extension CMUXCLI {
         func file(token: String, requestPath: String) throws -> DiffViewerAllowedFile? {
             lock.lock()
             if let files = filesByToken[token] {
-                let file = files[requestPath]
+                if let file = files[requestPath] {
+                    lock.unlock()
+                    return file
+                }
+                lock.unlock()
+                let refreshedFiles = try owner.loadDiffViewerHTTPManifestFiles(token: token, rootDirectory: rootDirectory)
+                lock.lock()
+                filesByToken[token] = refreshedFiles
+                let file = refreshedFiles[requestPath]
                 lock.unlock()
                 return file
             }
@@ -4438,7 +5242,7 @@ extension CMUXCLI {
             return path.hasSuffix(".html")
         }
         if mimeType == "text/javascript" {
-            return path.hasSuffix(".mjs")
+            return path.hasSuffix(".mjs") || path.hasSuffix(".js")
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
@@ -4482,9 +5286,190 @@ extension CMUXCLI {
         return files
     }
 
+    private func diffViewerAllowedFilesWithExtraPage(
+        _ pageURL: URL,
+        files: [DiffViewerAllowedFile],
+        mapper: DiffViewerURLMapper
+    ) throws -> [DiffViewerAllowedFile] {
+        let extra = try mapper.allowedFile(fileURL: pageURL, mimeType: "text/html")
+        var seen: Set<String> = []
+        var merged: [DiffViewerAllowedFile] = []
+        for file in [extra] + files where seen.insert(file.requestPath).inserted {
+            merged.append(file)
+        }
+        return merged
+    }
+
     private func remotePatchURLMap(pageURL: URL, remoteURL: URL?) -> [String: URL] {
         guard let remoteURL else { return [:] }
         return [pageURL.standardizedFileURL.path: remoteURL]
+    }
+
+    private func diffViewerShortcutPayload() -> [String: Any] {
+        Dictionary(
+            uniqueKeysWithValues: diffViewerShortcuts().map { action, shortcut in
+                (action.rawValue, shortcut.jsonObject)
+            }
+        )
+    }
+
+    private func diffViewerShortcuts() -> [DiffViewerShortcutAction: DiffViewerShortcut] {
+        var shortcuts = Dictionary(
+            uniqueKeysWithValues: DiffViewerShortcutAction.allCases.map { action in
+                (action, action.defaultShortcut)
+            }
+        )
+        var managedActions = Set<DiffViewerShortcutAction>()
+
+        for path in diffViewerShortcutSettingsPaths() {
+            guard let settings = diffViewerShortcutSettings(at: path) else { continue }
+            for (action, shortcut) in settings where !managedActions.contains(action) {
+                shortcuts[action] = shortcut
+                managedActions.insert(action)
+            }
+        }
+
+        let primaryPath = Self.absoluteDiffViewerSettingsPath(Self.primarySettingsDisplayPath)
+        if let settings = diffViewerShortcutSettings(at: primaryPath) {
+            for (action, shortcut) in settings {
+                shortcuts[action] = shortcut
+                managedActions.insert(action)
+            }
+        }
+
+        return shortcuts
+    }
+
+    private func diffViewerShortcutSettingsPaths() -> [String] {
+        [
+            Self.legacySettingsDisplayPath,
+            Self.fallbackSettingsDisplayPath,
+        ].map(Self.absoluteDiffViewerSettingsPath)
+    }
+
+    private func diffViewerShortcutSettings(at path: String) -> [DiffViewerShortcutAction: DiffViewerShortcut]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              !data.isEmpty,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let shortcutsSection = root["shortcuts"] as? [String: Any] else {
+            return nil
+        }
+
+        var rawBindings = shortcutsSection["bindings"] as? [String: Any] ?? [:]
+        for (key, rawValue) in shortcutsSection where key != "bindings" && key != "showModifierHoldHints" {
+            rawBindings[key] = rawValue
+        }
+
+        var bindings: [DiffViewerShortcutAction: DiffViewerShortcut] = [:]
+        for action in DiffViewerShortcutAction.allCases {
+            guard let rawBinding = rawBindings[action.rawValue],
+                  let shortcut = Self.parseDiffViewerShortcut(rawBinding) else {
+                continue
+            }
+            bindings[action] = shortcut
+        }
+        return bindings
+    }
+
+    private static func parseDiffViewerShortcut(_ rawValue: Any) -> DiffViewerShortcut? {
+        if rawValue is NSNull {
+            return .unbound
+        }
+        if let rawString = rawValue as? String {
+            return parseDiffViewerShortcut(strokes: [rawString])
+        }
+        if let rawStrings = rawValue as? [String] {
+            return rawStrings.isEmpty ? .unbound : parseDiffViewerShortcut(strokes: rawStrings)
+        }
+        return nil
+    }
+
+    private static func parseDiffViewerShortcut(strokes: [String]) -> DiffViewerShortcut? {
+        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
+        if strokes.count == 1, isUnboundDiffViewerShortcutToken(strokes[0]) {
+            return .unbound
+        }
+        let parsed = strokes.compactMap(parseDiffViewerShortcutStroke)
+        guard parsed.count == strokes.count, let first = parsed.first else { return nil }
+        return DiffViewerShortcut(
+            first: first,
+            second: parsed.count == 2 ? parsed[1] : nil
+        )
+    }
+
+    private static func parseDiffViewerShortcutStroke(_ rawValue: String) -> DiffViewerShortcutStroke? {
+        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
+        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let lastRawPart = rawParts.last, !lastRawPart.isEmpty else { return nil }
+
+        var command = false
+        var shift = false
+        var option = false
+        var control = false
+        for modifier in parts.dropLast() {
+            switch modifier.lowercased() {
+            case "cmd", "command", "⌘":
+                command = true
+            case "shift", "⇧":
+                shift = true
+            case "opt", "option", "alt", "⌥":
+                option = true
+            case "ctrl", "control", "ctl", "⌃":
+                control = true
+            default:
+                return nil
+            }
+        }
+
+        guard let key = parseDiffViewerShortcutKeyToken(lastRawPart) else { return nil }
+        return DiffViewerShortcutStroke(key: key, command: command, shift: shift, option: option, control: control)
+    }
+
+    private static func parseDiffViewerShortcutKeyToken(_ rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return rawValue == " " ? "space" : nil
+        }
+
+        switch trimmed.lowercased() {
+        case "space", "spacebar", "<space>":
+            return "space"
+        case "slash":
+            return "/"
+        case "period", "dot":
+            return "."
+        case "comma":
+            return ","
+        default:
+            guard trimmed.count == 1 else { return nil }
+            return trimmed.lowercased()
+        }
+    }
+
+    private static func isUnboundDiffViewerShortcutToken(_ rawValue: String) -> Bool {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "none", "clear", "unbound", "disabled":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let expanded: String
+        if rawPath == "~" {
+            expanded = homePath
+        } else if rawPath.hasPrefix("~/") {
+            expanded = (homePath as NSString).appendingPathComponent(String(rawPath.dropFirst(2)))
+        } else {
+            expanded = rawPath
+        }
+        let absolute = (expanded as NSString).isAbsolutePath
+            ? expanded
+            : (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        return URL(fileURLWithPath: absolute).standardizedFileURL.path
     }
 
     private func diffViewerPatchFileURL(for viewerURL: URL) -> URL {
@@ -4506,6 +5491,7 @@ extension CMUXCLI {
         externalURL: String?,
         remotePatchURL: URL? = nil,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
         repoOptions: [DiffViewerSourceOption] = [],
@@ -4526,6 +5512,7 @@ extension CMUXCLI {
             externalURL: externalURL,
             remotePatchURL: remotePatchURL,
             layout: layout,
+            layoutSource: layoutSource,
             appearance: appearance,
             sourceOptions: sourceOptions,
             repoOptions: repoOptions,
@@ -4536,6 +5523,78 @@ extension CMUXCLI {
         return viewerURL
     }
 
+    private func writeDiffViewerStatusHTML(
+        to viewerURL: URL,
+        title: String,
+        sourceLabel: String,
+        message: String,
+        isError: Bool,
+        pollForReplacement: Bool,
+        layout: String,
+        layoutSource: String,
+        appearance: DiffViewerAppearance,
+        sourceOptions: [DiffViewerSourceOption],
+        repoOptions: [DiffViewerSourceOption] = [],
+        baseOptions: [DiffViewerSourceOption] = [],
+        repoRoot: String? = nil,
+        branchBaseRef: String? = nil,
+        runtime: URL? = nil
+    ) throws {
+        try writeDiffViewerHTML(
+            to: viewerURL,
+            patch: "",
+            title: title,
+            sourceLabel: sourceLabel,
+            externalURL: nil,
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            baseOptions: baseOptions,
+            repoRoot: repoRoot,
+            branchBaseRef: branchBaseRef,
+            statusMessage: message,
+            statusIsError: isError,
+            pollForReplacement: pollForReplacement,
+            runtime: runtime
+        )
+    }
+
+    private func writeDiffViewerRedirectHTML(
+        to viewerURL: URL,
+        title: String,
+        targetURL: URL,
+        appearance: DiffViewerAppearance,
+        runtime: URL? = nil
+    ) throws {
+        try writeDiffViewerPatchSidecar("", for: viewerURL)
+        _ = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
+        let target = targetURL.absoluteString
+        let targetLiteral = try jsonStringLiteral(target)
+        let escapedTitle = htmlEscaped(title)
+        let escapedTarget = htmlEscaped(target)
+        let prepaintStyle = diffViewerPrepaintStyle(appearance: appearance)
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="0;url=\(escapedTarget)">
+          <title>\(escapedTitle)</title>
+          \(prepaintStyle)
+        </head>
+        <body data-cmux-diff-redirect="\(escapedTarget)">
+          <script>
+            window.location.replace(\(targetLiteral));
+          </script>
+        </body>
+        </html>
+        """
+        try html.write(to: viewerURL, atomically: true, encoding: .utf8)
+    }
+
     private func writeDiffViewerHTML(
         to viewerURL: URL,
         patch: String,
@@ -4544,12 +5603,17 @@ extension CMUXCLI {
         externalURL: String?,
         remotePatchURL: URL? = nil,
         layout: String,
+        layoutSource: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
         repoOptions: [DiffViewerSourceOption] = [],
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
-        branchBaseRef: String? = nil
+        branchBaseRef: String? = nil,
+        statusMessage: String? = nil,
+        statusIsError: Bool = false,
+        pollForReplacement: Bool = false,
+        runtime: URL? = nil
     ) throws {
         if remotePatchURL == nil {
             try writeDiffViewerPatchSidecar(patch, for: viewerURL)
@@ -4560,13 +5624,22 @@ extension CMUXCLI {
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
+            "layoutSource": layoutSource,
             "appearance": appearance.jsonObject,
             "labels": labels.jsonObject,
+            "shortcuts": diffViewerShortcutPayload(),
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
+        if let statusMessage {
+            payload["statusMessage"] = statusMessage
+            payload["statusIsError"] = statusIsError
+        }
+        if pollForReplacement {
+            payload["pendingReplacement"] = true
+        }
         if let externalURL {
             payload["externalURL"] = externalURL
         }
@@ -4576,2477 +5649,196 @@ extension CMUXCLI {
         if let branchBaseRef {
             payload["branchBaseRef"] = branchBaseRef
         }
-        let assets = try ensureDiffViewerAssets(nextTo: viewerURL)
-        let payloadLiteral = try jsonScriptLiteral(payload)
-        let diffsModuleLiteral = try jsonStringLiteral(assets.diffsModuleURL)
-        let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
-        let workerPoolModuleLiteral = try jsonStringLiteral(assets.workerPoolModuleURL)
-        let workerModuleLiteral = try jsonStringLiteral(assets.workerModuleURL)
+        let assets = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
+        let config: [String: Any] = [
+            "payload": payload,
+            "assets": [
+                "diffsModuleURL": assets.diffsModuleURL,
+                "treesModuleURL": assets.treesModuleURL,
+                "workerPoolModuleURL": assets.workerPoolModuleURL,
+                "workerModuleURL": assets.workerModuleURL
+            ]
+        ]
+        let configLiteral = try jsonScriptLiteral(config)
+        let appModuleURL = htmlEscaped(assets.appModuleURL)
         let escapedTitle = htmlEscaped(title)
-        let diffTargetLabel = htmlEscaped(labels["diffTarget"])
-        let repoPathLabel = htmlEscaped(labels["repoPath"])
-        let branchBaseLabel = htmlEscaped(labels["branchBase"])
-        let jumpToFileLabel = htmlEscaped(labels["jumpToFile"])
-        let openSourceURLLabel = htmlEscaped(labels["openSourceURL"])
-        let hideFilesLabel = htmlEscaped(labels["hideFiles"])
-        let switchToUnifiedDiffLabel = htmlEscaped(labels["switchToUnifiedDiff"])
-        let optionsLabel = htmlEscaped(labels["options"])
-        let changedFilesLabel = htmlEscaped(labels["changedFiles"])
-        let filesLabel = htmlEscaped(labels["files"])
-        let showFileSearchLabel = htmlEscaped(labels["showFileSearch"])
-        let diffStatsLabel = htmlEscaped(labels["diffStats"])
-        let additionsLabel = htmlEscaped(labels["additions"])
-        let deletionsLabel = htmlEscaped(labels["deletions"])
-        let diffViewerLabel = htmlEscaped(labels["diffViewer"])
-        let loadingDiffLabel = htmlEscaped(labels["loadingDiff"])
         let htmlLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+        let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
+        let prepaintStyle = diffViewerPrepaintStyle(appearance: appearance)
         let html = """
         <!doctype html>
-        <html lang="\(htmlEscaped(htmlLanguage))">
+        <html lang="\(htmlEscaped(htmlLanguage))"\(pendingAttribute)>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>\(escapedTitle)</title>
-          <style>
-            :root {
-              color-scheme: light dark;
-              --cmux-diff-bg-light: #fff;
-              --cmux-diff-bg-dark: #000;
-              --cmux-diff-fg-light: #000;
-              --cmux-diff-fg-dark: #fff;
-              --cmux-diff-selection-bg-light: #abd8ff;
-              --cmux-diff-selection-bg-dark: #3f638b;
-              --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-              --cmux-diff-ui-font-size: 12px;
-              --cmux-diff-ui-line-height: 16px;
-              --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-              --cmux-diff-font-size: 10px;
-              --cmux-diff-line-height: 20px;
-              --cmux-diff-bg: var(--cmux-diff-bg-light);
-              --cmux-diff-fg: var(--cmux-diff-fg-light);
-              --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-              --cmux-diff-sidebar-bg: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
-              --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-              --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
-              background: var(--cmux-diff-bg);
-              color: var(--cmux-diff-fg);
-            }
-            @media (prefers-color-scheme: dark) {
-              :root {
-                --cmux-diff-bg: var(--cmux-diff-bg-dark);
-                --cmux-diff-fg: var(--cmux-diff-fg-dark);
-              }
-            }
-            * {
-              box-sizing: border-box;
-            }
-            html,
-            body {
-              height: 100%;
-              overflow: hidden;
-            }
-            body {
-              margin: 0;
-              height: 100vh;
-              min-height: 0;
-              background: var(--cmux-diff-bg);
-              color: var(--cmux-diff-fg);
-              display: flex;
-              flex-direction: column;
-              overflow: hidden;
-              font-family: var(--cmux-diff-ui-font-family);
-              font-size: var(--cmux-diff-ui-font-size);
-              line-height: var(--cmux-diff-ui-line-height);
-            }
-            #app {
-              height: 100vh;
-              min-height: 0;
-              display: grid;
-              grid-template-rows: auto minmax(0, 1fr);
-              overflow: hidden;
-              overscroll-behavior: contain;
-              contain: strict;
-              background: inherit;
-              color: inherit;
-            }
-            #toolbar {
-              position: relative;
-              flex: 0 0 auto;
-              display: flex;
-              align-items: center;
-              gap: 7px;
-              min-height: 32px;
-              padding: 3px 8px;
-              border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
-              color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
-              z-index: 50;
-            }
-            .toolbar-left,
-            .toolbar-middle,
-            .toolbar-actions {
-              display: flex;
-              align-items: center;
-              gap: 6px;
-              min-width: 0;
-            }
-            .toolbar-left {
-              flex: 0 1 36%;
-            }
-            .toolbar-middle {
-              flex: 1 1 auto;
-              justify-content: center;
-            }
-            .toolbar-actions {
-              flex: 0 0 auto;
-            }
-            #source-select,
-            #repo-select,
-            #base-select,
-            #jump-select {
-              appearance: none;
-              height: 24px;
-              min-width: 118px;
-              max-width: min(30vw, 320px);
-              padding: 0 24px 0 9px;
-              border: 1px solid transparent;
-              border-radius: 6px;
-              background:
-                linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
-                linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
-                color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-              color: inherit;
-              font: inherit;
-            }
-            #source-select:hover,
-            #repo-select:hover,
-            #base-select:hover,
-            #jump-select:hover {
-              border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-              background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-            }
-            #source-select[hidden],
-            #repo-select[hidden],
-            #base-select[hidden],
-            #jump-select[hidden] {
-              display: none;
-            }
-            #jump-select {
-              min-width: min(250px, 30vw);
-            }
-            #repo-select {
-              min-width: 132px;
-              max-width: min(26vw, 320px);
-            }
-            #base-select {
-              min-width: 120px;
-              max-width: min(22vw, 260px);
-            }
-            #source-select:focus,
-            #repo-select:focus,
-            #base-select:focus,
-            #jump-select:focus,
-            .toolbar-icon:focus-visible,
-            .menu-item:focus-visible,
-            .file-entry:focus-visible {
-              outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
-              outline-offset: 1px;
-            }
-            #source-detail {
-              min-width: 0;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              white-space: nowrap;
-              color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
-            }
-            .toolbar-icon {
-              width: 28px;
-              height: 26px;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              border: 1px solid transparent;
-              border-radius: 6px;
-              background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
-              padding: 0;
-              cursor: pointer;
-            }
-            .toolbar-icon:hover,
-            .toolbar-icon[aria-expanded="true"] {
-              border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
-              color: var(--cmux-diff-fg);
-            }
-            .toolbar-icon[aria-pressed="true"] {
-              color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
-            }
-            .toolbar-icon[hidden] {
-              display: none;
-            }
-            .toolbar-icon svg,
-            .menu-item svg {
-              width: 16px;
-              height: 16px;
-              display: block;
-              fill: none;
-              stroke: currentColor;
-              stroke-width: 1.75;
-              stroke-linecap: round;
-              stroke-linejoin: round;
-            }
-            #layout-toggle svg [data-accent] {
-              stroke: light-dark(#0a84ff, #7ab7ff);
-            }
-            #options-menu {
-              position: absolute;
-              top: calc(100% + 7px);
-              right: 10px;
-              min-width: 246px;
-              padding: 8px;
-              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-              border-radius: 8px;
-              background: color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg));
-              box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
-              z-index: 100;
-            }
-            #options-menu[hidden] {
-              display: none;
-            }
-            .menu-separator {
-              height: 1px;
-              margin: 7px 6px;
-              background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-            }
-            .menu-item {
-              width: 100%;
-              min-height: 31px;
-              display: grid;
-              grid-template-columns: 22px minmax(0, 1fr) 18px;
-              align-items: center;
-              gap: 10px;
-              border: 0;
-              border-radius: 6px;
-              background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
-              font: inherit;
-              text-align: left;
-              padding: 0 7px;
-            }
-            .menu-item:hover:not(:disabled) {
-              background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              color: var(--cmux-diff-fg);
-            }
-            .menu-segment {
-              cursor: default;
-            }
-            .menu-segment:hover {
-              background: transparent;
-            }
-            .menu-segment-controls {
-              display: inline-flex;
-              align-items: center;
-              gap: 2px;
-              justify-self: end;
-              padding: 2px;
-              border-radius: 7px;
-              background: color-mix(in lab, var(--cmux-diff-bg) 82%, var(--cmux-diff-fg));
-            }
-            .segment-button {
-              width: 27px;
-              height: 24px;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              border: 0;
-              border-radius: 5px;
-              background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
-              padding: 0;
-            }
-            .segment-button:hover,
-            .segment-button[aria-pressed="true"] {
-              background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-              color: var(--cmux-diff-fg);
-            }
-            .menu-item:disabled {
-              color: color-mix(in lab, var(--cmux-diff-fg) 36%, var(--cmux-diff-bg));
-            }
-            .menu-label {
-              overflow: hidden;
-              text-overflow: ellipsis;
-              white-space: nowrap;
-            }
-            .menu-check {
-              justify-self: end;
-            }
-            #content {
-              --cmux-diff-files-width: clamp(190px, 22vw, 252px);
-              position: relative;
-              flex: 1 1 auto;
-              min-height: 0;
-              min-width: 0;
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
-              grid-template-rows: minmax(0, 1fr);
-              grid-template-areas: "viewer files";
-              overflow: hidden;
-              overscroll-behavior: contain;
-              contain: strict;
-              background: inherit;
-            }
-            body[data-files-hidden="true"] #content {
-              grid-template-columns: minmax(0, 1fr) 0;
-            }
-            #files-sidebar {
-              grid-area: files;
-              position: relative;
-              width: 100%;
-              height: 100%;
-              min-height: 0;
-              min-width: 0;
-              display: flex;
-              flex-direction: column;
-              overflow: hidden;
-              border-left: 1px solid var(--cmux-diff-border);
-              background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
-              contain: strict;
-              opacity: 1;
-              transition: opacity 100ms ease, visibility 0s linear 0s;
-            }
-            body[data-files-hidden="true"] #files-sidebar {
-              opacity: 0;
-              pointer-events: none;
-              visibility: hidden;
-              transition: opacity 100ms ease, visibility 0s linear 100ms;
-            }
-            #files-header {
-              position: relative;
-              z-index: 1;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              min-height: 30px;
-              gap: 8px;
-              padding: 0 7px 0 10px;
-              border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
-              color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
-            }
-            #files-title {
-              display: inline-flex;
-              align-items: center;
-              gap: 6px;
-              min-width: 0;
-            }
-            #files-header-actions {
-              display: inline-flex;
-              align-items: center;
-              gap: 2px;
-              flex: 0 0 auto;
-            }
-            #file-search-toggle,
-            #file-collapse-toggle {
-              width: 24px;
-              height: 24px;
-              flex: 0 0 auto;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              border: 0;
-              border-radius: 5px;
-              background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 54%, var(--cmux-diff-bg));
-              padding: 0;
-            }
-            #file-search-toggle:hover,
-            #file-search-toggle[aria-pressed="true"],
-            #file-collapse-toggle:hover {
-              background: var(--cmux-diff-hover-bg);
-              color: var(--cmux-diff-fg);
-            }
-            #file-search-toggle svg,
-            #file-collapse-toggle svg {
-              width: 15px;
-              height: 15px;
-              fill: none;
-              stroke: currentColor;
-              stroke-width: 1.75;
-              stroke-linecap: round;
-              stroke-linejoin: round;
-            }
-            #file-list {
-              flex: 1 1 auto;
-              min-height: 0;
-              overflow: hidden;
-              padding: 6px 4px 6px 6px;
-              --trees-bg-override: var(--cmux-diff-sidebar-bg);
-              --trees-fg-override: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
-              --trees-fg-muted-override: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
-              --trees-bg-muted-override: var(--cmux-diff-hover-bg);
-              --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
-              --trees-selected-fg-override: var(--cmux-diff-fg);
-              --trees-selected-focused-border-color-override: transparent;
-              --trees-border-color-override: var(--cmux-diff-border);
-              --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
-              --trees-font-family-override: var(--cmux-diff-ui-font-family);
-              --trees-font-size-override: var(--cmux-diff-ui-font-size);
-              --trees-font-weight-semibold-override: 500;
-              --trees-density-override: 0.78;
-              --trees-border-radius-override: 5px;
-              --trees-item-padding-x-override: 7px;
-              --trees-item-margin-x-override: 0;
-              --trees-padding-inline-override: 0;
-              --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-              --trees-status-added-override: light-dark(#257a3e, #8fd88f);
-              --trees-status-modified-override: var(--cmux-diff-accent);
-              --trees-status-renamed-override: light-dark(#a26300, #ffd166);
-              --trees-status-deleted-override: light-dark(#b42318, #ff8a80);
-            }
-            #file-list file-tree-container {
-              width: 100%;
-              height: 100%;
-            }
-            #files-footer {
-              flex: 0 0 auto;
-              padding: 7px 10px 8px;
-              border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
-            }
-            .stats-row {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              gap: 10px;
-              min-height: 19px;
-              color: color-mix(in lab, var(--cmux-diff-fg) 54%, var(--cmux-diff-bg));
-            }
-            .stats-row strong {
-              color: color-mix(in lab, var(--cmux-diff-fg) 82%, var(--cmux-diff-bg));
-              font-weight: 600;
-            }
-            .file-entry {
-              width: 100%;
-              min-height: 30px;
-              display: grid;
-              grid-template-columns: 18px minmax(0, 1fr) auto;
-              align-items: center;
-              gap: 8px;
-              border: 0;
-              border-radius: 6px;
-              background: transparent;
-              color: inherit;
-              font: inherit;
-              text-align: left;
-              padding: 3px 7px;
-            }
-            .file-entry:hover,
-            .file-entry[aria-current="true"] {
-              background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
-            }
-            .file-status {
-              width: 17px;
-              height: 17px;
-              border: 1px solid currentColor;
-              border-radius: 5px;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              line-height: 1;
-              color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
-            }
-            .file-name {
-              overflow: hidden;
-              text-overflow: ellipsis;
-              white-space: nowrap;
-            }
-            .file-stats {
-              display: inline-flex;
-              gap: 5px;
-              color: color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg));
-            }
-            .stat-add {
-              color: light-dark(#257a3e, #8fd88f);
-            }
-            .stat-del {
-              color: light-dark(#b42318, #ff8a80);
-            }
-            #viewer {
-              --diffs-font-family: var(--cmux-diff-code-font-family);
-              --diffs-header-font-family: var(--cmux-diff-ui-font-family);
-              --diffs-font-size: var(--cmux-diff-font-size);
-              --diffs-line-height: var(--cmux-diff-line-height);
-              --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              grid-area: viewer;
-              width: 100%;
-              height: 100%;
-              min-height: 0;
-              min-width: 0;
-              position: relative;
-              overflow-y: auto;
-              overflow-x: clip;
-              overscroll-behavior: contain;
-              overflow-anchor: none;
-              contain: strict;
-              will-change: scroll-position;
-              border-bottom: 1px solid var(--cmux-diff-border);
-              background: inherit;
-            }
-            @media (max-width: 520px) {
-              #content,
-              body[data-files-hidden="true"] #content {
-                grid-template-columns: minmax(0, 1fr);
-                grid-template-areas: "viewer";
-              }
-              #files-sidebar {
-                display: none;
-              }
-            }
-            @media (prefers-reduced-motion: reduce) {
-              #files-sidebar {
-                transition: none;
-              }
-            }
-            #viewer diffs-container {
-              --diffs-font-family: var(--cmux-diff-code-font-family);
-              --diffs-header-font-family: var(--cmux-diff-ui-font-family);
-              --diffs-font-size: var(--cmux-diff-font-size);
-              --diffs-line-height: var(--cmux-diff-line-height);
-              --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              display: block;
-              overflow: clip;
-              contain: layout paint style;
-              box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
-            }
-            #status {
-              padding: 16px;
-              font-family: var(--cmux-diff-ui-font-family);
-              font-size: 13px;
-              line-height: var(--cmux-diff-ui-line-height);
-              color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-            }
-            #status[data-error="true"] {
-              color: light-dark(#b42318, #ff8a80);
-            }
-          </style>
+          \(prepaintStyle)
         </head>
-        <body data-files-hidden="false">
-          <div id="app">
-            <header id="toolbar">
-              <div class="toolbar-left">
-                <select id="source-select" aria-label="\(diffTargetLabel)" hidden></select>
-                <select id="repo-select" aria-label="\(repoPathLabel)" hidden></select>
-                <select id="base-select" aria-label="\(branchBaseLabel)" hidden></select>
-                <span id="source-detail"></span>
-              </div>
-              <div class="toolbar-middle">
-                <select id="jump-select" aria-label="\(jumpToFileLabel)" hidden></select>
-              </div>
-              <div class="toolbar-actions">
-                <a id="external-link" class="toolbar-icon" target="_blank" rel="noreferrer" title="\(openSourceURLLabel)" aria-label="\(openSourceURLLabel)" hidden></a>
-                <button id="files-toggle" class="toolbar-icon" type="button" title="\(hideFilesLabel)" aria-label="\(hideFilesLabel)" aria-pressed="true"></button>
-                <button id="layout-toggle" class="toolbar-icon" type="button" title="\(switchToUnifiedDiffLabel)" aria-label="\(switchToUnifiedDiffLabel)"></button>
-                <button id="options-button" class="toolbar-icon" type="button" title="\(optionsLabel)" aria-label="\(optionsLabel)" aria-expanded="false" aria-haspopup="menu"></button>
-              </div>
-              <div id="options-menu" role="menu" hidden></div>
-            </header>
-            <section id="content">
-              <aside id="files-sidebar" aria-label="\(changedFilesLabel)">
-                <div id="files-header">
-                  <span id="files-title"><span>\(filesLabel)</span><span id="files-count"></span></span>
-                  <span id="files-header-actions">
-                    <button id="file-search-toggle" type="button" title="\(showFileSearchLabel)" aria-label="\(showFileSearchLabel)" aria-pressed="false"></button>
-                    <button id="file-collapse-toggle" type="button" title="\(hideFilesLabel)" aria-label="\(hideFilesLabel)"></button>
-                  </span>
-                </div>
-                <div id="file-list"></div>
-                <div id="files-footer" aria-label="\(diffStatsLabel)">
-                  <div class="stats-row"><span>\(filesLabel)</span><strong id="stats-files">0</strong></div>
-                  <div class="stats-row"><span>\(additionsLabel)</span><strong id="stats-added" class="stat-add">+0</strong></div>
-                  <div class="stats-row"><span>\(deletionsLabel)</span><strong id="stats-deleted" class="stat-del">-0</strong></div>
-                </div>
-              </aside>
-              <main id="viewer" aria-label="\(diffViewerLabel)">
-                <div id="status">\(loadingDiffLabel)</div>
-              </main>
-            </section>
-          </div>
-          <script type="module">
-            const DIFFS_MODULE_URL = \(diffsModuleLiteral);
-            const TREES_MODULE_URL = \(treesModuleLiteral);
-            const WORKER_POOL_MODULE_URL = \(workerPoolModuleLiteral);
-            const DIFF_WORKER_URL = \(workerModuleLiteral);
-            const payload = \(payloadLiteral);
-            const labels = payload.labels ?? {};
-            const viewerElement = document.getElementById("viewer");
-            const status = document.getElementById("status");
-            const toolbar = document.getElementById("toolbar");
-            const sourceSelect = document.getElementById("source-select");
-            const repoSelect = document.getElementById("repo-select");
-            const baseSelect = document.getElementById("base-select");
-            const sourceDetail = document.getElementById("source-detail");
-            const jumpSelect = document.getElementById("jump-select");
-            const externalLink = document.getElementById("external-link");
-            const filesToggle = document.getElementById("files-toggle");
-            const layoutToggle = document.getElementById("layout-toggle");
-            const optionsButton = document.getElementById("options-button");
-            const optionsMenu = document.getElementById("options-menu");
-            const filesSidebar = document.getElementById("files-sidebar");
-            const fileList = document.getElementById("file-list");
-            const filesCount = document.getElementById("files-count");
-            const fileSearchToggle = document.getElementById("file-search-toggle");
-            const fileCollapseToggle = document.getElementById("file-collapse-toggle");
-            const statsFiles = document.getElementById("stats-files");
-            const statsAdded = document.getElementById("stats-added");
-            const statsDeleted = document.getElementById("stats-deleted");
-            const label = (key) => labels[key] ?? key;
-            const appState = {
-              layout: payload.layout === "unified" ? "unified" : "split",
-              filesVisible: true,
-              wordWrap: false,
-              collapsed: false,
-              expandUnchanged: false,
-              showBackgrounds: true,
-              lineNumbers: true,
-              diffIndicators: "bars",
-              wordDiffs: false,
-              fileSearchOpen: false,
-            };
-            let codeView;
-            let workerPool;
-            let fileTree;
-            const diffItems = [];
-            const codeViewItems = [];
-            const diffItemById = new Map();
-            let codeViewItemIds = new Set();
-            let fileTreeSource = null;
-            let currentTreeSource = null;
-            let fileTreeStatsByPath = new Map();
-            let patchTextPromise = { value: null };
-            let activeFileId = "";
-            let activeTreePath = "";
-            let suppressTreeSelectionChange = false;
-            let itemIdByTreePath = new Map();
-            let treePathByItemId = new Map();
-            document.title = payload.title;
-            applyViewerAppearance(payload.appearance);
-            setupToolbar();
-            setupSourceSelector(payload.sourceOptions ?? []);
-            setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot ?? "", label("repoPath"));
-            setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
-            const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
-            scheduleRender(() => {
-              renderDiff().catch((error) => {
-                console.error("cmux diff viewer render failed", error);
-                status.dataset.error = "true";
-                status.textContent = label("renderFailed");
-              });
-            });
-
-            async function renderDiff() {
-              status.textContent = label("loadingRenderer");
-              const {
-                CodeView,
-                getFiletypeFromFileName,
-                parsePatchFiles,
-                preloadHighlighter,
-                processFile,
-                registerCustomTheme,
-              } = await import(DIFFS_MODULE_URL);
-              const treesModule = await import(TREES_MODULE_URL)
-                .catch((error) => {
-                  console.warn("cmux diff file tree import failed", error);
-                  return null;
-                });
-
-              registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
-              registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
-              status.textContent = label("parsingDiff");
-              setWorkerPoolStatus("loading");
-              workerPool = await createCodeViewWorkerPool();
-              setupJumpSelector(diffItems);
-              updateToolbarState();
-              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
-              observeWorkerPool(workerPool);
-              const workerInitialization = workerPool?.initialize?.();
-              workerInitialization
-                ?.then?.(() => recordWorkerPoolStats(workerPool?.getStats?.()))
-                ?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
-              window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
-
-              await streamPatchIntoCodeView({
-                CodeView,
-                parsePatchFiles,
-                processFile,
-                treesModule,
-              });
-
-              if (diffItems.length === 0) {
-                throw new Error(label("noFileDiffs"));
-              }
-
-              if (!workerPool) {
-                preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
-                  .catch((error) => console.warn("cmux diff highlighter preload failed", error));
-              }
-            }
-
-            async function createCodeViewWorkerPool() {
-              if (typeof Worker === "undefined") {
-                return null;
-              }
-              try {
-                const workerPoolModule = await import(WORKER_POOL_MODULE_URL);
-                registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
-                registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
-                const workerURL = new URL(DIFF_WORKER_URL, window.location.href).href;
-                return workerPoolModule.createDiffWorkerPool({
-                  workerURL,
-                  highlighterOptions: workerHighlighterOptions(),
-                }) ?? null;
-              } catch (error) {
-                console.warn("cmux diff worker pool unavailable; falling back to main-thread highlighting", error);
-                return null;
-              }
-            }
-
-            function observeWorkerPool(pool) {
-              if (!pool) {
-                setWorkerPoolStatus("fallback");
-                return;
-              }
-              setWorkerPoolStatus("enabled");
-              recordWorkerPoolStats(pool.getStats?.());
-              const unsubscribe = pool.subscribeToStatChanges?.((stats) => {
-                recordWorkerPoolStats(stats);
-              });
-              if (typeof unsubscribe === "function") {
-                window.addEventListener("pagehide", unsubscribe, { once: true });
-              }
-            }
-
-            function setWorkerPoolStatus(status) {
-              document.body.dataset.workerPool = status;
-            }
-
-            function recordWorkerPoolStats(stats) {
-              if (!stats || typeof stats !== "object") {
-                return;
-              }
-              if (typeof stats.managerState === "string") {
-                document.body.dataset.workerPoolState = stats.managerState;
-              }
-              if (Number.isFinite(stats.totalWorkers)) {
-                document.body.dataset.workerPoolWorkers = String(stats.totalWorkers);
-              }
-              if (typeof stats.workersFailed === "boolean") {
-                document.body.dataset.workerPoolFailed = String(stats.workersFailed);
-              }
-            }
-
-            function workerHighlighterOptions() {
-              return {
-                theme: payload.appearance.theme,
-                preferredHighlighter: "shiki-wasm",
-                lineDiffType: appState.wordDiffs ? "word" : "none",
-                maxLineDiffLength: 1000,
-                tokenizeMaxLineLength: 1000,
-                useTokenTransformer: false,
-              };
-            }
-
-            const commitMetadataPattern = /^From\\s+([a-f0-9]+)\\s/im;
-
-            function commitMetadataLabel(metadata, index) {
-              const match = metadata?.match(commitMetadataPattern);
-              if (match?.[1]) {
-                return new TextDecoder().decode(new TextEncoder().encode(match[1].slice(0, 5)));
-              }
-              return `Commit ${index + 1}`;
-            }
-
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, treesModule }) {
-              const diffModel = createStreamingDiffModel();
-              const navigationRefreshState = {
-                dirtyCount: 0,
-                lastRefreshAt: 0,
-                timeout: 0,
-                treesModule: null,
-              };
-              const streamMetrics = {
-                startedAt: performance.now(),
-                completedAt: 0,
-                flushCount: 0,
-                maxBatchSize: 0,
-                treeRefreshCount: 0,
-              };
-              let lastYieldAt = performance.now();
-              let lastFlushAt = performance.now();
-              let firstRender = true;
-              const batchConfig = {
-                initialBatchSize: getInitialFileTreeRowCount(),
-                incrementalBatchSize: 25,
-                initialMaxWait: 500,
-                incrementalMaxWait: 100,
-              };
-
-              function makeItem(fileDiff, patchPrefix) {
-                const result = appendFileDiffToModel(diffModel, fileDiff, patchPrefix);
-                if (result?.renamedItem) {
-                  applyRenamedDiffItem(result.renamedItem);
-                }
-                return result?.item;
-              }
-
-              function appendFileDiffToModel(model, fileDiff, patchPrefix) {
-                if (!fileDiff) {
-                  return null;
-                }
-                const path = fileName(fileDiff);
-                const treePath = patchPrefix == null ? path : `${patchPrefix}/${path}`;
-                const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
-                const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
-                const stats = fileStats(fileDiff);
-                const itemId = model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
-                const item = {
-                  id: itemId,
-                  type: "diff",
-                  fileDiff,
-                  version: 0,
-                };
-                const fileOrder = model.items.length;
-                model.fileIndex += 1;
-                model.items.push(item);
-                model.pendingItems.push(item);
-                model.pendingItemById.set(item.id, item);
-                model.itemIdToFile.set(item.id, { fileOrder, path });
-                model.itemIdByTreePath.set(treePath, item.id);
-                model.treePathByItemId.set(item.id, treePath);
-                model.diffStats.addedLines += stats.added;
-                model.diffStats.deletedLines += stats.deleted;
-                model.diffStats.fileCount += 1;
-                model.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
-                const previousStats = model.statsByPath.get(treePath);
-                model.statsByPath.set(treePath, stats);
-                if (previousState != null && !sameFileStats(previousStats, stats)) {
-                  model.pendingStatsChanged = true;
-                }
-                if (path.length > 0) {
-                  if (previousState == null) {
-                    model.paths.push(treePath);
-                  }
-                  model.pathToItemId.set(treePath, item.id);
-                  updateGitStatusForPath(model, treePath, fileDiff.type, previousState?.sawDeleted === true);
-                  model.pathStateByTreePath.set(treePath, {
-                    currentItem: item,
-                    currentItemId: item.id,
-                    currentType: fileDiff.type,
-                    fileOrder,
-                    sawDeleted: previousState?.sawDeleted === true || fileDiff.type === "deleted",
-                  });
-                }
-                return { item, renamedItem };
-              }
-
-              function moveCurrentPathItemToPrevious(model, treePath, state) {
-                const oldId = state.currentItemId;
-                const suffix = state.currentType === "deleted" ? "?deleted" : "?previous";
-                const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
-                state.currentItem.id = newId;
-                state.currentItemId = newId;
-                if (model.itemIdToFile.has(oldId)) {
-                  const itemMetadata = model.itemIdToFile.get(oldId);
-                  model.itemIdToFile.delete(oldId);
-                  model.itemIdToFile.set(newId, itemMetadata);
-                }
-                if (model.treePathByItemId.has(oldId)) {
-                  model.treePathByItemId.delete(oldId);
-                  model.treePathByItemId.set(newId, treePath);
-                }
-                if (model.pendingItemById.has(oldId)) {
-                  const pendingItem = model.pendingItemById.get(oldId);
-                  model.pendingItemById.delete(oldId);
-                  model.pendingItemById.set(newId, pendingItem);
-                  return undefined;
-                }
-                return { oldId, newId };
-              }
-
-              function uniqueDiffItemId(model, baseId) {
-                if (!model.itemIdToFile.has(baseId)) {
-                  return baseId;
-                }
-                let suffix = model.nextCollisionSuffixByBase.get(baseId) ?? 2;
-                let nextId = `${baseId}-${suffix}`;
-                while (model.itemIdToFile.has(nextId)) {
-                  suffix += 1;
-                  nextId = `${baseId}-${suffix}`;
-                }
-                model.nextCollisionSuffixByBase.set(baseId, suffix + 1);
-                return nextId;
-              }
-
-              function updateGitStatusForPath(model, treePath, changeType, sawDeleted) {
-                if (sawDeleted && changeType !== "deleted") {
-                  if (model.gitStatusByPath.delete(treePath)) {
-                    markGitStatusRemoved(model, treePath);
-                  }
-                  return;
-                }
-                const status = gitStatusType(changeType);
-                if (status === "modified") {
-                  if (model.gitStatusByPath.delete(treePath)) {
-                    markGitStatusRemoved(model, treePath);
-                  }
-                  return;
-                }
-                const current = model.gitStatusByPath.get(treePath);
-                if (current?.status === status) {
-                  return;
-                }
-                const entry = { path: treePath, status };
-                model.gitStatusByPath.set(treePath, entry);
-                model.pendingGitStatusRemovePaths.delete(treePath);
-                model.pendingGitStatusSetByPath.set(treePath, entry);
-              }
-
-              function markGitStatusRemoved(model, treePath) {
-                model.pendingGitStatusSetByPath.delete(treePath);
-                model.pendingGitStatusRemovePaths.add(treePath);
-              }
-
-              function applyRenamedDiffItem(rename) {
-                if (codeViewItemIds.delete(rename.oldId)) {
-                  codeViewItemIds.add(rename.newId);
-                }
-                if (diffItemById.has(rename.oldId)) {
-                  const item = diffItemById.get(rename.oldId);
-                  diffItemById.delete(rename.oldId);
-                  diffItemById.set(rename.newId, item);
-                }
-                renameJumpOption(rename.oldId, rename.newId);
-                codeView?.updateItemId?.(rename.oldId, rename.newId);
-              }
-
-              async function enqueueFileDiff(fileDiff, patchPrefix) {
-                const item = makeItem(fileDiff, patchPrefix);
-                if (!item) {
-                  return;
-                }
-                await maybeFlushPendingItems(false);
-              }
-
-              async function maybeFlushPendingItems(force) {
-                if (diffModel.pendingItems.length === 0) {
-                  return;
-                }
-                const now = performance.now();
-                if (!force &&
-                    firstRender &&
-                    now - lastYieldAt >= 8 &&
-                    diffModel.pendingItems.length < batchConfig.initialBatchSize &&
-                    now - lastFlushAt < batchConfig.initialMaxWait) {
-                  await yieldToNextFrame();
-                  lastYieldAt = performance.now();
-                  return;
-                }
-                const batchSize = firstRender ? batchConfig.initialBatchSize : batchConfig.incrementalBatchSize;
-                const maxWait = firstRender ? batchConfig.initialMaxWait : batchConfig.incrementalMaxWait;
-                const shouldFlush = force ||
-                  diffModel.pendingItems.length >= batchSize ||
-                  now - lastFlushAt >= maxWait;
-                if (shouldFlush) {
-                  flushPendingItems();
-                  await yieldToNextFrame();
-                  lastYieldAt = performance.now();
-                  return;
-                }
-              }
-
-              function flushPendingItems() {
-                if (diffModel.pendingItems.length === 0) {
-                  return;
-                }
-                const batch = diffModel.pendingItems.splice(0, diffModel.pendingItems.length);
-                diffModel.pendingItemById.clear();
-                const codeBatch = batch;
-                const hadCodeItems = codeViewItems.length > 0;
-                diffItems.push(...batch);
-                for (const item of batch) {
-                  diffItemById.set(item.id, item);
-                }
-                if (codeBatch.length > 0) {
-                  codeViewItems.push(...codeBatch);
-                  for (const item of codeBatch) {
-                    codeViewItemIds.add(item.id);
-                  }
-                  if (!codeView) {
-                    codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
-                    codeView.setup(viewerElement);
-                    codeView.setItems(codeViewItems);
-                    codeView.render(true);
-                    window.__cmuxDiffViewer.codeView = codeView;
-                  } else {
-                    codeView.addItems(codeBatch);
-                  }
-                }
-                appendJumpOptions(batch);
-                scheduleNavigationRefresh(treesModule, false, batch.length);
-                streamMetrics.flushCount += 1;
-                streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
-                streamMetrics.fileCount = diffItems.length;
-                streamMetrics.renderableFileCount = codeViewItems.length;
-                recordStreamMetrics(streamMetrics);
-                lastFlushAt = performance.now();
-                if (firstRender) {
-                  firstRender = false;
-                  status.remove();
-                }
-                if (!hadCodeItems) {
-                  updateActiveFile(codeViewItems[0]?.id ?? diffItems[0]?.id ?? "");
-                }
-                window.__cmuxDiffViewer.items = diffItems;
-                window.__cmuxDiffViewer.codeViewItems = codeViewItems;
-                window.__cmuxDiffViewer.streamMetrics = streamMetrics;
-              }
-
-              function finalizeCodeViewLayout() {
-                if (!codeView) {
-                  return;
-                }
-                codeView.syncContainerHeight?.();
-                codeView.render(true);
-              }
-
-              function scheduleNavigationRefresh(treesModule, force, dirtyCount = 1) {
-                navigationRefreshState.treesModule = treesModule;
-                navigationRefreshState.dirtyCount += dirtyCount;
-                if (force || navigationRefreshState.lastRefreshAt === 0) {
-                  refreshNavigation(navigationRefreshState.treesModule);
-                  return;
-                }
-                const elapsed = performance.now() - navigationRefreshState.lastRefreshAt;
-                if (navigationRefreshState.dirtyCount >= 1000 || elapsed >= 1000) {
-                  refreshNavigation(navigationRefreshState.treesModule);
-                  return;
-                }
-                if (navigationRefreshState.timeout !== 0) {
-                  return;
-                }
-                const delay = Math.max(0, 1000 - elapsed);
-                navigationRefreshState.timeout = window.setTimeout(() => {
-                  navigationRefreshState.timeout = 0;
-                  refreshNavigation(navigationRefreshState.treesModule);
-                }, delay);
-              }
-
-              function refreshNavigation(treesModule) {
-                if (navigationRefreshState.timeout !== 0) {
-                  window.clearTimeout(navigationRefreshState.timeout);
-                  navigationRefreshState.timeout = 0;
-                }
-                navigationRefreshState.dirtyCount = 0;
-                navigationRefreshState.lastRefreshAt = performance.now();
-                streamMetrics.treeRefreshCount += 1;
-                currentTreeSource = createFileTreeSourceFromModel(diffModel);
-                refreshFileExplorerSource(currentTreeSource, treesModule);
-                updateToolbarState();
-                recordStreamMetrics(streamMetrics);
-              }
-
-              const response = await fetch(payload.patchURL, { cache: "no-store" });
-              if (!response.ok) {
-                throw new Error(`${label("loadingDiff")} (${response.status})`);
-              }
-
-              if (!response.body?.getReader) {
-                const text = await response.text();
-                await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
-                await maybeFlushPendingItems(true);
-                finalizeCodeViewLayout();
-                scheduleNavigationRefresh(treesModule, true);
-                streamMetrics.completedAt = performance.now();
-                return;
-              }
-
-              const decoder = new TextDecoder();
-              const reader = response.body.getReader();
-              const gitMarker = "diff --git ";
-              const gitMarkerWithNewline = "\\n" + gitMarker;
-              const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
-              const nonWhitespacePattern = /\\S/;
-
-              function nextGitBoundaryIndex(text, start) {
-                const offset = Math.max(start, 0);
-                if (offset === 0 && text.startsWith(gitMarker)) {
-                  return 0;
-                }
-                const index = text.indexOf(gitMarkerWithNewline, offset);
-                return index === -1 ? undefined : index + 1;
-              }
-
-              function nextGitBoundarySearchStart(text, start) {
-                return Math.max(start, text.length - gitMarkerSearchTailLength);
-              }
-
-              function commitMetadataBoundaryIndex(text, start, end) {
-                const minimum = Math.max(start, 0);
-                const maximum = Math.min(end, text.length);
-                if (minimum >= maximum) {
-                  return undefined;
-                }
-                let index = text.lastIndexOf("\\nFrom ", maximum - 1);
-                while (index !== -1) {
-                  const boundary = index + 1;
-                  if (boundary < minimum) {
-                    return undefined;
-                  }
-                  if (boundary >= maximum) {
-                    index = text.lastIndexOf("\\nFrom ", index - 1);
-                    continue;
-                  }
-                  const lineEnd = text.indexOf("\\n", boundary + 1);
-                  const line = text.slice(boundary, lineEnd === -1 || lineEnd > maximum ? maximum : lineEnd);
-                  if (commitMetadataPattern.test(line)) {
-                    return boundary;
-                  }
-                  index = text.lastIndexOf("\\nFrom ", index - 1);
-                }
-                return undefined;
-              }
-
-              function commitMetadataFromFileText(fileText) {
-                const firstGitBoundary = nextGitBoundaryIndex(fileText, 0);
-                if (firstGitBoundary == null || firstGitBoundary <= 0) {
-                  return undefined;
-                }
-                const metadata = fileText.slice(0, firstGitBoundary);
-                return commitMetadataPattern.test(metadata) ? metadata : undefined;
-              }
-
-              async function appendCompleteFileText(fileText) {
-                if (fileText.trim() === "") {
-                  return;
-                }
-                const metadata = commitMetadataFromFileText(fileText);
-                if (metadata != null) {
-                  currentPatchPrefix = commitMetadataLabel(metadata, patchMetadataIndex);
-                  patchMetadataIndex += 1;
-                }
-                const cacheKey = `cmux-diff-file-${diffModel.fileIndex}`;
-                await enqueueFileDiff(processFile(fileText, {
-                  cacheKey,
-                  isGitDiff: true,
-                }), currentPatchPrefix);
-              }
-
-              function createStreamingPatchFileSplitter() {
-                let boundaryIndex;
-                let buffer = "";
-                let searchStart = 0;
-                let sawGitBoundary = false;
-
-                function takeAvailableFile() {
-                  if (boundaryIndex == null) {
-                    boundaryIndex = nextGitBoundaryIndex(buffer, searchStart);
-                    if (boundaryIndex == null) {
-                      searchStart = nextGitBoundarySearchStart(buffer, 0);
-                      return null;
-                    }
-                    sawGitBoundary = true;
-                    searchStart = boundaryIndex + 1;
-                  }
-
-                  while (true) {
-                    const currentBoundary = boundaryIndex;
-                    if (currentBoundary == null) {
-                      return null;
-                    }
-                    const nextBoundary = nextGitBoundaryIndex(buffer, searchStart);
-                    if (nextBoundary == null) {
-                      searchStart = nextGitBoundarySearchStart(buffer, currentBoundary + 1);
-                      return null;
-                    }
-                    const splitBoundary = commitMetadataBoundaryIndex(buffer, currentBoundary + 1, nextBoundary) ?? nextBoundary;
-                    const fileText = buffer.slice(0, splitBoundary);
-                    buffer = buffer.slice(splitBoundary);
-                    boundaryIndex = nextGitBoundaryIndex(buffer, 0);
-                    searchStart = boundaryIndex == null ? 0 : boundaryIndex + 1;
-                    if (nonWhitespacePattern.test(fileText)) {
-                      return fileText;
-                    }
-                  }
-                }
-
-                return {
-                  push(text) {
-                    if (text.length > 0) {
-                      buffer += text;
-                    }
-                  },
-                  takeAvailableFile,
-                  finish() {
-                    const fileText = takeAvailableFile();
-                    if (fileText != null) {
-                      return { fileText };
-                    }
-                    if (!nonWhitespacePattern.test(buffer)) {
-                      buffer = "";
-                      return {};
-                    }
-                    if (!sawGitBoundary) {
-                      const fallbackPatchContent = buffer;
-                      buffer = "";
-                      return { fallbackPatchContent };
-                    }
-                    const trailingFileText = buffer;
-                    buffer = "";
-                    return { fileText: trailingFileText };
-                  },
-                };
-              }
-
-              async function drainPatchFileSplitter(splitter) {
-                let fileText;
-                while ((fileText = splitter.takeAvailableFile()) != null) {
-                  await appendCompleteFileText(fileText);
-                }
-              }
-
-              const splitter = createStreamingPatchFileSplitter();
-              let currentPatchPrefix;
-              let patchMetadataIndex = 0;
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                  const tail = decoder.decode();
-                  if (tail.length > 0) {
-                    splitter.push(tail);
-                    await drainPatchFileSplitter(splitter);
-                  }
-                  break;
-                }
-                splitter.push(decoder.decode(value, { stream: true }));
-                await drainPatchFileSplitter(splitter);
-              }
-
-              const finalFile = splitter.finish();
-              if (finalFile.fileText != null) {
-                await appendCompleteFileText(finalFile.fileText);
-                await drainPatchFileSplitter(splitter);
-              } else if (finalFile.fallbackPatchContent != null) {
-                await appendParsedPatchText(finalFile.fallbackPatchContent, parsePatchFiles, enqueueFileDiff);
-              }
-              await maybeFlushPendingItems(true);
-              finalizeCodeViewLayout();
-              scheduleNavigationRefresh(treesModule, true);
-              streamMetrics.completedAt = performance.now();
-              recordStreamMetrics(streamMetrics);
-            }
-
-            function recordStreamMetrics(metrics) {
-              document.body.dataset.streamFileCount = String(metrics.fileCount ?? diffItems.length);
-              document.body.dataset.streamRenderableFileCount = String(metrics.renderableFileCount ?? codeViewItems.length);
-              document.body.dataset.streamFlushCount = String(metrics.flushCount ?? 0);
-              document.body.dataset.streamMaxBatchSize = String(metrics.maxBatchSize ?? 0);
-              document.body.dataset.streamTreeRefreshCount = String(metrics.treeRefreshCount ?? 0);
-              if (Number.isFinite(metrics.completedAt) && metrics.completedAt > 0) {
-                document.body.dataset.streamElapsedMs = String(Math.round(metrics.completedAt - metrics.startedAt));
-              }
-            }
-
-            async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
-              const patches = parsePatchFiles(patchText, "cmux-diff");
-              const hasMultiplePatches = patches.length > 1;
-              for (const [patchIndex, patch] of patches.entries()) {
-                const patchPrefix = hasMultiplePatches ? commitMetadataLabel(patch.patchMetadata, patchIndex) : undefined;
-                for (const fileDiff of patch.files ?? []) {
-                  await enqueueFileDiff(fileDiff, patchPrefix);
-                }
-              }
-            }
-
-            function createStreamingDiffModel() {
-              return {
-                diffStats: {
-                  addedLines: 0,
-                  deletedLines: 0,
-                  fileCount: 0,
-                  totalLinesOfCode: 0,
-                },
-                fileIndex: 0,
-                gitStatusByPath: new Map(),
-                itemIdToFile: new Map(),
-                itemIdByTreePath: new Map(),
-                lastTreeSource: undefined,
-                nextCollisionSuffixByBase: new Map(),
-                items: [],
-                pathStateByTreePath: new Map(),
-                paths: [],
-                pathToItemId: new Map(),
-                pendingGitStatusRemovePaths: new Set(),
-                pendingGitStatusSetByPath: new Map(),
-                pendingItems: [],
-                pendingItemById: new Map(),
-                pendingStatsChanged: false,
-                statsByPath: new Map(),
-                treePathByItemId: new Map(),
-              };
-            }
-
-            function createFileTreeSourceFromModel(model) {
-              const previousSource = model.lastTreeSource;
-              const gitStatusPatch = buildGitStatusPatch(model);
-              const source = {
-                diffStats: { ...model.diffStats },
-                gitStatus: Array.from(model.gitStatusByPath.values()),
-                gitStatusPatch,
-                pathCount: model.paths.length,
-                paths: model.paths,
-                pathToItemId: model.pathToItemId,
-                previousSource,
-                statsChanged: model.pendingStatsChanged,
-                statsByPath: model.statsByPath,
-                treePathByItemId: model.treePathByItemId,
-              };
-              model.pendingStatsChanged = false;
-              model.lastTreeSource = source;
-              return source;
-            }
-
-            function buildGitStatusPatch(model) {
-              if (model.pendingGitStatusRemovePaths.size === 0 && model.pendingGitStatusSetByPath.size === 0) {
-                return undefined;
-              }
-              const patch = {};
-              if (model.pendingGitStatusRemovePaths.size > 0) {
-                patch.remove = Array.from(model.pendingGitStatusRemovePaths);
-                model.pendingGitStatusRemovePaths.clear();
-              }
-              if (model.pendingGitStatusSetByPath.size > 0) {
-                patch.set = Array.from(model.pendingGitStatusSetByPath.values());
-                model.pendingGitStatusSetByPath.clear();
-              }
-              return patch;
-            }
-
-            function yieldToNextFrame() {
-              return new Promise((resolve) => {
-                let resolved = false;
-                let timeout = 0;
-                const done = () => {
-                  if (resolved) {
-                    return;
-                  }
-                  resolved = true;
-                  if (timeout !== 0) {
-                    window.clearTimeout(timeout);
-                  }
-                  resolve();
-                };
-                if (document.visibilityState === "visible" && document.hasFocus()) {
-                  timeout = window.setTimeout(done, 50);
-                  window.requestAnimationFrame(done);
-                } else if (typeof MessageChannel !== "undefined") {
-                  const channel = new MessageChannel();
-                  channel.port1.onmessage = done;
-                  channel.port2.postMessage(undefined);
-                } else {
-                  queueMicrotask(done);
-                }
-              });
-            }
-
-            async function loadPatchText() {
-              if (patchTextPromise.value == null) {
-                patchTextPromise.value = fetch(payload.patchURL, { cache: "no-store" }).then(async (response) => {
-                  if (!response.ok) {
-                    throw new Error(`${label("loadingDiff")} (${response.status})`);
-                  }
-                  return response.text();
-                });
-              }
-              return patchTextPromise.value;
-            }
-
-            function applyViewerAppearance(appearance) {
-              const rootStyle = document.documentElement.style;
-              rootStyle.setProperty("--cmux-diff-bg-light", appearance.themes.light.background);
-              rootStyle.setProperty("--cmux-diff-bg-dark", appearance.themes.dark.background);
-              rootStyle.setProperty("--cmux-diff-fg-light", appearance.themes.light.foreground);
-              rootStyle.setProperty("--cmux-diff-fg-dark", appearance.themes.dark.foreground);
-              rootStyle.setProperty("--cmux-diff-selection-bg-light", appearance.themes.light.selectionBackground);
-              rootStyle.setProperty("--cmux-diff-selection-bg-dark", appearance.themes.dark.selectionBackground);
-              rootStyle.setProperty("--cmux-diff-code-font-family", cssFontFamily(appearance.fontFamily));
-              rootStyle.setProperty("--cmux-diff-font-size", `${appearance.fontSize}px`);
-              rootStyle.setProperty("--cmux-diff-line-height", `${appearance.lineHeight}px`);
-            }
-
-            function cssFontFamily(fontFamily) {
-              const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-              return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
-            }
-
-            function setupToolbar() {
-              filesToggle.innerHTML = icon("files");
-              fileSearchToggle.innerHTML = icon("search");
-              fileCollapseToggle.innerHTML = icon("sidebarCollapse");
-              layoutToggle.innerHTML = icon(appState.layout);
-              optionsButton.innerHTML = icon("dots");
-              if (typeof payload.externalURL === "string" && payload.externalURL.length > 0) {
-                externalLink.href = payload.externalURL;
-                externalLink.innerHTML = icon("external");
-                externalLink.hidden = false;
-              }
-              filesToggle.addEventListener("click", () => setFilesVisible(!appState.filesVisible));
-              fileCollapseToggle.addEventListener("click", () => setFilesVisible(false));
-              fileSearchToggle.addEventListener("click", () => setFileSearchOpen(!appState.fileSearchOpen));
-              layoutToggle.addEventListener("click", () => setLayout(appState.layout === "split" ? "unified" : "split"));
-              optionsButton.addEventListener("click", () => setOptionsMenuOpen(optionsMenu.hidden));
-              document.addEventListener("click", (event) => {
-                if (optionsMenu.hidden || toolbar.contains(event.target)) {
-                  return;
-                }
-                setOptionsMenuOpen(false);
-              });
-              document.addEventListener("keydown", (event) => {
-                if (event.key === "Escape") {
-                  setOptionsMenuOpen(false);
-                }
-              });
-              updateToolbarState();
-            }
-
-            function codeViewOptions() {
-              return {
-                layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
-                diffStyle: appState.layout,
-                diffIndicators: appState.diffIndicators,
-                overflow: appState.wordWrap ? "wrap" : "scroll",
-                expandUnchanged: appState.expandUnchanged,
-                disableBackground: !appState.showBackgrounds,
-                disableLineNumbers: !appState.lineNumbers,
-                lineHoverHighlight: "number",
-                enableLineSelection: true,
-                enableGutterUtility: true,
-                lineDiffType: appState.wordDiffs ? "word" : "none",
-                stickyHeaders: true,
-                unsafeCSS: codeViewUnsafeCSS(),
-                theme: payload.appearance.theme,
-                themeType: "system",
-              };
-            }
-
-            function codeViewUnsafeCSS() {
-              return `
-                [data-diffs-header] {
-                  container-type: scroll-state;
-                  container-name: sticky-header;
-                }
-                @container sticky-header scroll-state(stuck: top) {
-                  [data-diffs-header]::after {
-                    position: absolute;
-                    bottom: -1px;
-                    left: 0;
-                    width: 100%;
-                    height: 1px;
-                    content: '';
-                    background-color: var(--cmux-diff-border);
-                  }
-                }
-                [data-diffs-header=default],
-                [data-diffs-header=default] [data-additions-count],
-                [data-diffs-header=default] [data-deletions-count],
-                [data-separator-wrapper],
-                [data-separator-content],
-                [data-unmodified-lines],
-                [data-expand-button] {
-                  font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
-                }
-              `;
-            }
-
-            function applyCodeViewOptions() {
-              const options = codeViewOptions();
-              if (!codeView) {
-                syncWorkerRenderOptions();
-                return;
-              }
-              codeView.setOptions(options);
-              syncWorkerRenderOptions();
-              codeView.render(true);
-            }
-
-            function syncWorkerRenderOptions() {
-              if (!workerPool?.setRenderOptions) {
-                return;
-              }
-              workerPool.setRenderOptions(workerHighlighterOptions())
-                .then(() => codeView?.render(true))
-                .catch((error) => console.warn("cmux diff worker render options update failed", error));
-            }
-
-            function setLayout(layout) {
-              appState.layout = layout === "unified" ? "unified" : "split";
-              updateToolbarState();
-              applyCodeViewOptions();
-            }
-
-            function setFilesVisible(visible) {
-              appState.filesVisible = visible;
-              document.body.dataset.filesHidden = visible ? "false" : "true";
-              filesSidebar.setAttribute("aria-hidden", String(!visible));
-              if (visible) {
-                filesSidebar.removeAttribute("inert");
-              } else {
-                filesSidebar.setAttribute("inert", "");
-              }
-              updateToolbarState();
-            }
-
-            function setFileSearchOpen(open) {
-              appState.fileSearchOpen = Boolean(open);
-              if (fileTree) {
-                if (appState.fileSearchOpen) {
-                  fileTree.openSearch("");
-                } else {
-                  fileTree.closeSearch();
-                }
-              }
-              updateToolbarState();
-            }
-
-            function setCollapsed(collapsed) {
-              appState.collapsed = collapsed;
-              const nextCodeViewItems = codeViewItems.map((item) => ({
-                ...item,
-                collapsed,
-                version: (item.version ?? 0) + 1,
-              }));
-              const codeItemsById = new Map(nextCodeViewItems.map((item) => [item.id, item]));
-              const nextDiffItems = diffItems.map((item) => codeItemsById.get(item.id) ?? {
-                ...item,
-                collapsed,
-                version: (item.version ?? 0) + 1,
-              });
-              codeViewItems.splice(0, codeViewItems.length, ...nextCodeViewItems);
-              diffItems.splice(0, diffItems.length, ...nextDiffItems);
-              if (codeView) {
-                codeView.setItems(codeViewItems);
-                codeView.render(true);
-              }
-              updateToolbarState();
-            }
-
-            function updateToolbarState() {
-              filesToggle.setAttribute("aria-pressed", String(appState.filesVisible));
-              filesToggle.title = appState.filesVisible ? label("hideFiles") : label("showFiles");
-              filesToggle.setAttribute("aria-label", filesToggle.title);
-              fileCollapseToggle.title = label("hideFiles");
-              fileCollapseToggle.setAttribute("aria-label", fileCollapseToggle.title);
-              layoutToggle.innerHTML = icon(appState.layout);
-              layoutToggle.title = appState.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff");
-              layoutToggle.setAttribute("aria-label", layoutToggle.title);
-              optionsButton.setAttribute("aria-expanded", String(!optionsMenu.hidden));
-              document.documentElement.dataset.layout = appState.layout;
-              document.documentElement.dataset.wordWrap = String(appState.wordWrap);
-              document.documentElement.dataset.diffIndicators = appState.diffIndicators;
-              fileSearchToggle.disabled = !fileTree;
-              fileSearchToggle.setAttribute("aria-pressed", String(appState.fileSearchOpen));
-              fileSearchToggle.title = appState.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch");
-              fileSearchToggle.setAttribute("aria-label", fileSearchToggle.title);
-            }
-
-            function setOptionsMenuOpen(open) {
-              if (open) {
-                renderOptionsMenu();
-              }
-              optionsMenu.hidden = !open;
-              updateToolbarState();
-            }
-
-            function renderOptionsMenu() {
-              optionsMenu.textContent = "";
-              const items = [
-                { label: label("refresh"), icon: "refresh", action: () => window.location.reload() },
-                { label: appState.wordWrap ? label("disableWordWrap") : label("enableWordWrap"), icon: "wrap", checked: appState.wordWrap, action: () => {
-                  appState.wordWrap = !appState.wordWrap;
-                  applyCodeViewOptions();
-                } },
-                { label: appState.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs"), icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
-                "separator",
-                { label: appState.filesVisible ? label("hideFiles") : label("showFiles"), icon: "files", checked: appState.filesVisible, action: () => setFilesVisible(!appState.filesVisible) },
-                { label: appState.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext"), icon: "document", checked: appState.expandUnchanged, action: () => {
-                  appState.expandUnchanged = !appState.expandUnchanged;
-                  applyCodeViewOptions();
-                } },
-                { label: appState.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds"), icon: "background", checked: appState.showBackgrounds, action: () => {
-                  appState.showBackgrounds = !appState.showBackgrounds;
-                  applyCodeViewOptions();
-                } },
-                { label: appState.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers"), icon: "numbers", checked: appState.lineNumbers, action: () => {
-                  appState.lineNumbers = !appState.lineNumbers;
-                  applyCodeViewOptions();
-                } },
-                { label: appState.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs"), icon: "word", checked: appState.wordDiffs, action: () => {
-                  appState.wordDiffs = !appState.wordDiffs;
-                  applyCodeViewOptions();
-                } },
-                { kind: "segment", label: label("indicatorStyle"), icon: "bars", options: [
-                  { value: "bars", icon: "bars", label: label("bars") },
-                  { value: "classic", icon: "classic", label: label("classic") },
-                  { value: "none", icon: "eye", label: label("none") },
-                ] },
-                "separator",
-                { label: label("copyGitApplyCommand"), icon: "clipboard", action: copyGitApplyCommand },
-              ];
-              for (const item of items) {
-                if (item === "separator") {
-                  const separator = document.createElement("div");
-                  separator.className = "menu-separator";
-                  optionsMenu.append(separator);
-                  continue;
-                }
-                if (item.kind === "segment") {
-                  const row = document.createElement("div");
-                  row.className = "menu-item menu-segment";
-                  row.setAttribute("role", "presentation");
-                  row.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-segment-controls"></span>`;
-                  row.querySelector(".menu-label").textContent = item.label;
-                  const controls = row.querySelector(".menu-segment-controls");
-                  for (const option of item.options) {
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    button.className = "segment-button";
-                    button.title = option.label;
-                    button.setAttribute("aria-label", option.label);
-                    button.setAttribute("aria-pressed", String(appState.diffIndicators === option.value));
-                    button.innerHTML = icon(option.icon);
-                    button.addEventListener("click", () => {
-                      appState.diffIndicators = option.value;
-                      applyCodeViewOptions();
-                      renderOptionsMenu();
-                      updateToolbarState();
-                    });
-                    controls.append(button);
-                  }
-                  optionsMenu.append(row);
-                  continue;
-                }
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "menu-item";
-                button.setAttribute("role", item.checked == null ? "menuitem" : "menuitemcheckbox");
-                if (item.checked != null) {
-                  button.setAttribute("aria-checked", String(Boolean(item.checked)));
-                }
-                button.disabled = Boolean(item.disabled);
-                button.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-check">${item.checked ? icon("check") : ""}</span>`;
-                button.querySelector(".menu-label").textContent = item.label;
-                button.addEventListener("click", () => {
-                  if (button.disabled) {
-                    return;
-                  }
-                  item.action?.();
-                  renderOptionsMenu();
-                  updateToolbarState();
-                });
-                optionsMenu.append(button);
-              }
-            }
-
-            function safeGitApplyDelimiter(patch) {
-              const lines = new Set(patch.split(/\\r?\\n/));
-              let delimiter = "CMUX_DIFF_PATCH";
-              let index = 0;
-              while (lines.has(delimiter)) {
-                index += 1;
-                delimiter = `CMUX_DIFF_PATCH_${index}`;
-              }
-              return delimiter;
-            }
-
-            async function copyGitApplyCommand() {
-              const newline = String.fromCharCode(10);
-              const patchText = await loadPatchText();
-              const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
-              const delimiter = safeGitApplyDelimiter(patch);
-              const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
-              if (navigator.clipboard?.writeText) {
-                try {
-                  await navigator.clipboard.writeText(command);
-                } catch {
-                  fallbackCopyText(command);
-                }
-              } else {
-                fallbackCopyText(command);
-              }
-              optionsButton.title = label("copiedGitApplyCommand");
-              optionsButton.setAttribute("aria-label", label("copiedGitApplyCommand"));
-            }
-
-            function fallbackCopyText(text) {
-              const textarea = document.createElement("textarea");
-              textarea.value = text;
-              textarea.setAttribute("readonly", "");
-              textarea.style.position = "fixed";
-              textarea.style.left = "-9999px";
-              document.body.append(textarea);
-              textarea.select();
-              document.execCommand("copy");
-              textarea.remove();
-            }
-
-            function setupSourceSelector(options) {
-              sourceDetail.textContent = diffSourceDetail();
-              if (!Array.isArray(options) || options.length < 2) {
-                return;
-              }
-              sourceSelect.textContent = "";
-              const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
-              for (const option of options) {
-                const item = document.createElement("option");
-                item.value = option.value;
-                item.textContent = option.label;
-                item.disabled = option.disabled || !option.url;
-                item.selected = option.value === selected?.value;
-                if (option.message) {
-                  item.title = option.message;
-                }
-                sourceSelect.append(item);
-              }
-              sourceDetail.textContent = selected?.sourceLabel ?? diffSourceDetail();
-              sourceSelect.hidden = false;
-              sourceSelect.addEventListener("change", () => {
-                const next = options.find((option) => option.value === sourceSelect.value);
-                if (!next?.url) {
-                  sourceSelect.value = selected?.value ?? "";
-                  return;
-                }
-                status.dataset.error = "false";
-                status.textContent = label("loadingDiff");
-                window.location.href = next.url;
-              });
-            }
-
-            function diffSourceDetail() {
-              const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef]
-                .filter((value) => typeof value === "string" && value.trim() !== "");
-              return parts.join(" | ");
-            }
-
-            function setupNavigationSelector(selectElement, options, fallbackValue, labelText) {
-              if (!selectElement || !Array.isArray(options) || options.length < 2) {
-                return;
-              }
-              selectElement.textContent = "";
-              const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
-              for (const option of options) {
-                const item = document.createElement("option");
-                item.value = option.value;
-                item.textContent = option.label;
-                item.disabled = option.disabled || !option.url;
-                item.selected = option.value === selected?.value;
-                if (option.message) {
-                  item.title = option.message;
-                }
-                selectElement.append(item);
-              }
-              selectElement.hidden = false;
-              selectElement.title = labelText;
-              selectElement.addEventListener("change", () => {
-                const next = options.find((option) => option.value === selectElement.value);
-                if (!next?.url) {
-                  selectElement.value = selected?.value ?? fallbackValue ?? "";
-                  return;
-                }
-                status.dataset.error = "false";
-                status.textContent = label("loadingDiff");
-                window.location.href = next.url;
-              });
-            }
-
-            function setupFileExplorer(items, treesModule) {
-              setupFileExplorerSource(createFileTreeSource(items), treesModule);
-            }
-
-            function setupFileExplorerSource(source, treesModule) {
-              const itemCount = sourcePathCount(source);
-              const canUsePierreTree = canUsePierreFileTree(treesModule);
-              syncFileTreeSelectionMaps(source, []);
-              if (fileTree) {
-                fileTree.cleanUp?.();
-                fileTree = null;
-              }
-              fileTreeSource = null;
-              appState.fileSearchOpen = false;
-              fileList.textContent = "";
-              filesCount.textContent = `${itemCount}`;
-              updateDiffStatsFromSource(source);
-              if (canUsePierreTree) {
-                try {
-                  setupPierreFileTree(source, treesModule);
-                  updateToolbarState();
-                  return;
-                } catch (error) {
-                  console.warn("cmux diff file tree setup failed", error);
-                }
-              }
-              const entries = sourceEntries(source);
-              syncFileTreeSelectionMaps(source, entries);
-              setupFlatFileExplorer(entries);
-              updateToolbarState();
-            }
-
-            function refreshFileExplorer(items, treesModule) {
-              refreshFileExplorerSource(createFileTreeSource(items), treesModule);
-            }
-
-            function refreshFileExplorerSource(source, treesModule) {
-              const itemCount = sourcePathCount(source);
-              syncFileTreeSelectionMaps(source, []);
-              filesCount.textContent = `${itemCount}`;
-              updateDiffStatsFromSource(source);
-              if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
-                refreshPierreFileTree(source, treesModule);
-                return;
-              }
-              if (fileTree || fileList.childElementCount === 0) {
-                setupFileExplorerSource(source, treesModule);
-                return;
-              }
-              const entries = sourceEntries(source);
-              syncFileTreeSelectionMaps(source, entries);
-              fileList.textContent = "";
-              setupFlatFileExplorer(entries);
-            }
-
-            function setupPierreFileTree(source, treesModule) {
-              const { FileTree, preparePresortedFileTreeInput } = treesModule;
-              const paths = sourcePaths(source);
-              fileTreeSource = source;
-              const initialSelectedPath = paths[0];
-              useFileTreeStatsFromSource(source);
-              fileList.dataset.treeMode = "pierre";
-              fileTree = new FileTree({
-                flattenEmptyDirectories: true,
-                id: "cmux-diff-file-tree",
-                initialExpansion: "open",
-                initialSelectedPaths: initialSelectedPath ? [initialSelectedPath] : [],
-                initialVisibleRowCount: getInitialFileTreeRowCount(),
-                itemHeight: 24,
-                overscan: 12,
-                preparedInput: preparePresortedFileTreeInput(paths),
-                presorted: true,
-                search: true,
-                searchBlurBehavior: "retain",
-                stickyFolders: true,
-                gitStatus: source.gitStatus,
-                renderRowDecoration(context) {
-                  if (context.item.kind !== "file") {
-                    return null;
-                  }
-                  const stats = fileTreeStatsByPath.get(context.item.path);
-                  if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
-                    return null;
-                  }
-                  return {
-                    text: `+${stats.added} -${stats.deleted}`,
-                    title: `${stats.added} ${label("additions")}, ${stats.deleted} ${label("deletions")}`,
-                  };
-                },
-                sort: () => 0,
-                unsafeCSS: fileTreeUnsafeCSS(),
-                onSelectionChange(paths) {
-                  if (suppressTreeSelectionChange) {
-                    return;
-                  }
-                  const selectedPath = paths[paths.length - 1];
-                  const itemId = itemIdByTreePath.get(selectedPath);
-                  if (itemId) {
-                    scrollToItem(itemId);
-                  }
-                },
-              });
-              fileTree.render({ containerWrapper: fileList });
-            }
-
-            function refreshPierreFileTree(source, treesModule) {
-              const previousSource = fileTreeSource;
-              const paths = sourcePaths(source);
-              fileTreeSource = source;
-              useFileTreeStatsFromSource(source);
-              let resetTree = false;
-              if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
-                const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
-                if (addedPaths.length > 0) {
-                  try {
-                    fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
-                  } catch (error) {
-                    console.warn("cmux diff file tree incremental update failed; resetting paths", error);
-                    fileTree.resetPaths(paths, {
-                      preparedInput: treesModule.preparePresortedFileTreeInput(paths),
-                    });
-                    resetTree = true;
-                  }
-                }
-              } else {
-                fileTree.resetPaths(paths, {
-                  preparedInput: treesModule.preparePresortedFileTreeInput(paths),
-                });
-                resetTree = true;
-              }
-              if (source.gitStatusPatch) {
-                if (typeof fileTree.applyGitStatusPatch === "function") {
-                  fileTree.applyGitStatusPatch(source.gitStatusPatch);
-                } else {
-                  fileTree.setGitStatus(source.gitStatus);
-                }
-              } else if (resetTree || source.statsChanged === true) {
-                fileTree.setGitStatus(source.gitStatus);
-              }
-            }
-
-            function createFileTreeSource(items) {
-              const entries = buildTreeEntries(items);
-              const paths = entries.map((entry) => entry.path);
-              const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
-              const statsByPath = new Map(entries.map((entry) => [entry.path, entry.stats]));
-              const treePathByItemId = new Map(entries.map((entry) => [entry.item.id, entry.path]));
-              return {
-                entries,
-                gitStatus: entries
-                  .filter((entry) => entry.status !== "modified")
-                  .map((entry) => ({ path: entry.path, status: entry.status })),
-                pathCount: paths.length,
-                paths,
-                pathToItemId,
-                statsByPath,
-                treePathByItemId,
-              };
-            }
-
-            function canUsePierreFileTree(treesModule) {
-              return Boolean(treesModule?.FileTree && treesModule?.preparePresortedFileTreeInput);
-            }
-
-            function sourcePathCount(source) {
-              return source?.pathCount ?? source?.entries?.length ?? 0;
-            }
-
-            function sourceEntries(source) {
-              const count = source?.pathCount ?? source?.entries?.length ?? 0;
-              const entries = source?.entries ?? [];
-              if (entries.length > 0) {
-                return entries.length === count ? entries : entries.slice(0, count);
-              }
-              const paths = sourcePaths(source);
-              const pathToItemId = source?.pathToItemId;
-              const statsByPath = source?.statsByPath;
-              return paths.map((path) => {
-                const itemId = pathToItemId instanceof Map ? pathToItemId.get(path) : undefined;
-                const item = itemId ? diffItemById.get(itemId) : undefined;
-                const fileDiff = item?.fileDiff ?? {};
-                return {
-                  item: item ?? { id: itemId ?? path, fileDiff },
-                  path,
-                  status: gitStatus(fileDiff),
-                  stats: statsByPath instanceof Map ? statsByPath.get(path) ?? fileStats(fileDiff) : fileStats(fileDiff),
-                };
-              });
-            }
-
-            function sourcePaths(source) {
-              const count = source?.pathCount ?? source?.paths?.length ?? 0;
-              const paths = source?.paths ?? [];
-              return paths.length === count ? paths : paths.slice(0, count);
-            }
-
-            function isPathPrefix(previousSource, nextSource) {
-              const previousPaths = previousSource?.paths;
-              const nextPaths = nextSource?.paths;
-              const previousCount = previousSource?.pathCount ?? previousPaths?.length ?? 0;
-              const nextCount = nextSource?.pathCount ?? nextPaths?.length ?? 0;
-              if (!Array.isArray(previousPaths) || !Array.isArray(nextPaths) || previousCount > nextCount) {
-                return false;
-              }
-              for (let index = 0; index < previousCount; index += 1) {
-                if (previousPaths[index] !== nextPaths[index]) {
-                  return false;
-                }
-              }
-              return true;
-            }
-
-            function useFileTreeStatsFromSource(source) {
-              if (source?.statsByPath instanceof Map) {
-                fileTreeStatsByPath = source.statsByPath;
-                return;
-              }
-              fileTreeStatsByPath = new Map();
-              const treeEntries = sourceEntries(source);
-              for (const entry of treeEntries) {
-                fileTreeStatsByPath.set(entry.path, entry.stats);
-              }
-            }
-
-            function syncFileTreeSelectionMaps(source, entries) {
-              if (source?.pathToItemId instanceof Map && source?.treePathByItemId instanceof Map) {
-                itemIdByTreePath = source.pathToItemId;
-                treePathByItemId = source.treePathByItemId;
-              } else if (source?.pathToItemId instanceof Map) {
-                itemIdByTreePath = source.pathToItemId;
-                treePathByItemId = new Map();
-                for (const [path, itemId] of itemIdByTreePath) {
-                  treePathByItemId.set(itemId, path);
-                }
-              } else {
-                itemIdByTreePath = new Map();
-                treePathByItemId = new Map();
-                for (const entry of entries) {
-                  const itemId = entry.item?.id;
-                  if (!itemId) {
-                    continue;
-                  }
-                  itemIdByTreePath.set(entry.path, itemId);
-                  treePathByItemId.set(itemId, entry.path);
-                }
-              }
-              if (activeTreePath && !itemIdByTreePath.has(activeTreePath)) {
-                activeTreePath = "";
-              }
-            }
-
-            function setupFlatFileExplorer(entries) {
-              delete fileList.dataset.treeMode;
-              for (const entry of entries) {
-                const item = entry.item;
-                const fileDiff = item.fileDiff ?? {};
-                const stats = entry.stats ?? fileStats(fileDiff);
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "file-entry";
-                button.dataset.itemId = item.id;
-                button.title = fileName(fileDiff);
-                button.innerHTML = `
-                  <span class="file-status">${fileStatus(fileDiff)}</span>
-                  <span class="file-name"></span>
-                  <span class="file-stats">
-                    <span class="stat-add">+${stats.added}</span>
-                    <span class="stat-del">-${stats.deleted}</span>
-                  </span>
-                `;
-                button.querySelector(".file-name").textContent = fileName(fileDiff);
-                button.addEventListener("click", () => scrollToItem(item.id));
-                fileList.append(button);
-              }
-            }
-
-            function resetTreePathMaps() {
-              activeTreePath = "";
-              itemIdByTreePath = new Map();
-              treePathByItemId = new Map();
-            }
-
-            function buildTreeEntries(items) {
-              resetTreePathMaps();
-              const pathCounts = new Map();
-              const pathOrdinals = new Map();
-              for (const item of items) {
-                const name = fileName(item.fileDiff ?? {});
-                pathCounts.set(name, (pathCounts.get(name) ?? 0) + 1);
-              }
-              return items.map((item) => {
-                const fileDiff = item.fileDiff ?? {};
-                const basePath = fileName(fileDiff);
-                const nextOrdinal = (pathOrdinals.get(basePath) ?? 0) + 1;
-                pathOrdinals.set(basePath, nextOrdinal);
-                const treePath = pathCounts.get(basePath) > 1 ? `${basePath} (${nextOrdinal})` : basePath;
-                const stats = fileStats(fileDiff);
-                treePathByItemId.set(item.id, treePath);
-                itemIdByTreePath.set(treePath, item.id);
-                return {
-                  item,
-                  path: treePath,
-                  status: gitStatus(fileDiff),
-                  stats,
-                };
-              });
-            }
-
-            function getInitialFileTreeRowCount() {
-              const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-              if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
-                return 25;
-              }
-              return Math.min(96, Math.max(25, Math.ceil(viewportHeight / 24)));
-            }
-
-            function fileTreeUnsafeCSS() {
-              return `
-                [data-file-tree-search-container][data-open='false'] {
-                  display: none;
-                }
-                [data-file-tree-search-container] {
-                  margin: 0 4px 8px 0;
-                  padding: 0 5px 8px 1px;
-                  border-bottom: 1px solid var(--trees-border-color);
-                }
-                [data-file-tree-virtualized-scroll='true'] {
-                  padding-inline-start: 0;
-                  padding-inline-end: 2px;
-                  margin-inline-end: 2px;
-                }
-                [data-item-contains-git-change='true'] > [data-item-section='git'] {
-                  display: none;
-                }
-                [data-item-type='folder'] {
-                  color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
-                  font-weight: 500;
-                }
-                [data-file-tree-sticky-overlay-content] {
-                  box-shadow: 0 1px 0 var(--trees-border-color);
-                }
-              `;
-            }
-
-            function updateDiffStats(items) {
-              updateDiffStatsFromEntries(items.map((item) => ({
-                item,
-                stats: fileStats(item.fileDiff ?? {}),
-              })));
-            }
-
-            function updateDiffStatsFromSource(source) {
-              const stats = source?.diffStats;
-              if (stats && Number.isFinite(stats.addedLines) && Number.isFinite(stats.deletedLines) && Number.isFinite(stats.fileCount)) {
-                statsFiles.textContent = `${stats.fileCount}`;
-                statsAdded.textContent = `+${stats.addedLines}`;
-                statsDeleted.textContent = `-${stats.deletedLines}`;
-                return;
-              }
-              updateDiffStatsFromEntries(source?.entries ?? []);
-            }
-
-            function updateDiffStatsFromEntries(entries) {
-              const totals = entries.reduce((sum, entry) => {
-                const stats = entry.stats ?? fileStats(entry.item?.fileDiff ?? {});
-                sum.added += stats.added;
-                sum.deleted += stats.deleted;
-                return sum;
-              }, { added: 0, deleted: 0 });
-              statsFiles.textContent = `${entries.length}`;
-              statsAdded.textContent = `+${totals.added}`;
-              statsDeleted.textContent = `-${totals.deleted}`;
-            }
-
-            function updateDiffStatsFromModel(model) {
-              filesCount.textContent = `${model.diffStats.fileCount}`;
-              statsFiles.textContent = `${model.diffStats.fileCount}`;
-              statsAdded.textContent = `+${model.diffStats.addedLines}`;
-              statsDeleted.textContent = `-${model.diffStats.deletedLines}`;
-            }
-
-            function setupJumpSelector(items) {
-              jumpSelect.textContent = "";
-              const placeholder = document.createElement("option");
-              placeholder.value = "";
-              placeholder.textContent = label("jumpToFile");
-              jumpSelect.append(placeholder);
-              jumpSelect.dataset.initialized = "true";
-              for (const item of items) {
-                const option = document.createElement("option");
-                option.value = item.id;
-                option.textContent = fileName(item.fileDiff ?? {});
-                jumpSelect.append(option);
-              }
-              jumpSelect.hidden = items.length === 0;
-              jumpSelect.onchange = () => {
-                if (jumpSelect.value) {
-                  scrollToItem(jumpSelect.value);
-                }
-              };
-            }
-
-            function appendJumpOptions(items) {
-              if (items.length === 0) {
-                return;
-              }
-              if (jumpSelect.dataset.initialized !== "true") {
-                setupJumpSelector([]);
-              }
-              const fragment = document.createDocumentFragment();
-              for (const item of items) {
-                const option = document.createElement("option");
-                option.value = item.id;
-                option.textContent = fileName(item.fileDiff ?? {});
-                fragment.append(option);
-              }
-              jumpSelect.append(fragment);
-              jumpSelect.hidden = false;
-            }
-
-            function renameJumpOption(oldId, newId) {
-              if (jumpSelect.dataset.initialized !== "true") {
-                return;
-              }
-              for (const option of jumpSelect.options) {
-                if (option.value === oldId) {
-                  option.value = newId;
-                  return;
-                }
-              }
-            }
-
-            function scrollToItem(itemId) {
-              if (!codeView) {
-                return;
-              }
-              const targetItemId = codeViewScrollTargetForItem(itemId);
-              if (!targetItemId) {
-                return;
-              }
-              codeView.scrollTo({ type: "item", id: targetItemId, align: "start", behavior: "smooth-auto" });
-              updateActiveFile(targetItemId);
-            }
-
-            function codeViewScrollTargetForItem(itemId) {
-              if (codeViewItemIds.has(itemId)) {
-                return itemId;
-              }
-              const index = diffItems.findIndex((item) => item.id === itemId);
-              if (index === -1) {
-                return codeViewItems[0]?.id ?? "";
-              }
-              for (let next = index + 1; next < diffItems.length; next += 1) {
-                if (codeViewItemIds.has(diffItems[next].id)) {
-                  return diffItems[next].id;
-                }
-              }
-              for (let previous = index - 1; previous >= 0; previous -= 1) {
-                if (codeViewItemIds.has(diffItems[previous].id)) {
-                  return diffItems[previous].id;
-                }
-              }
-              return "";
-            }
-
-            function updateActiveFile(itemId) {
-              if (!itemId || activeFileId === itemId) {
-                return;
-              }
-              activeFileId = itemId;
-              syncFileTreeSelection(itemId);
-              for (const entry of fileList.querySelectorAll(".file-entry")) {
-                entry.setAttribute("aria-current", entry.dataset.itemId === itemId ? "true" : "false");
-              }
-              if (jumpSelect.value !== itemId) {
-                jumpSelect.value = itemId;
-              }
-            }
-
-            function syncFileTreeSelection(itemId) {
-              if (!fileTree) {
-                return;
-              }
-              const nextPath = treePathByItemId.get(itemId);
-              if (!nextPath || nextPath === activeTreePath) {
-                return;
-              }
-              suppressTreeSelectionChange = true;
-              try {
-                if (activeTreePath) {
-                  fileTree.getItem(activeTreePath)?.deselect();
-                }
-                fileTree.getItem(nextPath)?.select();
-                fileTree.scrollToPath(nextPath, { focus: false, offset: "nearest" });
-                activeTreePath = nextPath;
-              } finally {
-                scheduleRender(() => {
-                  suppressTreeSelectionChange = false;
-                });
-              }
-            }
-
-            function fileName(fileDiff) {
-              return fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? label("untitled");
-            }
-
-            function fileStatus(fileDiff) {
-              switch (fileDiff.type) {
-              case "new":
-                return "A";
-              case "deleted":
-                return "D";
-              case "rename-pure":
-              case "rename-changed":
-                return "R";
-              default:
-                return "M";
-              }
-            }
-
-            function gitStatus(fileDiff) {
-              return gitStatusType(fileDiff.type);
-            }
-
-            function gitStatusType(changeType) {
-              switch (changeType) {
-              case "new":
-                return "added";
-              case "deleted":
-                return "deleted";
-              case "rename-pure":
-              case "rename-changed":
-                return "renamed";
-              default:
-                return "modified";
-              }
-            }
-
-            function fileStats(fileDiff) {
-              const stats = { added: 0, deleted: 0 };
-              for (const hunk of fileDiff.hunks ?? []) {
-                stats.added += hunk.additionLines ?? 0;
-                stats.deleted += hunk.deletionLines ?? 0;
-              }
-              return stats;
-            }
-
-            function sameFileStats(previousStats, stats) {
-              return previousStats?.added === stats.added && previousStats?.deleted === stats.deleted;
-            }
-
-            function icon(name) {
-              const paths = {
-                background: '<rect x="4" y="4" width="12" height="12" rx="2"/><path d="M7 8h6"/><path d="M7 12h6"/>',
-                bars: '<path d="M5 4v12"/><path d="M9 6v8"/><path d="M13 8v4"/>',
-                check: '<path d="M4 10.5 8 14l8-9"/>',
-                classic: '<path d="M4 5h12"/><path d="M4 10h12"/><path d="M4 15h12"/><path d="M7 3v4"/><path d="M13 8v4"/>',
-                collapse: '<path d="M7 3v4H3"/><path d="M3 7l5-5"/><path d="M13 17v-4h4"/><path d="M17 13l-5 5"/>',
-                document: '<path d="M6 3h6l4 4v10H6z"/><path d="M12 3v5h5"/>',
-                dots: '<path d="M5 10h.01"/><path d="M10 10h.01"/><path d="M15 10h.01"/>',
-                external: '<path d="M7 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2"/><path d="M11 3h6v6"/><path d="m10 10 7-7"/>',
-                eye: '<path d="M2.5 10s2.75-5 7.5-5 7.5 5 7.5 5-2.75 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.4"/>',
-                files: '<path d="M3 5h5l1.5 2H17v9.5H3z"/><path d="M3 7h14"/>',
-                image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="8" r="1.3"/><path d="m4 15 4.5-4 3 2.8 2-1.8L17 15"/>',
-                numbers: '<path d="M5 5h2v10"/><path d="M4 15h4"/><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4"/><path d="M11 15h4"/>',
-                refresh: '<path d="M16 8a6 6 0 0 0-10.3-3.7L4 6"/><path d="M4 3v3h3"/><path d="M4 12a6 6 0 0 0 10.3 3.7L16 14"/><path d="M16 17v-3h-3"/>',
-                search: '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>',
-                sidebarCollapse: '<rect x="3.5" y="4" width="13" height="12" rx="2"/><path d="M12 4v12"/><path d="m8 8-2 2 2 2"/>',
-                split: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M10 4v12" data-accent="true"/><path d="M6 8h2"/><path d="M6 12h2"/><path d="M12 8h2"/><path d="M12 12h2"/>',
-                unified: '<rect x="4" y="3.5" width="12" height="13" rx="2"/><path d="M7 7h6"/><path d="M7 10h6" data-accent="true"/><path d="M7 13h6"/>',
-                word: '<path d="M3 6h14"/><path d="M3 10h8"/><path d="M3 14h11"/><path d="M14 10h3"/>',
-                wrap: '<path d="M3 6h10a4 4 0 0 1 0 8H8"/><path d="m10 11-3 3 3 3"/>',
-                clipboard: '<rect x="5" y="4" width="10" height="13" rx="2"/><path d="M8 4a2 2 0 0 1 4 0"/><path d="M8 7h4"/>',
-              };
-              return `<svg viewBox="0 0 20 20" aria-hidden="true">${paths[name] ?? ""}</svg>`;
-            }
-
-            function registerGhosttyTheme(registerCustomTheme, theme) {
-              registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
-            }
-
-            function preloadDiffHighlighter(appearance, items, getFiletypeFromFileName, preloadHighlighter) {
-              const themes = Array.from(new Set([
-                appearance.theme?.light,
-                appearance.theme?.dark,
-              ].filter(Boolean)));
-              const langs = Array.from(new Set(items.map((item) => {
-                const fileDiff = item.fileDiff ?? {};
-                const name = fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? "";
-                return fileDiff.lang ?? getFiletypeFromFileName(name) ?? "text";
-              }).filter(Boolean)));
-              return preloadHighlighter({
-                themes,
-                langs: langs.length > 0 ? langs : ["text"],
-              });
-            }
-
-            function shikiThemeFromGhostty(theme) {
-              const palette = theme.palette ?? {};
-              const foreground = theme.foreground;
-              const background = theme.background;
-              return {
-                name: theme.name,
-                displayName: theme.ghosttyName,
-                type: theme.type,
-                colors: {
-                  "editor.background": background,
-                  "editor.foreground": foreground,
-                  "terminal.background": background,
-                  "terminal.foreground": foreground,
-                  "terminal.ansiBlack": palette["0"] ?? foreground,
-                  "terminal.ansiRed": palette["1"] ?? foreground,
-                  "terminal.ansiGreen": palette["2"] ?? foreground,
-                  "terminal.ansiYellow": palette["3"] ?? foreground,
-                  "terminal.ansiBlue": palette["4"] ?? foreground,
-                  "terminal.ansiMagenta": palette["5"] ?? foreground,
-                  "terminal.ansiCyan": palette["6"] ?? foreground,
-                  "terminal.ansiWhite": palette["7"] ?? foreground,
-                  "terminal.ansiBrightBlack": palette["8"] ?? foreground,
-                  "terminal.ansiBrightRed": palette["9"] ?? palette["1"] ?? foreground,
-                  "terminal.ansiBrightGreen": palette["10"] ?? palette["2"] ?? foreground,
-                  "terminal.ansiBrightYellow": palette["11"] ?? palette["3"] ?? foreground,
-                  "terminal.ansiBrightBlue": palette["12"] ?? palette["4"] ?? foreground,
-                  "terminal.ansiBrightMagenta": palette["13"] ?? palette["5"] ?? foreground,
-                  "terminal.ansiBrightCyan": palette["14"] ?? palette["6"] ?? foreground,
-                  "terminal.ansiBrightWhite": palette["15"] ?? foreground,
-                  "gitDecoration.addedResourceForeground": palette["10"] ?? palette["2"] ?? "#32d74b",
-                  "gitDecoration.deletedResourceForeground": palette["9"] ?? palette["1"] ?? "#ff453a",
-                  "gitDecoration.modifiedResourceForeground": palette["12"] ?? palette["4"] ?? "#0a84ff",
-                  "editor.selectionBackground": theme.selectionBackground,
-                  "editor.selectionForeground": theme.selectionForeground,
-                },
-                tokenColors: [
-                  { settings: { foreground, background } },
-                  { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: palette["8"] ?? foreground, fontStyle: "italic" } },
-                  { scope: ["string", "constant.other.symbol"], settings: { foreground: palette["2"] ?? foreground } },
-                  { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: palette["3"] ?? foreground } },
-                  { scope: ["keyword", "storage", "storage.type"], settings: { foreground: palette["5"] ?? foreground } },
-                  { scope: ["entity.name.function", "support.function"], settings: { foreground: palette["4"] ?? foreground } },
-                  { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: palette["6"] ?? foreground } },
-                  { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-                  { scope: ["invalid", "message.error"], settings: { foreground: palette["9"] ?? palette["1"] ?? foreground } },
-                ],
-              };
-            }
-
-          </script>
+        <body>
+          <script id="cmux-diff-viewer-config" type="application/json">\(configLiteral)</script>
+          <div id="root"></div>
+          <script type="module" src="\(appModuleURL)"></script>
         </body>
         </html>
         """
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
-    private func ensureDiffViewerAssets(nextTo viewerURL: URL) throws -> DiffViewerAssets {
-        let sourceDirectory = try diffViewerBundledAssetDirectory()
-        let assetDirectoryName = "pierre-diffs-1.2.1-trees-1.0.0-beta.4"
+    private func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
+        let lightBackground = diffViewerCSSColor(
+            appearance.lightTheme.background,
+            opacity: appearance.backgroundOpacity
+        )
+        let darkBackground = diffViewerCSSColor(
+            appearance.darkTheme.background,
+            opacity: appearance.backgroundOpacity
+        )
+        let lightForeground = diffViewerCSSColor(appearance.lightTheme.foreground)
+        let darkForeground = diffViewerCSSColor(appearance.darkTheme.foreground)
+        return """
+        <style id="cmux-diff-viewer-prepaint">
+          :root {
+            color-scheme: light dark;
+            background: \(lightBackground);
+          }
+          html,
+          body,
+          #root {
+            min-height: 100%;
+          }
+          html,
+          body {
+            margin: 0;
+            background: \(lightBackground);
+            color: \(lightForeground);
+          }
+          @media (prefers-color-scheme: dark) {
+            :root {
+              background: \(darkBackground);
+            }
+            html,
+            body {
+              background: \(darkBackground);
+              color: \(darkForeground);
+            }
+          }
+        </style>
+        """
+    }
+
+    private func diffViewerCSSColor(_ rawValue: String, opacity: Double = 1) -> String {
+        guard let color = normalizedDiffViewerHexColor(rawValue) else {
+            return rawValue
+        }
+        let clampedOpacity = min(1, max(0, opacity))
+        guard clampedOpacity < 1,
+              let rgb = diffViewerRGBColor(color) else {
+            return color
+        }
+        let red = Int((rgb.red * 255).rounded())
+        let green = Int((rgb.green * 255).rounded())
+        let blue = Int((rgb.blue * 255).rounded())
+        return "rgba(\(red), \(green), \(blue), \(diffViewerCSSNumber(clampedOpacity)))"
+    }
+
+    private func diffViewerCSSNumber(_ value: Double) -> String {
+        let rounded = roundedDiffViewerMetric(value)
+        if rounded.rounded(.towardZero) == rounded {
+            return String(Int(rounded))
+        }
+        var text = String(rounded)
+        while text.hasSuffix("0") {
+            text.removeLast()
+        }
+        if text.hasSuffix(".") {
+            text.removeLast()
+        }
+        return text
+    }
+
+    private func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
+        let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
+        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
+        let appAssets = try diffViewerBundledAppAssetDirectory(nextTo: sourceDirectory)
+        let appAssetDirectoryName = appAssets.targetDirectoryName
+        let targetAppDirectory = viewerURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: targetAppDirectory, withIntermediateDirectories: true)
+
         let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
         guard assetPaths.contains("diffs.mjs"),
               assetPaths.contains("trees.mjs"),
               assetPaths.contains("worker-pool/worker-pool.mjs"),
-              assetPaths.contains("worker-pool/worker-portable.mjs") else {
+              assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
         for assetPath in assetPaths {
             try copyDiffViewerAsset(relativePath: assetPath, from: sourceDirectory, to: targetDirectory)
         }
 
+        let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
+        guard appAssetPaths.contains("main.mjs") else {
+            throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
+        }
+        for assetPath in appAssetPaths {
+            try copyDiffViewerAsset(relativePath: assetPath, from: appAssets.sourceDirectory, to: targetAppDirectory)
+        }
+
         return DiffViewerAssets(
+            appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
             diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
             treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
             workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
-            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.mjs",
+            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: assetPaths.map { targetDirectory.appendingPathComponent($0, isDirectory: false) }
+                + appAssetPaths.map { targetAppDirectory.appendingPathComponent($0, isDirectory: false) }
         )
+    }
+
+    private func diffViewerBundledAppAssetDirectory(
+        nextTo sourceDirectory: URL
+    ) throws -> (sourceDirectory: URL, targetDirectoryName: String) {
+        let sourceRoot = sourceDirectory.deletingLastPathComponent()
+        let candidates: [(sourceName: String, targetName: String)] = [
+            ("webviews-app", "cmux-webviews-app"),
+            ("diff-viewer-app", "cmux-diff-viewer-app")
+        ]
+        for candidate in candidates {
+            let appDirectory = sourceRoot
+                .appendingPathComponent(candidate.sourceName, isDirectory: true)
+                .standardizedFileURL
+            let entry = appDirectory.appendingPathComponent("main.mjs", isDirectory: false)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
+               isDirectory.boolValue,
+               FileManager.default.fileExists(atPath: entry.path) {
+                // The shared /tmp asset cache is written by every running cmux
+                // build (stable, nightly, each tagged dev app). Content-key the
+                // directory so builds with different webview bundles coexist
+                // instead of clobbering each other's chunks, which broke pages
+                // whose per-token allowlist no longer matched the files on disk.
+                let targetName = "\(candidate.targetName)-\(try diffViewerAppAssetContentKey(directory: appDirectory))"
+                return (sourceDirectory: appDirectory, targetDirectoryName: targetName)
+            }
+        }
+        throw CLIError(message: "Bundled cmux diff viewer app assets not found")
+    }
+
+    private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
+        var hasher = SHA256()
+        for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
+            hasher.update(data: Data(relativePath.utf8))
+            let fileURL = directory.appendingPathComponent(relativePath, isDirectory: false)
+            hasher.update(data: try Data(contentsOf: fileURL, options: .mappedIfSafe))
+        }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined().prefix(12).lowercased()
     }
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
@@ -7097,7 +5889,7 @@ extension CMUXCLI {
 
         var relativePaths: [String] = []
         for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "mjs",
+            guard ["js", "mjs"].contains(fileURL.pathExtension),
                   let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
                   values.isRegularFile == true else {
                 continue
@@ -7122,15 +5914,15 @@ extension CMUXCLI {
         return targetDate >= sourceDate
     }
 
-    private func diffViewerBundledAssetDirectory() throws -> URL {
-        let candidates = diffViewerBundledAssetDirectoryCandidates()
+    private func diffViewerBundledAssetDirectory(runtime: URL? = nil) throws -> URL {
+        let candidates = diffViewerBundledAssetDirectoryCandidates(runtime: runtime)
         if let directory = candidates.first {
             return directory
         }
         throw CLIError(message: "Bundled diff viewer assets not found")
     }
 
-    private func diffViewerBundledAssetDirectoryCandidates() -> [URL] {
+    private func diffViewerBundledAssetDirectoryCandidates(runtime: URL? = nil) -> [URL] {
         let fileManager = FileManager.default
         var candidates: [URL] = []
         var seen: Set<String> = []
@@ -7153,13 +5945,7 @@ extension CMUXCLI {
             candidates.append(standardized)
         }
 
-        appendIfExisting(
-            Bundle.main.resourceURL?
-                .appendingPathComponent("markdown-viewer", isDirectory: true)
-                .appendingPathComponent("diff-viewer", isDirectory: true)
-        )
-
-        if let executableURL = resolvedExecutableURL() {
+        if let executableURL = diffViewerExecutableURL(for: runtime) {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in [
                 "markdown-viewer/diff-viewer",
@@ -7194,6 +5980,12 @@ extension CMUXCLI {
                 current = current.deletingLastPathComponent().standardizedFileURL
             }
         }
+
+        appendIfExisting(
+            Bundle.main.resourceURL?
+                .appendingPathComponent("markdown-viewer", isDirectory: true)
+                .appendingPathComponent("diff-viewer", isDirectory: true)
+        )
 
         let devRelative = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -7319,7 +6111,7 @@ extension CMUXCLI {
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the opened diff browser split
           --title <text>               Set the diff viewer title to the provided text
-          --layout <split|unified>     Diff layout (default: split)
+          --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)
           --font-size <points>         Set diff font size (default: 10)
 
         Examples:

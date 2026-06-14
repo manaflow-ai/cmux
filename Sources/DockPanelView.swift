@@ -1,6 +1,8 @@
 import AppKit
+import CmuxTerminalEngine
 import Bonsplit
 import SwiftUI
+import CmuxTerminal
 
 struct DockControlDefinition: Codable, Equatable, Identifiable {
     let id: String
@@ -253,6 +255,19 @@ final class DockControlsStore: ObservableObject {
     }
 
     fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
+
+    func synchronizeSidebarLifecycle(
+        isRightSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        rootDirectory: String?,
+        workspaceId: UUID?
+    ) {
+        guard isRightSidebarVisible, mode == .dock else {
+            deactivate()
+            return
+        }
+        activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
+    }
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
@@ -559,18 +574,6 @@ struct DockPanelView: View {
             toolbar
             Divider()
             content
-        }
-        .onAppear {
-            store.activate(rootDirectory: rootDirectory, workspaceId: workspaceId)
-        }
-        .onDisappear {
-            store.deactivate()
-        }
-        .onChange(of: rootDirectory) { _, newValue in
-            store.activate(rootDirectory: newValue, workspaceId: workspaceId)
-        }
-        .onChange(of: workspaceId) { _, newValue in
-            store.activate(rootDirectory: rootDirectory, workspaceId: newValue)
         }
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -891,7 +894,7 @@ final class DockKeyboardFocusView: NSView {
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
@@ -905,7 +908,7 @@ final class DockKeyboardFocusView: NSView {
     override func keyDown(with event: NSEvent) { if !handleModeShortcut(event) { super.keyDown(with: event) } }
 
     private func handleModeShortcut(_ event: NSEvent) -> Bool {
-        guard let mode = RightSidebarMode.modeShortcut(for: event) else { return false }
+        guard let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) else { return false }
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
         return true
     }

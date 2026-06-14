@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum GhosttyTerminalBackdropRenderingMode {
@@ -20,36 +21,11 @@ enum WindowBackdropRole {
     case browserSurface
 }
 
-enum GhosttyBackgroundBlur: Equatable {
-    case disabled
-    case radius(Int)
-    case macosGlassRegular
-    case macosGlassClear
-
-    init(cValue value: Int16) {
-        switch value {
-        case 0:
-            self = .disabled
-        case -1:
-            self = .macosGlassRegular
-        case -2:
-            self = .macosGlassClear
-        case 1...:
-            self = .radius(Int(value))
-        default:
-            self = .disabled
-        }
-    }
-
-    var isMacOSGlassStyle: Bool {
-        switch self {
-        case .macosGlassRegular, .macosGlassClear:
-            return true
-        case .disabled, .radius:
-            return false
-        }
-    }
-
+extension GhosttyBackgroundBlur {
+    /// The window-chrome glass style for this blur mode, or `nil` when the mode
+    /// is a compositor blur or disabled. Lives app-side because
+    /// `WindowGlassEffect` is a window-domain type the terminal core must not
+    /// depend on.
     var windowGlassStyle: WindowGlassEffect.Style? {
         switch self {
         case .macosGlassRegular:
@@ -90,6 +66,99 @@ enum WindowBackdropPolicy {
         case .sidebarMaterial, .clear:
             return nil
         }
+    }
+}
+
+/// Identifies the layer responsible for painting a terminal surface background.
+enum TerminalSurfaceBackgroundFillOwner: Equatable {
+    /// The terminal hosting view should paint the resolved background color.
+    case surfaceHostLayer
+
+    /// The shared root backdrop should remain the only visible background fill.
+    case sharedWindowBackdrop
+
+    /// The Bonsplit pane backdrop should remain the only visible background fill.
+    case bonsplitPaneBackdrop
+
+    /// Ghostty's renderer owns the background instead of cmux's host layers.
+    case ghosttyNativeRenderer
+}
+
+/// Resolved background painting decision for one terminal surface.
+struct TerminalSurfaceBackgroundFillPlan {
+    /// The layer or renderer that owns the visible terminal background.
+    let owner: TerminalSurfaceBackgroundFillOwner
+
+    /// The color to apply to the terminal host layer, or clear when another layer owns the fill.
+    let hostLayerColor: NSColor
+
+    /// Whether a host-layer fill must subtract itself from the shared window backdrop.
+    let clearsSharedWindowBackdrop: Bool
+
+    /// Whether the terminal host layer should paint a non-clear fill.
+    var usesHostLayerFill: Bool {
+        owner == .surfaceHostLayer
+    }
+
+    /// Compact label used by debug logging for the selected backdrop owner.
+    var logBackdropLabel: String {
+        switch owner {
+        case .surfaceHostLayer:
+            return "terminal"
+        case .sharedWindowBackdrop:
+            return "shared"
+        case .bonsplitPaneBackdrop:
+            return "bonsplit-pane"
+        case .ghosttyNativeRenderer:
+            return "ghostty-native"
+        }
+    }
+
+    /// Returns the debug-log source label for the selected owner.
+    func logSource(hasSurfaceOverride: Bool) -> String {
+        switch owner {
+        case .surfaceHostLayer:
+            return hasSurfaceOverride ? "surfaceOverride" : "defaultBackground"
+        case .sharedWindowBackdrop:
+            return "sharedWindowBackdrop"
+        case .bonsplitPaneBackdrop:
+            return "bonsplitPaneBackdrop"
+        case .ghosttyNativeRenderer:
+            return "ghosttyNativeBackground"
+        }
+    }
+
+    /// Computes the terminal background owner and host-layer color for current appearance state.
+    static func resolve(
+        renderingMode: GhosttyTerminalBackdropRenderingMode,
+        surfaceBackgroundColor: NSColor?,
+        defaultBackgroundColor: NSColor,
+        backgroundOpacity: Double,
+        sharesWindowBackdrop: Bool,
+        usesBonsplitPaneBackdrop: Bool
+    ) -> Self {
+        let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
+            .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
+        let owner: TerminalSurfaceBackgroundFillOwner
+        let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
+            renderingMode.usesWindowHostBackdrop &&
+            !usesBonsplitPaneBackdrop
+        if !renderingMode.usesWindowHostBackdrop {
+            owner = .ghosttyNativeRenderer
+        } else if usesPaneLocalSurfaceFill {
+            owner = .surfaceHostLayer
+        } else if !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
+            owner = .surfaceHostLayer
+        } else if sharesWindowBackdrop {
+            owner = .sharedWindowBackdrop
+        } else {
+            owner = .bonsplitPaneBackdrop
+        }
+        return Self(
+            owner: owner,
+            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
+            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
+        )
     }
 }
 
@@ -193,7 +262,7 @@ struct WindowGlassSettingsSnapshot {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return true
         }
-        return cmuxShouldApplyWindowGlass(
+        return WindowBackgroundComposition.policy.shouldApplyWindowGlass(
             sidebarBlendMode: sidebarBlendModeRawValue,
             bgGlassEnabled: isEnabled,
             glassEffectAvailable: glassEffectAvailable

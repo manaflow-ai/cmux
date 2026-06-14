@@ -1,17 +1,37 @@
 import XCTest
+import CmuxCore
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxPanes
+import CmuxSettings
+import CmuxWorkspaces
+import CmuxSidebar
 import UserNotifications
 import Combine
+import CmuxTerminal
+import CmuxWorkspaceCore
+import struct CmuxSettings.IntegrationsCatalogSection
+import enum CmuxSettings.KiroNotificationLevel
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
+private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
+private typealias AppIconMode = cmux_DEV.AppIconMode
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
+private typealias ShortcutStroke = cmux.ShortcutStroke
+private typealias AppIconMode = cmux.AppIconMode
 #endif
 
 @MainActor
@@ -105,6 +125,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
             observedSidebarInvalidation = true
         }
+        observedSidebarInvalidation = false
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
@@ -140,6 +161,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
             observedSidebarInvalidation = true
         }
+        observedSidebarInvalidation = false
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
@@ -242,6 +264,44 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(first.customColor, "#1565C0")
         XCTAssertEqual(second.customColor, "#C0392B")
         XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testMoveFocusRoutesSpatiallyInCanvasMode() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.orderedPanelIds.first)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let secondPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        workspace.setLayoutMode(.canvas)
+        // Pin deterministic canvas geometry: first pane left, second right.
+        workspace.canvasModel.restoreFrames([
+            (id: firstPanelId, frame: CGRect(x: 0, y: 0, width: 400, height: 300)),
+            (id: secondPanel.id, frame: CGRect(x: 500, y: 0, width: 400, height: 300)),
+        ])
+        workspace.focusPanel(firstPanelId)
+
+        workspace.moveFocus(direction: .right)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            secondPanel.id,
+            "Canvas mode routes moveFocus through spatial navigation"
+        )
+
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        // No pane further right: focus stays put instead of wrapping.
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
     }
 
     @MainActor
@@ -862,13 +922,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousValue = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousValue, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
             if let previousBackups {
                 defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
@@ -876,7 +936,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -901,9 +961,70 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey) as? Bool,
             false
         )
+    }
+
+    func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
+        let defaults = UserDefaults.standard
+        let previousKiroLevel = defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
+        let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousKiroLevel {
+                defaults.set(previousKiroLevel, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+            }
+            if let previousPortBase {
+                defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+            }
+            if let previousPortRange {
+                defaults.set(previousPortRange, forKey: AutomationSettings.portRangeKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+        defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "kiroNotificationLevel": "loud",
+                "portBase": 32100,
+                "portRange": 42
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey))
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
     }
 
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
@@ -1062,7 +1183,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreParsesWorkspaceWorkingDirectoryInheritanceSetting() throws {
         let defaults = UserDefaults.standard
-        let managedKey = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let managedKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
@@ -1103,13 +1224,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
     func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
         let forkKey = AgentConversationForkDefaultSettings.key
-        let inheritanceKey = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
         let previousForkValue = defaults.object(forKey: forkKey)
         let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
@@ -1158,7 +1279,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
-        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
@@ -1521,6 +1642,112 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testReloadConfigurationMenuActionReloadsRegisteredCmuxConfigStore() throws {
+#if DEBUG
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "first": { "type": "command", "command": "echo first" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let tabManager = TabManager()
+        let cmuxConfigStore = CmuxConfigStore(
+            globalConfigPath: settingsFileURL.path,
+            startFileWatchers: false
+        )
+        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+        cmuxConfigStore.loadAll()
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "second"))
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let previousMainMenu = NSApp.mainMenu
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let mainMenu = NSMenu(title: "Main")
+        let appMenuItem = NSMenuItem(title: "cmux", action: nil, keyEquivalent: "")
+        let appMenu = NSMenu(title: "cmux")
+        let originalReloadItem = NSMenuItem(
+            title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"),
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(originalReloadItem)
+        mainMenu.addItem(appMenuItem)
+        mainMenu.setSubmenu(appMenu, for: appMenuItem)
+        NSApp.mainMenu = mainMenu
+
+        let selector = NSSelectorFromString("reloadConfigurationMenuItem:")
+        XCTAssertTrue(
+            appDelegate.responds(to: selector),
+            "Reload Configuration menu item must have an AppKit selector-backed action path"
+        )
+        appDelegate.installReloadConfigurationMenuItemAction()
+        XCTAssertTrue(originalReloadItem.target === appDelegate)
+        XCTAssertEqual(originalReloadItem.action, selector)
+        XCTAssertEqual(
+            originalReloadItem.identifier,
+            NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
+        )
+
+        let rebuiltReloadItem = NSMenuItem(
+            title: originalReloadItem.title,
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        appMenu.removeItem(originalReloadItem)
+        appMenu.addItem(rebuiltReloadItem)
+        appDelegate.menuNeedsUpdate(appMenu)
+        XCTAssertTrue(rebuiltReloadItem.target === appDelegate)
+        XCTAssertEqual(rebuiltReloadItem.action, selector)
+
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "second": { "type": "command", "command": "echo second" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let unrelatedReloadItem = NSMenuItem(
+            title: rebuiltReloadItem.title,
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        let unrelatedMenu = NSMenu(title: "Unrelated")
+        unrelatedMenu.addItem(unrelatedReloadItem)
+        appDelegate.menuNeedsUpdate(unrelatedMenu)
+        XCTAssertFalse(unrelatedReloadItem.target === appDelegate)
+        XCTAssertNotEqual(unrelatedReloadItem.action, selector)
+
+        XCTAssertTrue(NSApp.sendAction(selector, to: rebuiltReloadItem.target, from: rebuiltReloadItem))
+
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
+#else
+        throw XCTSkip("menu selector regression requires DEBUG app test helpers")
+#endif
+    }
+
     func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -1767,7 +1994,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testManagedUserDefaultSettingRestoresBackedUpValueWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
-        let managedKey = WorkspaceAutoReorderSettings.key
+        let managedKey = SettingCatalog().app.reorderOnNotification.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
@@ -1947,7 +2174,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     @MainActor
     func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
         let defaults = UserDefaults.standard
-        let managedKey = WorkspacePlacementSettings.placementKey
+        let managedKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
@@ -1988,7 +2215,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(WorkspacePlacementSettings.current(), .top)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement), .top)
 
         try writeSettingsFile(
             """
@@ -2003,13 +2230,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
 
-        XCTAssertEqual(WorkspacePlacementSettings.current(), .end)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement), .end)
     }
 
     @MainActor
     func testManagedWorkspacePlacementChangesDefaultInsertionBehavior() throws {
         let defaults = UserDefaults.standard
-        let managedKey = WorkspacePlacementSettings.placementKey
+        let managedKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
@@ -2064,6 +2291,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.map(\.id), [inserted.id, first.id, second.id, third.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testSettingsFileStoreAppliesWorkspaceGroupNewWorkspacePlacement() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceGroups": {
+                "newWorkspacePlacement": "end"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement), .end)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -2599,7 +2872,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.newWorkspacePlacement), .afterCurrent)
     }
 
     func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() {
@@ -2610,16 +2883,15 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(NewWorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .top)
+        defaults.set(WorkspacePlacement.top.rawValue, forKey: SettingCatalog().app.newWorkspacePlacement.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.newWorkspacePlacement), .top)
 
-        defaults.set("nope", forKey: WorkspacePlacementSettings.placementKey)
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        defaults.set("nope", forKey: SettingCatalog().app.newWorkspacePlacement.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.newWorkspacePlacement), .afterCurrent)
     }
 
     func testInsertionIndexTopInsertsBeforeUnpinned() {
-        let index = WorkspacePlacementSettings.insertionIndex(
-            placement: .top,
+        let index = WorkspacePlacement.top.insertionIndex(
             selectedIndex: 4,
             selectedIsPinned: false,
             pinnedCount: 2,
@@ -2629,8 +2901,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 
     func testInsertionIndexAfterCurrentHandlesPinnedAndUnpinnedSelection() {
-        let afterUnpinned = WorkspacePlacementSettings.insertionIndex(
-            placement: .afterCurrent,
+        let afterUnpinned = WorkspacePlacement.afterCurrent.insertionIndex(
             selectedIndex: 3,
             selectedIsPinned: false,
             pinnedCount: 2,
@@ -2638,8 +2909,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         )
         XCTAssertEqual(afterUnpinned, 4)
 
-        let afterPinned = WorkspacePlacementSettings.insertionIndex(
-            placement: .afterCurrent,
+        let afterPinned = WorkspacePlacement.afterCurrent.insertionIndex(
             selectedIndex: 0,
             selectedIsPinned: true,
             pinnedCount: 2,
@@ -2649,8 +2919,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 
     func testInsertionIndexEndAndNoSelectionAppend() {
-        let endIndex = WorkspacePlacementSettings.insertionIndex(
-            placement: .end,
+        let endIndex = WorkspacePlacement.end.insertionIndex(
             selectedIndex: 1,
             selectedIsPinned: false,
             pinnedCount: 1,
@@ -2658,8 +2927,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         )
         XCTAssertEqual(endIndex, 5)
 
-        let noSelectionIndex = WorkspacePlacementSettings.insertionIndex(
-            placement: .afterCurrent,
+        let noSelectionIndex = WorkspacePlacement.afterCurrent.insertionIndex(
             selectedIndex: nil,
             selectedIsPinned: false,
             pinnedCount: 0,
@@ -2678,7 +2946,7 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
     func testReadsStoredBooleanValue() {
@@ -2689,11 +2957,11 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
-        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
 
-        defaults.set(true, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
-        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 }
 
@@ -2882,7 +3150,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         _ body: () throws -> Void
     ) rethrows {
         let defaults = UserDefaults.standard
-        let key = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let key = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
         let previousValue = defaults.object(forKey: key)
         defer {
             if let previousValue {
@@ -2951,6 +3219,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -2961,6 +3230,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -2969,7 +3239,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
     }
 
     func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() {
-        let currentPlacement = WorkspacePlacementSettings.current()
+        let currentPlacement = UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement)
 
         let defaultManager = makeManagerWithThreeWorkspaces()
         let defaultBaselineOrder = defaultManager.tabs.map(\.id)
@@ -3010,7 +3280,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
     func testAddWorkspaceInIMessageModeInsertsAtTopOfUnpinnedSegment() {
         let defaults = UserDefaults.standard
-        let placementKey = WorkspacePlacementSettings.placementKey
+        let placementKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let iMessageModeKey = IMessageModeSettings.key
         let previousPlacement = defaults.object(forKey: placementKey)
         let previousIMessageMode = defaults.object(forKey: iMessageModeKey)
@@ -3027,7 +3297,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             }
         }
 
-        defaults.set(NewWorkspacePlacement.end.rawValue, forKey: placementKey)
+        defaults.set(WorkspacePlacement.end.rawValue, forKey: placementKey)
         defaults.set(true, forKey: iMessageModeKey)
 
         let manager = TabManager()
@@ -3250,6 +3520,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -3260,6 +3531,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -3282,6 +3554,95 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         XCTAssertNil(capturedConfig.workingDirectory)
         XCTAssertNil(capturedConfig.command)
         XCTAssertTrue(capturedConfig.environmentVariables.isEmpty)
+    }
+}
+
+@MainActor
+final class NewBrowserWorkspaceCreationTests: XCTestCase {
+    func testNewBrowserWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.newBrowserWorkspace.label, "New Browser Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.newBrowserWorkspace.defaultsKey, "shortcut.newBrowserWorkspace")
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.newBrowserWorkspace))
+
+        let shortcut = KeyboardShortcutSettings.Action.newBrowserWorkspace.defaultShortcut
+        XCTAssertEqual(shortcut.key, "n")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testNewBrowserWorkspaceDefaultDoesNotCollideWithOtherDefaults() {
+        let newDefault = KeyboardShortcutSettings.Action.newBrowserWorkspace.defaultShortcut
+        for action in KeyboardShortcutSettings.Action.allCases where action != .newBrowserWorkspace {
+            let other = action.defaultShortcut
+            guard !other.isUnbound else { continue }
+            XCTAssertFalse(
+                other.key == newDefault.key
+                    && other.command == newDefault.command
+                    && other.shift == newDefault.shift
+                    && other.option == newDefault.option
+                    && other.control == newDefault.control,
+                "Option+Cmd+N default collides with \(action.rawValue)"
+            )
+        }
+    }
+
+    func testAddWorkspaceWithBrowserInitialSurfaceBootsBrowserPane() {
+        let manager = TabManager()
+        let baselineOrder = manager.tabs.map(\.id)
+
+        let workspace = manager.addWorkspace(initialSurface: .browser)
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != workspace.id }, baselineOrder)
+
+        XCTAssertEqual(workspace.panels.count, 1)
+        guard let browserPanel = workspace.panels.values.first as? BrowserPanel else {
+            XCTFail("Expected the initial surface to be a browser pane")
+            return
+        }
+        XCTAssertNil(workspace.focusedTerminalPanel)
+        XCTAssertNil(browserPanel.currentURL, "Browser should boot in its default new-tab state")
+        XCTAssertNotNil(
+            browserPanel.pendingAddressBarFocusRequestId,
+            "Browser workspace should request address-bar focus for first activation"
+        )
+
+        let tabIds = workspace.bonsplitController.allTabIds
+        XCTAssertEqual(tabIds.count, 1)
+        XCTAssertEqual(
+            tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
+            SurfaceKind.browser
+        )
+        XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
+    }
+
+    func testBrowserInitialSurfacePlacementMatchesTerminalPlacement() {
+        let terminalManager = makeManagerWithThreeWorkspaces()
+        let terminalInserted = terminalManager.addWorkspace()
+        let terminalIndex = terminalManager.tabs.firstIndex { $0.id == terminalInserted.id }
+
+        let browserManager = makeManagerWithThreeWorkspaces()
+        let browserInserted = browserManager.addWorkspace(initialSurface: .browser)
+        let browserIndex = browserManager.tabs.firstIndex { $0.id == browserInserted.id }
+
+        XCTAssertNotNil(terminalIndex)
+        XCTAssertEqual(
+            browserIndex,
+            terminalIndex,
+            "Browser workspaces must follow New Workspace placement semantics"
+        )
+    }
+
+    private func makeManagerWithThreeWorkspaces() -> TabManager {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        if let first = manager.tabs.first {
+            manager.selectWorkspace(first)
+        }
+        return manager
     }
 }
 
@@ -3501,7 +3862,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
     }
 
     func testDisabledWhenSetToFalse() {
@@ -3512,8 +3873,8 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: WorkspaceAutoReorderSettings.key)
-        XCTAssertFalse(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
     }
 
     func testEnabledWhenSetToTrue() {
@@ -3524,8 +3885,8 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
-        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
     }
 }
 
@@ -3539,20 +3900,22 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertFalse(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
-        XCTAssertTrue(SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults))
-        XCTAssertTrue(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showWorkspaceDescription))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showNotificationMessage))
         XCTAssertTrue(
-            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-                showWorkspaceDescription: SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults),
-                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
-            )
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showWorkspaceDescription),
+                showNotificationMessage: true,
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsWorkspaceDescription
         )
         XCTAssertTrue(
-            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
-                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
-            )
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: true,
+                showNotificationMessage: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showNotificationMessage),
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsNotificationMessage
         )
     }
 
@@ -3564,36 +3927,40 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey)
-        defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
-        defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+        defaults.set(true, forKey: SettingCatalog().sidebar.hideAllDetails.userDefaultsKey)
+        defaults.set(false, forKey: SettingCatalog().sidebar.showWorkspaceDescription.userDefaultsKey)
+        defaults.set(false, forKey: SettingCatalog().sidebar.showNotificationMessage.userDefaultsKey)
 
-        XCTAssertTrue(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
-        XCTAssertFalse(SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults))
-        XCTAssertFalse(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails))
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showWorkspaceDescription))
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showNotificationMessage))
         XCTAssertFalse(
-            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-                showWorkspaceDescription: SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults),
-                hideAllDetails: false
-            )
-        )
-        XCTAssertFalse(
-            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-                showWorkspaceDescription: true,
-                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
-            )
-        )
-        XCTAssertFalse(
-            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
-                hideAllDetails: false
-            )
-        )
-        XCTAssertFalse(
-            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showWorkspaceDescription),
                 showNotificationMessage: true,
-                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
-            )
+                hideAllDetails: false
+            ).showsWorkspaceDescription
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: true,
+                showNotificationMessage: true,
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsWorkspaceDescription
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: true,
+                showNotificationMessage: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showNotificationMessage),
+                hideAllDetails: false
+            ).showsNotificationMessage
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailVisibility(
+                showWorkspaceDescription: true,
+                showNotificationMessage: true,
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsNotificationMessage
         )
     }
 }
@@ -4027,14 +4394,14 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let defaults = UserDefaults.standard
-        let originalAutoReorderSetting = defaults.object(forKey: WorkspaceAutoReorderSettings.key)
+        let originalAutoReorderSetting = defaults.object(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         notificationStore.replaceNotificationsForTesting([])
         notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = notificationStore
-        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
         AppFocusState.overrideIsFocused = false
 
         defer {
@@ -4044,9 +4411,9 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
             if let originalAutoReorderSetting {
-                defaults.set(originalAutoReorderSetting, forKey: WorkspaceAutoReorderSettings.key)
+                defaults.set(originalAutoReorderSetting, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: WorkspaceAutoReorderSettings.key)
+                defaults.removeObject(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
             }
         }
 
@@ -4525,6 +4892,40 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
+    }
+}
+
+
+@MainActor
+final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCreatesExtensionBrowserTabInFocusedPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected split workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, leftPaneId)
+
+        guard let extensionBrowserPanel = workspace.newSidebarExtensionBrowserSurface(
+            inPane: leftPaneId,
+            title: "Sidebar Extensions",
+            focus: true
+        ) else {
+            XCTFail("Expected extension browser tab creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(extensionBrowserPanel.panelType, .extensionBrowser)
+        XCTAssertEqual(workspace.focusedPanelId, extensionBrowserPanel.id)
+        XCTAssertEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), leftPaneId)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), workspace.paneId(forPanelId: rightPanel.id))
     }
 }
 
@@ -5291,7 +5692,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool
         )
     }
 
@@ -5634,18 +6035,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
+        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 2222,
                 identityFile: "/Users/example/.ssh/cmux",
-                sshOptions: ["ServerAliveInterval=30"],
+                sshOptions: ["ServerAliveInterval=30", "ForwardAgent=yes"],
                 localProxyPort: nil,
                 relayPort: 64000,
                 relayID: "relay-fork",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-fork-remote.sock",
-                terminalStartupCommand: "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -tt cmux-macmini"
+                terminalStartupCommand: "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini",
+                agentSocketPath: agentSocketPath
             ),
             autoConnect: false
         )
@@ -5676,16 +6079,79 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -tt cmux-macmini"
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertEqual(launch.initialTerminalEnvironment["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.identityFile, "/Users/example/.ssh/cmux")
-        XCTAssertEqual(launch.remoteConfiguration?.sshOptions, ["ServerAliveInterval=30"])
+        XCTAssertEqual(launch.remoteConfiguration?.sshOptions, ["ServerAliveInterval=30", "ForwardAgent=yes"])
+        XCTAssertEqual(launch.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(launch.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(launch.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertNil(launch.remoteConfiguration?.relayPort)
         XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+    }
+
+    func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: 2222,
+                identityFile: "/Users/example/.ssh/cmux",
+                sshOptions: ["ControlMaster=auto", "ControlPersist=600"],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: "relay-fork-persistent",
+                relayToken: String(repeating: "c", count: 64),
+                localSocketPath: "/tmp/cmux-fork-persistent.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-parent-slot"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let launch = try XCTUnwrap(
+            workspace.forkAgentWorkspaceLaunch(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot
+            )
+        )
+
+        XCTAssertTrue(launch.autoConnectRemoteConfiguration)
+        XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
+        XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
+        XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
+        XCTAssertNil(launch.remoteConfiguration?.relayPort)
+        XCTAssertNil(launch.remoteConfiguration?.relayID)
+        XCTAssertNil(launch.remoteConfiguration?.relayToken)
+        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
+        let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
+        XCTAssertEqual(
+            startupCommand,
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+        )
     }
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
@@ -6089,6 +6555,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6103,25 +6570,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             publishCount,
             baselinePublishCount,
             "Expected identical git metadata refreshes to be ignored by sidebar rows"
-        )
-    }
-
-    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
-        let workspace = Workspace()
-
-        var publishCount = 0
-        let cancellable = workspace.sidebarObservationPublisher.sink {
-            publishCount += 1
-        }
-        defer { cancellable.cancel() }
-
-        workspace.remoteHeartbeatCount = 1
-        workspace.remoteLastHeartbeatAt = Date()
-
-        XCTAssertEqual(
-            publishCount,
-            0,
-            "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
 

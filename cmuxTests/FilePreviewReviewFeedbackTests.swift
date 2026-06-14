@@ -89,7 +89,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         console.log(answer);
         """.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -103,7 +103,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(Data("export const answer: number = 42;\n".utf8))
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -117,7 +117,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -134,7 +134,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             + "\nexport const answer: number = 42;\n"
         try source.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -155,7 +155,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[191] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
@@ -176,7 +176,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[199] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 

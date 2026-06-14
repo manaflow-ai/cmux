@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxFoundation
 import SwiftUI
 import WebKit
 import AppKit
@@ -325,8 +326,8 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
-private extension View {
-    func cmuxFlatSymbolColorRendering() -> some View {
+private extension Image {
+    func cmuxFlatSymbolColorRendering() -> Image {
         // `symbolColorRenderingMode(.flat)` is not available in the current SDK
         // used by CI/local builds. Keep this modifier as a compatibility no-op.
         self
@@ -335,8 +336,10 @@ private extension View {
 
 func resolvedBrowserChromeBackgroundColor(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    drawsBackground: Bool
 ) -> NSColor {
+    guard drawsBackground else { return .clear }
     switch colorScheme {
     case .dark, .light:
         return themeBackgroundColor
@@ -347,13 +350,13 @@ func resolvedBrowserChromeBackgroundColor(
 
 func resolvedBrowserChromeColorScheme(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    windowBackgroundColor: NSColor = .windowBackgroundColor
 ) -> ColorScheme {
-    let backgroundColor = resolvedBrowserChromeBackgroundColor(
-        for: colorScheme,
-        themeBackgroundColor: themeBackgroundColor
-    )
-    return backgroundColor.isLightColor ? .light : .dark
+    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
+        : themeBackgroundColor
+    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -370,7 +373,8 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
 }
 
 private struct BrowserChromeStyle {
@@ -380,19 +384,21 @@ private struct BrowserChromeStyle {
 
     static func resolve(
         for colorScheme: ColorScheme,
-        themeBackgroundColor: NSColor
+        themeBackgroundColor: NSColor,
+        drawsBackground: Bool
     ) -> BrowserChromeStyle {
         let backgroundColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor
+            themeBackgroundColor: themeBackgroundColor,
+            drawsBackground: drawsBackground
         )
         let chromeColorScheme = resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeBackgroundColor
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
@@ -412,6 +418,7 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
@@ -432,6 +439,8 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
+    @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -450,23 +459,66 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var addressBarWidth: CGFloat = 0
+
+    /// Below this chrome width the full accessory row would crowd out the
+    /// omnibar, so the plain-action buttons collapse into an overflow menu.
+    private static let compactChromeWidthThreshold: CGFloat = 420
+
+    private var isChromeCompact: Bool {
+        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
+    }
     @State private var isBrowserImportHintPopoverPresented = false
+    @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
-    @State private var suppressNextFocusGainedSelectAll: Bool = false
+    @State private var pendingFocusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
-        for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-    )
+    @State private var browserChromeStyle: BrowserChromeStyle
+    // The browser top chrome scales with the tab bar font size so tabs and the
+    // browser toolbar share one consistent scale. Seeded from the cached config
+    // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
+    // and terminal panels use). See `BrowserChromeMetrics`.
+    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load().surfaceTabBarFontSize
+    // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
+    // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
+    // appearance view-state seed (the empty-state import list) so a spurious appear
+    // does no work. App-once settings work lives in the model bootstrap, not here.
+    @State private var didCompleteInitialBrowserPanelSetup = false
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    // Toolbar/omnibar sizes derived from the tab bar font size. Names and call
+    // sites are unchanged; the values now scale via `chromeMetrics`.
+    private var chromeMetrics: BrowserChromeMetrics {
+        BrowserChromeMetrics(tabBarFontSize: tabBarFontSize)
+    }
+    private var addressBarButtonSize: CGFloat { chromeMetrics.buttonIconSize }
+    private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
+    private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
+
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onRequestPanelFocus: @escaping () -> Void
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
+            for: .light,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        ))
+    }
 
     private var searchConfiguration: BrowserSearchConfiguration {
         BrowserSearchSettings.configuration(
@@ -654,6 +706,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        if panel.recoverTerminatedWebContent(reason: "toolbarReload") {
+            return
+        }
+
         if currentEventIsCommandPointerActivation {
 #if DEBUG
             cmuxDebugLog("browser.reload.commandClickDuplicate panel=\(panel.id.uuidString.prefix(5))")
@@ -712,38 +768,51 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func handleBrowserFocusModeButtonAction() {
+        if !panel.toggleBrowserFocusMode(reason: "toolbarButton", focusWebView: true) {
+            NSSound.beep()
+        }
+    }
+
+    private var browserFocusModeButtonHelp: String {
+        let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
+        if panel.isBrowserFocusModeActive {
+            let title = String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
+            // Active: show the double-Escape exit hint.
+            return String(format: format, title, browserFocusModeShortcutHint)
+        }
+        let title = String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+        // Inactive: show the configured enter shortcut, if one is bound.
+        guard let enterHint = browserFocusModeEnterShortcutHint else { return title }
+        return String(format: format, title, enterHint)
+    }
+
+    private var browserFocusModeShortcutHint: String {
+        String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+    }
+
+    private var browserFocusModeEnterShortcutHint: String? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleBrowserFocusMode)
+        guard !shortcut.isUnbound else { return nil }
+        return shortcut.displayString
+    }
+
+    private var shouldShowBrowserFocusModeShortcutHint: Bool {
+        panel.isBrowserFocusModeActive &&
+            panel.canToggleBrowserFocusMode &&
+            (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
+    }
+
     private func handleBrowserPanelAppear() {
-        UserDefaults.standard.register(defaults: [
-            BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
-            BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-            BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
-            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
-            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
-        ])
+        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
+        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
+        // setup call is idempotent and cheap, and genuine state transitions are
+        // already handled by the dedicated `.onChange` observers on `body`, so
+        // re-running this per appear is harmless once the heavy/one-time work is
+        // gated out.
+        performInitialBrowserPanelSetupIfNeeded()
+        startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
-        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
-        if browserThemeModeRaw != resolvedThemeMode.rawValue {
-            browserThemeModeRaw = resolvedThemeMode.rawValue
-        }
-        let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
-        if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
-            browserImportHintVariantRaw = resolvedHintVariant.rawValue
-        }
-        let resolvedToolbarAccessorySpacing = BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
-        if browserToolbarAccessorySpacingRaw != resolvedToolbarAccessorySpacing {
-            browserToolbarAccessorySpacingRaw = resolvedToolbarAccessorySpacing
-        }
-        let resolvedProfilePopoverHorizontalPadding = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw)
-        if browserProfilePopoverHorizontalPaddingRaw != resolvedProfilePopoverHorizontalPadding {
-            browserProfilePopoverHorizontalPaddingRaw = resolvedProfilePopoverHorizontalPadding
-        }
-        let resolvedProfilePopoverVerticalPadding = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw)
-        if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
-            browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
-        }
         panel.noteWebViewVisibility(
             isVisibleInUI && isCurrentPaneOwner,
             reason: "view.onAppear"
@@ -755,11 +824,28 @@ struct BrowserPanelView: View {
         // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
         autoFocusOmnibarIfBlank()
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
-        refreshEmptyStateImportBrowsers()
         panel.historyStore.loadIfNeeded()
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
+        focusModeShortcutHintMonitor.start()
+    }
+
+    /// Runs the view-state initialization that should happen on first appearance,
+    /// independent of how many times SwiftUI fires `.onAppear` for the same view
+    /// instance.
+    ///
+    /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
+    /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
+    /// Default registration and settings normalization are app-once work and live in
+    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded()`` (run from the model
+    /// init), not here. This method only seeds view-local state: the initial
+    /// empty-state import list, which `handleCurrentURLChange` refreshes on subsequent
+    /// new-tab navigations.
+    private func performInitialBrowserPanelSetupIfNeeded() {
+        guard !didCompleteInitialBrowserPanelSetup else { return }
+        didCompleteInitialBrowserPanelSetup = true
+        refreshEmptyStateImportBrowsers()
     }
 
     private func handleOmnibarVisibilityChange(_ isVisible: Bool) {
@@ -774,6 +860,9 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelDisappear() {
+        stopOmnibarSuggestionRefreshConsumer()
+        cancelPendingOmnibarSuggestionWork()
+        focusModeShortcutHintMonitor.stop()
         screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopiedTimer = nil
         screenshotPageCopied = false
@@ -815,6 +904,7 @@ struct BrowserPanelView: View {
     }
 
     private func handleCurrentURLChange() {
+        refreshBrowserChromeStyle()
         let addressWasEmpty = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         syncURLFromPanel()
         // If we auto-focused a blank omnibar but then a URL loads programmatically, move focus
@@ -832,6 +922,13 @@ struct BrowserPanelView: View {
             preserveRoundTrip: true,
             reason: "panel.currentURL.changed"
         )
+    }
+
+    private func handleRenderWebViewChange() {
+        refreshBrowserChromeStyle()
+        if panel.isShowingNewTabPage {
+            refreshEmptyStateImportBrowsers()
+        }
     }
 
     private func handleBrowserThemeModeRawChange() {
@@ -895,6 +992,7 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
+            panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
             hideSuggestions()
             setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
             // Surface switches in split layouts can keep the browser visible, so
@@ -920,6 +1018,8 @@ struct BrowserPanelView: View {
 #endif
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
         if focused {
+            let selectionIntent = pendingFocusGainedSelectionIntent
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.beginSuppressWebViewFocusForAddressBar()
             NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
             // Only request panel focus if this pane isn't currently focused. When already
@@ -930,16 +1030,14 @@ struct BrowserPanelView: View {
 #endif
                 onRequestPanelFocus()
             }
-            let shouldSelectAll = !suppressNextFocusGainedSelectAll
-            suppressNextFocusGainedSelectAll = false
             let effects = omnibarReduce(
                 state: &omnibarState,
-                event: .focusGained(currentURLString: urlString, shouldSelectAll: shouldSelectAll)
+                event: .focusGained(currentURLString: urlString, shouldSelectAll: selectionIntent.shouldSelectAll)
             )
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         } else {
-            suppressNextFocusGainedSelectAll = false
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.endSuppressWebViewFocusForAddressBar()
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
@@ -1049,7 +1147,7 @@ struct BrowserPanelView: View {
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
-    var body: some View {
+    private var browserPanelLifecycleView: some View {
         browserPanelBaseView
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
@@ -1058,8 +1156,14 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
+        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+            addressBarWidth = width
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            tabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
         }
         .onAppear {
             handleBrowserPanelAppear()
@@ -1073,6 +1177,12 @@ struct BrowserPanelView: View {
         .onChange(of: panel.currentURL) { _ in
             handleCurrentURLChange()
         }
+        .onChange(of: panel.shouldRenderWebView) { _, _ in
+            handleRenderWebViewChange()
+        }
+        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+            refreshBrowserChromeStyle()
+        }
         .onChange(of: browserThemeModeRaw) { _ in
             handleBrowserThemeModeRawChange()
         }
@@ -1085,6 +1195,10 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+    }
+
+    var body: some View {
+        browserPanelLifecycleView
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
@@ -1126,16 +1240,40 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                screenshotPageButton
-                reactGrabButton
-                browserProfileButton
-                browserThemeModeButton
-                developerToolsButton
+                if isChromeCompact {
+                    // Narrow panes can't fit the full accessory row without
+                    // clipping the omnibar; collapse the plain-action buttons
+                    // into an overflow menu and keep the popover-anchored
+                    // profile/theme controls present.
+                    browserOverflowMenu
+                    browserProfileButton
+                    browserThemeModeButton
+                } else {
+                    browserFocusModeButtonWithShortcutHint
+                    screenshotPageButton
+                    reactGrabButton
+                    browserProfileButton
+                    browserThemeModeButton
+                    developerToolsButton
+                }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BrowserAddressBarWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        }
+        .background(
+            WindowAccessor { window in
+                focusModeShortcutHintMonitor.setHostWindow(window)
+            }
+        )
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -1159,7 +1297,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1175,7 +1313,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1186,7 +1324,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1212,7 +1350,7 @@ struct BrowserPanelView: View {
             Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(screenshotPageButtonColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1247,6 +1385,58 @@ struct BrowserPanelView: View {
         .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
     }
 
+    private var browserFocusModeButtonWithShortcutHint: some View {
+        ZStack(alignment: .top) {
+            browserFocusModeButton
+            if shouldShowBrowserFocusModeShortcutHint {
+                ShortcutHintPill(text: browserFocusModeShortcutHint, fontSize: 9, emphasis: 1.05)
+                    .offset(y: -22)
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("BrowserFocusModeShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: shouldShowBrowserFocusModeShortcutHint)
+    }
+
+    private var browserFocusModeButton: some View {
+        Button(action: handleBrowserFocusModeButtonAction) {
+            HStack(spacing: 5) {
+                Image(systemName: "keyboard")
+                    .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+                    .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
+                    .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
+                if panel.isBrowserFocusModeActive {
+                    Text(
+                        panel.isBrowserFocusModeExitArmed
+                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                            : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                    )
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColorOption.color)
+            .padding(.horizontal, panel.isBrowserFocusModeActive ? 7 : 0)
+            .frame(
+                minWidth: panel.isBrowserFocusModeActive ? 0 : addressBarButtonSize,
+                minHeight: addressBarButtonSize,
+                alignment: .center
+            )
+            .animation(.easeOut(duration: 0.14), value: panel.isBrowserFocusModeActive)
+            .animation(.easeOut(duration: 0.12), value: panel.isBrowserFocusModeExitArmed)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.canToggleBrowserFocusMode)
+        .opacity(panel.canToggleBrowserFocusMode ? 1.0 : 0.4)
+        .safeHelp(browserFocusModeButtonHelp)
+        .accessibilityIdentifier("BrowserFocusModeButton")
+    }
+
     private var screenshotPageButtonColor: Color {
         if screenshotPageCopied {
             return .green
@@ -1262,7 +1452,7 @@ struct BrowserPanelView: View {
             Image(systemName: "cursorarrow.click.2")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1279,7 +1469,7 @@ struct BrowserPanelView: View {
             Image(systemName: devToolsIconOption.rawValue)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1296,7 +1486,7 @@ struct BrowserPanelView: View {
             Image(systemName: "person.crop.circle")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1317,6 +1507,57 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserProfileButton")
     }
 
+    /// Overflow menu shown in compact chrome: the plain-action accessory
+    /// buttons (focus mode, screenshot, React Grab, dev tools) as menu items.
+    /// Profile and theme stay as visible buttons since they anchor popovers.
+    private var browserOverflowMenu: some View {
+        Menu {
+            Button(action: handleBrowserFocusModeButtonAction) {
+                Label(
+                    panel.isBrowserFocusModeActive
+                        ? String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                        : String(localized: "browser.focusMode.enter", defaultValue: "Enter Focus Mode"),
+                    systemImage: "keyboard"
+                )
+            }
+            .disabled(!panel.canToggleBrowserFocusMode)
+
+            Button(action: handleScreenshotPageButtonAction) {
+                Label(
+                    String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
+                    systemImage: "camera"
+                )
+            }
+            .disabled(!panel.shouldRenderWebView)
+
+            Button {
+                panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
+                Task { await panel.toggleOrInjectReactGrab() }
+            } label: {
+                Label(
+                    String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"),
+                    systemImage: "cursorarrow.click.2"
+                )
+            }
+
+            Button(action: { openDevTools() }) {
+                Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
+        .accessibilityIdentifier("BrowserOverflowMenu")
+    }
+
     private var browserThemeModeButton: some View {
         Button(action: {
             isBrowserThemeMenuPresented.toggle()
@@ -1324,7 +1565,7 @@ struct BrowserPanelView: View {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1351,7 +1592,7 @@ struct BrowserPanelView: View {
         }) {
             HStack(spacing: 4) {
                 Image(systemName: "square.and.arrow.down.on.square")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxSymbolRasterSize(10, weight: .medium)
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
@@ -1381,7 +1622,7 @@ struct BrowserPanelView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
-                                .font(.system(size: 10, weight: .semibold))
+                                .cmuxSymbolRasterSize(10, weight: .semibold)
                                 .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
                                 .frame(width: 12, alignment: .center)
                             Text(profile.displayName)
@@ -1444,7 +1685,7 @@ struct BrowserPanelView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .font(.system(size: 10, weight: .semibold))
+                            .cmuxSymbolRasterSize(10, weight: .semibold)
                             .opacity(mode == browserThemeMode ? 1.0 : 0.0)
                             .frame(width: 12, alignment: .center)
                         Text(mode.displayName)
@@ -1477,18 +1718,21 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .cmuxSymbolRasterSize(chromeMetrics.secureBadgeFontSize)
                     .foregroundColor(.secondary)
             }
 
             OmnibarTextFieldRepresentable(
                 panelId: panel.id,
+                fontSize: chromeMetrics.omnibarFontSize,
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
                         let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(newValue))
                         applyOmnibarEffects(effects)
-                        refreshInlineCompletion()
+                        if !effects.shouldClearInlineCompletion {
+                            refreshInlineCompletion()
+                        }
                     }
                 ),
                 isFocused: $addressBarFocused,
@@ -1498,15 +1742,8 @@ struct BrowserPanelView: View {
                 onTap: {
                     handleOmnibarTap()
                 },
-                onSubmit: {
-                    if canHandleOmnibarSuggestionInteraction() {
-                        commitSelectedSuggestion()
-                    } else {
-                        panel.navigateSmart(omnibarState.buffer)
-                        hideSuggestions()
-                        suppressNextFocusLostRevert = true
-                        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
-                    }
+                onSubmit: { liveField in
+                    handleOmnibarSubmit(liveField: liveField)
                 },
                 onEscape: {
                     handleOmnibarEscape()
@@ -1542,7 +1779,7 @@ struct BrowserPanelView: View {
                     panel.shouldSuppressWebViewFocus()
                 }
             )
-                .frame(height: 18)
+                .frame(height: chromeMetrics.omnibarFieldHeight)
                 .accessibilityIdentifier("BrowserOmnibarTextField")
         }
         .padding(.horizontal, 8)
@@ -1571,9 +1808,13 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
+        // Canvas-hosted panes force inline hosting: window-portal positioning
+        // visibly trails the pane during canvas pans (out-of-process WebKit
+        // compositing), and portal content cannot scale with magnification.
         let useLocalInlineDeveloperToolsHosting =
-            panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-            isCurrentPaneOwner
+            (panel.shouldUseLocalInlineDeveloperToolsHosting() &&
+             isCurrentPaneOwner) ||
+            canvasInlineBrowserHosting
 
         return Group {
             if panel.shouldRenderWebView {
@@ -1645,8 +1886,35 @@ struct BrowserPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            if panel.hasRecoverableWebContentTermination {
+                webContentRecoveryOverlay
+            }
+        }
         .layoutPriority(1)
         .zIndex(0)
+    }
+
+    private var webContentRecoveryOverlay: some View {
+        ZStack {
+            Color(nsColor: browserChromeBackgroundColor)
+                .opacity(0.92)
+            Button(action: {
+                panel.recoverTerminatedWebContent(reason: "overlayButton")
+            }) {
+                Label(
+                    String(localized: "browser.error.reload", defaultValue: "Reload"),
+                    systemImage: "arrow.clockwise"
+                )
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
+            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func triggerFocusFlashAnimation() {
@@ -1676,7 +1944,8 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }
 
@@ -1719,7 +1988,11 @@ struct BrowserPanelView: View {
         canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
-    private func setAddressBarFocused(_ focused: Bool, reason: String) {
+    private func setAddressBarFocused(
+        _ focused: Bool,
+        reason: String,
+        focusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    ) {
 #if DEBUG
         if addressBarFocused == focused {
             logBrowserFocusState(
@@ -1733,6 +2006,11 @@ struct BrowserPanelView: View {
             )
         }
 #endif
+        if focused, !addressBarFocused {
+            pendingFocusGainedSelectionIntent = focusGainedSelectionIntent
+        } else if !focused {
+            pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
+        }
         addressBarFocused = focused
         if focused {
             panel.noteAddressBarFocused()
@@ -1863,6 +2141,17 @@ struct BrowserPanelView: View {
         guard let requestId = panel.pendingAddressBarFocusRequestId else {
             return
         }
+        guard panel.panelType == .browser else {
+            lastHandledAddressBarFocusRequestId = requestId
+            panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=chrome_hidden request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
         guard !isCommandPaletteVisibleForPanelWindow() else {
 #if DEBUG
             logBrowserFocusState(
@@ -1882,22 +2171,23 @@ struct BrowserPanelView: View {
             return
         }
         lastHandledAddressBarFocusRequestId = requestId
+        let selectionIntent = panel.pendingAddressBarFocusSelectionIntent
         panel.beginSuppressWebViewFocusForAddressBar()
 #if DEBUG
         logBrowserFocusState(
             event: "addressBarFocus.request.apply",
-            detail: "request=\(requestId.uuidString.prefix(8))"
+            detail: "request=\(requestId.uuidString.prefix(8)) selection=\(String(describing: selectionIntent))"
         )
 #endif
 
         if addressBarFocused {
-            // Re-run selection behavior when focus is explicitly requested again
-            // while already focused, without replacing an in-progress edit.
+            // Re-run explicit selection behavior only for requests that own it
+            // (Cmd+L), without replacing a caret from focus restoration.
             let effects = omnibarReduce(
                 state: &omnibarState,
                 event: .focusReasserted(
                     shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                        isUserEditing: omnibarState.isUserEditing
+                        selectionIntent: selectionIntent
                     )
                 )
             )
@@ -1910,7 +2200,11 @@ struct BrowserPanelView: View {
             )
 #endif
         } else {
-            setAddressBarFocused(true, reason: "request.apply")
+            setAddressBarFocused(
+                true,
+                reason: "request.apply",
+                focusGainedSelectionIntent: selectionIntent
+            )
 #if DEBUG
             logBrowserFocusState(
                 event: "addressBarFocus.request.apply",
@@ -2186,7 +2480,6 @@ struct BrowserPanelView: View {
         if !wasAddressBarFocused {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
-            suppressNextFocusGainedSelectAll = true
             setAddressBarFocused(true, reason: "omnibar.tap")
         }
         if shouldRequestPanelFocus && wasAddressBarFocused {
@@ -2195,12 +2488,57 @@ struct BrowserPanelView: View {
     }
 
     private func hideSuggestions() {
-        suggestionTask?.cancel()
-        suggestionTask = nil
+        cancelPendingOmnibarSuggestionWork()
         let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
         applyOmnibarEffects(effects)
-        isLoadingRemoteSuggestions = false
         inlineCompletion = nil
+    }
+
+    private func startOmnibarSuggestionRefreshConsumer() {
+        guard omnibarSuggestionRefreshConsumerTask == nil else { return }
+        let scheduler = omnibarSuggestionRefreshScheduler
+        omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
+            for await generation in scheduler.refreshStream {
+                guard scheduler.shouldProcessRefresh(generation) else { continue }
+                refreshSuggestions()
+            }
+        }
+    }
+
+    private func stopOmnibarSuggestionRefreshConsumer() {
+        omnibarSuggestionRefreshConsumerTask?.cancel()
+        omnibarSuggestionRefreshConsumerTask = nil
+    }
+
+    private func cancelPendingOmnibarSuggestionWork() {
+        omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
+        suggestionTask?.cancel()
+        suggestionTask = nil
+        isLoadingRemoteSuggestions = false
+    }
+
+    private func handleOmnibarSubmit(liveField: OmnibarLiveFieldSnapshot?) {
+        let decision = omnibarSubmitDecision(
+            liveField: liveField,
+            state: omnibarState,
+            inlineCompletion: inlineCompletion,
+            canInteractWithSuggestions: canHandleOmnibarSuggestionInteraction()
+        )
+        switch decision {
+        case .commitSelectedSuggestion:
+            commitSelectedSuggestion()
+        case .navigate(let text):
+            if text != omnibarState.buffer {
+                // Reconcile the reducer with the live field before navigating so
+                // blur and URL-change handling see the text that was submitted.
+                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+                applyOmnibarEffects(effects)
+            }
+            panel.navigateSmart(text)
+            hideSuggestions()
+            suppressNextFocusLostRevert = true
+            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+        }
     }
 
     private func commitSelectedSuggestion() {
@@ -2267,7 +2605,9 @@ struct BrowserPanelView: View {
         let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
         applyOmnibarEffects(effects)
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
-        refreshInlineCompletion()
+        if !effects.shouldClearInlineCompletion {
+            refreshInlineCompletion()
+        }
     }
 
     private func handleInlineClearTypedPrefix() {
@@ -2569,8 +2909,14 @@ struct BrowserPanelView: View {
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
+        if effects.shouldCancelPendingSuggestionRefresh {
+            cancelPendingOmnibarSuggestionWork()
+        }
+        if effects.shouldClearInlineCompletion {
+            inlineCompletion = nil
+        }
         if effects.shouldRefreshSuggestions {
-            refreshSuggestions()
+            omnibarSuggestionRefreshScheduler.scheduleRefresh()
         }
         if effects.shouldSelectAll {
             omnibarSelectAllRequestId &+= 1
@@ -3340,6 +3686,14 @@ private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
     }
 }
 
+private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Omnibar State Machine
 
 struct OmnibarState: Equatable {
@@ -3349,11 +3703,16 @@ struct OmnibarState: Equatable {
     var suggestions: [OmnibarSuggestion] = []
     var selectedSuggestionIndex: Int = 0
     var selectedSuggestionID: String?
+    /// True only while the current suggestion selection came from an explicit
+    /// user action (arrow keys, Ctrl+N/P). Automatic highlighting (preferred
+    /// autocompletion pick, popup reopen, pointer hover) leaves this false so
+    /// a row auto-selected for an older query can never hijack Return.
+    var selectionIsExplicit: Bool = false
     var isUserEditing: Bool = false
 }
 
 enum OmnibarEvent: Equatable {
-    case focusGained(currentURLString: String, shouldSelectAll: Bool = true)
+    case focusGained(currentURLString: String, shouldSelectAll: Bool = false)
     case focusReasserted(shouldSelectAll: Bool = true)
     case focusLostRevertBuffer(currentURLString: String)
     case focusLostPreserveBuffer(currentURLString: String)
@@ -3369,6 +3728,8 @@ struct OmnibarEffects: Equatable {
     var shouldSelectAll: Bool = false
     var shouldBlurToWebView: Bool = false
     var shouldRefreshSuggestions: Bool = false
+    var shouldClearInlineCompletion: Bool = false
+    var shouldCancelPendingSuggestionRefresh: Bool = false
 }
 
 @discardableResult
@@ -3384,11 +3745,19 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldSelectAll = shouldSelectAll
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusReasserted(let shouldSelectAll):
         state.isFocused = true
         effects.shouldSelectAll = shouldSelectAll
+        if shouldSelectAll {
+            // A Cmd+L style reassert restarts editing from the full selected
+            // text; an earlier arrow selection no longer reflects Return
+            // intent. Plain focus restoration (no select-all) keeps it.
+            state.selectionIsExplicit = false
+        }
 
     case .focusLostRevertBuffer(let url):
         state.isFocused = false
@@ -3398,6 +3767,8 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusLostPreserveBuffer(let url):
         state.isFocused = false
@@ -3406,6 +3777,8 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
+        effects.shouldCancelPendingSuggestionRefresh = true
 
     case .panelURLChanged(let url):
         state.currentURLString = url
@@ -3414,15 +3787,20 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
+            effects.shouldCancelPendingSuggestionRefresh = true
         }
 
     case .bufferChanged(let newValue):
+        let bufferChanged = state.buffer != newValue
         state.buffer = newValue
         if state.isFocused {
             state.isUserEditing = (newValue != state.currentURLString)
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldRefreshSuggestions = true
+            effects.shouldClearInlineCompletion = bufferChanged
         }
 
     case .suggestionsUpdated(let items):
@@ -3432,8 +3810,10 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         if items.isEmpty {
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
         } else if let previousSelectedID,
                   let existingIdx = items.firstIndex(where: { $0.id == previousSelectedID }) {
+            // Same row carried across a refresh: an explicit selection stays explicit.
             state.selectedSuggestionIndex = existingIdx
             state.selectedSuggestionID = items[existingIdx].id
         } else if let preferredSuggestionIndex = omnibarPreferredAutocompletionSuggestionIndex(
@@ -3442,17 +3822,16 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         ) {
             state.selectedSuggestionIndex = preferredSuggestionIndex
             state.selectedSuggestionID = items[preferredSuggestionIndex].id
+            state.selectionIsExplicit = false
         } else if previousItems.isEmpty {
             // Popup reopened: start keyboard focus from the first row.
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = items[0].id
-        } else if let previousSelectedID,
-                  let idx = items.firstIndex(where: { $0.id == previousSelectedID }) {
-            state.selectedSuggestionIndex = idx
-            state.selectedSuggestionID = items[idx].id
+            state.selectionIsExplicit = false
         } else {
             state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
             state.selectedSuggestionID = items[state.selectedSuggestionIndex].id
+            state.selectionIsExplicit = false
         }
 
     case .moveSelection(let delta):
@@ -3462,11 +3841,15 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions.count - 1
         )
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        state.selectionIsExplicit = true
 
     case .highlightIndex(let idx):
         guard !state.suggestions.isEmpty else { break }
         state.selectedSuggestionIndex = min(max(0, idx), state.suggestions.count - 1)
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        // Pointer hover tracks the highlight but is not an explicit selection:
+        // the popup can appear underneath a stationary cursor.
+        state.selectionIsExplicit = false
 
     case .escape:
         guard state.isFocused else { break }
@@ -3479,7 +3862,9 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldSelectAll = true
+            effects.shouldCancelPendingSuggestionRefresh = true
         } else {
             effects.shouldBlurToWebView = true
         }
@@ -3656,8 +4041,37 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
-func browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: Bool) -> Bool {
-    !isUserEditing
+func browserOmnibarShouldSelectAllOnFocusReassertion(
+    selectionIntent: BrowserAddressBarFocusSelectionIntent
+) -> Bool {
+    selectionIntent.shouldSelectAll
+}
+
+/// Whether a completed single click that just moved first responder into the
+/// omnibar should select the field's entire contents (Chrome/Safari/Arc parity),
+/// instead of leaving the caret the field editor placed at the click point.
+///
+/// The first click on an unfocused omnibar showing a URL selects everything so
+/// the user can immediately type a replacement. A subsequent click (the field is
+/// already first responder, so `gainedFocusOnThisClick` is `false`) keeps the
+/// caret placement from https://github.com/manaflow-ai/cmux/issues/5268. A drag
+/// or a Shift-click expresses an explicit range, so select-all defers to it; a
+/// double-click never reaches this path (the field routes multi-clicks straight
+/// to the field editor for word/line selection, and its second click lands after
+/// this click's `mouseUp`, so word selection wins).
+///
+/// - Parameters:
+///   - gainedFocusOnThisClick: `true` when the field had no field editor at
+///     `mouseDown`, i.e. this click is the one that moved focus into the omnibar.
+///   - isShiftClick: `true` when Shift was held, extending an explicit selection.
+///   - didDrag: `true` when the pointer moved far enough to build a drag selection.
+/// - Returns: `true` only for an undragged, unmodified focus-gaining click.
+func browserOmnibarFocusGainingClickShouldSelectAll(
+    gainedFocusOnThisClick: Bool,
+    isShiftClick: Bool,
+    didDrag: Bool
+) -> Bool {
+    gainedFocusOnThisClick && !isShiftClick && !didDrag
 }
 
 final class OmnibarNativeTextField: NSTextField {
@@ -3673,8 +4087,13 @@ final class OmnibarNativeTextField: NSTextField {
     private struct MouseSelectionState {
         let anchor: Int
         let initialWindowLocation: NSPoint
-        let selectAllOnMouseUp: Bool
         var didDrag: Bool
+        /// `true` when this click moved first responder into the omnibar, gating
+        /// the Chrome-style select-all-on-focus behavior applied at `mouseUp`.
+        let gainedFocus: Bool
+        /// `true` when Shift was held, so an explicit selection extension overrides
+        /// the focus-gaining select-all.
+        let isShift: Bool
     }
 
     override init(frame frameRect: NSRect) {
@@ -3709,6 +4128,8 @@ final class OmnibarNativeTextField: NSTextField {
             return
         }
 
+        let isShiftClick = event.modifierFlags.contains(.shift)
+
         // Keep multi-click word and line selection in the field editor, while avoiding
         // NSTextField's mouse tracking loop for ordinary clicks.
         if event.clickCount > 1 {
@@ -3720,7 +4141,7 @@ final class OmnibarNativeTextField: NSTextField {
 
         let clickIndex = insertionIndex(for: event, in: editor)
         let anchor: Int
-        if event.modifierFlags.contains(.shift) {
+        if isShiftClick {
             let selected = editor.selectedRange()
             anchor = shiftClickAnchor ?? selected.location
             shiftClickAnchor = anchor
@@ -3734,8 +4155,9 @@ final class OmnibarNativeTextField: NSTextField {
         mouseSelectionState = MouseSelectionState(
             anchor: anchor,
             initialWindowLocation: event.locationInWindow,
-            selectAllOnMouseUp: !hadEditor && !event.modifierFlags.contains(.shift),
-            didDrag: false
+            didDrag: false,
+            gainedFocus: !hadEditor,
+            isShift: isShiftClick
         )
     }
 
@@ -3757,16 +4179,28 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let state = mouseSelectionState,
-              let editor = currentEditor() as? NSTextView else {
+        guard let state = mouseSelectionState else {
             super.mouseUp(with: event)
             return
         }
-
         mouseSelectionState = nil
-        if state.selectAllOnMouseUp && !state.didDrag {
-            editor.selectAll(nil)
+
+        // Chrome/Safari/Arc parity: the click that moves first responder into the
+        // omnibar selects the whole URL so the next keystroke replaces it. A click
+        // while already focused keeps the caret placed in `mouseDown` (issue #5268),
+        // and a drag or Shift-click keeps the explicit range built up during the
+        // gesture. Double-clicks never reach here — `mouseDown` routes multi-clicks
+        // to the field editor for word/line selection and leaves `mouseSelectionState`
+        // nil, and the second click lands after this `mouseUp`, so word selection wins.
+        // The keyboard path (Cmd+L) still selects all via the `selectAllRequestId` flow.
+        guard browserOmnibarFocusGainingClickShouldSelectAll(
+            gainedFocusOnThisClick: state.gainedFocus,
+            isShiftClick: state.isShift,
+            didDrag: state.didDrag
+        ), let editor = currentEditor() as? NSTextView else {
+            return
         }
+        editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
     }
 
     private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {
@@ -3854,13 +4288,14 @@ final class OmnibarNativeTextField: NSTextField {
 
 struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
+    let fontSize: CGFloat
     @Binding var text: String
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
     let onTap: () -> Void
-    let onSubmit: () -> Void
+    let onSubmit: (OmnibarLiveFieldSnapshot?) -> Void
     let onEscape: () -> Void
     let onFieldLostFocus: () -> Void
     let onMoveSelection: (Int) -> Void
@@ -4144,7 +4579,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
                 guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: textView))
 #if DEBUG
                 handled = true
 #endif
@@ -4282,6 +4717,27 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        /// Captures the field-editor text synchronously at submit time. Both
+        /// Return interception paths (`doCommandBy` and `handleKeyEvent`) go
+        /// through here so the submit decision always starts from what the
+        /// field actually shows, not the possibly lagging published state.
+        private func liveFieldSnapshot(preferredEditor: NSTextView?) -> OmnibarLiveFieldSnapshot? {
+            let editor = preferredEditor ?? (parentField?.currentEditor() as? NSTextView)
+            if let editor {
+                return OmnibarLiveFieldSnapshot(
+                    text: editor.string,
+                    selectionRange: editor.selectedRange(),
+                    hasMarkedText: editor.hasMarkedText()
+                )
+            }
+            guard let field = parentField else { return nil }
+            return OmnibarLiveFieldSnapshot(
+                text: field.stringValue,
+                selectionRange: nil,
+                hasMarkedText: false
+            )
+        }
+
         private func inlineCompletionSelectionIsActive(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
             suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)
         }
@@ -4345,7 +4801,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             switch keyCode {
             case 36, 76: // Return / keypad Enter
                 guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: editor))
 #if DEBUG
                 handled = true
 #endif
@@ -4413,7 +4869,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: fontSize)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -4442,6 +4898,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         nsView.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
+        if nsView.font?.pointSize != fontSize {
+            nsView.font = .systemFont(ofSize: fontSize)
+        }
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
@@ -5389,6 +5848,12 @@ struct WebViewRepresentable: NSViewRepresentable {
             localInlineSlotView = slotView
             return slotView
         }
+
+#if DEBUG
+        func localInlineSlotViewForDebug() -> WindowBrowserSlotView? {
+            localInlineSlotView
+        }
+#endif
 
         func setLocalInlineSlotHidden(_ hidden: Bool) {
             localInlineSlotView?.isHidden = hidden
@@ -6952,6 +7417,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             DispatchQueue.main.async { [weak host, weak webView] in
                 guard let host, let webView else { return }
+#if DEBUG
+                let slotFrame = host.localInlineSlotViewForDebug()?.frame ?? .zero
+                let companions = webView.superview?.subviews
+                    .filter { $0 !== webView }
+                    .map { String(describing: type(of: $0)) }
+                    .joined(separator: ",") ?? "-"
+                cmuxDebugLog(
+                    "browser.localInline.frames host=\(host.bounds) slot=\(slotFrame) " +
+                    "web=\(webView.frame) webSuper=\(String(describing: type(of: webView.superview))) " +
+                    "inspector=\(webView.cmuxInspectorFrontendWebView() != nil ? 1 : 0) " +
+                    "companions=\(companions)"
+                )
+#endif
                 if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
                    sourceSuperview === slotView {
                     Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(

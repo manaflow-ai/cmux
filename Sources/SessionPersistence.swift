@@ -1,6 +1,8 @@
 import CoreGraphics
+import CmuxCore
 import Foundation
 import Bonsplit
+import CmuxSession
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -14,7 +16,11 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
-    static let defaultSidebarWidth: Double = 220
+    // Keep the default equal to the minimum so a fresh sidebar starts at the
+    // minimum width. The titlebar title tracks the sidebar's actual width only
+    // when it is wider than the minimum, so a default above the minimum would make
+    // the folder/title shift when toggling the sidebar at the default width.
+    static let defaultSidebarWidth: Double = 216
     static let defaultMinimumSidebarWidth: Double = 216
     static let minimumSidebarWidth: Double = 216
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
@@ -1280,18 +1286,26 @@ nonisolated enum TerminalStartupReturnShellScript {
         #"fi"#,
     ]
 
-    static func commandThenReturnLines(command: String) -> [String] {
+    static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        return [
+        var lines = [
             shellLine,
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
-        ] + zshIntegrationReentryLines + [
-            #"exec -l "$_cmux_resume_shell""#
-        ]
+        ] + zshIntegrationReentryLines
+        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
+        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
+        // default), not the session's directory. Return the outer shell to the session's working
+        // directory so killing a resumed agent leaves you where the session lived.
+        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+            lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
+        }
+        lines.append(#"exec -l "$_cmux_resume_shell""#)
+        return lines
     }
 }
 
@@ -1322,7 +1336,10 @@ private enum SurfaceResumeBindingScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
+                    command: inlineInput,
+                    workingDirectory: binding.cwd
+                ))
             } else {
                 lines.append(inlineInput)
             }
@@ -1373,6 +1390,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1386,6 +1404,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1396,6 +1415,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
+        self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
@@ -1496,9 +1516,78 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var isMuted: Bool
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+    /// True when the surface is a transparent internal cmux UI (e.g. the diff
+    /// viewer). Restored so the surface comes back transparent, not opaque.
+    var transparentBackground: Bool? = nil
+    /// Diff viewer token + request path, when this browser surface hosts a diff
+    /// viewer. Restored by re-registering the token with the app-owned
+    /// `CmuxDiffViewerURLSchemeHandler` and navigating via the custom scheme,
+    /// independent of the (possibly-dead) local HTTP server.
+    var diffViewerToken: String? = nil
+    var diffViewerRequestPath: String? = nil
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        isMuted: Bool = false,
+        omnibarVisible: Bool? = nil,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?,
+        transparentBackground: Bool? = nil,
+        diffViewerToken: String? = nil,
+        diffViewerRequestPath: String? = nil
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.isMuted = isMuted
+        self.omnibarVisible = omnibarVisible
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+        self.transparentBackground = transparentBackground
+        self.diffViewerToken = diffViewerToken
+        self.diffViewerRequestPath = diffViewerRequestPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case pageZoom
+        case developerToolsVisible
+        case isMuted
+        case omnibarVisible
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+        case transparentBackground
+        case diffViewerToken
+        case diffViewerRequestPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
+        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
+        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
+    }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
@@ -1523,6 +1612,28 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decodeIfPresent(String.self, forKey: .mode)
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
+}
+
+struct SessionProjectPanelSnapshot: Codable, Sendable {
+    var projectPath: String
+    var selectedNodePath: String?
+    var activeTab: String?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+
+    init(
+        projectPath: String,
+        selectedNodePath: String? = nil,
+        activeTab: String? = nil,
+        selectedSchemeName: String? = nil,
+        selectedConfigurationName: String? = nil
+    ) {
+        self.projectPath = projectPath
+        self.selectedNodePath = selectedNodePath
+        self.activeTab = activeTab
+        self.selectedSchemeName = selectedSchemeName
+        self.selectedConfigurationName = selectedConfigurationName
     }
 }
 
@@ -1605,6 +1716,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var agentSession: SessionAgentSessionPanelSnapshot? = nil
+    var project: SessionProjectPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -1678,6 +1791,22 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+/// One canvas pane's persisted geometry, ordered back-to-front so restore
+/// reproduces the z-order.
+struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
+    /// The pane identity (its founding panel's UUID). Pre-tab snapshots
+    /// stored the single hosted panel here.
+    var panelId: UUID
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+    /// Ordered tabs. Absent in pre-tab snapshots (treated as `[panelId]`).
+    var panelIds: [UUID]? = nil
+    /// Selected tab. Absent in pre-tab snapshots (treated as `panelId`).
+    var selectedPanelId: UUID? = nil
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
@@ -1696,6 +1825,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
+    /// (treated as splits).
+    var layoutMode: String? = nil
+    /// Canvas pane frames in z-order; persisted whenever any exist so
+    /// positions survive toggling back to splits across restarts.
+    var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
@@ -1756,115 +1891,12 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-enum SessionPersistenceStore {
-    static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
-        return snapshot
-    }
-
-    @discardableResult
-    static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
-        let directory = fileURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
-            }
-            try data.write(to: fileURL, options: .atomic)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
-    }
-
-    static func removeSnapshot(fileURL: URL? = nil) {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-    }
-
-    static func loadReopenSessionSnapshot(
-        fileURL: URL? = nil,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else {
-            return nil
-        }
-        return load(fileURL: fileURL)
-    }
-
-    static func syncManualRestoreSnapshotCache() {
-        guard let fileURL = manualRestoreSnapshotFileURL() else { return }
-        guard let snapshot = load() else {
-            removeSnapshot(fileURL: fileURL)
-            return
-        }
-        _ = save(snapshot, fileURL: fileURL)
-    }
-
-    static func defaultSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func manualRestoreSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "-previous",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    private static func snapshotFileURL(
-        suffix: String,
-        bundleIdentifier: String?,
-        appSupportDirectory: URL?
-    ) -> URL? {
-        let resolvedAppSupport: URL
-        if let appSupportDirectory {
-            resolvedAppSupport = appSupportDirectory
-        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            resolvedAppSupport = discovered
-        } else {
-            return nil
-        }
-        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? bundleIdentifier!
-            : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
-    }
+extension AppSessionSnapshot: SessionSnapshotRepresenting {
+    /// Whether the snapshot carries at least one window. The `CmuxSession`
+    /// repository treats an empty-window snapshot as unusable (empty states
+    /// remove the file instead of writing it), matching the legacy
+    /// `!snapshot.windows.isEmpty` usability check.
+    var hasWindows: Bool { !windows.isEmpty }
 }
 
 enum SessionScrollbackReplayStore {
@@ -1890,7 +1922,14 @@ enum SessionScrollbackReplayStore {
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
+        // Restored history must not reconfigure the live terminal's colors: the
+        // active theme owns the default foreground/background (and palette), so
+        // default-colored cells track it. The captured scrollback bakes the
+        // capture-time theme via terminal-color OSC sequences (e.g. OSC 10/11),
+        // which would otherwise survive a theme change as white-on-white output
+        // (issue #5165). Strip them before replay.
+        let themePortable = strippingTerminalColorOSCSequences(scrollback)
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
         return ansiSafeReplayText(truncated)
     }
 
@@ -1905,6 +1944,97 @@ enum SessionScrollbackReplayStore {
             output += ansiReset
         }
         return output
+    }
+
+    /// Removes terminal-color OSC sequences (palette entries and the dynamic
+    /// foreground/background/cursor/highlight colors plus their resets) from
+    /// captured scrollback so the restored history does not reconfigure the live
+    /// terminal's colors.
+    ///
+    /// Ghostty's `write_screen_file:copy,vt` export bakes the capture-time theme
+    /// by prepending `OSC 10` / `OSC 11` (and resolving palette entries). Replaying
+    /// those into a freshly launched terminal would override the active theme's
+    /// default colors, so restored default-colored cells would keep the old theme
+    /// (white-on-white after a theme change — issue #5165). Explicit per-cell SGR
+    /// colors and every non-color escape sequence (titles, hyperlinks, prompt
+    /// marks, …) are preserved verbatim.
+    private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
+        let escByte: UInt8 = 0x1B
+        let oscIntroducer: UInt8 = 0x5D // ]
+        let bel: UInt8 = 0x07
+        let backslash: UInt8 = 0x5C
+        let zero: UInt8 = 0x30
+        let nine: UInt8 = 0x39
+
+        let bytes = Array(text.utf8)
+        guard bytes.contains(escByte) else { return text }
+
+        var output = [UInt8]()
+        output.reserveCapacity(bytes.count)
+        let count = bytes.count
+        var index = 0
+        while index < count {
+            let byte = bytes[index]
+            guard byte == escByte,
+                  index + 1 < count,
+                  bytes[index + 1] == oscIntroducer else {
+                output.append(byte)
+                index += 1
+                continue
+            }
+
+            // Parse the OSC numeric command (Ps) following `ESC ]`.
+            var cursor = index + 2
+            var code = 0
+            var sawDigit = false
+            while cursor < count, bytes[cursor] >= zero, bytes[cursor] <= nine {
+                code = (code * 10) + Int(bytes[cursor] - zero)
+                sawDigit = true
+                cursor += 1
+                if code > 100_000 { break } // overflow guard for malformed input
+            }
+
+            guard sawDigit, isTerminalColorOSCCode(code) else {
+                // Not a terminal-color OSC; emit `ESC` and resume scanning so the
+                // rest of the preserved sequence is copied verbatim.
+                output.append(byte)
+                index += 1
+                continue
+            }
+
+            // Consume through the OSC terminator (BEL or `ESC \` / ST). A truncated
+            // (unterminated) color OSC at the end of the buffer is dropped as well.
+            var end = cursor
+            var terminated = false
+            while end < count {
+                if bytes[end] == bel {
+                    end += 1
+                    terminated = true
+                    break
+                }
+                if bytes[end] == escByte, end + 1 < count, bytes[end + 1] == backslash {
+                    end += 2
+                    terminated = true
+                    break
+                }
+                end += 1
+            }
+            index = terminated ? end : count
+        }
+
+        return String(decoding: output, as: UTF8.self)
+    }
+
+    /// Returns `true` for OSC command numbers that configure terminal colors
+    /// (palette entries and the dynamic foreground/background/cursor/highlight
+    /// colors plus their resets), which restored scrollback must not carry.
+    private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
+        switch code {
+        case 4, 5, 104, 105: return true // palette / special color set + reset
+        case 10...19: return true        // dynamic colors (fg, bg, cursor, …)
+        case 110...119: return true      // dynamic color resets
+        default: return false
+        }
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

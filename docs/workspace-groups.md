@@ -18,13 +18,11 @@ A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an
 
 ### Pinning
 
-Groups can be pinned independently of individual workspace pins. Pinned groups float above unpinned groups in the sidebar. Individually pinned workspaces (not part of a group) stay above all groups.
+Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.
 
 The sidebar layout, top to bottom:
-1. Pinned ungrouped workspaces.
-2. Pinned groups (each one's members in tab order).
-3. Unpinned groups.
-4. Ungrouped unpinned workspaces.
+1. Pinned top-level rows (workspaces and groups).
+2. Unpinned top-level rows (workspaces and groups).
 
 ## Creating a group
 
@@ -46,6 +44,8 @@ Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin G
 
 Hover over a group header to reveal a trailing `+` button. Click to create a new workspace in the group at the anchor's cwd. Right-click for **New Workspace in Group**, **Edit Group Config…**, and **Open Workspace Groups Docs**.
 
+Pressing `⌘N` while the active workspace is a group anchor or group member also creates the workspace inside that group. The default group placement is **After current**: from a regular group member, the new workspace lands right after the active member; from the anchor/header, it lands at the top of the group.
+
 ## CLI
 
 All group operations are scriptable via `cmux workspace-group <subcommand>`. The hyphenated form ships first; once the broader `cmux workspace <noun>` namespace lands, `cmux workspace group ...` will be the canonical form with the hyphenated form kept as an alias forever.
@@ -65,7 +65,7 @@ cmux workspace-group unpin <group-id>
 cmux workspace-group add --group <group-id> --workspace <workspace-id>
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
-cmux workspace-group new-workspace <group-id>
+cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
 `create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
@@ -97,13 +97,17 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
 ```jsonc
 {
   "workspaceGroups": {
+    // Global default for Cmd-N inside a group, the group header + button, and
+    // configured group actions. Per-cwd entries below can override it.
+    //   "afterCurrent" (default) - after the active in-group workspace; falls
+    //                              back to top when there is no member reference
+    //   "top"                    - second slot, right after the anchor
+    //   "end"                    - after the trailing member
+    "newWorkspacePlacement": "afterCurrent",
     "byCwd": {
       "/Users/you/manaflow/cmux": {
         "color": "#7A4FD8",
         "icon": "ladybug.fill",
-        // Where the header's + button places its new workspace:
-        //   "top" (default) → second slot, right after the anchor
-        //   "end"           → after the trailing member
         "newWorkspacePlacement": "top",
         "contextMenu": [
           // Entries reference actions defined elsewhere in cmux.json (in the
@@ -123,10 +127,12 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
 
 Matching: keys containing `*` or `?` are globs; otherwise they are path prefixes. Longest match wins.
 
-Resolution order for `+` placement:
-1. Explicit `--placement top|end` on `cmux workspace-group new-workspace`, or `"placement"` in the v2 `workspace.group.new_workspace` params.
+Resolution order for group new-workspace placement:
+1. Explicit `--placement afterCurrent|top|end` on `cmux workspace-group new-workspace`, or `"placement"` in the v2 `workspace.group.new_workspace` params.
 2. The per-cwd entry above.
-3. Global default via UserDefaults (`defaults write com.cmuxterm.app workspaceGroup.newWorkspacePlacement end` to flip; defaults to `top`).
+3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `afterCurrent`).
+
+`Cmd-N` inside a group uses the active group workspace as the placement reference. The group header `+` button and CLI path use the anchor as the reference, so `afterCurrent` behaves like `top` there.
 
 ## iMessage mode (planned)
 
