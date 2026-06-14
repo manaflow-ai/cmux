@@ -144,6 +144,7 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.workspaceAutoNaming",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.ampIntegration",

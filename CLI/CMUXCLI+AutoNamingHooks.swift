@@ -205,7 +205,7 @@ extension CMUXCLI {
         }
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId)) ?? false else {
+        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
             return
         }

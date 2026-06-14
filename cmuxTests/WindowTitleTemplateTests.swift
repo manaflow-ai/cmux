@@ -91,6 +91,45 @@ struct WindowTitleTemplateTests {
         #expect(defaults.string(forKey: WindowTitleTemplate.userDefaultsKey) == "[cmux:{windowToken}] {activeWorkspace}")
     }
 
+    @Test func settingsFileStoreAppliesWorkspaceAutoNamingAutomationSetting() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            WorkspaceAutoNamingSettings.enabledKey,
+            backupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        let previousValues: [String: Any?] = Dictionary(
+            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
+        )
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-auto-naming-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "automation": {
+            "workspaceAutoNaming": true
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        #expect(defaults.bool(forKey: WorkspaceAutoNamingSettings.enabledKey))
+    }
+
     @MainActor
     @Test func selectedWorkspaceDirectoryChangeRefreshesActiveDirectoryTitle() throws {
         let defaults = UserDefaults.standard
