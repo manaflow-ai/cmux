@@ -1507,6 +1507,7 @@ extension Workspace {
         }?.paneId ?? leafEntries.first?.paneId ?? bonsplitController.allPaneIds.first
         guard let fallbackPaneId else { return }
 
+        let fallbackSelectedTabId = bonsplitController.selectedTab(inPane: fallbackPaneId)?.id
         let existingPanelIds = Set(
             bonsplitController
                 .tabs(inPane: fallbackPaneId)
@@ -1527,6 +1528,11 @@ extension Workspace {
         let restoredPanelIds = Set(oldToNewPanelIds.values)
         for panelId in existingPanelIds where !restoredPanelIds.contains(panelId) {
             _ = closePanel(panelId, force: true)
+        }
+        if let fallbackSelectedTabId,
+           bonsplitController.selectedTab(inPane: fallbackPaneId)?.id != fallbackSelectedTabId,
+           bonsplitController.tabs(inPane: fallbackPaneId).contains(where: { $0.id == fallbackSelectedTabId }) {
+            bonsplitController.selectTab(fallbackSelectedTabId)
         }
     }
 
