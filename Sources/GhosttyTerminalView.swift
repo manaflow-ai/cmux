@@ -5565,11 +5565,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         keyboardCopyModeInputState.reset()
-        if !keyboardCopyModeActive {
-            setKeyboardCopyModeActive(true)
-        }
+        let activatedCopyMode = !keyboardCopyModeActive
+        if activatedCopyMode { setKeyboardCopyModeActive(true) }
         if !keyboardCopyModeVisualActive {
             guard selectKeyboardCopyModeCursorCell(surface: surface) else {
+                if activatedCopyMode { setKeyboardCopyModeActive(false) }
                 keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
                 invalidateTextInputCoordinates(selectionChanged: false)
                 return true
