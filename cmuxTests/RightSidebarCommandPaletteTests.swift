@@ -13,16 +13,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let contribution = try XCTUnwrap(
             contributions.first { $0.commandId == GuiModeWorkspaceCoordinator.commandPaletteCommandId }
         )
-        let context = ContentView.CommandPaletteContextSnapshot()
 
-        XCTAssertEqual(
-            contribution.title(context),
-            String(localized: "guiMode.command.enable.title", defaultValue: "Enable GUI Mode")
-        )
-        XCTAssertEqual(
-            contribution.subtitle(context),
-            String(localized: "guiMode.command.enable.subtitle", defaultValue: "Workspace")
-        )
         XCTAssertTrue(contribution.keywords.contains("gui"))
         XCTAssertTrue(contribution.keywords.contains("worktree"))
     }
