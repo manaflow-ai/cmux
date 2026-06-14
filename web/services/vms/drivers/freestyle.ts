@@ -322,15 +322,13 @@ export class FreestyleProvider implements VMProvider {
       }
       return endpoint;
     } catch (err) {
-      if (options?.requireDaemon) {
-        throw err;
-      }
       return await withVmSpan(
         "cmux.vm.provider.open_attach_ssh_fallback",
         {
           "cmux.vm.provider": "freestyle",
           "cmux.vm.operation": "open_attach_ssh_fallback",
           "cmux.vm.id": vmId,
+          "cmux.vm.attach.require_daemon": options?.requireDaemon === true,
         },
         async (span) => {
           recordSpanError(span, err);
