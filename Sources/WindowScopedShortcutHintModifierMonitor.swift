@@ -16,6 +16,10 @@ final class WindowScopedShortcutHintModifierMonitor {
     @ObservationIgnored private var appResignObserver: NSObjectProtocol?
     @ObservationIgnored private var pendingShowWorkItem: DispatchWorkItem?
 
+    private var hasHostWindowObservers: Bool {
+        hostWindowDidBecomeKeyObserver != nil && hostWindowDidResignKeyObserver != nil
+    }
+
     init(
         activation: ShortcutHintModifierActivation = .commandOrControl,
         allowsHintsForWindow: @escaping (NSWindow) -> Bool = { _ in true }
@@ -25,7 +29,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     }
 
     func setHostWindow(_ window: NSWindow?) {
-        guard hostWindow !== window else { return }
+        guard hostWindow !== window || !hasHostWindowObservers else { return }
         removeHostWindowObservers()
         hostWindow = window
         guard let window else {
@@ -33,30 +37,13 @@ final class WindowScopedShortcutHintModifierMonitor {
             return
         }
 
-        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
-            }
-        }
-
-        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
+        installHostWindowObservers(for: window)
         update(from: NSEvent.modifierFlags, eventWindow: nil)
     }
 
     func start() {
+        reinstallHostWindowObserversIfNeeded()
+
         guard flagsMonitor == nil else {
             update(from: NSEvent.modifierFlags, eventWindow: nil)
             return
@@ -164,6 +151,34 @@ final class WindowScopedShortcutHintModifierMonitor {
         if let hostWindowDidResignKeyObserver {
             NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
             self.hostWindowDidResignKeyObserver = nil
+        }
+    }
+
+    private func reinstallHostWindowObserversIfNeeded() {
+        guard let hostWindow, !hasHostWindowObservers else { return }
+        removeHostWindowObservers()
+        installHostWindowObservers(for: hostWindow)
+    }
+
+    private func installHostWindowObservers(for window: NSWindow) {
+        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
+            }
+        }
+
+        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
         }
     }
 }
