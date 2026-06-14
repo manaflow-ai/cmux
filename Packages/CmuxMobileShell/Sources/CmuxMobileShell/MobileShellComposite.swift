@@ -136,6 +136,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// The per-gate status (network / authentication / trust) of the in-flight or
+    /// most recent pairing attempt, surfaced as individual check marks in
+    /// ``PairingView`` so the user can see exactly which stage succeeded or failed
+    /// (https://github.com/manaflow-ai/cmux/issues/6084). `nil` before any
+    /// attempt. Painted for every instrumented attempt (including background
+    /// reconnects); ``PairingView`` only renders it once the user starts a
+    /// foreground pairing attempt, so a background reconnect never shows a stale
+    /// checklist.
+    public private(set) var pairingChecklist: MobilePairingChecklist?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -642,6 +651,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
+        self.pairingChecklist = nil
         self.activeTicket = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
@@ -3110,9 +3120,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "is_first_pair": .bool(pairingAttemptIsFirstPair),
                 "attempt_id": .string(attemptID.uuidString),
             ])
+            // The network gate is now being attempted; start a fresh checklist so
+            // a superseding attempt never inherits the prior attempt's check marks.
+            beginPairingChecklist()
         } else {
             pairingAttemptStartedAt = nil
             pairingAttemptMethod = nil
+            clearPairingChecklist()
         }
         return attemptID
     }
@@ -3121,6 +3135,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the attempt timing so a later state change can't double-fire.
     private func recordPairingSucceeded() {
         guard let method = pairingAttemptMethod else { return }
+        markPairingChecklistConnected()
         var props: [String: AnalyticsValue] = [
             "method": .string(method),
             "is_first_pair": .bool(pairingAttemptIsFirstPair),
@@ -3169,6 +3184,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil
+        clearPairingChecklist()
     }
 
     /// Apply a classified pairing failure to the user-visible error surface and
@@ -3186,6 +3202,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = category.message
         }
         connectionErrorGuidance = category.guidance
+        // Resolve before `recordPairingFailed` clears the attempt instrumentation
+        // (the checklist sink is gated on an in-flight attempt for the same reason
+        // the analytics emit is).
+        resolvePairingChecklist(category)
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
@@ -3194,6 +3214,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+    }
+
+    /// Start the pairing checklist for an instrumented attempt: the network gate
+    /// is being attempted, the later gates wait their turn.
+    private func beginPairingChecklist() {
+        pairingChecklist = .connecting
+    }
+
+    /// Project a classified failure onto the per-gate checklist. Gated on an
+    /// in-flight attempt (``pairingAttemptMethod``) so live-connection auth
+    /// evictions and operational errors — which reuse the same classifier — never
+    /// repaint the pairing checklist.
+    private func resolvePairingChecklist(_ category: MobilePairingFailureCategory) {
+        guard pairingAttemptMethod != nil else { return }
+        pairingChecklist = .resolving(category)
+    }
+
+    /// Mark every gate cleared once an attempt connects.
+    private func markPairingChecklistConnected() {
+        pairingChecklist = .connected
+    }
+
+    /// Drop the checklist on teardown (cancel, sign-out, switch, forget) so the
+    /// next ``PairingView`` starts clean.
+    private func clearPairingChecklist() {
+        pairingChecklist = nil
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
@@ -3209,6 +3255,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
+        // `connect()` already set the headline (e.g. `noSupportedRoute`); keep the
+        // checklist in step with that message before the instrumentation clears.
+        resolvePairingChecklist(category ?? .unknown(host: nil, port: nil))
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
@@ -4812,6 +4861,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+        // Same in-flight-attempt gate as the analytics emit below: paints the
+        // failed gate (auth or trust) for a foreground pairing attempt, no-ops for
+        // a live-connection auth eviction.
+        resolvePairingChecklist(category)
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that

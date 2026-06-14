@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 internal import CmuxMobileRPC
+internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 internal import CmuxMobileTransport
 import Foundation
@@ -367,5 +368,84 @@ extension MobilePairingFailureCategory {
             return L10n.string(fallbackKey, defaultValue: fallbackDefaultValue)
         }
         return String(format: L10n.string(key, defaultValue: defaultValue), host, port)
+    }
+}
+
+extension MobilePairingFailureCategory {
+    /// Which of the three pairing gates (network / authentication / trust) this
+    /// failure belongs to, so the pairing checklist can mark the right check mark
+    /// red. `nil` only for ``cancelled`` (not a user-visible failure).
+    ///
+    /// The grouping is by gate, not by where in the code the failure is detected:
+    /// - **network** owns everything about establishing a usable transport to the
+    ///   Mac, including the inputs that make that impossible before a packet is
+    ///   sent (an invalid/loopback code, or no route this build can dial). These
+    ///   all mean "this device could not reach a Mac".
+    /// - **authentication** owns the credential being rejected on the wire
+    ///   (invalid/expired token or attach ticket).
+    /// - **trust** owns the security relationship: the Mac is a different account
+    ///   (``accountMismatch``) or the route is not trusted to carry the
+    ///   credential (``unsupportedRoute``).
+    var stage: MobilePairingStage? {
+        switch self {
+        case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
+             .dnsFailed, .handshakeTimedOut, .connectionDropped, .invalidCode,
+             .loopbackRejected, .noSupportedRoute, .unknown:
+            return .network
+        case .authFailed, .ticketExpired:
+            return .authentication
+        case .accountMismatch, .unsupportedRoute:
+            return .trust
+        case .cancelled:
+            return nil
+        }
+    }
+
+    /// Whether reaching this failure proves every gate before ``stage`` was
+    /// already cleared. An on-the-wire rejection from the Mac proves the device
+    /// reached it (network cleared) and, for an account mismatch, that the
+    /// credential was read (authentication cleared). A failure detected before or
+    /// during the transport — offline, unreachable, an invalid code, or a route
+    /// refused client-side as untrusted (``unsupportedRoute``) — proves nothing,
+    /// so the earlier gates stay ``MobilePairingStageStatus/pending`` (untested)
+    /// rather than falsely showing a check mark.
+    var clearsPriorGates: Bool {
+        switch self {
+        case .authFailed, .ticketExpired, .accountMismatch:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+extension MobilePairingChecklist {
+    /// Build the resolved checklist for a failed attempt: the gate the failure
+    /// belongs to shows the headline + guidance, every gate the failure proves
+    /// was cleared shows a check mark, and every other gate stays untested. This
+    /// is the single projection from "why did pairing fail" to "which check marks
+    /// the user sees", so it is pure and unit-tested without a live connection.
+    static func resolving(_ category: MobilePairingFailureCategory) -> MobilePairingChecklist {
+        guard let failedStage = category.stage else {
+            // `.cancelled` is handled by the `catch is CancellationError` branches
+            // before classification, so this is only defensive: a cancelled
+            // attempt resolves nothing.
+            return MobilePairingChecklist(network: .pending, authentication: .pending, trust: .pending)
+        }
+        let failure = MobilePairingStageStatus.failed(
+            message: category.message,
+            guidance: category.guidance
+        )
+        let priorCleared = category.clearsPriorGates
+        func status(for stage: MobilePairingStage) -> MobilePairingStageStatus {
+            if stage == failedStage { return failure }
+            if stage.order < failedStage.order { return priorCleared ? .succeeded : .pending }
+            return .pending
+        }
+        return MobilePairingChecklist(
+            network: status(for: .network),
+            authentication: status(for: .authentication),
+            trust: status(for: .trust)
+        )
     }
 }
