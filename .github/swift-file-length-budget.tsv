@@ -11,7 +11,7 @@
 12020	Sources/Workspace.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7850	Sources/Panels/BrowserPanelView.swift
-7349	cmuxTests/WorkspaceUnitTests.swift
+7328	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6316	cmuxTests/SessionPersistenceTests.swift
 6296	cmuxTests/GhosttyConfigTests.swift
@@ -137,12 +137,12 @@
 680	Sources/FileExplorerSearchController.swift
 677	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
-658	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
 648	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 640	cmuxTests/CommandPaletteNucleoFFITests.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
+628	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 621	cmuxTests/FinderFileDropRegressionTests.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift

@@ -63,6 +63,22 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         #expect(actualActions == expectedActions)
     }
 
+    @Test func settingsPackageVisibleActionsStayColocatedWithRightSidebarActions() {
+        let visibleActions = ShortcutAction.settingsVisibleActions
+        let expectedActions: [ShortcutAction] = [
+            .focusRightSidebar,
+            .toggleRightSidebar,
+            .fileExplorerOpenSelection,
+            .fileExplorerOpenSelectionFinderAlias,
+            .findInDirectory,
+        ]
+
+        let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) ?? visibleActions.endIndex
+        let actualActions = Array(visibleActions.dropFirst(startIndex).prefix(expectedActions.count))
+
+        #expect(actualActions == expectedActions)
+    }
+
     @Test func openSelectionShortcutsStayOutOfAppWideBareStartCache() throws {
         try withIsolatedShortcutSettings {
             #expect(!KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "\r"))

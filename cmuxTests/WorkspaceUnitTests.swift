@@ -561,27 +561,6 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.markOldestUnreadAndJumpNext))
     }
 
-    func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
-        let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
-        let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
-        ]
-
-        guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
-            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
-            return
-        }
-
-        let endIndex = startIndex + expectedActions.count
-        guard endIndex <= visibleActions.count else {
-            XCTFail("Expected shortcut settings to include the full right-sidebar shortcut run")
-            return
-        }
-        XCTAssertEqual(Array(visibleActions[startIndex..<endIndex]), expectedActions)
-    }
-
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
