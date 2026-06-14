@@ -73,6 +73,22 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    func testContextMenuSplitPaneCountChangeUpdatesImmediately() {
+        let current = Self.snapshot(splitPaneCount: 1)
+        let next = Self.snapshot(splitPaneCount: 3)
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        XCTAssertEqual(decision.workspaceSnapshotStorage, next)
+        XCTAssertNil(decision.pendingWorkspaceSnapshot)
+        XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     func testClosedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -97,7 +113,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
-        listeningPorts: [Int] = []
+        listeningPorts: [Int] = [],
+        splitPaneCount: Int = 1
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -121,7 +138,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            splitPaneCount: splitPaneCount
         )
     }
 

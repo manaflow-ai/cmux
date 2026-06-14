@@ -13202,6 +13202,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let branchLinesContainBranch: Bool
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
+        let splitPaneCount: Int
 
     }
 }
@@ -13648,6 +13649,24 @@ struct TabItemView: View, Equatable {
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                if workspaceSnapshot.splitPaneCount > 1 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "rectangle.split.2x1")
+                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        Text(verbatim: "\(workspaceSnapshot.splitPaneCount)")
+                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                    }
+                    .foregroundColor(activeSecondaryColor(0.78))
+                    .frame(minWidth: 27, minHeight: 15)
+                    .padding(.horizontal, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(activeSecondaryColor(0.12))
+                    )
+                    .safeHelp(splitPaneAffordanceHelpText)
+                    .accessibilityLabel(Text(splitPaneAffordanceHelpText))
                 }
 
                 Text(workspaceSnapshot.title)
@@ -14671,7 +14690,18 @@ struct TabItemView: View, Equatable {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            splitPaneCount: max(1, tab.bonsplitController.allPaneIds.count)
+        )
+    }
+
+    private var splitPaneAffordanceHelpText: String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "sidebar.workspace.splitPaneCount.tooltip",
+                defaultValue: "Split pane count: %lld"
+            ),
+            Int64(workspaceSnapshot.splitPaneCount)
         )
     }
 

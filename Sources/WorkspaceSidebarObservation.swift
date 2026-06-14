@@ -99,7 +99,7 @@ extension Workspace {
             $activeRemoteTerminalSessionCount
         )
 
-        return Publishers.CombineLatest4(
+        let stateChanges = Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
@@ -134,5 +134,11 @@ extension Workspace {
             .removeDuplicates()
             .map { _ in () }
             .eraseToAnyPublisher()
+
+        return Publishers.Merge(
+            stateChanges,
+            sidebarLayoutObservationPublisher
+        )
+        .eraseToAnyPublisher()
     }
 }

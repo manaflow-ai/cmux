@@ -2791,6 +2791,14 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private let sidebarLayoutObservationSubject = PassthroughSubject<Void, Never>()
+    var sidebarLayoutObservationPublisher: AnyPublisher<Void, Never> {
+        sidebarLayoutObservationSubject.eraseToAnyPublisher()
+    }
+
+    private func publishSidebarLayoutChanged() {
+        sidebarLayoutObservationSubject.send()
+    }
 
     // Sidebar rows cache snapshots, so observation must begin with the current
     // workspace state. Build state publishers from @Published current values
@@ -11348,6 +11356,12 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+        if !controller.allPaneIds.contains(source) {
+            // Moving the last tab out of a pane can collapse that pane without a
+            // separate didClosePane callback, so sidebar pane-count badges need
+            // the same layout signal as explicit split/close operations.
+            publishSidebarLayoutChanged()
+        }
 #if DEBUG
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
@@ -11392,6 +11406,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        publishSidebarLayoutChanged()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
@@ -11475,6 +11490,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        publishSidebarLayoutChanged()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

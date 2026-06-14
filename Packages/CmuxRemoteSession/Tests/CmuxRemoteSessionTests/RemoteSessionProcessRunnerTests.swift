@@ -2,22 +2,18 @@ import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
-// The blocking process runner behind the coordinator's ssh/scp execs.
-// The capture-survives-teardown case is retargeted from the app's
-// testARunProcessCaptureSurvivesPipeReadHandleTeardown (assertions
-// unchanged); the launch-failure and timeout cases pin the legacy
-// `cmux.remote.process` error codes 1 and 2.
-//
-// `.serialized`: every test here spawns a real `Process` with `Pipe`s and
-// raw-reads the pipe file descriptors. Under Swift Testing's default parallel
-// execution, a sibling test closing a `FileHandle` lets the OS recycle that fd
-// number, so a background reader in another test can read a foreign stream
-// (cross-wired stdout/stderr/stdin). These tests share the process-global fd
-// table and are inherently not parallel-safe against each other. Serializing
-// also matches production, where the runner executes strictly serially per
-// coordinator, so this race window does not exist in the real app.
-@Suite("RemoteSessionProcessRunner", .serialized)
-struct RemoteSessionProcessRunnerTests {
+// Process/pipe tests share one serialized suite because they touch the
+// process-global fd table. Serializing each child group separately is not
+// enough: Swift Testing can still run sibling suites in parallel.
+@Suite("Remote process pipes", .serialized)
+struct RemoteProcessPipeTests {}
+
+// The blocking process runner behind the coordinator's ssh/scp execs. The
+// capture-survives-teardown case is retargeted from the app's
+// testARunProcessCaptureSurvivesPipeReadHandleTeardown (assertions unchanged);
+// the launch-failure and timeout cases pin the legacy `cmux.remote.process`
+// error codes 1 and 2.
+extension RemoteProcessPipeTests {
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
         let didCloseReadHandles = DispatchSemaphore(value: 0)
