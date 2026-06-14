@@ -2750,6 +2750,20 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
         let keepsPersistentRemoteSurfaceOpen =
             tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+        if !keepsPersistentRemoteSurfaceOpen,
+           tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
+            let relayPort: Int?
+            if tab.remoteConfiguration?.transport == .ssh {
+                relayPort = tab.remoteConfiguration?.relayPort
+            } else {
+                relayPort = nil
+            }
+            tab.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
+            )
+        }
         let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
@@ -2770,9 +2784,8 @@ class TabManager: ObservableObject {
             return
         }
 
-        // Exiting the last non-persistent SSH surface should demote the workspace back to a
-        // local one. Route through Workspace close handling so remote teardown and replacement
-        // panel logic run before TabManager considers removing the workspace itself.
+        // Route the last remote child exit through Workspace close handling so remote teardown
+        // and replacement-panel logic run before TabManager considers removing the workspace.
         if handlesRemoteExitThroughWorkspace {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return

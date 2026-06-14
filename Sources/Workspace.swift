@@ -2752,11 +2752,17 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
-    /// Display target of the remote workspace that just disconnected. Set right before
-    /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
-    /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
-    /// that looks identical to a healthy workspace).
-    private var pendingReplacementBannerRemoteTarget: String?
+
+    private struct PendingRemoteDisconnectReplacement {
+        let target: String
+        let reconnectCommand: String?
+    }
+
+    /// Display target and reconnect command for the remote terminal that just disconnected.
+    /// Set right before `createReplacementTerminalPanel()` so the replacement terminal stays
+    /// visibly disconnected instead of falling through to a local login shell.
+    private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
+    var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -2856,8 +2862,9 @@ final class Workspace: Identifiable, ObservableObject {
             || lowered.contains("daemon transport")
     }
 
-    private var preservesSSHTerminalConnection: Bool {
-        activeRemoteTerminalSessionCount > 0
+    private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
+        remoteConfiguration?.transport == .ssh
+            && activeRemoteTerminalSessionCount > 0
             && remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
@@ -5288,6 +5295,22 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
+        guard !isDetachingCloseTransaction,
+              activeRemoteTerminalSurfaceIds.count == 1,
+              activeRemoteTerminalSurfaceIds.contains(surfaceId) else {
+            return
+        }
+        let relayPort: Int?
+        if remoteConfiguration?.transport == .ssh {
+            relayPort = remoteConfiguration?.relayPort
+        } else {
+            relayPort = nil
+        }
+        markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+    }
+
+    @MainActor
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
         return activeRemoteTerminalSurfaceIds.contains(panelId) ||
@@ -5487,6 +5510,8 @@ final class Workspace: Identifiable, ObservableObject {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        pendingRemoteDisconnectReplacement = nil
+        let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
         if let previousConfiguration,
            previousConfiguration != configuration,
            !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
@@ -5496,6 +5521,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -5566,8 +5592,19 @@ final class Workspace: Identifiable, ObservableObject {
         controller.start()
     }
 
-    func reconnectRemoteConnection() {
+    func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let configuration = remoteConfiguration else { return }
+        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
+            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
+                  panels[candidate] is TerminalPanel else {
+                return nil
+            }
+            return candidate
+        }
+        if let reconnectingPlaceholderSurfaceId {
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
+            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
+        }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
@@ -5596,7 +5633,7 @@ final class Workspace: Identifiable, ObservableObject {
         reconnectRemoteConnection()
     }
 
-    func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+    func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let shouldCleanupControlMaster =
             clearConfiguration
@@ -5624,7 +5661,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
         remoteConnectionState = .disconnected
-        remoteConnectionDetail = nil
+        remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -5636,6 +5673,8 @@ final class Workspace: Identifiable, ObservableObject {
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
+            pendingRemoteDisconnectReplacement = nil
+            remoteDisconnectPlaceholderPanelIds.removeAll()
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         }
         applyRemoteProxyEndpointUpdate(nil)
@@ -5648,6 +5687,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
         guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
+        guard pendingRemoteDisconnectReplacement == nil else { return }
         if remoteConfiguration?.preserveAfterTerminalExit == true {
             return
         }
@@ -5660,10 +5700,17 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
         let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
+            panel is TerminalPanel && !remoteDisconnectPlaceholderPanelIds.contains(panelId)
+                ? panelId
+                : nil
         }
-        guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
-        trackRemoteTerminalSurface(initialPanelId)
+        if terminalIds.count == 1, let initialPanelId = terminalIds.first {
+            trackRemoteTerminalSurface(initialPanelId)
+            return
+        }
+        if let focusedPanelId, terminalIds.contains(focusedPanelId) {
+            trackRemoteTerminalSurface(focusedPanelId)
+        }
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
@@ -6224,25 +6271,75 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
+    private func remoteTerminalSessionEndMatchesCurrentConfiguration(
+        surfaceId: UUID,
+        relayPort: Int?,
+        configuration: WorkspaceRemoteConfiguration,
+        allowUntracked: Bool
+    ) -> Bool {
+        guard activeRemoteTerminalSurfaceIds.contains(surfaceId) ||
+            (allowUntracked && activeRemoteTerminalSurfaceIds.isEmpty) else {
+            return false
+        }
+        if let relayPort, relayPort > 0 {
+            return configuration.relayPort == relayPort
+        }
+        return true
+    }
+
+    private func disconnectRemoteConnectionAfterTerminalExit() {
+        disconnectRemoteConnection(
+            clearConfiguration: false,
+            disconnectedDetail: String(
+                localized: "remote.status.terminalDisconnected",
+                defaultValue: "Remote terminal session disconnected"
+            )
+        )
+    }
+
+    func rememberPendingRemoteDisconnectReplacement(configuration: WorkspaceRemoteConfiguration) {
+        let reconnectCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingRemoteDisconnectReplacement = PendingRemoteDisconnectReplacement(
+            target: configuration.displayTarget,
+            reconnectCommand: reconnectCommand?.isEmpty == false ? reconnectCommand : nil
+        )
+    }
+
+    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
         }
-        guard let relayPort,
-              relayPort > 0,
-              remoteConfiguration?.relayPort == relayPort else {
+        guard let configuration = remoteConfiguration,
+              remoteTerminalSessionEndMatchesCurrentConfiguration(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                configuration: configuration,
+                allowUntracked: allowUntracked
+              ) else {
             return
         }
-        // Arm the replacement-banner before ownership of `remoteConfiguration` drains
-        // away through `untrackRemoteTerminalSurface` → `disconnectRemoteConnection`.
-        // The banner only matters if we end up demoting this workspace to local, so
-        // `createReplacementTerminalPanel` consumes and clears the value.
-        if remoteConfiguration?.preserveAfterTerminalExit != true,
-           let displayTarget = remoteConfiguration?.displayTarget {
-            pendingReplacementBannerRemoteTarget = displayTarget
+        let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
+        if !preservesRemotePTYSession {
+            rememberPendingRemoteDisconnectReplacement(configuration: configuration)
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
-        untrackRemoteTerminalSurface(surfaceId)
+        if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
+            activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        }
+        if activeRemoteTerminalSurfaceIds.isEmpty {
+            guard !preservesRemotePTYSession else { return }
+            let shouldCleanupControlMaster =
+                configuration.relayPort != nil &&
+                configuration.transport == .ssh &&
+                !isDetachingCloseTransaction &&
+                pendingDetachedSurfaces.isEmpty &&
+                !skipControlMasterCleanupAfterDetachedRemoteTransfer
+            disconnectRemoteConnectionAfterTerminalExit()
+            if shouldCleanupControlMaster {
+                Self.requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
+            }
+        }
     }
 
     func teardownRemoteConnection() {
@@ -6332,10 +6429,10 @@ final class Workspace: Identifiable, ObservableObject {
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                preservesSSHTerminalConnection &&
+                preservesProxyFailureWhileSSHTerminalIsAlive &&
                 hasProxyOnlyRemoteSidebarError
         let effectiveState: WorkspaceRemoteConnectionState
-        if state == .error && proxyOnlyError && preservesSSHTerminalConnection {
+        if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive {
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
@@ -9184,14 +9281,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Utility
 
-    /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
-    /// then execs the user's `$SHELL`. Returned path goes to `initialCommand`, which Ghostty
-    /// runs as the PTY command. The banner survives as text in scrollback so the user can
-    /// see it after the replacement local shell starts.
-    private static func replacementShellScriptWithBanner(target: String) -> String {
+    /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
+    /// Returned path goes to `initialCommand`, which Ghostty runs as the PTY command.
+    private static func remoteDisconnectPlaceholderScript(target: String, reconnectCommand: String?) -> String {
         let tempDir = FileManager.default.temporaryDirectory
         let scriptURL = tempDir.appendingPathComponent(
-            "cmux-remote-disconnect-banner-\(UUID().uuidString.lowercased()).sh"
+            "cmux-remote-disconnect-\(UUID().uuidString.lowercased()).sh"
         )
         // Encode the target as base64 and decode it inside the shell. This sidesteps every
         // layer of shell quoting: no matter what the target contains (`$(id)`, backticks,
@@ -9203,17 +9298,23 @@ final class Workspace: Identifiable, ObservableObject {
         // POSIX printf inside the shell wrapper, not by Swift's String(format:).
         let endedLineFormat = String(
             localized: "remote.disconnectBanner.sessionEnded",
-            defaultValue: "[cmux] remote ssh session ended: %s"
+            defaultValue: "[cmux] remote session disconnected: %s"
         )
         let reconnectLine = String(
             localized: "remote.disconnectBanner.reconnectHint",
-            defaultValue: "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            defaultValue: "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
+        )
+        let reconnectUnavailableLine = String(
+            localized: "remote.disconnectBanner.reconnectUnavailableHint",
+            defaultValue: "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
         )
         // Encode the localized lines the same way as the target, so a translator using
         // backticks or $(…) in a translation string can't unexpectedly execute in the
         // user's local shell. Decoded inline at wrapper startup, then fed to printf.
         let encodedEndedFormat = Data(endedLineFormat.utf8).base64EncodedString()
         let encodedReconnectLine = Data(reconnectLine.utf8).base64EncodedString()
+        let encodedReconnectUnavailableLine = Data(reconnectUnavailableLine.utf8).base64EncodedString()
+        let encodedReconnectCommand = Data((reconnectCommand ?? "").utf8).base64EncodedString()
         let body = """
         #!/bin/sh
         cmux_disconnect_decode() {
@@ -9222,18 +9323,40 @@ final class Workspace: Identifiable, ObservableObject {
         cmux_disconnect_target="$(cmux_disconnect_decode '\(encodedTarget)')"
         cmux_disconnect_ended_format="$(cmux_disconnect_decode '\(encodedEndedFormat)')"
         cmux_disconnect_reconnect_line="$(cmux_disconnect_decode '\(encodedReconnectLine)')"
+        cmux_disconnect_reconnect_unavailable_line="$(cmux_disconnect_decode '\(encodedReconnectUnavailableLine)')"
+        cmux_disconnect_reconnect_command="$(cmux_disconnect_decode '\(encodedReconnectCommand)')"
         # Append newline + color codes ourselves rather than trusting the translator to
         # preserve them in every locale.
         printf '\\033[1;33m'
         printf "$cmux_disconnect_ended_format" "$cmux_disconnect_target"
         printf '\\033[0m\\n' >&2
-        printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_line" >&2
-        printf '\\n'
-        unset cmux_disconnect_target cmux_disconnect_ended_format cmux_disconnect_reconnect_line
-        unset -f cmux_disconnect_decode 2>/dev/null || true
         # Remove ourselves so /tmp doesn't accumulate these wrappers across sessions.
         rm -f -- "$0" 2>/dev/null || true
-        exec "${SHELL:-/bin/sh}" -l
+        if [ -n "$cmux_disconnect_reconnect_command" ]; then
+          printf '\\033[2m%s\\033[0m\\n\\n' "$cmux_disconnect_reconnect_line" >&2
+          IFS= read -r _ || exit 0
+          cmux_reconnect_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+          if [ -z "$cmux_reconnect_cli" ] || [ ! -x "$cmux_reconnect_cli" ]; then
+            cmux_reconnect_cli="$(command -v cmux 2>/dev/null || true)"
+          fi
+          cmux_reconnect_socket="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}"
+          if [ -n "$cmux_reconnect_cli" ] && [ -n "$cmux_reconnect_socket" ] && [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
+            cmux_reconnect_payload="{\\"workspace_id\\":\\"$CMUX_WORKSPACE_ID\\""
+            if [ -n "${CMUX_SURFACE_ID:-}" ]; then
+              cmux_reconnect_payload="$cmux_reconnect_payload,\\"surface_id\\":\\"$CMUX_SURFACE_ID\\""
+            fi
+            cmux_reconnect_payload="$cmux_reconnect_payload}"
+            if "$cmux_reconnect_cli" --socket "$cmux_reconnect_socket" rpc workspace.remote.reconnect "$cmux_reconnect_payload" >/dev/null 2>&1; then
+              exec /bin/sh -lc "$cmux_disconnect_reconnect_command"
+            fi
+          fi
+          printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_unavailable_line" >&2
+          while IFS= read -r _; do :; done
+          exit 0
+        fi
+        printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_unavailable_line" >&2
+        while IFS= read -r _; do :; done
+        exit 0
 
         """
         do {
@@ -9248,22 +9371,27 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
     func createReplacementTerminalPanel() -> TerminalPanel {
-        let inheritedConfig = inheritedTerminalConfig(
+        var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
         )
-        // If the previous surface was a remote ssh terminal that just exited, spawn a
-        // local shell that first prints a clearly-coloured banner explaining what happened.
-        // Without this banner a dead VM surfaces as an ordinary local `lawrence@mac ~ %`
-        // prompt, which looks identical to "I never connected" and was mis-read during
-        // dogfood as "cmux disconnected silently".
-        let bannerTarget = pendingReplacementBannerRemoteTarget
-        pendingReplacementBannerRemoteTarget = nil
-        let replacementInitialCommand: String? = bannerTarget.map { Self.replacementShellScriptWithBanner(target: $0) }
+        let pendingRemoteDisconnect = pendingRemoteDisconnectReplacement
+        pendingRemoteDisconnectReplacement = nil
+        let replacementInitialCommand: String? = pendingRemoteDisconnect.map {
+            Self.remoteDisconnectPlaceholderScript(
+                target: $0.target,
+                reconnectCommand: $0.reconnectCommand
+            )
+        }
+        if replacementInitialCommand != nil {
+            var config = replacementConfig ?? CmuxSurfaceConfigTemplate()
+            config.waitAfterCommand = true
+            replacementConfig = config
+        }
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: inheritedConfig,
+            configTemplate: replacementConfig,
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
@@ -9271,7 +9399,10 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+        if replacementInitialCommand != nil {
+            remoteDisconnectPlaceholderPanelIds.insert(newPanel.id)
+        }
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: replacementConfig)
 
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
@@ -11364,14 +11495,14 @@ extension Workspace: BonsplitDelegate {
         if panels.isEmpty {
             if isDetaching {
                 // Detach path also doesn't create a replacement panel this turn, so any
-                // pending banner state would survive and leak into a later close. Drop it.
-                pendingReplacementBannerRemoteTarget = nil
+                // pending disconnect placeholder state would survive and leak into a later close.
+                pendingRemoteDisconnectReplacement = nil
                 scheduleTerminalGeometryReconcile()
                 return
             }
 
             #if DEBUG
-            dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
+            dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacement?.target ?? "nil")")
             #endif
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
@@ -11386,10 +11517,9 @@ extension Workspace: BonsplitDelegate {
         }
 
         // A remote terminal exited but sibling panels are still alive, so we won't spawn a
-        // replacement right now. Drop the banner-target — without this, a later unrelated
-        // close (e.g. a local pane shuts down its shell) would inherit the stale value and
-        // print "remote ssh session ended" for a flow that had nothing to do with the VM.
-        pendingReplacementBannerRemoteTarget = nil
+        // replacement right now. Drop the placeholder — without this, a later unrelated
+        // close could inherit stale remote-disconnect state.
+        pendingRemoteDisconnectReplacement = nil
 
         if let selectTabId,
            bonsplitController.allPaneIds.contains(pane),

@@ -1,22 +1,22 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34136	CLI/cmux.swift
+34207	CLI/cmux.swift
 17914	Sources/AppDelegate.swift
-16709	Sources/ContentView.swift
+16705	Sources/ContentView.swift
 14682	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
-12093	Sources/Workspace.swift
+12223	Sources/Workspace.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
 7354	cmuxTests/WorkspaceUnitTests.swift
-6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
-6078	Sources/TabManager.swift
+6091	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5522	cmuxTests/BrowserConfigTests.swift
@@ -26,8 +26,8 @@
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
+3926	cmuxTests/TabManagerUnitTests.swift
 3903	cmuxTests/WindowAndDragTests.swift
-3765	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3672	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
@@ -100,7 +100,7 @@
 893	Sources/WorkspaceContentView.swift
 876	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
+859	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 841	Sources/Panels/MarkdownWebRenderer.swift
@@ -113,7 +113,7 @@
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
-752	Sources/TerminalController+ControlWorkspaceContext.swift
+754	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
@@ -205,4 +205,5 @@
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
+502	Packages/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 502	Sources/CmuxEventPublishing.swift

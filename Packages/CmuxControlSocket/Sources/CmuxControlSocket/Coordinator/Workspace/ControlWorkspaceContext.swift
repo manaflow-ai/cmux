@@ -215,9 +215,14 @@ public protocol ControlWorkspaceContext: AnyObject {
 
     /// Reconnects a remote workspace for `workspace.remote.reconnect`.
     ///
-    /// - Parameter workspaceID: The resolved workspace id.
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - surfaceID: The optional reconnecting placeholder surface id.
     /// - Returns: The remote resolution (may signal `notConfigured`).
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution
 
     /// Notifies foreground-auth readiness for
     /// `workspace.remote.foreground_auth_ready`.
