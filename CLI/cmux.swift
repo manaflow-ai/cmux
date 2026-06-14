@@ -21010,6 +21010,137 @@ struct CMUXCLI {
         throw CLIError(message: "Failed to launch omx: \(String(cString: strerror(code)))\n\nIs oh-my-codex installed? Install with:\n  npm install -g oh-my-codex")
     }
 
+    // MARK: - cmux omp (Oh My Pi)
+
+    private func resolveOMPExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath("omp", searchPath: searchPath)
+    }
+
+    private func createOMPShimDirectory() throws -> URL {
+        let tmuxScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        case "${1:-}" in
+          -V|-v) echo "tmux 3.4"; exit 0 ;;
+          show-options|show-option|show)
+            shift
+            value_only=0
+            option_name=""
+            while (($#)); do
+              arg="$1"
+              shift
+              case "$arg" in
+                --) ;;
+                -t)
+                  if (($#)); then shift; fi
+                  ;;
+                -t*) ;;
+                -*)
+                  case "$arg" in
+                    *v*) value_only=1 ;;
+                  esac
+                  ;;
+                *) option_name="$arg" ;;
+              esac
+            done
+            case "$option_name" in
+              extended-keys)
+                if [[ "$value_only" == "1" ]]; then
+                  echo "on"
+                else
+                  echo "extended-keys on"
+                fi
+                exit 0
+                ;;
+            esac
+            ;;
+        esac
+        exec "${CMUX_OMP_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        """
+        return try createTmuxCompatShimDirectory(
+            directoryName: "omp-bin",
+            tmuxShimScript: tmuxScript
+        )
+    }
+
+    private func configureOMPEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        focusedContext: TmuxCompatFocusedContext?
+    ) {
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-omp",
+            cmuxBinEnvVar: "CMUX_OMP_CMUX_BIN",
+            termOverrideEnvVar: "CMUX_OMP_TERM"
+        )
+    }
+
+    private func runOMP(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+
+        guard let ompExecutablePath = resolveOMPExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: "omp is not installed. Install it first:\n  npm install -g oh-my-pi\n\nThen run: cmux omp")
+        }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: ompExecutablePath
+        )
+
+        let shimDirectory = try createOMPShimDirectory()
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = try tmuxCompatFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
+        configureOMPEnvironment(
+            processEnvironment: launcherEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext
+        )
+
+        let launchPath = ompExecutablePath
+        exportAgentLaunchCommandEnvironment(
+            launcher: "omp",
+            executablePath: executablePath,
+            arguments: [executablePath, "omp"] + commandArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
+        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        execv(launchPath, &argv)
+        let code = errno
+        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  npm install -g oh-my-pi")
+    }
+
+    
     // MARK: - cmux omc (Oh My Claude Code)
 
     private func resolveOMCExecutable(searchPath: String?) -> String? {

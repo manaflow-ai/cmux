@@ -48,6 +48,49 @@ enum CmuxHelpResource {
             return String(localized: "menu.help.claudeCodeTeams", defaultValue: "Claude Code Teams")
         case .ohMyOpenCode:
             return String(localized: "menu.help.ohMyOpenCode", defaultValue: "oh-my-opencode")
+        case .ohMyPi:
+            return String(localized: "menu.help.ohMyPi", defaultValue: "oh-my-pi")
+        case .ohMyClaudeCode:
+            return String(localized: "menu.help.ohMyClaudeCode", defaultValue: "oh-my-claudecode")
+        case .changelog:
+            return String(localized: "menu.help.changelog", defaultValue: "Changelog")
+        case .githubIssues:
+            return String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues")
+        case .discord:
+            return String(localized: "sidebar.help.discord", defaultValue: "Discord")
+        }
+    }
+
+    var url: URL {
+        switch self {
+        case .gettingStarted:
+            return URL(string: "https://cmux.com/docs/getting-started")!
+        case .concepts:
+            return URL(string: "https://cmux.com/docs/concepts")!
+        case .configuration:
+            return URL(string: "https://cmux.com/docs/configuration")!
+        case .customCommands:
+            return URL(string: "https://cmux.com/docs/custom-commands")!
+        case .dock:
+            return URL(string: "https://cmux.com/docs/dock")!
+        case .keyboardShortcuts:
+            return URL(string: "https://cmux.com/docs/keyboard-shortcuts")!
+        case .apiReference:
+            return URL(string: "https://cmux.com/docs/api")!
+        case .browserAutomation:
+            return URL(string: "https://cmux.com/docs/browser-automation")!
+        case .notifications:
+            return URL(string: "https://cmux.com/docs/notifications")!
+        case .ssh:
+            return URL(string: "https://cmux.com/docs/ssh")!
+        case .skills:
+            return URL(string: "https://cmux.com/docs/skills")!
+        case .claudeCodeTeams:
+            return URL(string: "https://cmux.com/docs/agent-integrations/claude-code-teams")!
+        case .ohMyOpenCode:
+            return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-opencode")!
+        case .ohMyPi:
+            return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-pi")!
         case .ohMyCodex:
             return String(localized: "menu.help.ohMyCodex", defaultValue: "oh-my-codex")
         case .ohMyClaudeCode:

@@ -31,6 +31,7 @@ export const navItems: NavEntry[] = [
     children: [
       { titleKey: "claudeCodeTeams", href: "/docs/agent-integrations/claude-code-teams" },
       { titleKey: "ohMyOpenCode", href: "/docs/agent-integrations/oh-my-opencode" },
+      { titleKey: "ohMyPi", href: "/docs/agent-integrations/oh-my-pi" },
       { titleKey: "ohMyCodex", href: "/docs/agent-integrations/oh-my-codex" },
       { titleKey: "ohMyClaudeCode", href: "/docs/agent-integrations/oh-my-claudecode" },
     ],

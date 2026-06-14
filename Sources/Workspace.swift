@@ -1298,7 +1298,7 @@ extension Workspace {
         guard terminalCommandTextContainsWord(lowered, word: "hud") else {
             return false
         }
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
+        return lowered.contains("omp") || lowered.contains("oh-my-pi") || lowered.contains("omx") || lowered.contains("oh-my-codex")
     }
 
     private nonisolated static func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {
