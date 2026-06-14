@@ -6,8 +6,8 @@
 19265	Sources/ContentView.swift
 18118	Sources/AppDelegate.swift
 16674	Sources/GhosttyTerminalView.swift
-14622	Sources/TerminalController.swift
-13606	Sources/Panels/BrowserPanel.swift
+14629	Sources/TerminalController.swift
+13640	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10020	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -23,7 +23,7 @@
 5462	Sources/cmuxApp.swift
 4801	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
-4400	cmuxTests/BrowserPanelTests.swift
+4385	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 4009	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
@@ -95,7 +95,7 @@
 905	Sources/CmuxSSHURLRequest.swift
 896	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 878	Sources/WorkspaceContentView.swift
-868	Sources/Panels/BrowserScreenshotSnapshotter.swift
+863	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
