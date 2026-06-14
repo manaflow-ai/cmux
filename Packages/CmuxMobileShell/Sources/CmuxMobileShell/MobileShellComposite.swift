@@ -196,7 +196,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var workspaces: [MobileWorkspacePreview] {
         didSet {
             workspaceTopologyVersion &+= 1
-            terminalWorkspaceIDsByTerminalID = Self.terminalWorkspaceIndex(for: workspaces)
+            terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -673,7 +673,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
-        self.terminalWorkspaceIDsByTerminalID = Self.terminalWorkspaceIndex(for: workspaces)
+        self.terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
         self.pairingAttemptID = UUID()
     }
 
@@ -2768,18 +2768,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminalInputText = ""
             }
         }
-    }
-
-    private static func terminalWorkspaceIndex(
-        for workspaces: [MobileWorkspacePreview]
-    ) -> [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] {
-        var index: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
-        for workspace in workspaces {
-            for terminal in workspace.terminals where index[terminal.id] == nil {
-                index[terminal.id] = workspace.id
-            }
-        }
-        return index
     }
 
     private func workspaceID(forTerminalID terminalID: MobileTerminalPreview.ID) -> MobileWorkspacePreview.ID? {
@@ -5130,6 +5118,18 @@ private extension CmxAttachTicket {
         )
     }
 
+}
+
+private extension Array where Element == MobileWorkspacePreview {
+    var terminalWorkspaceIndex: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] {
+        var index: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
+        for workspace in self {
+            for terminal in workspace.terminals where index[terminal.id] == nil {
+                index[terminal.id] = workspace.id
+            }
+        }
+        return index
+    }
 }
 
 private extension MobileWorkspacePreview {

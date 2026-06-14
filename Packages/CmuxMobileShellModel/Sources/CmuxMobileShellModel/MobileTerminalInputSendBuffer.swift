@@ -105,7 +105,9 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         let chunk = pendingChunks.removeFirst()
         let chunkByteCount = chunk.text.utf8.count
         if chunkByteCount > Self.maximumPendingByteCount {
-            let splitIndex = Self.boundedSplitIndex(in: chunk.text)
+            let splitIndex = chunk.text.mobileTerminalInputBoundedSplitIndex(
+                maximumUTF8ByteCount: Self.maximumPendingByteCount
+            )
             let prefix = String(chunk.text[..<splitIndex])
             let remainder = String(chunk.text[splitIndex...])
             if !remainder.isEmpty {
@@ -135,19 +137,21 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         pendingByteCount = 0
         isDraining = false
     }
+}
 
-    private static func boundedSplitIndex(in text: String) -> String.Index {
-        var index = text.startIndex
+private extension String {
+    func mobileTerminalInputBoundedSplitIndex(maximumUTF8ByteCount: Int) -> String.Index {
+        var index = startIndex
         var byteCount = 0
-        while index < text.endIndex {
-            let nextIndex = text.index(after: index)
-            let nextByteCount = text[index..<nextIndex].utf8.count
-            guard byteCount + nextByteCount <= maximumPendingByteCount else {
+        while index < endIndex {
+            let nextIndex = self.index(after: index)
+            let nextByteCount = self[index..<nextIndex].utf8.count
+            guard byteCount + nextByteCount <= maximumUTF8ByteCount else {
                 break
             }
             byteCount += nextByteCount
             index = nextIndex
         }
-        return index == text.startIndex ? text.index(after: text.startIndex) : index
+        return index == startIndex ? self.index(after: startIndex) : index
     }
 }
