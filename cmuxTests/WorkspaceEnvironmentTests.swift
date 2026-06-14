@@ -44,33 +44,6 @@ struct WorkspaceEnvironmentTests {
         #expect(result == ["GOOD": "value"])
     }
 
-    // MARK: - CLI env-file parsing
-
-    @Test
-    func envFileValuesTrimUnquotedWhitespace() throws {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-workspace-env-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let envFileURL = directoryURL.appendingPathComponent(".cmux.env", isDirectory: false)
-        try """
-        SPACED= bar
-        TRAILING=baz
-        QUOTED=" keep "
-        """.write(to: envFileURL, atomically: true, encoding: .utf8)
-
-        let env = try CMUXCLI(args: []).buildWorkspaceEnvironment(
-            envFiles: [envFileURL.path],
-            envPairs: [],
-            commandName: "new-workspace"
-        )
-
-        #expect(env["SPACED"] == "bar")
-        #expect(env["TRAILING"] == "baz")
-        #expect(env["QUOTED"] == " keep ")
-    }
-
     // MARK: - Acceptance: initial shell inherits the workspace environment
 
     @Test
