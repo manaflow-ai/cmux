@@ -5365,7 +5365,10 @@ struct CMUXCLI {
         let absolutePath = resolvePath(rawPath)
         let roughdraftURL = try roughdraftDocumentURL(for: absolutePath)
 
-        var params: [String: Any] = ["url": roughdraftURL]
+        var params: [String: Any] = [
+            "url": roughdraftURL,
+            "bypass_remote_proxy": true,
+        ]
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
