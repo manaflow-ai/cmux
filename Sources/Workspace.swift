@@ -1744,13 +1744,17 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
+            guard let browserSnapshot = snapshot.browser,
+                  BrowserPanel.shouldRestoreSessionSnapshot(browserSnapshot) else {
+                return nil
+            }
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                preferredProfileID: snapshot.browser?.profileID,
+                preferredProfileID: browserSnapshot.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: browserSnapshot.transparentBackground ?? false
             ) else {
                 return nil
             }

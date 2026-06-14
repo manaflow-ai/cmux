@@ -669,6 +669,17 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
 
+        let routerLoopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#/cmux-diff-viewer"))
+        let routerLoopbackPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: routerLoopbackURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(routerLoopbackPanel.preferredURLStringForOmnibar(), routerLoopbackURL.absoluteString)
+        XCTAssertNil(routerLoopbackPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(routerLoopbackPanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(routerLoopbackPanel.shouldRenderWebViewForSessionSnapshot())
+
         let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
         let aliasPanel = BrowserPanel(
             workspaceId: UUID(),
@@ -686,6 +697,16 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         )
         XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
         XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
+    }
+
+    func testDiffViewerComponentsAcceptRouterRewrittenFragment() throws {
+        let token = "c5b2c2ba-4864-43b2-9496-3e82f2352c67"
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:53525/\(token)/diff-1781417420-286321CF.html#/cmux-diff-viewer"))
+
+        let components = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url))
+
+        XCTAssertEqual(components.token, token)
+        XCTAssertEqual(components.requestPath, "/diff-1781417420-286321CF.html")
     }
 
     func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {

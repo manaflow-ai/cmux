@@ -1846,6 +1846,57 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(snapshot.panels.contains { $0.type == .browser })
     }
 
+    func testSessionSnapshotSkipsRouterRewrittenDiffViewerBrowserPanels() throws {
+        let workspace = try XCTUnwrap(TabManager().selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:53525/token/diff-1781417420-286321CF.html#/cmux-diff-viewer"))
+        _ = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                omnibarVisible: false
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertFalse(snapshot.panels.contains { $0.type == .browser })
+    }
+
+    func testSessionRestoreSkipsLegacyRouterRewrittenDiffViewerBrowserPanels() throws {
+        let panelId = UUID()
+        let pane = SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)
+        let panel = Self.browserPanelSnapshot(
+            id: panelId,
+            urlString: "http://127.0.0.1:53525/token/diff-1781417420-286321CF.html#/cmux-diff-viewer"
+        )
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Legacy Diff Viewer",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: NSHomeDirectory(),
+            focusedPanelId: panelId,
+            layout: .pane(pane),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertTrue(restoredPanelIds.isEmpty)
+        XCTAssertFalse(restoredSnapshot.panels.contains { $0.type == .browser })
+    }
+
     func testSessionSnapshotSkipsNonRestorableRemoteWorkspaces() {
         let manager = TabManager()
         let localWorkspace = manager.tabs[0]
@@ -3283,7 +3334,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(store.menuSnapshot().totalItemCount, expectedCount)
     }
 
-    private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
+    private static func browserPanelSnapshot(
+        id: UUID,
+        urlString: String = "http://localhost:3000"
+    ) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: id,
             type: .browser,
@@ -3296,7 +3350,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ttyName: nil,
             terminal: nil,
             browser: SessionBrowserPanelSnapshot(
-                urlString: "http://localhost:3000",
+                urlString: urlString,
                 profileID: nil,
                 shouldRenderWebView: true,
                 pageZoom: 1,

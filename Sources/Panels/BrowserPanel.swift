@@ -1639,7 +1639,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard url.fragment == "cmux-diff-viewer",
+    guard CmuxDiffViewerURLSchemeHandler.isDiffViewerFragment(url.fragment),
           url.scheme?.lowercased() == "http",
           let host = url.host else {
         return false
@@ -2725,7 +2725,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if (url.scheme == "http" || url.scheme == "https"),
            url.host == "127.0.0.1",
-           url.fragment == Self.scheme {
+           isDiffViewerFragment(url.fragment) {
             let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
             let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
@@ -2746,6 +2746,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         components.host = token
         components.percentEncodedPath = requestPath
         return components.url
+    }
+
+    static func isDiffViewerFragment(_ fragment: String?) -> Bool {
+        fragment == scheme || fragment == "/\(scheme)"
     }
 
     static func isValidToken(_ token: String) -> Bool {
@@ -5031,14 +5035,38 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
     }
 
+    static func shouldRestoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) -> Bool {
+        if restorableDiffViewerURL(for: snapshot) != nil {
+            return true
+        }
+        var snapshotURLStrings: [String] = []
+        if let urlString = snapshot.urlString {
+            snapshotURLStrings.append(urlString)
+        }
+        snapshotURLStrings.append(contentsOf: snapshot.backHistoryURLStrings ?? [])
+        snapshotURLStrings.append(contentsOf: snapshot.forwardHistoryURLStrings ?? [])
+        return !snapshotURLStrings.contains { raw in
+            guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                return false
+            }
+            return isTemporarySessionHistoryURL(url)
+        }
+    }
+
+    private static func restorableDiffViewerURL(for snapshot: SessionBrowserPanelSnapshot) -> URL? {
+        guard let token = snapshot.diffViewerToken,
+              let requestPath = snapshot.diffViewerRequestPath,
+              CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token) else {
+            return nil
+        }
+        return CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath)
+    }
+
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         // Diff viewer surfaces re-register their token from the on-disk manifest
         // and navigate via the app-owned custom scheme, so they restore even
         // though the local HTTP server that originally served them is gone.
-        if let token = snapshot.diffViewerToken,
-           let requestPath = snapshot.diffViewerRequestPath,
-           CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token),
-           let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
+        if let diffURL = Self.restorableDiffViewerURL(for: snapshot) {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
             setOmnibarVisible(snapshot.omnibarVisible ?? false)
