@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Foundation
 
@@ -275,7 +276,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 self?.append(data, to: .stdout)
             case .wouldBlock:
@@ -285,7 +286,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
             }
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 self?.append(data, to: .stderr)
             case .wouldBlock:
@@ -309,8 +310,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle), to: .stdout)
-        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle), to: .stderr)
+        append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
+        append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
         try? stdoutHandle.close()
         try? stderrHandle.close()
 
