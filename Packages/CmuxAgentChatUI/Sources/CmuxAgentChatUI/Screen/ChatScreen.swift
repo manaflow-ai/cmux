@@ -25,6 +25,9 @@ public struct ChatScreen: View {
     /// dismiss the keyboard.
     @State private var transcriptFrame: CGRect = .zero
     @State private var composerFrame: CGRect = .zero
+    /// The scroll-to-bottom button's frame; excluded from the dismiss region
+    /// so tapping it scrolls instead of dismissing the keyboard.
+    @State private var scrollButtonFrame: CGRect = .zero
 
     private var transcriptDismissRegion: CGRect {
         guard transcriptFrame != .zero else { return .zero }
@@ -160,7 +163,10 @@ public struct ChatScreen: View {
         .onPreferenceChange(ChatComposerFramePreferenceKey.self) { frame in
             composerFrame = frame
         }
-        .dismissesKeyboardOnTap(in: transcriptDismissRegion)
+        .onPreferenceChange(ChatScrollButtonFramePreferenceKey.self) { frame in
+            scrollButtonFrame = frame
+        }
+        .dismissesKeyboardOnTap(in: transcriptDismissRegion, excluding: scrollButtonFrame)
         #endif
         .task { await store.run() }
         #if canImport(UIKit)

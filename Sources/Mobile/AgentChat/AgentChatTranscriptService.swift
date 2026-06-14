@@ -47,6 +47,29 @@ final class AgentChatTranscriptService {
     /// at app startup.
     func start() {
         registry.seedFromHookStores()
+        observeAgentTitleChanges()
+    }
+
+    /// Watches terminal title changes so a coding agent launched without a
+    /// hook (e.g. via a shell wrapper that bypasses cmux's hook injection) is
+    /// adopted the instant its terminal title becomes the agent's (e.g.
+    /// "✳ Claude Code"), not only when the workspace is next opened. Adoption
+    /// emits a descriptor change, which pushes the toggle to listening phones.
+    private func observeAgentTitleChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .ghosttyDidSetTitle,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  let title = notification.userInfo?[GhosttyNotificationKey.title] as? String,
+                  title.lowercased().contains("claude") else {
+                return
+            }
+            MainActor.assumeIsolated {
+                TerminalController.shared.adoptDetectedAgentSessions(workspaceID: tabId.uuidString)
+            }
+        }
     }
 
     /// Ingests one hook event (called from the socket dispatch path).

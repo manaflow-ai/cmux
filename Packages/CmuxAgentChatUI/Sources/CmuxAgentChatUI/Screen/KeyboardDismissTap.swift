@@ -20,10 +20,17 @@ struct KeyboardDismissTap: UIViewRepresentable {
     /// bar, keyboard) are ignored. `.zero` dismisses nowhere.
     var dismissRegion: CGRect
 
+    /// A region inside `dismissRegion` whose taps must NOT dismiss — the
+    /// floating scroll-to-bottom button sits over the transcript but is a
+    /// control, so tapping it should scroll, not dismiss. `.zero` excludes
+    /// nothing.
+    var excludedRegion: CGRect = .zero
+
     func makeUIView(context: Context) -> TapInstallerView { TapInstallerView() }
 
     func updateUIView(_ uiView: TapInstallerView, context: Context) {
         uiView.dismissRegion = dismissRegion
+        uiView.excludedRegion = excludedRegion
     }
 
     /// A non-interactive marker view that adds the recognizer to its window
@@ -33,6 +40,9 @@ struct KeyboardDismissTap: UIViewRepresentable {
     final class TapInstallerView: UIView {
         /// Region (window coords) whose taps dismiss the keyboard.
         var dismissRegion: CGRect = .zero
+
+        /// Region (window coords) whose taps are excluded (the scroll button).
+        var excludedRegion: CGRect = .zero
 
         private weak var installedWindow: UIWindow?
 
@@ -89,7 +99,9 @@ extension KeyboardDismissTap.TapInstallerView: UIGestureRecognizerDelegate {
         shouldReceive touch: UITouch
     ) -> Bool {
         guard !dismissRegion.isEmpty, let window else { return false }
-        return dismissRegion.contains(touch.location(in: window))
+        let point = touch.location(in: window)
+        guard dismissRegion.contains(point) else { return false }
+        return !excludedRegion.contains(point)
     }
 
     // Never block other recognizers (scrolling, buttons, row taps).
@@ -122,7 +134,30 @@ struct ChatComposerFramePreferenceKey: PreferenceKey {
     }
 }
 
+/// Reports the floating scroll-to-bottom button's frame (window coordinates)
+/// so the dismiss recognizer can exclude it (tapping it scrolls, not
+/// dismisses).
+struct ChatScrollButtonFramePreferenceKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 extension View {
+    /// Publishes this control's frame so the keyboard-dismiss tap excludes it.
+    func excludedFromKeyboardDismiss() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChatScrollButtonFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
+        )
+    }
+
     /// Marks this view as the chat-history region: publishes its frame so the
     /// dismiss recognizer fires only here.
     func chatTranscriptDismissRegion() -> some View {
@@ -150,9 +185,10 @@ extension View {
 
     /// Dismisses the keyboard when the user taps inside `region` (the chat
     /// transcript), without blocking taps on buttons or rows, and without
-    /// dismissing on taps in the composer, accessory bar, or header.
-    func dismissesKeyboardOnTap(in region: CGRect) -> some View {
-        background(KeyboardDismissTap(dismissRegion: region))
+    /// dismissing on taps in the composer, accessory bar, header, or the
+    /// `excluding` region (the scroll-to-bottom button).
+    func dismissesKeyboardOnTap(in region: CGRect, excluding: CGRect) -> some View {
+        background(KeyboardDismissTap(dismissRegion: region, excludedRegion: excluding))
     }
 }
 #endif

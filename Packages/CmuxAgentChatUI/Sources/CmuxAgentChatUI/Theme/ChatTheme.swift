@@ -67,7 +67,7 @@ public struct ChatTheme: Sendable, Equatable {
         bubbleGroupedCornerRadius: CGFloat = 6,
         horizontalMargin: CGFloat = 12,
         groupSpacing: CGFloat = 12,
-        intraGroupSpacing: CGFloat = 2,
+        intraGroupSpacing: CGFloat = 5,
         bubbleMaxWidthFraction: CGFloat = 0.78
     ) {
         self.accent = accent

@@ -201,10 +201,15 @@ struct WorkspaceDetailView: View {
         }
         let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
         let stream = await source.sessionEvents()
-        chatSessions = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
+        // Animate the list update so the toggle eases in rather than popping
+        // when a session is found (the seed/first frame arriving over the
+        // wire is the "appears real quickly but not smooth" moment).
+        let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
+        withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
         applyChatModeFallback()
         for await frame in stream {
-            chatSessions = reducer.applying(frame, to: chatSessions)
+            let next = reducer.applying(frame, to: chatSessions)
+            withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
             applyChatModeFallback()
         }
     }

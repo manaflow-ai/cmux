@@ -60,8 +60,11 @@ extension TerminalController {
     /// Scans a workspace's terminals for a running coding agent that has no
     /// chat session yet (title- or launch-metadata-detected, no hook) and
     /// adopts it. Adoption is a no-op once the surface has a session, so this
-    /// only touches the filesystem the first time an agent is seen.
-    private func adoptDetectedAgentSessions(workspaceID: String) {
+    /// only touches the filesystem the first time an agent is seen. Called
+    /// both on a mobile session-list request and live from the terminal
+    /// title-change observer, so the toggle appears the moment an agent
+    /// launches, not only when the workspace is next opened.
+    func adoptDetectedAgentSessions(workspaceID: String) {
         guard let resolved = mobileResolveWorkspaceAndSurface(
             params: ["workspace_id": workspaceID],
             requireTerminal: false

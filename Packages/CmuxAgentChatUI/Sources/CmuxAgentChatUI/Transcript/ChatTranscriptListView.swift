@@ -98,33 +98,18 @@ public struct ChatTranscriptListView: View {
                     Group {
                         if !isAtBottom {
                             ChatScrollToBottomButton {
-                            let lastID = rows.last?.id
-                            if let lastID {
-                                scrollPosition.scrollTo(id: lastID, anchor: .bottom)
-                            }
-                            withAnimation(.snappy(duration: 0.25)) {
-                                if let lastID {
-                                    proxy.scrollTo(lastID, anchor: .bottom)
-                                }
-                                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                            }
-                            Task { @MainActor in
-                                await Task.yield()
-                                if let lastID {
-                                    scrollPosition.scrollTo(id: lastID, anchor: .bottom)
-                                    withAnimation(.snappy(duration: 0.25)) {
-                                        proxy.scrollTo(lastID, anchor: .bottom)
-                                    }
-                                }
-                                await Task.yield()
-                                scrollPosition.scrollTo(id: Self.bottomAnchorID, anchor: .bottom)
-                                withAnimation(.snappy(duration: 0.25)) {
+                                // Smoothly animate to the live tail. A single
+                                // animated `proxy.scrollTo` glides rather than
+                                // jumping; the bottom anchor is the stable
+                                // target (a pinned failed pending row can keep
+                                // `rows.last` from being the visual bottom).
+                                withAnimation(.snappy(duration: 0.3)) {
                                     proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                                 }
                             }
-                        }
                             .padding(.trailing, 12)
                             .padding(.bottom, 8)
+                            .excludedFromKeyboardDismiss()
                             .transition(.opacity.combined(with: .scale(scale: 0.8)))
                         }
                     }
