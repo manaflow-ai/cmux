@@ -131,6 +131,7 @@ struct WorkspaceDetailView: View {
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .overlay { WorkspaceTerminalEmptyStateView(createTerminal: createTerminalFromToolbar) }
             }
             #else
             TerminalPalette.background
@@ -297,8 +298,7 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif

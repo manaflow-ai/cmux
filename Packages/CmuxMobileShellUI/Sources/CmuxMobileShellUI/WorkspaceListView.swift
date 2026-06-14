@@ -95,24 +95,47 @@ struct WorkspaceListView: View {
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
-    /// Workspaces after the row filter (Unread) and search filtering, pinned
-    /// ones first (stable within each group so the Mac's order is otherwise
-    /// preserved). Used for the flat (ungrouped, filtering, or searching)
-    /// presentation.
-    private var filteredWorkspaces: [MobileWorkspacePreview] {
+    /// Workspaces after the row filter (Unread) and search filtering, plus the
+    /// empty-state decision that falls out of the same scan. The flat
+    /// presentation is the search/filter hot path, so keep filtering, counting,
+    /// and pinned sorting in one projection instead of recomputing each in
+    /// separate body helpers.
+    private var flatListProjection: (
+        workspaces: [MobileWorkspacePreview],
+        emptyState: MobileWorkspaceListEmptyState?
+    ) {
         let query = trimmedQuery
-        let matches = workspaces.filter { workspace in
-            filter.matches(workspace)
-                && (query.isEmpty || matchesQuery(workspace, query: query))
+        var visibleWorkspaces: [MobileWorkspacePreview] = []
+        visibleWorkspaces.reserveCapacity(workspaces.count)
+        var queryMatchedWorkspaceCount = 0
+
+        for workspace in workspaces {
+            let queryMatches = query.isEmpty || matchesQuery(workspace, query: query)
+            if queryMatches {
+                queryMatchedWorkspaceCount += 1
+            }
+            if filter.matches(workspace) && queryMatches {
+                visibleWorkspaces.append(workspace)
+            }
         }
-        return matches.enumerated()
+
+        let sortedWorkspaces = visibleWorkspaces.enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.isPinned != rhs.element.isPinned {
-                    return lhs.element.isPinned
+                    return lhs.element.isPinned && !rhs.element.isPinned
                 }
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+
+        let emptyState = MobileWorkspaceListEmptyState.state(
+            workspaceCount: workspaces.count,
+            visibleWorkspaceCount: sortedWorkspaces.count,
+            queryMatchedWorkspaceCount: queryMatchedWorkspaceCount,
+            trimmedQuery: query,
+            filter: filter
+        )
+        return (workspaces: sortedWorkspaces, emptyState: emptyState)
     }
 
     /// Ordered drawable items for the grouped presentation. Preserves the Mac's
@@ -132,17 +155,12 @@ struct WorkspaceListView: View {
                 }
             }
             Section {
-                if rendersGroupedSections {
+                if workspaces.isEmpty {
+                    emptyRow(for: .noWorkspaces)
+                } else if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
-                    // The filter alone (not the Mac, and not a search query)
-                    // emptied the list; offer the way back. While searching, the
-                    // standard empty search result is shown instead, since "Show
-                    // All" would not resolve a query that matches nothing.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
-                        .listRowSeparator(.hidden)
                 } else {
-                    flatRows
+                    flatContent
                 }
             }
         }
@@ -212,8 +230,18 @@ struct WorkspaceListView: View {
     /// Flat presentation: a pinned-first list with no group headers. Used when the
     /// Mac has no groups (or lacks the capability) or while searching.
     @ViewBuilder
-    private var flatRows: some View {
-        ForEach(filteredWorkspaces) { workspace in
+    private var flatContent: some View {
+        let projection = flatListProjection
+        if let emptyState = projection.emptyState {
+            emptyRow(for: emptyState)
+        } else {
+            flatRows(projection.workspaces)
+        }
+    }
+
+    @ViewBuilder
+    private func flatRows(_ workspaces: [MobileWorkspacePreview]) -> some View {
+        ForEach(workspaces) { workspace in
             workspaceRow(workspace, indented: false)
         }
     }
@@ -263,6 +291,49 @@ struct WorkspaceListView: View {
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func emptyRow(for emptyState: MobileWorkspaceListEmptyState) -> some View {
+        switch emptyState {
+        case .noWorkspaces:
+            WorkspaceListEmptyRow(
+                systemImage: "rectangle.stack.badge.plus",
+                title: L10n.string("mobile.workspaces.empty.title", defaultValue: "No workspaces yet"),
+                message: L10n.string(
+                    "mobile.workspaces.empty.message",
+                    defaultValue: "Create a workspace to start a terminal session."
+                ),
+                actionTitle: L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                actionSystemImage: "plus",
+                action: createWorkspace
+            )
+            .accessibilityIdentifier("MobileWorkspaceListEmpty")
+            .listRowSeparator(.hidden)
+        case .noSearchResults:
+            WorkspaceListEmptyRow(
+                systemImage: "magnifyingglass",
+                title: L10n.string(
+                    "mobile.workspaces.search.empty.title",
+                    defaultValue: "No matching workspaces"
+                ),
+                message: L10n.string(
+                    "mobile.workspaces.search.empty.message",
+                    defaultValue: "Try a different workspace name, terminal, or recent activity."
+                ),
+                actionTitle: L10n.string("mobile.workspaces.search.clear", defaultValue: "Clear Search"),
+                actionSystemImage: "xmark",
+                action: { searchText = "" }
+            )
+            .accessibilityIdentifier("MobileWorkspaceSearchEmpty")
+            .listRowSeparator(.hidden)
+        case .filterNoMatches(let filter):
+            // The filter alone (not the Mac, and not a search query) emptied
+            // the list; offer the way back. Search empties get a separate row,
+            // since "Show All" would not resolve a query that matches nothing.
+            WorkspaceListFilterEmptyRow(filter: filter) { self.filter = .all }
+                .listRowSeparator(.hidden)
+        }
     }
 
     private var newWorkspaceButton: some View {
