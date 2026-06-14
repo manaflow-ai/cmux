@@ -1,6 +1,13 @@
 import AppKit
+import CmuxRemoteSession
+import CmuxCore
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxPanes
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -10,10 +17,13 @@ import CMUXWorkstream
 import Foundation
 import Bonsplit
 import WebKit
+import CmuxSidebar
+import CmuxTerminal
+import CmuxWorkspaceCore
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
-    static let terminalSurfaceDidBecomeReady = Notification.Name("cmux.terminalSurfaceDidBecomeReady")
+    // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
@@ -26,7 +36,7 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 }
 
 nonisolated private struct RemotePTYSocketTarget {
-    let controller: WorkspaceRemoteSessionController?
+    let controller: RemoteSessionCoordinator?
     let windowId: UUID?
     let windowRef: Any
     let workspaceId: UUID
@@ -98,6 +108,11 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
+    /// windows), constructed at this app-hub composition point and injected into each
+    /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
+    /// planned `RemoteSessionCoordinator` wiring.
+    nonisolated let remoteProxyBroker: any RemoteProxyBrokering
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -267,10 +282,14 @@ class TerminalController {
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
-        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy()
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+        )
     ) {
         self.passwordStore = passwordStore
         self.transport = transport
+        self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
@@ -585,7 +604,7 @@ class TerminalController {
 
     nonisolated static func parseReportedShellActivityState(
         _ rawState: String
-    ) -> Workspace.PanelShellActivityState? {
+    ) -> PanelShellActivityState? {
         switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "prompt", "idle":
             return .promptIdle
@@ -600,7 +619,7 @@ class TerminalController {
 
     nonisolated static func parseRemotePortScanKickReason(
         _ rawReason: String
-    ) -> WorkspaceRemoteSessionController.PortScanKickReason? {
+    ) -> PortScanKickReason? {
         switch rawReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "command", "running", "foreground", "start":
             return .command
@@ -4606,7 +4625,7 @@ class TerminalController {
                 }
             }
 
-            let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
+            let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
             let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
                 let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
                 let hostedView = terminalSurface.hostedView
@@ -4893,7 +4912,7 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         var actionSucceeded = false
-        let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             let ok = terminalPanel.performBindingAction(bindingAction)
             actionSucceeded = ok
             return ok
@@ -13980,7 +13999,7 @@ class TerminalController {
                 createParams["workspace_id"] = createdWorkspaceID
             }
             // workspace.updated emit is handled by MobileWorkspaceListObserver
-            // which watches TabManager.$tabs directly. Don't fire here.
+            // which watches TabManager.tabsPublisher directly. Don't fire here.
             return v2MobileWorkspaceList(
                 params: createParams,
                 tabManager: tabManager,
@@ -14008,7 +14027,7 @@ class TerminalController {
             inPane: paneId,
             focus: false,
             autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false
+            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
@@ -14250,7 +14269,7 @@ class TerminalController {
 
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
-        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+        guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 

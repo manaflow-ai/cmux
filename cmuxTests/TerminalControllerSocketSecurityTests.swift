@@ -1,7 +1,9 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
-import CmuxSettings
+import CmuxTerminal
+import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)

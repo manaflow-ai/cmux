@@ -2,6 +2,7 @@
 import AppKit
 import CmuxTestSupport
 import Foundation
+import CmuxTerminal
 
 @MainActor
 final class TerminalViewportUITestRecorder {

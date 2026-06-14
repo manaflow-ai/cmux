@@ -2,6 +2,7 @@ import AppKit
 import CMUXMobileCore
 import CmuxFileOpen
 import CmuxSettingsUI
+import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
