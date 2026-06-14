@@ -69,36 +69,18 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         updateIcon()
     }
 
-    /// Per-path icons already resolved this session. `NSWorkspace.icon(forFile:)`
-    /// stats the path, and `directory` can be a REMOTE working directory
-    /// (remote tmux) where that stat blocks on the autofs automounter for
-    /// hundreds of ms — never pay it twice, and never pay it on the main thread.
-    private static let iconLookups = DetachedFolderPathLookupCache<NSImage>()
     private static let displayNameLookups = DetachedFolderPathLookupCache<String>()
 
-    /// Returns the cached icon for `path`, or the generic folder icon
-    /// (UTType-based — no filesystem access) while resolving the real one
-    /// off-main. `onResolved` runs on the main thread once a fresh icon is
-    /// fetched and cached; it is not called on a cache hit.
-    private static func icon(forPath path: String, onResolved: @escaping (NSImage) -> Void) -> NSImage {
-        if let cached = iconLookups.value(forPath: path) { return cached }
-        if iconLookups.enqueueCallback(forPath: path, callback: onResolved) {
-            Task.detached(priority: .userInitiated) {
-                let icon = NSWorkspace.shared.icon(forFile: path)
-                await MainActor.run {
-                    icon.size = NSSize(width: 16, height: 16)
-                    iconLookups.resolve(path: path, value: icon)
-                }
-            }
-        }
-        let generic = NSWorkspace.shared.icon(for: .folder)
-        generic.size = NSSize(width: 16, height: 16)
+    /// UTType-based generic folder icon. Avoid `icon(forFile:)`: it stats the
+    /// path, and remote tmux directories can block on the autofs automounter.
+    private static func genericFolderIcon(size: CGFloat) -> NSImage {
+        let generic = (NSWorkspace.shared.icon(for: .folder).copy() as? NSImage) ?? NSWorkspace.shared.icon(for: .folder)
+        generic.size = NSSize(width: size, height: size)
         return generic
     }
 
     /// Resolves the localized display name for `path` off-main (the API
-    /// stats), then runs `onResolved` on the main thread — same shape as
-    /// ``icon(forPath:onResolved:)``.
+    /// stats), then runs `onResolved` on the main thread.
     private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
         if let cached = displayNameLookups.value(forPath: path) {
             onResolved(cached)
@@ -118,11 +100,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        let target = directory
-        imageView.image = Self.icon(forPath: target) { [weak self] icon in
-            guard let self, self.directory == target else { return }
-            self.imageView.image = icon
-        }
+        imageView.image = Self.genericFolderIcon(size: 16)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -201,10 +179,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
-        // Cosmetic drag image: use the already-resolved icon (or the generic
-        // folder) rather than re-statting `directory` — see updateIcon().
-        let iconImage = (Self.iconLookups.value(forPath: directory) ?? NSWorkspace.shared.icon(for: .folder)).copy() as! NSImage
-        iconImage.size = NSSize(width: 32, height: 32)
+        // Cosmetic drag image: use the generic folder rather than re-statting
+        // `directory` — see updateIcon().
+        let iconImage = Self.genericFolderIcon(size: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
@@ -252,15 +229,13 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
                 }
             } else {
                 // Placeholder; the localized display name comes from a stat'ing
-                // API and is refined off-main below, like the icons.
+                // API and is refined off-main below.
                 displayName = (path as NSString).lastPathComponent
             }
 
             let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
             item.target = self
-            item.image = Self.icon(forPath: path) { [weak item] icon in
-                item?.image = icon
-            }
+            item.image = Self.genericFolderIcon(size: 16)
             item.representedObject = pathURL
             if path != "/" {
                 Self.localizedDisplayName(forPath: path) { [weak item] localizedName in
