@@ -27,7 +27,7 @@
 4227	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3903	cmuxTests/WindowAndDragTests.swift
-3894	cmuxTests/CLIGenericHookPersistenceTests.swift
+3896	cmuxTests/CLIGenericHookPersistenceTests.swift
 3765	cmuxTests/TabManagerUnitTests.swift
 3664	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift

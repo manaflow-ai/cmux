@@ -216,6 +216,15 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        "copilot": [
+            "preToolUse": .toolStartMaybeApproval,
+            "postToolUse": .toolEnd,
+            "userPromptSubmitted": .promptSubmit,
+            "sessionStart": .sessionStart,
+            "sessionEnd": .sessionEnd,
+            "agentStop": .response,
+            "notification": .statusNotification,
+        ],
     ]
 
     /// Fallback table for agents without a dedicated entry in

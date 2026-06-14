@@ -54,7 +54,7 @@ extension CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
-            case copilot(timeoutSeconds: Int) // Copilot user hook file: flat command entries with timeoutSec
+            case copilot(timeoutSeconds: Int) // Copilot user hook file: flat bash entries with timeoutSec
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
@@ -318,12 +318,12 @@ extension CMUXCLI {
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
             hookMarker: "cmux hooks copilot", format: .copilot(timeoutSeconds: 5),
             events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "notification", cmuxSubcommand: "stop"),
+                .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["preToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",

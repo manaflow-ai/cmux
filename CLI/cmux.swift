@@ -26671,7 +26671,7 @@ struct CMUXCLI {
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append([
                     "type": "command",
-                    "command": cmd,
+                    "bash": cmd,
                     "timeoutSec": timeoutSeconds,
                 ])
                 result[event.agentEvent] = entries
@@ -26717,7 +26717,7 @@ struct CMUXCLI {
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append([
                     "type": "command",
-                    "command": feedCmd,
+                    "bash": feedCmd,
                     "timeoutSec": max((feedTimeoutMs - 1) / 1000 + 1, 1),
                 ])
                 result[agentEvent] = entries
