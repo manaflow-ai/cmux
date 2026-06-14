@@ -168,9 +168,9 @@ extension SocketControlServer {
         }
 
         // Create socket
-        let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        let (newServerSocket, createSocketErrno) = transport.makeListenerSocket()
         guard newServerSocket >= 0 else {
-            let errnoCode = errno
+            let errnoCode = createSocketErrno ?? EIO
             print("SocketControlServer: Failed to create socket")
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -195,7 +195,7 @@ extension SocketControlServer {
         }
 
         var bindAttempt = acquireActiveSocketPathLock()
-            ?? bindListenerSocketOnListenerQueue(
+            ?? transport.bindListenerSocket(
                 newServerSocket,
                 path: activeSocketPath,
                 canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
@@ -224,7 +224,7 @@ extension SocketControlServer {
                 state.socketPath = activeSocketPath
             }
             bindAttempt = acquireActiveSocketPathLock()
-                ?? bindListenerSocketOnListenerQueue(
+                ?? transport.bindListenerSocket(
                     newServerSocket,
                     path: activeSocketPath,
                     canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
@@ -298,9 +298,6 @@ extension SocketControlServer {
         let generation = withListenerState { state in
             state.isRunning = true
             state.pendingAcceptLoopRearmGeneration = nil
-            if !preserveAcceptFailureStreak {
-                state.acceptSourceConsecutiveFailures = 0
-            }
             state.nextAcceptLoopGeneration &+= 1
             let generation = state.nextAcceptLoopGeneration
             state.activeAcceptLoopGeneration = generation
@@ -309,6 +306,13 @@ extension SocketControlServer {
             state.socketPathLockFD = activeSocketPathLockFD
             state.listenerStartInProgress = false
             return generation
+        }
+        acceptRecovery.withLock { recovery in
+            recovery = AcceptRecoveryState(
+                generation: generation,
+                consecutiveFailures: preserveAcceptFailureStreak ? recovery.consecutiveFailures : 0,
+                recoveryHopInFlight: false
+            )
         }
         if displacedSocketPathLockFD >= 0, displacedSocketPathLockFD != transferredSocketPathLockFD {
             transport.releaseSocketPathLock(displacedSocketPathLockFD)
@@ -353,17 +357,4 @@ extension SocketControlServer {
         }
     }
 
-    private func bindListenerSocketOnListenerQueue(
-        _ socket: Int32,
-        path: String,
-        canReplaceRefusedSocket: Bool
-    ) -> SocketBindAttemptResult {
-        socketListenerQueue.sync {
-            transport.bindListenerSocket(
-                socket,
-                path: path,
-                canReplaceRefusedSocket: canReplaceRefusedSocket
-            )
-        }
-    }
 }

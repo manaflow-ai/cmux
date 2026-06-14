@@ -24,3 +24,36 @@ Run package tests:
 ```bash
 swift test --package-path ios/cmuxPackage
 ```
+
+## TestFlight beta (cloud lane)
+
+`ios/scripts/cloud-testflight.sh` is the turnkey lane for cutting a TestFlight
+beta. It builds the heavy GhosttyKit + Swift Release compile on a leased fleet
+Mac (same maclease pool as the device cloud reload, m1ultra excluded), so the
+build stays off this Mac's CPU. The fleet produces an UNSIGNED Release archive
+for the beta bundle id `dev.cmux.app.beta` (no signing material ever lands on
+the shared Macs), downloads it locally, then hands it to
+`ios/scripts/upload-testflight.sh --archive-path`, which does the local export,
+re-sign with the Apple Distribution cert (re-adding `aps-environment=production`),
+strict codesign verification, and TestFlight upload.
+
+```bash
+# Dry run: build + export + re-sign + verify aps-environment=production, NO upload
+ios/scripts/cloud-testflight.sh --no-upload
+
+# Full lane: build on the fleet and upload to TestFlight (internal "cmux beta" group)
+ios/scripts/cloud-testflight.sh
+
+# Also make the build eligible for external testers
+ios/scripts/cloud-testflight.sh --external
+```
+
+A standalone cmux clone with no cmuxterm-hq checkout transparently falls back to
+a LOCAL Release archive (`--local` forces it), then takes the same export path.
+
+Internal testers (the `cmux beta` group) get every uploaded build instantly with
+no review. An `--external` build is different: the FIRST external build of a new
+`MARKETING_VERSION` must pass a one-time Apple Beta App Review (~24h) before any
+external tester can install it. Subsequent external builds of the same version
+ship without re-review. Plan a version bump's first external cut around that
+~24h gate.

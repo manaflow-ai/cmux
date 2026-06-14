@@ -32,8 +32,31 @@ var version = "dev"
 
 type rpcRequest struct {
 	ID     any            `json:"id"`
+	HasID  bool           `json:"-"`
 	Method string         `json:"method"`
 	Params map[string]any `json:"params"`
+}
+
+func (r *rpcRequest) UnmarshalJSON(data []byte) error {
+	type rpcRequestWire struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params map[string]any  `json:"params"`
+	}
+	var wire rpcRequestWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	r.HasID = len(wire.ID) > 0
+	r.ID = nil
+	if r.HasID && string(wire.ID) != "null" {
+		if err := json.Unmarshal(wire.ID, &r.ID); err != nil {
+			return err
+		}
+	}
+	r.Method = wire.Method
+	r.Params = wire.Params
+	return nil
 }
 
 type rpcError struct {
@@ -292,8 +315,7 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 			continue
 		}
 
-		resp := server.handleRequest(req)
-		if err := writer.writeResponse(resp); err != nil {
+		if err := server.handleRequestAndWriteResponse(req); err != nil {
 			return err
 		}
 	}
@@ -1109,8 +1131,7 @@ func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyH
 			continue
 		}
 
-		resp := server.handleRequest(req)
-		if err := writer.writeResponse(resp); err != nil {
+		if err := server.handleRequestAndWriteResponse(req); err != nil {
 			return err
 		}
 	}
@@ -1290,6 +1311,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session",
 					"pty.session.token",
 					"pty.session.persistent_daemon",
+					"pty.write.notification",
 				},
 			},
 		}
@@ -1343,6 +1365,64 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 			},
 		}
 	}
+}
+
+func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
+	resp := s.handleRequest(req)
+	if !rpcRequestExpectsResponse(req) {
+		return s.handleNotificationResponse(req, resp)
+	}
+	return s.frameWriter.writeResponse(resp)
+}
+
+func rpcRequestExpectsResponse(req rpcRequest) bool {
+	// Only pty.write currently uses JSON-RPC notification semantics; all
+	// other id-less requests still get a response for compatibility.
+	return !rpcRequestIsPTYWriteNotification(req)
+}
+
+func rpcRequestIsPTYWriteNotification(req rpcRequest) bool {
+	return !req.HasID && req.Method == "pty.write"
+}
+
+func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse) error {
+	if !rpcRequestIsPTYWriteNotification(req) || resp.OK {
+		return nil
+	}
+	if s.frameWriter == nil {
+		detail := "unknown error"
+		if resp.Error != nil {
+			detail = strings.TrimSpace(resp.Error.Code)
+			if message := strings.TrimSpace(resp.Error.Message); message != "" {
+				if detail != "" {
+					detail += ": "
+				}
+				detail += message
+			}
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: pty.write notification failed without response writer: %s\n", detail)
+		return nil
+	}
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
+	if badResp != nil || strings.TrimSpace(attachmentToken) == "" {
+		return nil
+	}
+	detail := "PTY write failed"
+	if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
+		detail = strings.TrimSpace(resp.Error.Message)
+	}
+	err := s.frameWriter.writeEvent(rpcEvent{
+		Event:           "pty.error",
+		SessionID:       sessionID,
+		AttachmentID:    attachmentID,
+		AttachmentToken: attachmentToken,
+		Error:           detail,
+		Message:         detail,
+	})
+	if resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
+		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
+	}
+	return err
 }
 
 func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
