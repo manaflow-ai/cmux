@@ -27,11 +27,40 @@ struct DesktopNotificationSettingsRowTests {
     }
 
     @Test(arguments: [
+        DesktopNotificationAuthorizationState.authorized,
+        .provisional,
+        .ephemeral,
+    ])
+    @MainActor func allowedStatesSendTestNotification(state: DesktopNotificationAuthorizationState) async {
+        let host = RecordingSettingsHostActions(state: state, refreshedState: state)
+        let result = await DesktopNotificationSettingsRowActions(hostActions: host)
+            .performPrimaryAction(for: state)
+
+        #expect(host.requestAuthorizationCallCount == 0)
+        #expect(host.openSystemSettingsCallCount == 0)
+        #expect(host.refreshCallCount == 0)
+        #expect(host.sendTestNotificationCallCount == 1)
+        #expect(result == state)
+    }
+
+    @Test @MainActor func unknownDoesNotTriggerLiveAction() async {
+        let host = RecordingSettingsHostActions(state: .unknown, refreshedState: .denied)
+        let result = await DesktopNotificationSettingsRowActions(hostActions: host)
+            .performPrimaryAction(for: .unknown)
+
+        #expect(host.requestAuthorizationCallCount == 0)
+        #expect(host.openSystemSettingsCallCount == 0)
+        #expect(host.refreshCallCount == 0)
+        #expect(host.sendTestNotificationCallCount == 0)
+        #expect(result == .unknown)
+    }
+
+    @Test(arguments: [
         (
             DesktopNotificationAuthorizationState.unknown,
             "settings.notifications.desktop.status.checking",
             "settings.notifications.desktop.subtitle.checking",
-            DesktopNotificationPrimaryAction.requestAuthorization
+            nil
         ),
         (
             .notDetermined,
@@ -43,7 +72,7 @@ struct DesktopNotificationSettingsRowTests {
             .authorized,
             "settings.notifications.desktop.status.allowed",
             "settings.notifications.desktop.subtitle.allowed",
-            .openSystemSettings
+            .sendTest
         ),
         (
             .denied,
@@ -55,20 +84,20 @@ struct DesktopNotificationSettingsRowTests {
             .provisional,
             "settings.notifications.desktop.status.provisional",
             "settings.notifications.desktop.subtitle.provisional",
-            .openSystemSettings
+            .sendTest
         ),
         (
             .ephemeral,
             "settings.notifications.desktop.status.ephemeral",
             "settings.notifications.desktop.subtitle.ephemeral",
-            .openSystemSettings
+            .sendTest
         ),
     ])
     func presentationMapsAuthorizationState(
         state: DesktopNotificationAuthorizationState,
         statusKey: String,
         subtitleKey: String,
-        primaryAction: DesktopNotificationPrimaryAction
+        primaryAction: DesktopNotificationPrimaryAction?
     ) {
         let presentation = DesktopNotificationSettingsRowPresentation(authorizationState: state)
 
@@ -83,6 +112,7 @@ private final class RecordingSettingsHostActions: SettingsHostActions {
     private let refreshedState: DesktopNotificationAuthorizationState
 
     private(set) var requestAuthorizationCallCount = 0
+    private(set) var sendTestNotificationCallCount = 0
     private(set) var openSystemSettingsCallCount = 0
     private(set) var refreshCallCount = 0
 
@@ -97,7 +127,9 @@ private final class RecordingSettingsHostActions: SettingsHostActions {
     func clearBrowserHistory() {}
     func openConfigInExternalEditor() {}
     func sendFeedback() {}
-    func sendTestNotification() {}
+    func sendTestNotification() {
+        sendTestNotificationCallCount += 1
+    }
 
     func openSystemNotificationSettings() {
         openSystemSettingsCallCount += 1
