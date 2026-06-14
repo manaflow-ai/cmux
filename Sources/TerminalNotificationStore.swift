@@ -681,8 +681,7 @@ final class TerminalNotificationStore: ObservableObject {
     @MainActor
     func requestAuthorizationFromSettings() async -> NotificationAuthorizationState {
         logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        _ = await ensureAuthorizationResult(origin: .settingsButton)
-        return await refreshAuthorizationStatusFromSettings()
+        return await ensureAuthorizationResult(origin: .settingsButton)
     }
 
     func openNotificationSettings() {
@@ -736,10 +735,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @MainActor
-    private func ensureAuthorizationResult(origin: AuthorizationRequestOrigin) async -> Bool {
+    private func ensureAuthorizationResult(origin: AuthorizationRequestOrigin) async -> NotificationAuthorizationState {
         await withCheckedContinuation { continuation in
-            ensureAuthorization(origin: origin) { authorized in
-                continuation.resume(returning: authorized)
+            ensureAuthorization(origin: origin) { [weak self] _, state in
+                self?.authorizationState = state
+                continuation.resume(returning: state)
             }
         }
     }
