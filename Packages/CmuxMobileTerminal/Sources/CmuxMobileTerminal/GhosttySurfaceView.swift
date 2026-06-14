@@ -411,14 +411,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     /// Whether the user can show/hide/reorder this action.
     ///
-    /// Every button on the bar is configurable except ``composer``, which has
-    /// armed machinery but is intentionally not surfaced as a normal bar button
-    /// (it is the iMessage-style composer toggle, pinned outside the scroll view).
-    /// The leading modifier keys (⌃ ⌥ ⌘ ⇧), zoom controls, and paste used to be
-    /// structurally pinned; they are now part of the user-configurable region too,
-    /// so their position can be moved alongside the insertable shortcuts. ⇧
-    /// became configurable in this build; ``TerminalAccessoryConfiguration`` folds
-    /// it into existing layouts so it reaches upgrading users too.
+    /// Every button is configurable except ``composer`` (the iMessage-style
+    /// composer toggle, pinned outside the scroll view, not a normal shortcut).
+    /// The leading modifiers (⌃ ⌥ ⌘ ⇧), zoom, and paste were once structurally
+    /// pinned but now move freely. ⇧ became configurable in this build;
+    /// ``TerminalAccessoryConfiguration`` folds it into existing layouts.
     public var isUserConfigurable: Bool {
         switch self {
         case .composer:
@@ -435,12 +432,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         allCases.filter { $0.isUserConfigurable }
     }
 
-    /// The modifier/paste controls that lead the default bar, in their shipped
-    /// left-to-right order: ⌃ ⌥ ⌘ ⇧ then paste. They lead ``defaultConfigurableOrder``
-    /// on a fresh install, and the v1/v2→v3 migration force-enables and inserts
-    /// them at the front so an upgrading user keeps these controls (and gains ⇧,
-    /// which is new to this group). ⇧ sits right after ⌘ so all four modifiers are
-    /// adjacent.
+    /// The modifier/paste controls leading the default bar: ⌃ ⌥ ⌘ ⇧ then paste
+    /// (⇧ right after ⌘ so all four modifiers are adjacent). The v1/v2→v3 migration
+    /// force-enables and prepends them, so an upgrading user keeps these controls
+    /// and gains ⇧.
     public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
         [.control, .alternate, .command, .shift, .paste]
     }
