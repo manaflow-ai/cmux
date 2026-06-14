@@ -28,7 +28,16 @@ describe("parseHello", () => {
       collections: [{ name: "devices", cursor: 12.9 }],
     });
     expect(hello).not.toBeNull();
-    expect(hello!.collections).toEqual([{ name: "devices", cursor: 12 }]);
+    expect(hello!.collections).toEqual([{ name: "devices", cursor: 12, epoch: 0 }]);
+  });
+
+  it("parses the optional epoch", () => {
+    const hello = parseHello({
+      type: "sync.hello",
+      protocol: SYNC_PROTOCOL,
+      collections: [{ name: "devices", cursor: 5, epoch: 1718312400000 }],
+    });
+    expect(hello!.collections).toEqual([{ name: "devices", cursor: 5, epoch: 1718312400000 }]);
   });
 
   it("returns null for non-hello messages (DO ignores unknown types)", () => {
@@ -50,8 +59,8 @@ describe("parseHello", () => {
       ],
     });
     expect(hello!.collections).toEqual([
-      { name: "devices", cursor: 0 },
-      { name: "workspaces", cursor: 0 },
+      { name: "devices", cursor: 0, epoch: 0 },
+      { name: "workspaces", cursor: 0, epoch: 0 },
     ]);
   });
 
@@ -96,6 +105,22 @@ describe("resolveHello (snapshot vs delta floor)", () => {
     expect(resolveHello({ cursor: 12, gcFloor: 0, head: 10 })).toEqual({ mode: "snapshot" });
     // cursor == head is current (delta mode, empty catch-up).
     expect(resolveHello({ cursor: 10, gcFloor: 0, head: 10 })).toEqual({ mode: "delta", sinceRev: 10 });
+  });
+
+  it("forces a snapshot on an epoch mismatch even when the cursor looks current", () => {
+    // Equal-head-after-reset: a new history coincidentally at the same head as
+    // the client's cached old history. Without the epoch this would be a no-op
+    // delta and stale devices would survive; the epoch mismatch forces a reset.
+    expect(resolveHello({ cursor: 2, gcFloor: 0, head: 2, clientEpoch: 100, serverEpoch: 200 }))
+      .toEqual({ mode: "snapshot" });
+    // Matching epoch with a current cursor stays a delta.
+    expect(resolveHello({ cursor: 2, gcFloor: 0, head: 2, clientEpoch: 200, serverEpoch: 200 }))
+      .toEqual({ mode: "delta", sinceRev: 2 });
+    // A first-time client (epoch 0) against an established server is a snapshot
+    // anyway via the cursor-0 rule, but the epoch guard also covers a nonzero
+    // cursor with a zero client epoch (pre-epoch cache) against a real server.
+    expect(resolveHello({ cursor: 2, gcFloor: 0, head: 2, clientEpoch: 0, serverEpoch: 200 }))
+      .toEqual({ mode: "snapshot" });
   });
 });
 

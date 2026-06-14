@@ -22,6 +22,7 @@ public actor SyncFrameApplier {
     /// arrived during paging (queued, applied after the snapshot commits).
     private struct SnapshotBuild {
         var snapshotRev: Int
+        var epoch: Int
         var records: [SyncWireRecord] = []
         var queuedDeltas: [(rev: Int, records: [SyncWireRecord])] = []
     }
@@ -44,6 +45,12 @@ public actor SyncFrameApplier {
         try await store.cursor(teamID: teamID, collection: collection)
     }
 
+    /// The history epoch to send in the next `sync.hello` for a collection, so
+    /// the server can detect a reset even at an equal head (DESIGN.md §3.6).
+    public func epoch(collection: String) async throws -> Int {
+        try await store.epoch(teamID: teamID, collection: collection)
+    }
+
     /// Apply one server frame. Snapshot pages buffer until `complete`; deltas
     /// received mid-paging are queued and drained after the snapshot commits;
     /// deltas/ticks outside paging apply immediately. `.unknown` (a presence
@@ -57,8 +64,8 @@ public actor SyncFrameApplier {
     @discardableResult
     public func apply(_ frame: SyncServerFrame) async throws -> Bool {
         switch frame {
-        case let .snapshot(collection, snapshotRev, records, complete):
-            return try await applySnapshotPage(collection: collection, snapshotRev: snapshotRev, records: records, complete: complete)
+        case let .snapshot(collection, snapshotRev, epoch, records, complete):
+            return try await applySnapshotPage(collection: collection, snapshotRev: snapshotRev, epoch: epoch, records: records, complete: complete)
         case let .delta(collection, rev, records):
             return try await applyDeltaFrame(collection: collection, rev: rev, records: records)
         case let .tick(collection, rev):
@@ -88,22 +95,22 @@ public actor SyncFrameApplier {
 
     /// Returns true once the snapshot's `complete` page commits; an incomplete
     /// page only buffers and returns false.
-    private func applySnapshotPage(collection: String, snapshotRev: Int, records: [SyncWireRecord], complete: Bool) async throws -> Bool {
-        var build = builds[collection] ?? SnapshotBuild(snapshotRev: snapshotRev)
-        // A snapshotRev change mid-paging means the server restarted the
-        // snapshot; discard the stale buffer and start fresh.
-        if build.snapshotRev != snapshotRev {
-            build = SnapshotBuild(snapshotRev: snapshotRev)
+    private func applySnapshotPage(collection: String, snapshotRev: Int, epoch: Int, records: [SyncWireRecord], complete: Bool) async throws -> Bool {
+        var build = builds[collection] ?? SnapshotBuild(snapshotRev: snapshotRev, epoch: epoch)
+        // A snapshotRev or epoch change mid-paging means the server restarted the
+        // snapshot (possibly into a new history); discard the stale buffer.
+        if build.snapshotRev != snapshotRev || build.epoch != epoch {
+            build = SnapshotBuild(snapshotRev: snapshotRev, epoch: epoch)
         }
         build.records.append(contentsOf: records)
         if !complete {
             builds[collection] = build
             return false // buffered only, nothing committed yet
         }
-        // Commit the full snapshot atomically (upserts + rev>=1 reconciliation +
-        // cursor = snapshotRev), then drain the deltas that raced the paging.
+        // Commit the full snapshot atomically (upserts + reconciliation + cursor +
+        // epoch; reset-aware), then drain the deltas that raced the paging.
         try await store.applySnapshot(
-            teamID: teamID, collection: collection, snapshotRev: snapshotRev,
+            teamID: teamID, collection: collection, snapshotRev: snapshotRev, epoch: build.epoch,
             records: build.records, sortKeyFor: sortKeyFor, now: now()
         )
         let queued = build.queuedDeltas

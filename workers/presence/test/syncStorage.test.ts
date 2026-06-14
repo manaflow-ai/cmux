@@ -16,6 +16,8 @@ import {
   markBackfillDone,
   nextTombstoneGcTime,
   readBackfillDone,
+  readEpoch,
+  readOrMintEpoch,
   readGcFloor,
   readHead,
   readRecord,
@@ -440,6 +442,39 @@ describe("rollout backfill marker (head != 0 is not completion, DESIGN §5.4)", 
     await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
     expect(await readHead(storage, COLL)).toBe(1);
     expect(await readBackfillDone(storage, COLL)).toBe(false);
+  });
+});
+
+describe("collection epoch (equal-head reset detection, DESIGN §3.6)", () => {
+  it("mints once and is stable across reads", async () => {
+    const storage = new FakeStorage();
+    expect(await readEpoch(storage, COLL)).toBe(0);
+    const e1 = await readOrMintEpoch(storage, COLL, T0);
+    expect(e1).toBe(T0);
+    // A later read returns the SAME minted epoch (not re-minted).
+    expect(await readOrMintEpoch(storage, COLL, T0 + 999)).toBe(T0);
+    expect(await readEpoch(storage, COLL)).toBe(T0);
+  });
+
+  it("a snapshot carries the minted epoch on every page", async () => {
+    const storage = new FakeStorage();
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
+    const snap = await buildSnapshotPages<DeviceRecord>(storage, COLL, undefined, T0);
+    expect(snap.epoch).toBe(T0);
+    expect(snap.pages.every((p) => p.epoch === T0)).toBe(true);
+  });
+
+  it("resolveHelloFrames forces a snapshot on an epoch mismatch at an equal head", async () => {
+    const storage = new FakeStorage();
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0); // head 1, mints epoch on snapshot
+    // Establish the server epoch.
+    const serverEpoch = await readOrMintEpoch(storage, COLL, T0);
+    // A client at the current head but a STALE epoch must be force-snapshotted.
+    const resolved = await resolveHelloFrames<DeviceRecord>(storage, COLL, 1, undefined, serverEpoch - 1, T0);
+    expect(resolved.mode).toBe("snapshot");
+    // The matching epoch at the current head catches up with a (null) delta.
+    const ok = await resolveHelloFrames<DeviceRecord>(storage, COLL, 1, undefined, serverEpoch, T0);
+    expect(ok.mode).toBe("delta");
   });
 });
 

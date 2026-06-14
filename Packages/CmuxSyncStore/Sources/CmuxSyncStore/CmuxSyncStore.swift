@@ -111,12 +111,14 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             CREATE INDEX IF NOT EXISTS idx_sync_records_render
               ON sync_records (team_id, collection, deleted, sort_key);
         """)
-        // One row per (team, collection): the durable cursor watermark.
+        // One row per (team, collection): the durable cursor watermark plus the
+        // history generation (epoch) the cursor belongs to.
         try exec("""
             CREATE TABLE IF NOT EXISTS sync_cursors (
                 team_id     TEXT    NOT NULL,
                 collection  TEXT    NOT NULL,
                 cursor_rev  INTEGER NOT NULL DEFAULT 0,
+                epoch       INTEGER NOT NULL DEFAULT 0,
                 synced_at   REAL    NOT NULL DEFAULT 0,
                 PRIMARY KEY (team_id, collection)
             );
@@ -170,6 +172,22 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         return 0
     }
 
+    public func epoch(teamID: String, collection: String) throws -> Int {
+        try ensureReady()
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT epoch FROM sync_cursors WHERE team_id = ? AND collection = ?;"
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [.text(teamID), .text(collection)])
+        if sqlite3_step(statement) == SQLITE_ROW {
+            return Int(sqlite3_column_int64(statement, 0))
+        }
+        return 0
+    }
+
     // MARK: - Frame application (atomic per frame, DESIGN.md §3.2)
 
     public func applyDelta(
@@ -195,24 +213,27 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         teamID: String,
         collection: String,
         snapshotRev: Int,
+        epoch: Int,
         records: [SyncWireRecord],
         sortKeyFor: @Sendable (SyncWireRecord) -> Double,
         now: Date
     ) throws {
         try ensureReady()
         try transaction {
-            // Reset detection: if our local cursor is AHEAD of this snapshot's rev,
-            // the DO history was reset/rolled back (the worker forced this snapshot
-            // precisely because cursor > head, DESIGN.md §3.6). Local authoritative
-            // rows then carry revs from the OLD history that exceed snapshotRev, so
-            // the normal monotone apply would ignore the snapshot and the
-            // [1, snapshotRev] reconciliation would miss them, stranding stale
-            // devices behind an unrecoverable ahead cursor. In a reset, the
-            // snapshot is the new ground truth: replace its records unconditionally,
-            // reconcile ALL authoritative rows (any rev) absent from it, and force
-            // the cursor DOWN to snapshotRev.
+            // Reset detection. The DO history was reset/rolled back when either:
+            //   (a) our local cursor is AHEAD of this snapshot's rev (the worker
+            //       forced this snapshot because cursor > head), OR
+            //   (b) the snapshot's epoch differs from the epoch we last synced
+            //       against — this catches an equal-head reset (a new history
+            //       coincidentally at the same head as our cached old history),
+            //       which the cursor check alone cannot see (DESIGN.md §3.6).
+            // In a reset the snapshot is the new ground truth: replace its records
+            // unconditionally, reconcile ALL authoritative rows (any rev) absent
+            // from it, and force the cursor + epoch to the snapshot's values.
             let localCursor = try cursor(teamID: teamID, collection: collection)
-            let isReset = localCursor > snapshotRev
+            let localEpoch = try self.epoch(teamID: teamID, collection: collection)
+            let epochChanged = epoch != 0 && localEpoch != 0 && epoch != localEpoch
+            let isReset = localCursor > snapshotRev || epochChanged
 
             var present = Set<String>()
             for record in records {
@@ -240,11 +261,13 @@ public actor CmuxSyncStore: CmuxSyncStoring {
                 try tombstoneAt(teamID: teamID, collection: collection, recordID: id, rev: snapshotRev, now: now)
             }
             // On a reset the cursor must move DOWN to the new head; setCursor's MAX
-            // would keep the stale ahead cursor, so force it on reset.
+            // would keep the stale ahead cursor, so force it on reset. The
+            // snapshot's epoch is recorded either way (it is the generation this
+            // committed state belongs to; a first sync adopts the server epoch).
             if isReset {
-                try forceCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
+                try forceCursor(teamID: teamID, collection: collection, to: snapshotRev, epoch: epoch, now: now)
             } else {
-                try setCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
+                try setCursor(teamID: teamID, collection: collection, to: snapshotRev, epoch: epoch, now: now)
             }
         }
     }
@@ -446,32 +469,37 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         ])
     }
 
-    private func setCursor(teamID: String, collection: String, to rev: Int, now: Date) throws {
-        // Monotone: never move the cursor backward. By construction frameRev is
-        // always > current for an in-order stream, but MAX is the safety net.
+    /// Advance the cursor monotonically (never backward). `epoch` nil = preserve
+    /// the existing epoch (the delta path); a value adopts the server epoch (a
+    /// snapshot commit). On first insert, a nil epoch defaults to 0.
+    private func setCursor(teamID: String, collection: String, to rev: Int, epoch: Int? = nil, now: Date) throws {
         try exec("""
-            INSERT INTO sync_cursors (team_id, collection, cursor_rev, synced_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO sync_cursors (team_id, collection, cursor_rev, epoch, synced_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection) DO UPDATE SET
                 cursor_rev = MAX(cursor_rev, excluded.cursor_rev),
+                epoch = CASE WHEN ? THEN excluded.epoch ELSE sync_cursors.epoch END,
                 synced_at = excluded.synced_at;
         """, binding: [
-            .text(teamID), .text(collection), .int(Int64(rev)), .real(now.timeIntervalSince1970),
+            .text(teamID), .text(collection), .int(Int64(rev)), .int(Int64(epoch ?? 0)),
+            .real(now.timeIntervalSince1970), .int(epoch != nil ? 1 : 0),
         ])
     }
 
-    /// Set the cursor UNCONDITIONALLY (no MAX), used on a reset snapshot to move
-    /// the cursor DOWN to the new (lower) head so the client stops sending an
-    /// ahead cursor and converges to the reset DO history.
-    private func forceCursor(teamID: String, collection: String, to rev: Int, now: Date) throws {
+    /// Set the cursor UNCONDITIONALLY (no MAX) and adopt the given epoch, used on
+    /// a reset snapshot to move the cursor DOWN to the new (lower) head and into
+    /// the new history generation so the client converges to the reset DO history.
+    private func forceCursor(teamID: String, collection: String, to rev: Int, epoch: Int, now: Date) throws {
         try exec("""
-            INSERT INTO sync_cursors (team_id, collection, cursor_rev, synced_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO sync_cursors (team_id, collection, cursor_rev, epoch, synced_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection) DO UPDATE SET
                 cursor_rev = excluded.cursor_rev,
+                epoch = excluded.epoch,
                 synced_at = excluded.synced_at;
         """, binding: [
-            .text(teamID), .text(collection), .int(Int64(rev)), .real(now.timeIntervalSince1970),
+            .text(teamID), .text(collection), .int(Int64(rev)), .int(Int64(epoch)),
+            .real(now.timeIntervalSince1970),
         ])
     }
 

@@ -49,10 +49,16 @@ public struct SyncClient: Sendable {
     /// reconnect starts clean. Throws on transport failure so the caller can
     /// back off and reconnect.
     public func run() async throws {
-        // Send hello with the persisted cursor per collection (DESIGN.md §3.3 t0+).
-        var subs: [(name: String, cursor: Int)] = []
+        // Send hello with the persisted cursor + epoch per collection so the
+        // server can catch up with deltas, or force a reset snapshot on an epoch
+        // mismatch (DESIGN.md §3.3 t0+ / §3.6).
+        var subs: [(name: String, cursor: Int, epoch: Int)] = []
         for name in collections {
-            subs.append((name: name, cursor: try await applier.cursor(collection: name)))
+            subs.append((
+                name: name,
+                cursor: try await applier.cursor(collection: name),
+                epoch: try await applier.epoch(collection: name)
+            ))
         }
         try await transport.send(try codec.encodeHello(collections: subs))
 

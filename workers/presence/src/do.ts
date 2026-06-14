@@ -371,10 +371,10 @@ export class TeamPresence extends DurableObject {
    * delta (the client simply gets nothing for it). */
   private async handleSyncHello(
     ws: WebSocket,
-    collections: { name: string; cursor: number }[],
+    collections: { name: string; cursor: number; epoch?: number }[],
   ): Promise<void> {
     const subscribed: string[] = [];
-    for (const { name, cursor } of collections) {
+    for (const { name, cursor, epoch } of collections) {
       if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
       subscribed.push(name);
       // Rollout backfill: an existing DO has `inst:*` presence but no
@@ -394,6 +394,8 @@ export class TeamPresence extends DurableObject {
         this.syncStorage(),
         name,
         cursor,
+        undefined,
+        epoch ?? 0,
       );
       if (resolved.mode === "snapshot") {
         for (const page of resolved.pages) this.sendSync(ws, page);

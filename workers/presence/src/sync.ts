@@ -60,11 +60,15 @@ export interface SyncRecord<P = unknown> {
   payload: P;
 }
 
-/** Client → server: subscribe to collections with the cursors I already hold. */
+/** Client → server: subscribe to collections with the cursors I already hold.
+ * `epoch` is the collection-history generation the client last synced against
+ * (0/absent for a first-time client). A mismatch with the server's epoch means
+ * the DO storage was reset/rolled back since the client synced, so the server
+ * forces a snapshot even when the cursor looks current (DESIGN.md §3.6). */
 export interface SyncHello {
   type: "sync.hello";
   protocol: string;
-  collections: { name: string; cursor: number }[];
+  collections: { name: string; cursor: number; epoch?: number }[];
 }
 
 /** Server → client: full state of a collection as of `snapshotRev`. Paged. */
@@ -73,6 +77,11 @@ export interface SyncSnapshotFrame<P = unknown> {
   collection: string;
   /** Captured collection head; becomes the cursor when `complete` is true. */
   snapshotRev: number;
+  /** The collection-history generation this snapshot belongs to. The client
+   * stores it; a snapshot whose epoch differs from the client's stored epoch is
+   * a reset and is applied authoritatively (clear + reconcile), which closes the
+   * equal-head-after-reset aliasing hole (DESIGN.md §3.6). */
+  epoch: number;
   records: SyncRecord<P>[];
   /** false ⇒ more pages follow; the client commits only on the complete page. */
   complete: boolean;
@@ -108,16 +117,18 @@ export function parseHello(body: unknown, maxCollections = 32): SyncHello | null
   if (obj.type !== "sync.hello") return null;
   if (typeof obj.protocol !== "string") return null;
   if (!Array.isArray(obj.collections)) return null;
-  const collections: { name: string; cursor: number }[] = [];
+  const collections: { name: string; cursor: number; epoch?: number }[] = [];
   for (const entry of obj.collections.slice(0, maxCollections)) {
     if (entry === null || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const name = typeof e.name === "string" ? e.name.trim() : "";
     if (name === "") continue;
     const cursor = Number(e.cursor);
+    const epoch = Number(e.epoch);
     collections.push({
       name,
       cursor: Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0,
+      epoch: Number.isFinite(epoch) && epoch >= 0 ? Math.floor(epoch) : 0,
     });
   }
   return { type: "sync.hello", protocol: obj.protocol, collections };
@@ -143,7 +154,24 @@ export function resolveHello(input: {
   cursor: number;
   gcFloor: number;
   head: number;
+  /** Generation the client last synced against (0 if first-time/unknown). */
+  clientEpoch?: number;
+  /** The DO's current collection-history generation. */
+  serverEpoch?: number;
 }): HelloResolution {
+  // Epoch mismatch = the DO history was reset/rolled back since the client
+  // synced. Force a snapshot even if the cursor looks current, which closes the
+  // equal-head-after-reset aliasing hole (a new history coincidentally at the
+  // same head as the client's cached old history). A client epoch of 0 (first
+  // time, or pre-epoch client) only forces a snapshot when the server has a
+  // nonzero epoch it could not have matched. (DESIGN.md §3.6)
+  if (
+    input.serverEpoch !== undefined &&
+    input.serverEpoch !== 0 &&
+    (input.clientEpoch ?? 0) !== input.serverEpoch
+  ) {
+    return { mode: "snapshot" };
+  }
   // A first-time client (cursor 0) always gets a snapshot: it has nothing, so it
   // needs the paged full state and the snapshot reconciliation, not a catch-up
   // delta (DESIGN.md §3.5 "cursor = 0 ... always gets a snapshot").
@@ -168,6 +196,7 @@ export function pageSnapshot<P>(
   snapshotRev: number,
   records: readonly SyncRecord<P>[],
   pageSize = SNAPSHOT_PAGE_SIZE,
+  epoch = 0,
 ): SyncSnapshotFrame<P>[] {
   const pages: SyncSnapshotFrame<P>[] = [];
   const size = Math.max(1, pageSize);
@@ -177,6 +206,7 @@ export function pageSnapshot<P>(
       type: "sync.snapshot",
       collection,
       snapshotRev,
+      epoch,
       records: slice,
       complete: i + size >= records.length,
     });
@@ -186,6 +216,7 @@ export function pageSnapshot<P>(
       type: "sync.snapshot",
       collection,
       snapshotRev,
+      epoch,
       records: [],
       complete: true,
     });

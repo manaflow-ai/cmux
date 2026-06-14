@@ -146,7 +146,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         ], sortKeyFor: sortKey, now: Date())
         // A fresh snapshot at rev 3 contains only A (B was deleted while we were
         // disconnected and we missed its tombstone). Reconciliation drops B.
-        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 3, records: [
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 3, epoch: 1, records: [
             try deviceRecord(id: "dev-A", rev: 3),
         ], sortKeyFor: sortKey, now: Date())
         let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
@@ -162,7 +162,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
             try deviceRecord(id: "dev-B", rev: 2),
         ], sortKeyFor: sortKey, now: Date())
         // A snapshot at rev 5 omits B (it was deleted while disconnected).
-        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 5, records: [
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 5, epoch: 1, records: [
             try deviceRecord(id: "dev-A", rev: 5),
         ], sortKeyFor: sortKey, now: Date())
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["dev-A"])
@@ -191,7 +191,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         try await store.seedProvisional(teamID: TEAM, collection: COLL, recordID: "prov",
             payloadJSON: payload, sortKey: T0_MS, now: Date())
         // A fresh snapshot at rev 1 that does NOT include the provisional row.
-        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1, records: [
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1, epoch: 1, records: [
             try deviceRecord(id: "dev-A", rev: 1),
         ], sortKeyFor: sortKey, now: Date())
         let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
@@ -210,7 +210,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 100)
         // The DO storage was reset; the worker forces a snapshot at a LOWER rev.
         // It contains only new-A (rev 2); old-A/old-B are from the dead history.
-        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, records: [
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, epoch: 1, records: [
             try deviceRecord(id: "new-A", rev: 2, displayName: "NewHistory"),
         ], sortKeyFor: sortKey, now: Date())
         let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
@@ -219,6 +219,27 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         // The cursor moved DOWN to the reset head, so the client stops sending an
         // ahead cursor and converges.
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 2)
+    }
+
+    @Test func epochChangeAtEqualHeadIsTreatedAsReset() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Old history at epoch 100: A and B, cursor lands at 2.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, epoch: 100, records: [
+            try deviceRecord(id: "old-A", rev: 1),
+            try deviceRecord(id: "old-B", rev: 2),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 2)
+        #expect(try await store.epoch(teamID: TEAM, collection: COLL) == 100)
+        // New history reset to the SAME head (2) but a DIFFERENT epoch (200),
+        // containing only new-A. The cursor check alone (2 > 2 is false) would
+        // miss it; the epoch mismatch forces a reset that clears old-A/old-B.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, epoch: 200, records: [
+            try deviceRecord(id: "new-A", rev: 2, displayName: "NewHistory"),
+        ], sortKeyFor: sortKey, now: Date())
+        let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
+        #expect(live.map(\.recordID) == ["new-A"]) // stale equal-head rows cleared
+        #expect(try await store.epoch(teamID: TEAM, collection: COLL) == 200) // adopted new epoch
     }
 
     @Test func resetSnapshotKeepsProvisionalRows() async throws {
@@ -232,7 +253,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         // An ahead cursor from an old history, then a reset snapshot omitting prov.
         try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 100,
             records: [try deviceRecord(id: "old", rev: 100)], sortKeyFor: sortKey, now: Date())
-        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1,
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1, epoch: 1,
             records: [try deviceRecord(id: "new", rev: 1)], sortKeyFor: sortKey, now: Date())
         // Provisional survives the reset (rev 0 exempt); stale old is gone.
         #expect(Set(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID)) == ["prov", "new"])
@@ -264,11 +285,11 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         defer { try? FileManager.default.removeItem(at: dir) }
         let applier = SyncFrameApplier(store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() })
         // First (incomplete) page: nothing should be committed yet.
-        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [try deviceRecord(id: "dev-A", rev: 1)], complete: false))
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [try deviceRecord(id: "dev-A", rev: 1)], complete: false))
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty)
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
         // Final page completes the snapshot: both records land, cursor commits.
-        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [try deviceRecord(id: "dev-B", rev: 2)], complete: true))
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [try deviceRecord(id: "dev-B", rev: 2)], complete: true))
         #expect(Set(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID)) == ["dev-A", "dev-B"])
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 2)
     }
@@ -278,7 +299,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         defer { try? FileManager.default.removeItem(at: dir) }
         let applier = SyncFrameApplier(store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() })
         // Snapshot paging begins (head captured at 2): page 1 has A and B, not complete.
-        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [
             try deviceRecord(id: "dev-A", rev: 1), try deviceRecord(id: "dev-B", rev: 2),
         ], complete: false))
         // B is deleted MID-PAGING => a delta at rev 3 arrives. It must be queued,
@@ -286,7 +307,7 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         try await applier.apply(.delta(collection: COLL, rev: 3, records: [try deviceRecord(id: "dev-B", rev: 3, deleted: true)]))
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty) // nothing committed yet
         // Snapshot completes => commit, then drain the queued delete. B must be gone.
-        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [], complete: true))
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [], complete: true))
         let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
         #expect(live.map(\.recordID) == ["dev-A"]) // B removed by the queued tombstone, no ghost
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 3)
@@ -324,11 +345,11 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         // Presence noise commits nothing.
         #expect(try await applier.apply(.unknown) == false)
         // An incomplete snapshot page buffers only — no commit.
-        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [try deviceRecord(id: "dev-A", rev: 1)], complete: false)) == false)
+        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [try deviceRecord(id: "dev-A", rev: 1)], complete: false)) == false)
         // A delta mid-paging is queued — no commit.
         #expect(try await applier.apply(.delta(collection: COLL, rev: 3, records: [try deviceRecord(id: "dev-B", rev: 3)])) == false)
         // The completing page commits => true.
-        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [], complete: true)) == true)
+        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, epoch: 1, records: [], complete: true)) == true)
         // A normal delta commits => true.
         #expect(try await applier.apply(.delta(collection: COLL, rev: 4, records: [try deviceRecord(id: "dev-C", rev: 4)])) == true)
         // An idle tick commits (advances cursor) => true.
@@ -407,8 +428,8 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
 
 @Suite struct FrameCodecTests {
     @Test func parsesSnapshotDeltaTick() throws {
-        let snap = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":7,"records":[{"id":"a","rev":3,"updatedAt":1,"deleted":false,"payload":{"x":1}}],"complete":true}"#.utf8))
-        #expect(snap == .snapshot(collection: "devices", snapshotRev: 7,
+        let snap = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":7,"epoch":42,"records":[{"id":"a","rev":3,"updatedAt":1,"deleted":false,"payload":{"x":1}}],"complete":true}"#.utf8))
+        #expect(snap == .snapshot(collection: "devices", snapshotRev: 7, epoch: 42,
             records: [SyncWireRecord(id: "a", rev: 3, updatedAt: 1, deleted: false, schemaVersion: syncSchemaVersion, payloadJSON: Data(#"{"x":1}"#.utf8))],
             complete: true))
 
@@ -459,11 +480,13 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         }
     }
 
-    @Test func helloEncodesCollectionsAndCursors() throws {
-        let data = try SyncFrameCodec().encodeHello(collections: [("devices", 12)])
+    @Test func helloEncodesCollectionsCursorsAndEpochs() throws {
+        let data = try SyncFrameCodec().encodeHello(collections: [("devices", 12, 99)])
         let obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(obj["type"] as? String == "sync.hello")
         #expect(obj["protocol"] as? String == syncProtocolV1)
+        let cols = try #require(obj["collections"] as? [[String: Any]])
+        #expect(cols.first?["epoch"] as? Int == 99)
     }
 }
 

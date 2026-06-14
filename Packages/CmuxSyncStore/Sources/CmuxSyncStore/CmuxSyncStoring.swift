@@ -42,6 +42,11 @@ public protocol CmuxSyncStoring: Sendable {
     /// 0 if none. Sent in `sync.hello`. (DESIGN.md §3.1a)
     func cursor(teamID: String, collection: String) async throws -> Int
 
+    /// The history generation the client last synced against for a
+    /// (team, collection), 0 if none. Sent in `sync.hello` so the server can
+    /// detect a DO storage reset even at an equal head. (DESIGN.md §3.6)
+    func epoch(teamID: String, collection: String) async throws -> Int
+
     /// Apply one delta or tick frame atomically: upsert/tombstone each record by
     /// the `local.rev >= r.rev` guard, then advance the cursor to `frameRev`.
     /// (DESIGN.md §3.2 applyFrame)
@@ -62,6 +67,7 @@ public protocol CmuxSyncStoring: Sendable {
         teamID: String,
         collection: String,
         snapshotRev: Int,
+        epoch: Int,
         records: [SyncWireRecord],
         sortKeyFor: @Sendable (SyncWireRecord) -> Double,
         now: Date

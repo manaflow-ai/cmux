@@ -44,9 +44,11 @@ public struct SyncWireRecord: Equatable, Sendable {
 /// shared socket (the presence frames) and any future sync frame type, so the
 /// dispatcher can ignore it without error.
 public enum SyncServerFrame: Equatable, Sendable {
-    /// Full state of a collection as of `snapshotRev`. Paged: commit only on the
-    /// `complete` page. (DESIGN.md §3.2/§3.4)
-    case snapshot(collection: String, snapshotRev: Int, records: [SyncWireRecord], complete: Bool)
+    /// Full state of a collection as of `snapshotRev`, in history generation
+    /// `epoch`. Paged: commit only on the `complete` page. A snapshot whose epoch
+    /// differs from the client's stored epoch is a reset and is applied
+    /// authoritatively. (DESIGN.md §3.2/§3.4/§3.6)
+    case snapshot(collection: String, snapshotRev: Int, epoch: Int, records: [SyncWireRecord], complete: Bool)
     /// Incremental change(s); `rev` is the head this frame advances the cursor
     /// to once fully applied. (DESIGN.md §3.2)
     case delta(collection: String, rev: Int, records: [SyncWireRecord])
@@ -81,9 +83,11 @@ public struct SyncFrameCodec: Sendable {
                 throw SyncFrameParseError.malformed("sync.snapshot missing collection/snapshotRev")
             }
             let complete = (obj["complete"] as? Bool) ?? false
+            let epoch = intValue(obj["epoch"]) ?? 0
             return .snapshot(
                 collection: collection,
                 snapshotRev: snapshotRev,
+                epoch: epoch,
                 records: try requireRecords(obj["records"], frame: "sync.snapshot"),
                 complete: complete
             )
@@ -107,12 +111,12 @@ public struct SyncFrameCodec: Sendable {
     }
 
     /// Encode the `sync.hello` a client sends after connect to subscribe to
-    /// collections with the cursors it already holds (DESIGN.md §3.2).
-    public func encodeHello(collections: [(name: String, cursor: Int)]) throws -> Data {
+    /// collections with the cursors and epochs it already holds (DESIGN.md §3.2).
+    public func encodeHello(collections: [(name: String, cursor: Int, epoch: Int)]) throws -> Data {
         let payload: [String: Any] = [
             "type": "sync.hello",
             "protocol": syncProtocolV1,
-            "collections": collections.map { ["name": $0.name, "cursor": $0.cursor] },
+            "collections": collections.map { ["name": $0.name, "cursor": $0.cursor, "epoch": $0.epoch] },
         ]
         return try JSONSerialization.data(withJSONObject: payload)
     }

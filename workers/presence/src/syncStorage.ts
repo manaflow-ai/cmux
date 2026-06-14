@@ -68,6 +68,12 @@ const GC_FLOOR_PREFIX = "syncgcfloor:";
  * other devices that only `seen`-heartbeat were never projected, so head is NOT
  * proof the projection is complete (DESIGN.md §5.4 rollout). */
 const BACKFILL_PREFIX = "syncbackfill:";
+/** `syncepoch:<collection>` -> the collection-history generation. Minted once
+ * (lazily) the first time the DO writes the collection; a fresh DO (reset/
+ * rollback) re-mints a different value, so a client carrying the old epoch
+ * detects the reset even when the new head coincidentally equals its cached one
+ * (the equal-head aliasing hole, DESIGN.md §3.6). */
+const EPOCH_PREFIX = "syncepoch:";
 
 function recordKey(collection: string, id: string): string {
   return `${RECORD_PREFIX}${collection}:${id}`;
@@ -93,6 +99,29 @@ function gcFloorKey(collection: string): string {
 }
 function backfillKey(collection: string): string {
   return `${BACKFILL_PREFIX}${collection}`;
+}
+function epochKey(collection: string): string {
+  return `${EPOCH_PREFIX}${collection}`;
+}
+
+/** Read the collection-history epoch, minting and persisting one on first read
+ * if absent. The epoch is `nowMs` at first mint: monotone and effectively unique
+ * per DO-storage lifetime, so a reset re-mints a strictly different value. */
+export async function readOrMintEpoch(
+  storage: SyncStorage,
+  collection: string,
+  nowMs: number,
+): Promise<number> {
+  const existing = await storage.get<number>(epochKey(collection));
+  if (existing !== undefined && existing > 0) return existing;
+  const minted = nowMs;
+  await storage.put(epochKey(collection), minted);
+  return minted;
+}
+
+/** Read the epoch without minting (0 if none yet). */
+export async function readEpoch(storage: SyncStorage, collection: string): Promise<number> {
+  return (await storage.get<number>(epochKey(collection))) ?? 0;
 }
 
 /** Whether the one-time rollout backfill (project the full pre-existing presence
@@ -237,13 +266,15 @@ export async function buildSnapshotPages<P>(
   storage: SyncStorage,
   collection: string,
   pageSize?: number,
-): Promise<{ snapshotRev: number; pages: SyncSnapshotFrame<P>[] }> {
+  nowMs: number = Date.now(),
+): Promise<{ snapshotRev: number; epoch: number; pages: SyncSnapshotFrame<P>[] }> {
   const snapshotRev = await readHead(storage, collection);
+  const epoch = await readOrMintEpoch(storage, collection, nowMs);
   const all = await listRecords<P>(storage, collection);
   const filtered = all
     .filter((r) => r.rev <= snapshotRev)
     .sort((a, b) => a.rev - b.rev);
-  return { snapshotRev, pages: pageSnapshot(collection, snapshotRev, filtered, pageSize) };
+  return { snapshotRev, epoch, pages: pageSnapshot(collection, snapshotRev, filtered, pageSize, epoch) };
 }
 
 /** Build the delta records to catch a client up from `sinceRev` to head: every
@@ -271,16 +302,19 @@ export async function resolveHelloFrames<P>(
   collection: string,
   cursor: number,
   pageSize?: number,
+  clientEpoch = 0,
+  nowMs: number = Date.now(),
 ): Promise<
-  | { mode: "snapshot"; snapshotRev: number; pages: SyncSnapshotFrame<P>[] }
+  | { mode: "snapshot"; snapshotRev: number; epoch: number; pages: SyncSnapshotFrame<P>[] }
   | { mode: "delta"; delta: SyncDeltaFrame<P> | null }
 > {
   const gcFloor = await readGcFloor(storage, collection);
   const head = await readHead(storage, collection);
-  const resolution = resolveHello({ cursor, gcFloor, head });
+  const serverEpoch = await readEpoch(storage, collection);
+  const resolution = resolveHello({ cursor, gcFloor, head, clientEpoch, serverEpoch });
   if (resolution.mode === "snapshot") {
-    const { snapshotRev, pages } = await buildSnapshotPages<P>(storage, collection, pageSize);
-    return { mode: "snapshot", snapshotRev, pages };
+    const { snapshotRev, epoch, pages } = await buildSnapshotPages<P>(storage, collection, pageSize, nowMs);
+    return { mode: "snapshot", snapshotRev, epoch, pages };
   }
   const delta = await buildCatchupDelta<P>(storage, collection, resolution.sinceRev);
   return { mode: "delta", delta };
