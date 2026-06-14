@@ -480,7 +480,7 @@ extension CMUXCLI {
                     second: DiffViewerShortcutStroke(key: "g")
                 )
             case .openFileSearch:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "f", command: true))
             }
         }
     }
