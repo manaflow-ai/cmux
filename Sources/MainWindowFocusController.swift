@@ -173,6 +173,20 @@ final class MainWindowFocusController {
         }
     }
 
+    /// Reports whether keyboard routing already targets the given main-window pane.
+    ///
+    /// The pane-body pointer preflight uses this to decide whether a click can skip
+    /// re-activation. Focus is only fully satisfied when Bonsplit focus, the AppKit
+    /// first responder, *and* this keyboard intent all agree on the pane. A stale
+    /// `.rightSidebar` intent must not count as satisfied, or keyboard input stays
+    /// routed to the sidebar after a pane-body click (issue #5269 class).
+    func hasMainPanelKeyboardFocusIntent(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard case .mainPanel(let focusedWorkspaceId, let focusedPanelId) = intent else {
+            return false
+        }
+        return focusedWorkspaceId == workspaceId && focusedPanelId == panelId
+    }
+
     func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {

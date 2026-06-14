@@ -136,6 +136,19 @@ enum BrowserImageCopyPasteboardBuilder {
 /// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
 /// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    struct BrowserPanelAssociation: Equatable {
+        let workspaceId: UUID
+        let panelId: UUID
+    }
+
+    private final class BrowserPanelAssociationBox: NSObject {
+        let association: BrowserPanelAssociation
+
+        init(_ association: BrowserPanelAssociation) {
+            self.association = association
+        }
+    }
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -144,12 +157,34 @@ final class CmuxWebView: WKWebView {
         let uptime: TimeInterval
     }
 
+    private static var browserPanelAssociationKey: UInt8 = 0
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+
+    var browserPanelAssociation: BrowserPanelAssociation? {
+        (objc_getAssociatedObject(
+            self,
+            &Self.browserPanelAssociationKey
+        ) as? BrowserPanelAssociationBox)?.association
+    }
+
+    func associateBrowserPanel(panelId: UUID, workspaceId: UUID) {
+        objc_setAssociatedObject(
+            self,
+            &Self.browserPanelAssociationKey,
+            BrowserPanelAssociationBox(
+                BrowserPanelAssociation(
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                )
+            ),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;

@@ -8697,7 +8697,16 @@ final class Workspace: Identifiable, ObservableObject {
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
-        let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
+        let triggerLabel: String = {
+            switch trigger {
+            case .standard:
+                return "standard"
+            case .terminalFirstResponder:
+                return "firstResponder"
+            case .paneBodyPointer:
+                return "paneBodyPointer"
+            }
+        }()
         cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
         AppDelegate.shared?.focusLog.append(
             "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"

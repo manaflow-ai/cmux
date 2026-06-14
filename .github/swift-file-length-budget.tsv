@@ -2,13 +2,13 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33857	CLI/cmux.swift
-17914	Sources/AppDelegate.swift
+18198	Sources/AppDelegate.swift
 16709	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
-13595	Sources/Panels/BrowserPanel.swift
+13602	Sources/Panels/BrowserPanel.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11992	Sources/Workspace.swift
+12001	Sources/Workspace.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
 7350	cmuxTests/WorkspaceUnitTests.swift
@@ -35,8 +35,8 @@
 3200	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
+2600	Sources/Panels/CmuxWebView.swift
 2573	Sources/KeyboardShortcutSettings.swift
-2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2449	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
@@ -107,9 +107,9 @@
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
+784	Sources/MainWindowFocusController.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
-770	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
