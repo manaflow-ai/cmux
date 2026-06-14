@@ -8447,8 +8447,12 @@ final class GhosttySurfaceScrollView: NSView {
                   surface === self.surfaceView.terminalSurface else { return }
             self.searchFocusTarget = .searchField
             // Explicitly unfocus the terminal so the cursor stops blinking
-            // when the search field takes over.
-            surface.setFocus(false)
+            // when the search field takes over. The observer is registered with
+            // `queue: .main`, so the @MainActor `setFocus` call is in fact
+            // main-isolated.
+            MainActor.assumeIsolated {
+                surface.setFocus(false)
+            }
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -8793,31 +8797,39 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
+            // Registered with `queue: .main`, so the @MainActor `searchState`
+            // reads below are in fact main-isolated.
+            MainActor.assumeIsolated {
+                guard let self, self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
 #if DEBUG
-            cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(self.surfaceView.terminalSurface?.searchState != nil) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
+                cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(self.surfaceView.terminalSurface?.searchState != nil) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
-            self.scheduleAutomaticFirstResponderApply(reason: "didBecomeKey")
+                self.scheduleAutomaticFirstResponderApply(reason: "didBecomeKey")
+            }
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
-            guard let self, let window = self.window else { return }
-            let searchActive = self.surfaceView.terminalSurface?.searchState != nil
-            // Losing key window does not always trigger first-responder resignation, so force
-            // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
-            if let fr = window.firstResponder as? NSView,
-               fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+            // Registered with `queue: .main`, so the @MainActor `searchState`
+            // read below is in fact main-isolated.
+            MainActor.assumeIsolated {
+                guard let self, let window = self.window else { return }
+                let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+                // Losing key window does not always trigger first-responder resignation, so force
+                // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
+                if let fr = window.firstResponder as? NSView,
+                   fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
 #if DEBUG
-                cmuxDebugLog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) resigningFirstResponder")
+                    cmuxDebugLog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) resigningFirstResponder")
 #endif
-                window.makeFirstResponder(nil)
-            } else {
+                    window.makeFirstResponder(nil)
+                } else {
 #if DEBUG
-                cmuxDebugLog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: window.firstResponder)) (not terminal, skipping)")
+                    cmuxDebugLog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: window.firstResponder)) (not terminal, skipping)")
 #endif
+                }
             }
         })
         if window.isKeyWindow {

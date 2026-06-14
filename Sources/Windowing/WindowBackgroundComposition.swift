@@ -5,7 +5,10 @@ import CmuxWorkspaceWindow
 /// seam. The default values match the legacy god-file reads byte-for-byte:
 /// `sidebarBlendMode` -> `"withinWindow"`, `bgGlassEnabled` -> `false`.
 struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
-    let defaults: UserDefaults
+    // `UserDefaults` accessors are documented as thread-safe; the seam requires
+    // `Sendable`, so suppress the non-Sendable stored-property check here rather
+    // than boxing it.
+    nonisolated(unsafe) let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
