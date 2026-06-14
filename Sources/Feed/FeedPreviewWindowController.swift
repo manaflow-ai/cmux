@@ -134,6 +134,7 @@ private struct FeedPreviewCardHost: View {
             onControlFocus: {},
             onControlAction: {},
             onControlBlur: {},
+            onFocusFeedHost: {},
             onActivate: {},
             stopDraft: $stopDraft,
             stopDraftValue: stopDraft,
