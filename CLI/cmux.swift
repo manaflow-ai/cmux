@@ -19240,8 +19240,8 @@ struct CMUXCLI {
             }
             appServerLogQueue.async { [weak self] in
                 guard let self else { return }
-                self.readAppServerLog(path: appServerLogPath)
                 self.installAppServerLogSource(path: appServerLogPath)
+                self.readAppServerLog(path: appServerLogPath)
             }
         }
 
