@@ -60,7 +60,6 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         XCTAssertGreaterThan(try XCTUnwrap(zoomed["width"]), baselineWidth * 1.8)
-        XCTAssertEqual(zoomed["inlineMaxWidthCleared"] ?? 0, 1, accuracy: 0.001)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
         try await renderMarkdown(
@@ -76,7 +75,6 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         let fittedWidth = try XCTUnwrap(fitted["width"])
         XCTAssertGreaterThan(fittedWidth, baselineWidth * 1.8)
         XCTAssertLessThanOrEqual(fittedWidth, (try XCTUnwrap(fitted["containerWidth"])) + 2)
-        XCTAssertEqual(fitted["inlineMaxWidthCleared"] ?? 1, 0, accuracy: 0.001)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
@@ -139,8 +137,7 @@ final class MarkdownMermaidZoomTests: XCTestCase {
               return {
                 width: rect.width || 0,
                 containerWidth: containerRect ? (containerRect.width || 0) : 0,
-                zoom: Number.isFinite(zoom) ? zoom : 1,
-                inlineMaxWidthCleared: svg.style.maxWidth === 'none' ? 1 : 0
+                zoom: Number.isFinite(zoom) ? zoom : 1
               };
             })();
             """

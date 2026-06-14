@@ -139,6 +139,9 @@ body {
   max-width: 100%;
   height: auto;
 }
+.cmux-mermaid svg[data-cmux-mermaid-scaled="1"] {
+  max-width: none;
+}
 .cmux-vega canvas, .cmux-vega svg {
   max-width: 100%;
   height: auto;
@@ -1158,6 +1161,7 @@ html { scroll-behavior: smooth; }
 
   function mermaidRestoreOriginalSizing(svg) {
     mermaidRememberOriginalSizing(svg);
+    svg.removeAttribute('data-cmux-mermaid-scaled');
     svg.style.maxWidth = svg.getAttribute('data-cmux-mermaid-original-max-width') || '';
     svg.style.width = svg.getAttribute('data-cmux-mermaid-original-width') || '';
     svg.style.height = svg.getAttribute('data-cmux-mermaid-original-height') || '';
@@ -1244,7 +1248,8 @@ html { scroll-behavior: smooth; }
     var base = mermaidCurrentBaseSize(svg, natural);
     var width = Math.max(1, base.width * cmuxMarkdownZoom);
     var height = Math.max(1, base.height * cmuxMarkdownZoom);
-    svg.style.maxWidth = 'none';
+    svg.style.maxWidth = '';
+    svg.setAttribute('data-cmux-mermaid-scaled', '1');
     svg.style.width = width + 'px';
     svg.style.height = height + 'px';
     svg.setAttribute('data-cmux-mermaid-zoom', String(cmuxMarkdownZoom));
