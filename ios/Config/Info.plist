@@ -18,6 +18,8 @@
 	<string>$(CMUX_GIT_SHA)</string>
 	<key>CMUXApiBaseURL</key>
 	<string>$(CMUX_API_BASE_URL)</string>
+	<key>CMUXMobileDemoMode</key>
+	<string>$(CMUX_MOBILE_DEMO_MODE)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>

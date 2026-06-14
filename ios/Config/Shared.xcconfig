@@ -23,6 +23,7 @@ CURRENT_PROJECT_VERSION = 1
 // CMUXGitSHA / CMUXDevTag Info.plist keys that AppVersionInfo reads.
 CMUX_GIT_SHA =
 CMUX_DEV_TAG =
+CMUX_MOBILE_DEMO_MODE =
 
 // ==========================================
 // Platform Configuration
