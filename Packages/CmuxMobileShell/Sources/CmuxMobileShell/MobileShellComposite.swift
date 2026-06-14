@@ -1114,8 +1114,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func connectManualHost(name: String, host: String, port: Int) async {
-        // The public entry is the Add Device "Pair" button — a foreground pairing
-        // attempt that owns the network/auth/trust checklist.
         await performConnectManualHost(name: name, host: host, port: port, isForegroundPairing: true)
     }
 
@@ -1131,6 +1129,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isForegroundPairingAttempt = isForegroundPairing
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            clearPairingChecklist()
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
             connectionState = .disconnected
@@ -1145,6 +1144,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard (1...65535).contains(port) else {
+            clearPairingChecklist()
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             connectionErrorGuidance = nil
             connectionState = .disconnected

@@ -59,6 +59,36 @@ import Testing
         #expect(store.pairingChecklist == nil)
     }
 
+    @Test func backgroundInvalidManualHostClearsForegroundChecklist() async throws {
+        let store = MobileShellComposite(reachability: StubReachability(online: false))
+        store.signIn()
+        await store.connectManualHost(name: "Work Mac", host: "100.64.0.1", port: 58_465)
+        #expect(store.pairingChecklist != nil)
+        await store.performConnectManualHost(
+            name: "Stored Mac",
+            host: "bad host",
+            port: 58_465,
+            isForegroundPairing: false
+        )
+        #expect(store.pairingChecklist == nil)
+        #expect(store.connectionError != nil)
+    }
+
+    @Test func backgroundInvalidManualPortClearsForegroundChecklist() async throws {
+        let store = MobileShellComposite(reachability: StubReachability(online: false))
+        store.signIn()
+        await store.connectManualHost(name: "Work Mac", host: "100.64.0.1", port: 58_465)
+        #expect(store.pairingChecklist != nil)
+        await store.performConnectManualHost(
+            name: "Stored Mac",
+            host: "100.64.0.2",
+            port: 0,
+            isForegroundPairing: false
+        )
+        #expect(store.pairingChecklist == nil)
+        #expect(store.connectionError != nil)
+    }
+
     @Test func authRejectionClearsNetworkThenFailsAuthenticationGate() async throws {
         let store = makeStore(errorCode: "unauthorized", message: "invalid token")
         let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
