@@ -277,8 +277,7 @@ final class CMUXOpenCommandTests: XCTestCase {
           "shortcuts": {
             "bindings": {
               "diffViewerScrollDown": "ctrl+j",
-              "diffViewerScrollToTop": ["g", "g"],
-              "diffViewerOpenFileSearch": null
+              "diffViewerScrollToTop": ["g", "g"]
             }
           }
         }
@@ -347,7 +346,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id path="), result.stdout)
+        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id"), result.stdout)
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
 
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
@@ -385,18 +384,25 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual((try XCTUnwrap(scrollTop["first"] as? [String: Any]))["key"] as? String, "g")
         XCTAssertEqual((try XCTUnwrap(scrollTop["second"] as? [String: Any]))["key"] as? String, "g")
         let fileSearch = try XCTUnwrap(shortcuts["diffViewerOpenFileSearch"] as? [String: Any])
-        XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
+        let fileSearchFirst = try XCTUnwrap(fileSearch["first"] as? [String: Any])
+        XCTAssertEqual(fileSearchFirst["key"] as? String, "f")
+        XCTAssertEqual(fileSearchFirst["command"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
-        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
+        let appAssetRelativePath = try XCTUnwrap(
+            html.range(of: #"\./assets/[^"]+/main\.mjs"#, options: .regularExpression).map { String(html[$0]) }
+        )
+        XCTAssertTrue(html.contains("<script type=\"module\" src=\"\(appAssetRelativePath)\"></script>"), html)
+        let appAssetPathComponents = (appAssetRelativePath as NSString).pathComponents
+        let appAssetDirectoryName = try XCTUnwrap(appAssetPathComponents.dropLast().last)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
+            .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
@@ -424,7 +430,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+            file["request_path"] as? String == "/" + String(appAssetRelativePath.dropFirst(2)) &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in

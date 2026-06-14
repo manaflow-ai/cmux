@@ -3,7 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
@@ -58,6 +58,7 @@ type AppState = {
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
+  fileSearchFocusRequest: number;
   fileSearchOpen: boolean;
   filesWidth: number;
   filesVisible: boolean;
@@ -77,6 +78,7 @@ type AppAction =
   | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
+  | { type: "focus-file-search" }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
@@ -101,6 +103,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     comments: [],
     copyFeedback: "",
     draft: null,
+    fileSearchFocusRequest: 0,
     fileSearchOpen: false,
     filesWidth: 252,
     filesVisible: true,
@@ -176,6 +179,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       ...state,
       draft: action.draft,
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
+    };
+  case "focus-file-search":
+    return {
+      ...state,
+      fileSearchFocusRequest: state.fileSearchFocusRequest + 1,
+      fileSearchOpen: true,
+      filesVisible: true,
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
@@ -255,7 +265,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
+  useFileSearchBridge(dispatch);
+  useKeyboardShortcuts(payload.shortcuts ?? {}, state.fileSearchOpen, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -900,6 +911,7 @@ function FilesSidebar({
         {state.treeSource ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
+            fileSearchFocusRequest={state.fileSearchFocusRequest}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -923,18 +935,21 @@ function FilesSidebar({
 
 function PierreFileTree({
   fileSearchOpen,
+  fileSearchFocusRequest,
   label,
   onSelectItem,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
+  fileSearchFocusRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
   source: FileTreeSource;
 }) {
   const latest = useSyncedRef({ label, onSelectItem, source });
+  const fileTreeRootRef = useRef<HTMLDivElement | null>(null);
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
@@ -961,10 +976,14 @@ function PierreFileTree({
   });
 
   usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchFocusRequest, fileTreeRootRef);
   usePierreFileTreeSelection(model, selectedPath);
 
-  return <FileTree model={model} style={{ height: "100%" }} />;
+  return (
+    <div ref={fileTreeRootRef} style={{ height: "100%" }}>
+      <FileTree model={model} style={{ height: "100%" }} />
+    </div>
+  );
 }
 
 function LoadingFileList() {
@@ -1105,14 +1124,78 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+function usePierreFileTreeSearch(
+  model: ReturnType<typeof useFileTree>["model"],
+  fileSearchOpen: boolean,
+  fileSearchFocusRequest: number,
+  fileTreeRootRef: RefObject<HTMLDivElement | null>,
+): void {
   useEffect(() => {
     if (fileSearchOpen) {
-      model.openSearch("");
+      let animationFrame = 0;
+      let attempts = 0;
+      const maxFocusAttempts = 8;
+      const focusSearchInput = () => {
+        model.openSearch("");
+        if (focusPierreFileTreeSearchInput(fileTreeRootRef.current) || attempts >= maxFocusAttempts) {
+          return;
+        }
+        attempts += 1;
+        animationFrame = window.requestAnimationFrame(focusSearchInput);
+      };
+      focusSearchInput();
+      return () => {
+        if (animationFrame !== 0) {
+          window.cancelAnimationFrame(animationFrame);
+        }
+      };
     } else {
       model.closeSearch();
     }
-  }, [fileSearchOpen, model]);
+    return undefined;
+  }, [fileSearchFocusRequest, fileSearchOpen, fileTreeRootRef, model]);
+}
+
+function focusPierreFileTreeSearchInput(root: ParentNode | null): boolean {
+  const searchInput = findPierreFileTreeSearchInput(root);
+  if (!(searchInput instanceof HTMLElement)) {
+    return false;
+  }
+  const searchContainer = searchInput.closest("[data-file-tree-search-container]");
+  if (searchContainer?.getAttribute("data-open") === "false") {
+    return false;
+  }
+  searchInput.focus();
+  if ("select" in searchInput && typeof searchInput.select === "function") {
+    searchInput.select();
+  }
+  return isPierreFileTreeSearchInputFocused(searchInput);
+}
+
+function isPierreFileTreeSearchInputFocused(searchInput: HTMLElement): boolean {
+  const root = searchInput.getRootNode();
+  if (root instanceof ShadowRoot) {
+    return root.activeElement === searchInput;
+  }
+  return document.activeElement === searchInput;
+}
+
+function findPierreFileTreeSearchInput(root: ParentNode | null): HTMLElement | null {
+  if (!root) {
+    return null;
+  }
+  const searchInput = root.querySelector("[data-file-tree-search-input]");
+  if (searchInput instanceof HTMLElement) {
+    return searchInput;
+  }
+  const elements = root.querySelectorAll("*");
+  for (const element of elements) {
+    const shadowSearchInput = element.shadowRoot ? findPierreFileTreeSearchInput(element.shadowRoot) : null;
+    if (shadowSearchInput) {
+      return shadowSearchInput;
+    }
+  }
+  return null;
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
@@ -1250,6 +1333,7 @@ function usePageDataAttributes(state: AppState) {
 
 function useKeyboardShortcuts(
   shortcuts: any,
+  fileSearchOpen: boolean,
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
 ) {
@@ -1269,7 +1353,7 @@ function useKeyboardShortcuts(
       }
     };
     const listener = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
+      if (event.defaultPrevented || isTypingShortcutTarget(event)) {
         return;
       }
       if (pendingChord && !shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
@@ -1297,8 +1381,11 @@ function useKeyboardShortcuts(
         return;
       }
       if (shortcutMatchesEvent(fileSearchShortcut, event)) {
+        if (fileSearchOpen) {
+          return;
+        }
         event.preventDefault();
-        dispatch({ type: "set-file-search-open", open: true });
+        dispatch({ type: "focus-file-search" });
         return;
       }
       if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
@@ -1315,7 +1402,15 @@ function useKeyboardShortcuts(
       clearPendingChord();
       document.removeEventListener("keydown", listener);
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, fileSearchOpen, shortcuts, viewerRef]);
+}
+
+function useFileSearchBridge(dispatch: React.Dispatch<AppAction>): void {
+  useEffect(() => {
+    const listener = () => dispatch({ type: "focus-file-search" });
+    document.addEventListener("cmux:focus-file-search", listener);
+    return () => document.removeEventListener("cmux:focus-file-search", listener);
+  }, [dispatch]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1409,9 +1504,12 @@ function normalizedShortcutEventKey(event: KeyboardEvent): string {
   return event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
 }
 
-function isTypingShortcutTarget(target: EventTarget | null): boolean {
-  const element = target instanceof Element ? target : null;
-  return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
+function isTypingShortcutTarget(event: KeyboardEvent): boolean {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+  return path.some((target) => {
+    const element = target instanceof Element ? target : null;
+    return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
+  });
 }
 
 function scrollViewerBy(viewer: HTMLDivElement | null, direction: number): void {

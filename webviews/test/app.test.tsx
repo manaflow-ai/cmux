@@ -135,6 +135,82 @@ test("files sidebar width can be changed from the resize separator", async () =>
   await waitFor(() => contentFilesWidth() === "272px");
 });
 
+test("Cmd+F opens diff viewer file search, then typing targets can fall through to browser find", async () => {
+  dom = createDom();
+  installDomGlobals(dom, async () => new Response([
+    "diff --git a/cmd-f-before.txt b/cmd-f-before.txt",
+    "index 1111111..2222222 100644",
+    "--- a/cmd-f-before.txt",
+    "+++ b/cmd-f-before.txt",
+    "@@ -1 +1 @@",
+    "-before",
+    "+after",
+    "",
+  ].join("\n")));
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          patchURL: "/patch.diff",
+          shortcuts: {
+            diffViewerOpenFileSearch: {
+              first: { key: "f", command: true, shift: false, option: false, control: false },
+            },
+          },
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitForEffects();
+  await waitFor(() => dom!.window.document.getElementById("files-count")?.textContent === "1");
+  const firstCmdF = new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "KeyF",
+    key: "f",
+    metaKey: true,
+  });
+
+  expect(dom.window.document.dispatchEvent(firstCmdF)).toBe(false);
+  expect(firstCmdF.defaultPrevented).toBe(true);
+  await waitFor(() => fileSearchToggle()?.getAttribute("aria-pressed") === "true");
+  await waitFor(() => activeFileTreeSearchInput() != null);
+
+  const repeatedDocumentCmdF = new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "KeyF",
+    key: "f",
+    metaKey: true,
+  });
+  expect(dom.window.document.dispatchEvent(repeatedDocumentCmdF)).toBe(true);
+  expect(repeatedDocumentCmdF.defaultPrevented).toBe(false);
+
+  const repeatedCmdF = new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    code: "KeyF",
+    key: "f",
+    metaKey: true,
+  });
+
+  expect(activeFileTreeSearchInput()?.dispatchEvent(repeatedCmdF)).toBe(true);
+  expect(repeatedCmdF.defaultPrevented).toBe(false);
+
+  const visibleSearchInput = findFileTreeSearchInput(dom.window.document.getElementById("file-list"));
+  visibleSearchInput?.closest("[data-file-tree-search-container]")?.setAttribute("data-open", "false");
+  visibleSearchInput?.blur();
+  expect(activeFileTreeSearchInput()).toBeNull();
+
+  dom.window.document.dispatchEvent(new dom.window.CustomEvent("cmux:focus-file-search", { bubbles: true }));
+  await waitFor(() => activeFileTreeSearchInput() != null);
+});
+
 test("layout toggle persists user choice while explicit payload layout wins", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
@@ -202,14 +278,36 @@ function createDom(): JSDOM {
 }
 
 function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
+  const requestAnimationFrame = (callback: FrameRequestCallback) => (
+    nextDom.window.setTimeout(() => callback(nextDom.window.performance.now()), 0)
+  );
+  const cancelAnimationFrame = (handle: number) => nextDom.window.clearTimeout(handle);
+  class TestResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  nextDom.window.requestAnimationFrame = requestAnimationFrame;
+  nextDom.window.cancelAnimationFrame = cancelAnimationFrame;
+  (nextDom.window as any).ResizeObserver = TestResizeObserver;
   (globalThis as any).window = nextDom.window;
   (globalThis as any).document = nextDom.window.document;
   (globalThis as any).navigator = nextDom.window.navigator;
   (globalThis as any).Element = nextDom.window.Element;
   (globalThis as any).Node = nextDom.window.Node;
+  (globalThis as any).HTMLButtonElement = nextDom.window.HTMLButtonElement;
+  (globalThis as any).HTMLDivElement = nextDom.window.HTMLDivElement;
   (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
+  (globalThis as any).HTMLInputElement = nextDom.window.HTMLInputElement;
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
+  (globalThis as any).HTMLTemplateElement = nextDom.window.HTMLTemplateElement;
+  (globalThis as any).ShadowRoot = nextDom.window.ShadowRoot;
+  (globalThis as any).SVGElement = nextDom.window.SVGElement;
+  (globalThis as any).CustomEvent = nextDom.window.CustomEvent;
   (globalThis as any).customElements = nextDom.window.customElements;
+  (globalThis as any).requestAnimationFrame = requestAnimationFrame;
+  (globalThis as any).cancelAnimationFrame = cancelAnimationFrame;
+  (globalThis as any).ResizeObserver = TestResizeObserver;
   (globalThis as any).fetch = fetchImpl;
 }
 
@@ -227,8 +325,48 @@ function copyGitApplyButton(): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.includes("Copy git apply command"));
 }
 
+function fileSearchToggle(): HTMLButtonElement | null | undefined {
+  return dom?.window.document.querySelector<HTMLButtonElement>("#file-search-toggle");
+}
+
+function activeFileTreeSearchInput(): HTMLInputElement | null {
+  const searchInput = findFileTreeSearchInput(dom?.window.document.getElementById("file-list") ?? null);
+  if (!searchInput) {
+    return null;
+  }
+  if (searchInput.closest("[data-file-tree-search-container]")?.getAttribute("data-open") !== "true") {
+    return null;
+  }
+  const root = searchInput.getRootNode();
+  if (root instanceof dom!.window.ShadowRoot) {
+    return root.activeElement === searchInput ? searchInput : null;
+  }
+  return dom!.window.document.activeElement === searchInput ? searchInput : null;
+}
+
+function findFileTreeSearchInput(root: ParentNode | null): HTMLInputElement | null {
+  if (!root) {
+    return null;
+  }
+  const searchInput = root.querySelector("[data-file-tree-search-input]");
+  if (searchInput instanceof dom!.window.HTMLInputElement) {
+    return searchInput;
+  }
+  for (const element of root.querySelectorAll("*")) {
+    const shadowSearchInput = element.shadowRoot ? findFileTreeSearchInput(element.shadowRoot) : null;
+    if (shadowSearchInput) {
+      return shadowSearchInput;
+    }
+  }
+  return null;
+}
+
 function contentFilesWidth(): string | undefined {
   return dom?.window.document.getElementById("content")?.style.getPropertyValue("--cmux-diff-files-width");
+}
+
+async function waitForEffects(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

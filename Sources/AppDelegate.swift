@@ -6670,6 +6670,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
+        if performDiffViewerFindShortcutBeforeBrowserFind(in: context) {
+#if DEBUG
+            let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "find.shortcut.app.end target=diffViewerFileSearch result=1 " +
+                "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+            )
+#endif
+            return true
+        }
+
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
@@ -6691,6 +6702,129 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         return result
     }
+
+    @discardableResult
+    private func performDiffViewerFindShortcutBeforeBrowserFind(in context: MainWindowContext) -> Bool {
+        guard let browserPanel = context.tabManager.focusedBrowserPanel,
+              cmuxIsDiffViewerURL(browserPanel.webView.url) else {
+            return false
+        }
+
+        if browserPanel.searchState != nil {
+            browserPanel.hideFind()
+            browserPanel.webView.evaluateJavaScript(Self.diffViewerFocusFileSearchScript) { result, error in
+#if DEBUG
+                DispatchQueue.main.async {
+                    if let error {
+                        cmuxDebugLog("find.diffViewer.menuBridge returnToFileSearch error=\(error.localizedDescription)")
+                    } else {
+                        cmuxDebugLog("find.diffViewer.menuBridge returnToFileSearch result=\(String(describing: result))")
+                    }
+                }
+#endif
+            }
+            return true
+        }
+
+        browserPanel.webView.evaluateJavaScript(Self.diffViewerFindMenuBridgeScript) { [weak browserPanel] result, error in
+            DispatchQueue.main.async {
+                guard let browserPanel else { return }
+                if let result = result as? String,
+                   result == "opened" {
+                    return
+                }
+#if DEBUG
+                if let error {
+                    cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind error=\(error.localizedDescription)")
+                } else {
+                    cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind result=\(String(describing: result))")
+                }
+#endif
+                browserPanel.startFind()
+            }
+        }
+        return true
+    }
+
+    private static let diffViewerFindMenuBridgeScript = """
+    (() => {
+      function findOpenFileSearchInput(root) {
+        const direct = root.querySelector?.("[data-file-tree-search-input]");
+        if (direct) {
+          const container = direct.closest("[data-file-tree-search-container]");
+          if (container?.getAttribute("data-open") === "true") return direct;
+        }
+        for (const element of root.querySelectorAll?.("*") ?? []) {
+          if (!element.shadowRoot) continue;
+          const found = findOpenFileSearchInput(element.shadowRoot);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      function focusInput(input) {
+        if (!input) return false;
+        input.focus();
+        if (typeof input.select === "function") input.select();
+        return true;
+      }
+
+      function requestFileSearchFocus() {
+        document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+      }
+
+      const searchInput = findOpenFileSearchInput(document);
+      if (focusInput(searchInput)) {
+        return "already-open";
+      }
+
+      requestFileSearchFocus();
+      return "opened";
+    })()
+    """
+
+    private static let diffViewerFocusFileSearchScript = """
+    (() => {
+      function findOpenFileSearchInput(root) {
+        const direct = root.querySelector?.("[data-file-tree-search-input]");
+        if (direct) {
+          const container = direct.closest("[data-file-tree-search-container]");
+          if (container?.getAttribute("data-open") === "true") return direct;
+        }
+        for (const element of root.querySelectorAll?.("*") ?? []) {
+          if (!element.shadowRoot) continue;
+          const found = findOpenFileSearchInput(element.shadowRoot);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      function focusInput(input) {
+        if (!input) return false;
+        input.focus();
+        if (typeof input.select === "function") input.select();
+        return true;
+      }
+
+      function requestFileSearchFocus() {
+        document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+      }
+
+      let searchInput = findOpenFileSearchInput(document);
+      if (focusInput(searchInput)) {
+        return "focused";
+      }
+
+      requestFileSearchFocus();
+
+      searchInput = findOpenFileSearchInput(document);
+      if (focusInput(searchInput)) {
+        return "opened";
+      }
+
+      return "opened-pending";
+    })()
+    """
 
     @discardableResult
     func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {

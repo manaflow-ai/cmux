@@ -22,6 +22,14 @@ struct ShortcutActionNumberedDigitTests {
         )
     }
 
+    @Test func diffViewerFileSearchDefaultIsCommandF() {
+        #expect(
+            ShortcutAction.diffViewerOpenFileSearch.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "f", command: true)
+            )
+        )
+    }
+
     @Test func onlyDiffViewerContentActionsAllowBareFirstStrokes() {
         let bareFirstStrokeActions: Set<ShortcutAction> = [
             .diffViewerScrollDown,

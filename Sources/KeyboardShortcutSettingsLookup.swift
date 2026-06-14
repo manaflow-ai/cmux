@@ -3,6 +3,9 @@ import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
+    static let diffViewerOpenFileSearchSlashDefaultMigrationKey =
+        "shortcut.diffViewerOpenFileSearch.migratedSlashDefaultToCmdF"
+
     static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)
@@ -14,6 +17,14 @@ extension KeyboardShortcutSettings {
 
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            let defaultShortcut = action.defaultShortcut
+            return defaultShortcut.isUnbound ? nil : defaultShortcut
+        }
+        if action == .diffViewerOpenFileSearch,
+           shortcut == StoredShortcut(key: "/", command: false, shift: false, option: false, control: false),
+           !UserDefaults.standard.bool(forKey: diffViewerOpenFileSearchSlashDefaultMigrationKey) {
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+            UserDefaults.standard.set(true, forKey: diffViewerOpenFileSearchSlashDefaultMigrationKey)
             let defaultShortcut = action.defaultShortcut
             return defaultShortcut.isUnbound ? nil : defaultShortcut
         }

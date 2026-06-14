@@ -5930,6 +5930,76 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserFirstFindShortcutRoutingKeepsDiffViewerCmdFAppOwned() throws {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
+        )
+        let diffViewerURL = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
+        let loopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#cmux-diff-viewer"))
+        let slashFragmentLoopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#/cmux-diff-viewer"))
+        let ordinaryBrowserURL = try XCTUnwrap(URL(string: "https://example.com/diff.html"))
+
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: diffViewerURL),
+            "Diff viewer Cmd+F must stay app-owned so the layered file-search/browser-find cycle can run"
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: loopbackDiffViewerURL),
+            "HTTP-served diff viewer Cmd+F must stay app-owned"
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: slashFragmentLoopbackDiffViewerURL),
+            "HTTP-served diff viewer Cmd+F must stay app-owned even with the live slash-prefixed fragment"
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: ordinaryBrowserURL),
+            "Ordinary browser pages should keep the app-owned Cmd+F behavior"
+        )
+    }
+
+    func testDiffViewerFileSearchDefaultsToCmdF() {
+        let cmdF = StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch), cmdF)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.normalizedRecordedShortcutResult(cmdF),
+            .accepted(cmdF),
+            "Default Diff Viewer file search shortcut must be accepted as a browser-content shortcut"
+        )
+
+        let defaults = UserDefaults.standard
+        let migrationKey = KeyboardShortcutSettings.diffViewerOpenFileSearchSlashDefaultMigrationKey
+        let savedMigrationFlag = defaults.object(forKey: migrationKey)
+        defer {
+            if let savedMigrationFlag {
+                defaults.set(savedMigrationFlag, forKey: migrationKey)
+            } else {
+                defaults.removeObject(forKey: migrationKey)
+            }
+        }
+
+        let legacySlash = StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+        let legacySlashData = try! JSONEncoder().encode(legacySlash)
+        defaults.removeObject(forKey: migrationKey)
+        defaults.set(legacySlashData, forKey: KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.defaultsKey)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch),
+            cmdF,
+            "Stored records matching the old built-in slash default should migrate to Cmd+F"
+        )
+        XCTAssertNil(defaults.object(forKey: KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.defaultsKey))
+        XCTAssertTrue(defaults.bool(forKey: migrationKey))
+
+        KeyboardShortcutSettings.setShortcut(legacySlash, for: .diffViewerOpenFileSearch)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch),
+            legacySlash,
+            "After migration has run, slash should remain available as an intentional custom binding"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],
