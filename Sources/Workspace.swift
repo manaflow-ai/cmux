@@ -145,7 +145,8 @@ extension Workspace {
             logEntries: logSnapshots,
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
-            remote: remoteConfiguration?.sessionSnapshot()
+            remote: remoteConfiguration?.sessionSnapshot(),
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
     }
 
@@ -186,6 +187,11 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+
+        // Restore the per-workspace environment before any surface is rebuilt so
+        // every restored terminal (all of which spawn fresh shells — PTYs do not
+        // survive an app restart) inherits it through `newTerminalSurface`.
+        workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
@@ -2463,6 +2469,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// User-defined environment variables applied to every shell spawned in this
+    /// workspace: the initial terminal, every later pane/surface/split, and every
+    /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
+    /// variables always win — this dictionary is merged through the
+    /// `additionalEnvironment` / `initialEnvironmentOverrides` channels, both of
+    /// which skip `protectedStartupEnvironmentKeys` in
+    /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
+    /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
+    /// Persisted in the session manifest and restored before surfaces are rebuilt.
+    @Published var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -3180,9 +3196,13 @@ final class Workspace: Identifiable, ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:],
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
+        let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
+        self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
@@ -3285,7 +3305,10 @@ final class Workspace: Identifiable, ObservableObject {
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: initialTerminalEnvironment
+                initialEnvironmentOverrides: Self.startupEnvironment(
+                    workspaceEnvironment: sanitizedWorkspaceEnvironment,
+                    overlaying: initialTerminalEnvironment
+                )
             )
             configureNewTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
@@ -3656,6 +3679,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
+        // Record the workspace env this freshly-created panel inherited, so a later
+        // respawn (which reuses this panel even after a move to another workspace)
+        // can drop it and re-apply the current workspace's env instead of leaking
+        // the source workspace's (#5995). Only creation runs through here — attach
+        // uses configureTerminalPanel — so it keeps reflecting the workspace the
+        // surface's env was built from until the panel is respawned.
+        terminalPanel.seededWorkspaceEnvironment = workspaceEnvironment
         if TerminalTextBoxInputSettings.focusOnNewTerminals() {
             terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
@@ -5705,6 +5735,62 @@ final class Workspace: Identifiable, ObservableObject {
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
+    /// Normalizes a user-supplied workspace environment: trims keys and drops any
+    /// entry with a blank key or blank value. Dropping blank values keeps behavior
+    /// identical across the `additionalEnvironment` channel (which already skips
+    /// empty values) and the `initialEnvironmentOverrides` channel (which would
+    /// otherwise export a blank value on the initial shell only).
+    ///
+    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
+    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
+    /// the single authority on which keys are managed. That protection is an exact
+    /// Swift-string match, but the env eventually crosses the Swift→C boundary
+    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
+    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
+    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
+    /// (and `=`, which is never a valid env var name) and any value containing a
+    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
+    /// session restore), so the guard cannot be bypassed.
+    // `nonisolated` so the nonisolated socket workspace-create parsing path
+    // (`v2WorkspaceCreate`) can call this pure helper without hopping to the main
+    // actor; `Workspace` is `@MainActor`, so its statics are main-actor-isolated by
+    // default.
+    nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty,
+                  !pair.value.isEmpty,
+                  !key.contains("\0"),
+                  !key.contains("="),
+                  !pair.value.contains("\0") else { return }
+            result[key] = pair.value
+        }
+    }
+
+    /// Pure merge core: overlays `explicit` on top of `workspaceEnvironment`.
+    /// Managed `CMUX_*` / terminal-identity keys are protected downstream by
+    /// `mergedStartupEnvironment(protectedKeys:)`; this only decides precedence
+    /// among user-supplied values — explicit per-surface entries (layout `env`,
+    /// scrollback replay, SSH startup) win over the workspace set. Static so the
+    /// `init` path can call it before `self` is fully initialized.
+    static func startupEnvironment(
+        workspaceEnvironment: [String: String],
+        overlaying explicit: [String: String]
+    ) -> [String: String] {
+        guard !workspaceEnvironment.isEmpty else { return explicit }
+        var merged = workspaceEnvironment
+        for (key, value) in explicit {
+            merged[key] = value
+        }
+        return merged
+    }
+
+    /// Instance convenience over ``startupEnvironment(workspaceEnvironment:overlaying:)``
+    /// for the post-init surface-creation paths.
+    func startupEnvironmentMergingWorkspaceEnvironment(_ explicit: [String: String]) -> [String: String] {
+        Self.startupEnvironment(workspaceEnvironment: workspaceEnvironment, overlaying: explicit)
+    }
+
     private func terminalStartupEnvironment(
         base: [String: String],
         remoteStartupCommand: String?
@@ -6769,7 +6855,7 @@ final class Workspace: Identifiable, ObservableObject {
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: startupEnvironment,
+            base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
         // Hold the pane open after the remote session ends so the user can read the
@@ -6941,7 +7027,7 @@ final class Workspace: Identifiable, ObservableObject {
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: startupEnvironment,
+            base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
         // See the comment at the other call site: hold the PTY open after the remote
@@ -7069,8 +7155,20 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        // Drop env this surface inherited from its (possibly previous) workspace,
+        // then re-fold the current workspace's env below, so a terminal moved
+        // between workspaces respawns with the destination's variables rather than
+        // the source's (#5995). Only entries whose value still equals the seeded
+        // workspace value are dropped, so an explicit per-surface override that
+        // shares a workspace key keeps its value. configureNewTerminalPanel
+        // re-records the seeded env for the replacement panel against the current
+        // workspace.
+        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
+            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        )
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -9295,7 +9393,8 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand
+            initialCommand: replacementInitialCommand,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -10350,7 +10449,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: [:],
+            base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
         if startupCommand != nil {
@@ -11691,7 +11790,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -11759,7 +11859,8 @@ extension Workspace: BonsplitDelegate {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
