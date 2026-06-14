@@ -2,10 +2,12 @@ import Foundation
 
 enum CmuxSocketEventMapper {
     static func publish(command: String, response: String) {
-        if publishV2(command: command, response: response) {
-            return
+        autoreleasepool {
+            if publishV2(command: command, response: response) {
+                return
+            }
+            publishV1(command: command, response: response)
         }
-        publishV1(command: command, response: response)
     }
 
     private static func publishV2(command: String, response: String) -> Bool {
@@ -16,6 +18,9 @@ enum CmuxSocketEventMapper {
             return false
         }
         guard method != "events.stream" else { return true }
+        guard let mapping = domainEventMapping(forV2Method: method) else {
+            return true
+        }
 
         let responseObject: [String: Any]
         if let responseData = response.data(using: .utf8),
@@ -31,80 +36,93 @@ enum CmuxSocketEventMapper {
 
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
-        publishDomainEventForV2(method: method, params: params, result: result)
+        publishResult(
+            name: mapping.name,
+            category: mapping.category,
+            method: method,
+            params: mappedParams(params, using: mapping.params),
+            result: result
+        )
         return true
     }
 
-    private static func publishDomainEventForV2(method: String, params: [String: Any], result: [String: Any]) {
+    private struct DomainEventMapping {
+        let name: String
+        let category: String
+        let params: ParameterMapping
+    }
+
+    private enum ParameterMapping {
+        case unchanged
+        case redactedInput
+        case redactedNotification
+    }
+
+    private static func domainEventMapping(forV2Method method: String) -> DomainEventMapping? {
         switch method {
-        case "window.create", "window.focus", "window.close":
-            break
-        case "workspace.create", "workspace.select", "workspace.next", "workspace.previous", "workspace.last", "workspace.close":
-            break
         case "workspace.rename":
-            publishResult(name: "workspace.renamed", category: "workspace", method: method, params: params, result: result)
-        case "workspace.reorder", "workspace.reorder_many":
-            break
+            return DomainEventMapping(name: "workspace.renamed", category: "workspace", params: .unchanged)
         case "workspace.move_to_window":
-            publishResult(name: "workspace.moved", category: "workspace", method: method, params: params, result: result)
+            return DomainEventMapping(name: "workspace.moved", category: "workspace", params: .unchanged)
         case "workspace.action":
-            publishResult(name: "workspace.action", category: "workspace", method: method, params: params, result: result)
-        case "surface.create", "surface.split", "browser.open_split", "markdown.open", "file.open":
-            break
+            return DomainEventMapping(name: "workspace.action", category: "workspace", params: .unchanged)
         case "surface.split_off", "surface.drag_to_split":
-            publishResult(name: "pane.created", category: "pane", method: method, params: params, result: result)
-        case "surface.focus":
-            break
-        case "surface.close":
-            break
+            return DomainEventMapping(name: "pane.created", category: "pane", params: .unchanged)
         case "surface.move":
-            publishResult(name: "surface.moved", category: "surface", method: method, params: params, result: result)
+            return DomainEventMapping(name: "surface.moved", category: "surface", params: .unchanged)
         case "surface.reorder":
-            publishResult(name: "surface.reordered", category: "surface", method: method, params: params, result: result)
+            return DomainEventMapping(name: "surface.reordered", category: "surface", params: .unchanged)
         case "surface.action", "tab.action":
-            publishResult(name: "surface.action", category: "surface", method: method, params: params, result: result)
+            return DomainEventMapping(name: "surface.action", category: "surface", params: .unchanged)
         case "surface.send_text":
-            publishResult(name: "surface.input_sent", category: "surface", method: method, params: redactedInputParams(params), result: result)
+            return DomainEventMapping(name: "surface.input_sent", category: "surface", params: .redactedInput)
         case "surface.send_key":
-            publishResult(name: "surface.key_sent", category: "surface", method: method, params: params, result: result)
-        case "pane.create":
-            break
-        case "pane.focus", "pane.last":
-            break
+            return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
-            publishResult(name: "pane.resized", category: "pane", method: method, params: params, result: result)
+            return DomainEventMapping(name: "pane.resized", category: "pane", params: .unchanged)
         case "pane.swap":
-            publishResult(name: "pane.swapped", category: "pane", method: method, params: params, result: result)
+            return DomainEventMapping(name: "pane.swapped", category: "pane", params: .unchanged)
         case "pane.break":
-            publishResult(name: "pane.broken", category: "pane", method: method, params: params, result: result)
+            return DomainEventMapping(name: "pane.broken", category: "pane", params: .unchanged)
         case "pane.join":
-            publishResult(name: "pane.joined", category: "pane", method: method, params: params, result: result)
+            return DomainEventMapping(name: "pane.joined", category: "pane", params: .unchanged)
         case "notification.create", "notification.create_for_caller", "notification.create_for_surface", "notification.create_for_target":
-            publishResult(name: "notification.requested", category: "notification", method: method, params: redactedNotificationParams(params), result: result)
+            return DomainEventMapping(name: "notification.requested", category: "notification", params: .redactedNotification)
         case "notification.clear":
-            publishResult(name: "notification.clear_requested", category: "notification", method: method, params: params, result: result)
+            return DomainEventMapping(name: "notification.clear_requested", category: "notification", params: .unchanged)
         case "notification.dismiss":
-            publishResult(name: "notification.dismiss_requested", category: "notification", method: method, params: params, result: result)
+            return DomainEventMapping(name: "notification.dismiss_requested", category: "notification", params: .unchanged)
         case "notification.mark_read":
-            publishResult(name: "notification.mark_read_requested", category: "notification", method: method, params: params, result: result)
+            return DomainEventMapping(name: "notification.mark_read_requested", category: "notification", params: .unchanged)
         case "notification.open":
-            publishResult(name: "notification.open_requested", category: "notification", method: method, params: params, result: result)
+            return DomainEventMapping(name: "notification.open_requested", category: "notification", params: .unchanged)
         case "notification.jump_to_unread":
-            publishResult(name: "notification.jump_to_unread_requested", category: "notification", method: method, params: params, result: result)
+            return DomainEventMapping(name: "notification.jump_to_unread_requested", category: "notification", params: .unchanged)
         case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
-            publishResult(name: "feed.item.resolved", category: "feed", method: method, params: params, result: result)
+            return DomainEventMapping(name: "feed.item.resolved", category: "feed", params: .unchanged)
         case "app.focus_override.set":
-            publishResult(name: "app.focus_override.changed", category: "app", method: method, params: params, result: result)
+            return DomainEventMapping(name: "app.focus_override.changed", category: "app", params: .unchanged)
         case "app.simulate_active":
-            publishResult(name: "app.simulated_active", category: "app", method: method, params: params, result: result)
+            return DomainEventMapping(name: "app.simulated_active", category: "app", params: .unchanged)
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload":
-            publishResult(name: "browser.navigation", category: "browser", method: method, params: params, result: result)
+            return DomainEventMapping(name: "browser.navigation", category: "browser", params: .unchanged)
         case "browser.click", "browser.dblclick", "browser.hover", "browser.focus", "browser.press", "browser.keydown", "browser.keyup", "browser.check", "browser.uncheck", "browser.select", "browser.scroll", "browser.scroll_into_view":
-            publishResult(name: "browser.interaction", category: "browser", method: method, params: params, result: result)
+            return DomainEventMapping(name: "browser.interaction", category: "browser", params: .unchanged)
         case "browser.type", "browser.fill":
-            publishResult(name: "browser.input", category: "browser", method: method, params: redactedInputParams(params), result: result)
+            return DomainEventMapping(name: "browser.input", category: "browser", params: .redactedInput)
         default:
-            break
+            return nil
+        }
+    }
+
+    private static func mappedParams(_ params: [String: Any], using mapping: ParameterMapping) -> [String: Any] {
+        switch mapping {
+        case .unchanged:
+            return params
+        case .redactedInput:
+            return redactedInputParams(params)
+        case .redactedNotification:
+            return redactedNotificationParams(params)
         }
     }
 

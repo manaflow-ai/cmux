@@ -61,4 +61,38 @@ struct TerminalAccessoryLayoutReducerTests {
         #expect(layout.order == [0, 1, 2, 3])
         #expect(layout.enabled == Set([0, 1, 2, 3]))
     }
+
+    @Test("a custom default order drives the fresh-install layout")
+    func customDefaultOrderFirstLaunch() {
+        let curated = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3], defaultOrder: [2, 3, 0, 1])
+        let layout = curated.load(savedOrder: [], savedEnabled: nil)
+        #expect(layout.order == [2, 3, 0, 1])
+        #expect(layout.enabled == Set([0, 1, 2, 3]))
+        #expect(layout.visibleOrder == [2, 3, 0, 1])
+    }
+
+    @Test("a default order omitting an id appends it so nothing vanishes")
+    func defaultOrderAppendsOmitted() {
+        let curated = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3], defaultOrder: [2, 0])
+        // Omitted 1 and 3 are appended in canonical order, never dropped.
+        #expect(curated.defaultOrder == [2, 0, 1, 3])
+        let layout = curated.defaultLayout()
+        #expect(layout.order == [2, 0, 1, 3])
+        #expect(layout.visibleOrder == [2, 0, 1, 3])
+    }
+
+    @Test("a default order with unknown ids drops them")
+    func defaultOrderDropsUnknown() {
+        let curated = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3], defaultOrder: [9, 2, 0, 7])
+        #expect(curated.defaultOrder == [2, 0, 1, 3])
+    }
+
+    @Test("forward-compat append follows the default order, not canonical")
+    func forwardCompatUsesDefaultOrder() {
+        let curated = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3], defaultOrder: [3, 2, 1, 0])
+        let layout = curated.load(savedOrder: [2, 0], savedEnabled: [2, 0])
+        // Saved [2, 0] honored, then missing 3 and 1 appended in default order.
+        #expect(layout.order == [2, 0, 3, 1])
+        #expect(layout.visibleOrder == [2, 0])
+    }
 }

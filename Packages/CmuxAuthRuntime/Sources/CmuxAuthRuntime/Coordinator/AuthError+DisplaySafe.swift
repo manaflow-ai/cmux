@@ -17,6 +17,19 @@ extension AuthError {
             self = authError
             return
         }
+        if error is CancellationError || Task.isCancelled {
+            // A cancelled flow (the user backed out, or the sheet's task was
+            // torn down) is not a failure to render. Mapping it to the generic
+            // server error would flash "Something went wrong" after every
+            // deliberate cancel. The `Task.isCancelled` arm matters because
+            // URLSession-backed phases surface task cancellation as
+            // `URLError(.cancelled)` (or a Stack transport error wrapping it),
+            // not as `CancellationError`: this mapping always runs in the
+            // cancelled flow's own catch, so any error caught on a cancelled
+            // task is the cancellation, not an independent failure.
+            self = .cancelled
+            return
+        }
         if let stackError = error as? any StackAuthErrorProtocol {
             switch stackError.code.uppercased() {
             case "OAUTH_CANCELLED":

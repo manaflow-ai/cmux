@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import Bonsplit
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -569,7 +570,14 @@ final class AgentHibernationTests: XCTestCase {
             homeDirectory: home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: (snapshot: detectedSnapshot, updatedAt: 999, processIDs: [123, 456])]
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999,
+                    processIDs: Set([123, 456]),
+                    sessionIDSource: .explicit
+                ),
+            ]
         )
 
         XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
@@ -630,7 +638,14 @@ final class AgentHibernationTests: XCTestCase {
             homeDirectory: home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: (snapshot: detectedSnapshot, updatedAt: 999, processIDs: [321])]
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999,
+                    processIDs: Set([321]),
+                    sessionIDSource: .explicit
+                ),
+            ]
         )
 
         XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
@@ -692,7 +707,14 @@ final class AgentHibernationTests: XCTestCase {
             homeDirectory: home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: (snapshot: detectedSnapshot, updatedAt: 999, processIDs: [654])]
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999,
+                    processIDs: Set([654]),
+                    sessionIDSource: .explicit
+                ),
+            ]
         )
 
         XCTAssertNil(index.snapshot(workspaceId: oldWorkspaceId, panelId: oldPanelId))
@@ -721,7 +743,14 @@ final class AgentHibernationTests: XCTestCase {
             homeDirectory: home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: (snapshot: detectedSnapshot, updatedAt: 999, processIDs: [789])]
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999,
+                    processIDs: Set([789]),
+                    sessionIDSource: .explicit
+                ),
+            ]
         )
 
         XCTAssertEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), 0)
@@ -802,7 +831,14 @@ final class AgentHibernationTests: XCTestCase {
             homeDirectory: home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: (snapshot: snapshot, updatedAt: 100, processIDs: [42])]
+            detectedSnapshots: [
+                key: (
+                    snapshot: snapshot,
+                    updatedAt: 100,
+                    processIDs: Set([42]),
+                    sessionIDSource: .explicit
+                ),
+            ]
         )
 
         workspace.invalidatedRestoredAgentFingerprintsByPanelId[panelId] =
