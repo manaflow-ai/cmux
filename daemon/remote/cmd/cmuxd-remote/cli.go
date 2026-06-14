@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -190,6 +191,20 @@ doneFlags:
 		return runBrowserRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
 	}
 
+	// Workspace group subcommands: "workspace-group <sub>" and the canonical
+	// two-word "workspace group <sub>" both map to workspace.group.* methods,
+	// matching the macOS cmux CLI.
+	if cmdName == "workspace-group" {
+		return runWorkspaceGroupRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+	if cmdName == "workspace" {
+		if len(cmdArgs) > 0 && cmdArgs[0] == "group" {
+			return runWorkspaceGroupRelay(socketPath, cmdArgs[1:], jsonOutput, refreshAddr)
+		}
+		fmt.Fprintln(os.Stderr, "cmux workspace: only the \"group\" subcommand is supported here. Use list-workspaces, new-workspace, close-workspace, or select-workspace for workspace operations.")
+		return 2
+	}
+
 	// Agent launch commands
 	if cmdName == "claude-teams" {
 		return runClaudeTeamsRelay(socketPath, cmdArgs, refreshAddr)
@@ -323,6 +338,199 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 		return 1
 	}
 	fmt.Println(resp)
+	return 0
+}
+
+// workspaceGroupFlagKeys lists the flags each "workspace group" subcommand
+// accepts. Every subcommand also takes --window to target a non-focused window.
+var workspaceGroupFlagKeys = map[string][]string{
+	"list":          {"window"},
+	"create":        {"name", "cwd", "from", "window"},
+	"ungroup":       {"group", "window"},
+	"delete":        {"group", "window"},
+	"rename":        {"group", "name", "window"},
+	"collapse":      {"group", "window"},
+	"expand":        {"group", "window"},
+	"pin":           {"group", "window"},
+	"unpin":         {"group", "window"},
+	"add":           {"group", "workspace", "window"},
+	"remove":        {"workspace", "window"},
+	"set-anchor":    {"group", "workspace", "window"},
+	"new-workspace": {"group", "placement", "window"},
+	"set-color":     {"group", "hex", "window"},
+	"set-icon":      {"group", "symbol", "window"},
+	"move":          {"group", "to-index", "before", "after", "window"},
+	"focus":         {"group", "window"},
+}
+
+// runWorkspaceGroupRelay handles "cmux workspace group <sub>" (and the
+// "workspace-group" alias) by mapping each subcommand to its
+// workspace.group.* v2 method, mirroring the macOS cmux CLI flags.
+func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	const subcommandHint = "list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus"
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "cmux workspace group: requires a subcommand (%s)\n", subcommandHint)
+		return 2
+	}
+	sub := args[0]
+	flagKeys, ok := workspaceGroupFlagKeys[sub]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "cmux workspace group: unknown subcommand %q (%s)\n", sub, subcommandHint)
+		return 2
+	}
+
+	fail := func(format string, a ...any) int {
+		fmt.Fprintf(os.Stderr, "cmux workspace group %s: %s\n", sub, fmt.Sprintf(format, a...))
+		return 2
+	}
+
+	parsed, err := parseFlags(args[1:], flagKeys)
+	if err != nil {
+		return fail("%v", err)
+	}
+
+	params := make(map[string]any)
+	if win, ok := parsed.flags["window"]; ok {
+		params["window_id"] = win
+	}
+
+	// The group id comes from --group or the first positional argument.
+	// takeGroupID consumes that positional so later positionals (e.g. the
+	// rename name) are still available.
+	positional := parsed.positional
+	takeGroupID := func() bool {
+		if gid, ok := parsed.flags["group"]; ok {
+			params["group_id"] = gid
+			return true
+		}
+		if len(positional) > 0 {
+			params["group_id"] = positional[0]
+			positional = positional[1:]
+			return true
+		}
+		return false
+	}
+
+	switch sub {
+	case "list":
+		// No parameters beyond the optional window.
+
+	case "create":
+		name, ok := parsed.flags["name"]
+		if !ok && len(positional) > 0 {
+			name = positional[0]
+		}
+		params["name"] = name
+		if cwd, ok := parsed.flags["cwd"]; ok {
+			params["cwd"] = cwd
+		}
+		if from, ok := parsed.flags["from"]; ok {
+			ids := []string{}
+			for _, id := range strings.Split(from, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					ids = append(ids, id)
+				}
+			}
+			params["child_workspace_ids"] = ids
+		}
+
+	case "ungroup", "delete", "collapse", "expand", "pin", "unpin", "focus":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+
+	case "rename":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+		name, ok := parsed.flags["name"]
+		if !ok && len(positional) > 0 {
+			name, ok = positional[0], true
+		}
+		if !ok {
+			return fail("requires --name <name>")
+		}
+		params["name"] = name
+
+	case "add", "set-anchor":
+		gid, hasGroup := parsed.flags["group"]
+		ws, hasWorkspace := parsed.flags["workspace"]
+		if !hasGroup || !hasWorkspace {
+			return fail("requires --group <id> --workspace <id>")
+		}
+		params["group_id"] = gid
+		params["workspace_id"] = ws
+
+	case "remove":
+		ws, ok := parsed.flags["workspace"]
+		if !ok && len(positional) > 0 {
+			ws, ok = positional[0], true
+		}
+		if !ok {
+			return fail("requires --workspace <id>")
+		}
+		params["workspace_id"] = ws
+
+	case "new-workspace":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+		if placement, ok := parsed.flags["placement"]; ok {
+			params["placement"] = placement
+		}
+
+	case "set-color":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+		// Omitting --hex clears the color, matching the macOS CLI.
+		params["hex"] = parsed.flags["hex"]
+
+	case "set-icon":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+		// Omitting --symbol clears the icon, matching the macOS CLI.
+		params["symbol"] = parsed.flags["symbol"]
+
+	case "move":
+		if !takeGroupID() {
+			return fail("requires a group id or --group <id>")
+		}
+		if v, ok := parsed.flags["to-index"]; ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fail("--to-index must be an integer")
+			}
+			params["to_index"] = n
+		} else if v, ok := parsed.flags["before"]; ok {
+			params["before_group_id"] = v
+		} else if v, ok := parsed.flags["after"]; ok {
+			params["after_group_id"] = v
+		} else {
+			return fail("requires --to-index <n>, --before <group>, or --after <group>")
+		}
+	}
+
+	// Forward the SSH caller's workspace/surface context so methods without a
+	// group id (list, create) resolve the caller's window instead of whichever
+	// local window is focused. Group-id routing still wins server-side, and
+	// subcommands that require an explicit --workspace have already validated
+	// it above, so the fallback never satisfies a missing required flag.
+	applyWorkspaceEnvFallback(params)
+	applySurfaceEnvFallback(params)
+
+	method := "workspace.group." + strings.ReplaceAll(sub, "-", "_")
+	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
 	return 0
 }
 
@@ -864,6 +1072,9 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
+	fmt.Fprintln(os.Stderr, "  workspace group <sub>     Manage sidebar workspace groups (list, create, ungroup,")
+	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, remove,")
+	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
