@@ -267,6 +267,44 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveFocusRoutesSpatiallyInCanvasMode() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.orderedPanelIds.first)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let secondPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        workspace.setLayoutMode(.canvas)
+        // Pin deterministic canvas geometry: first pane left, second right.
+        workspace.canvasModel.restoreFrames([
+            (id: firstPanelId, frame: CGRect(x: 0, y: 0, width: 400, height: 300)),
+            (id: secondPanel.id, frame: CGRect(x: 500, y: 0, width: 400, height: 300)),
+        ])
+        workspace.focusPanel(firstPanelId)
+
+        workspace.moveFocus(direction: .right)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            secondPanel.id,
+            "Canvas mode routes moveFocus through spatial navigation"
+        )
+
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        // No pane further right: focus stays put instead of wrapping.
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+    }
+
+    @MainActor
     func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
         let manager = TabManager()
         let first = manager.tabs[0]
