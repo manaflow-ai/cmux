@@ -42,6 +42,8 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.gui_mode.open":
+            return debugGuiModeOpen()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -204,6 +206,18 @@ extension ControlCommandCoordinator {
             // equally unreachable unwired-context case.
             return .err(code: "internal_error", message: "No window", data: nil)
         }
+    }
+
+    // MARK: - debug.gui_mode.open
+
+    func debugGuiModeOpen() -> ControlCallResult {
+        guard let workspaceID = debugContext?.controlDebugOpenGuiModeWorkspace() else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        return .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "workspace_ref": ref(.workspace, workspaceID),
+        ]))
     }
 
     // MARK: - debug.textbox.*

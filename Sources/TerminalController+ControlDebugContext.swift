@@ -60,6 +60,12 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugOpenGuiModeWorkspace() -> UUID? {
+        guard let tabManager else { return nil }
+        let workspace = GuiModeWorkspaceCoordinator.createHomeWorkspace(in: tabManager)
+        return workspace.id
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

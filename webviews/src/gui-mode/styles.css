@@ -1,0 +1,84 @@
+.gui-mode-root {
+  min-height: 100vh;
+  color: var(--agent-text);
+  background:
+    linear-gradient(180deg, rgba(11, 12, 13, 0.22), rgba(11, 12, 13, 0.06)),
+    var(--agent-page-bg);
+}
+
+.gui-mode-home {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.gui-mode-home > .agent-composer-stack {
+  width: min(760px, 100%);
+}
+
+.gui-mode-composer {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.gui-mode-editor {
+  padding: 14px 14px 4px;
+}
+
+.gui-mode-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px;
+}
+
+.gui-mode-submit {
+  border-radius: 8px;
+  min-width: 76px;
+  justify-content: center;
+}
+
+.gui-mode-error {
+  min-height: 18px;
+  color: var(--agent-danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.gui-mode-status {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--agent-muted);
+}
+
+.gui-mode-task {
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.gui-mode-task-panel {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: calc(100vh - 40px);
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--agent-surface);
+  padding: 16px;
+}
+
+.gui-mode-task-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+
+.gui-mode-task-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 20px;
+}

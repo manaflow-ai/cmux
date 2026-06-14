@@ -8,6 +8,32 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    func testCommandPaletteIncludesGuiModeCommand() throws {
+        let contributions = ContentView.commandPaletteViewCommandContributions()
+        let contribution = try XCTUnwrap(
+            contributions.first { $0.commandId == GuiModeWorkspaceCoordinator.commandPaletteCommandId }
+        )
+        let context = ContentView.CommandPaletteContextSnapshot()
+
+        XCTAssertEqual(
+            contribution.title(context),
+            String(localized: "guiMode.command.enable.title", defaultValue: "Enable GUI Mode")
+        )
+        XCTAssertEqual(
+            contribution.subtitle(context),
+            String(localized: "guiMode.command.enable.subtitle", defaultValue: "Workspace")
+        )
+        XCTAssertTrue(contribution.keywords.contains("gui"))
+        XCTAssertTrue(contribution.keywords.contains("worktree"))
+    }
+
+    func testGuiModeTaskPromptShellQuotingKeepsPromptAsOneArgument() {
+        XCTAssertEqual(
+            GuiModeWorkspaceCoordinator.shellQuoted("build Lawrence's thing"),
+            "'build Lawrence'\\''s thing'"
+        )
+    }
+
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard

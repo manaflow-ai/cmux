@@ -57,6 +57,13 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Opens the GUI mode workspace through the app's shared action path for
+    /// `debug.gui_mode.open`.
+    ///
+    /// - Returns: The created workspace id, or `nil` if no tab manager is
+    ///   available.
+    func controlDebugOpenGuiModeWorkspace() -> UUID?
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

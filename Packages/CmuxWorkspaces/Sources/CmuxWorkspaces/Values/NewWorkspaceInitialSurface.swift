@@ -9,4 +9,6 @@ public enum NewWorkspaceInitialSurface: Sendable {
     case terminal
     /// A browser pane in its default new-tab state.
     case browser
+    /// The native GUI mode webview surface.
+    case guiMode
 }

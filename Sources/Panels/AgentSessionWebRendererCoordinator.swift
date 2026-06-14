@@ -10,6 +10,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
+    private var guiModePage: GuiModePanelPage = .home
+    private var guiModePrompt: String?
     private var theme: AgentSessionWebTheme = .resolve(
         appearance: .fromConfig(GhosttyConfig.load())
     )
@@ -36,6 +38,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
         workingDirectory: String?,
+        guiModePage: GuiModePanelPage,
+        guiModePrompt: String?,
         theme: AgentSessionWebTheme,
         isFocused: Bool
     ) {
@@ -50,6 +54,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
         self.workingDirectory = workingDirectory
+        self.guiModePage = guiModePage
+        self.guiModePrompt = guiModePrompt
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
         self.theme = theme
@@ -188,6 +194,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 #endif
         hasFinishedNavigation = true
         applyThemeToLoadedPage()
+        logGuiModeDiagnosticsIfNeeded(webView)
         if isPanelFocused {
             focus()
         }
@@ -307,6 +314,34 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "type": "app.theme",
             "theme": theme.dictionary
         ])
+    }
+
+    private func logGuiModeDiagnosticsIfNeeded(_ webView: WKWebView) {
+#if DEBUG
+        guard rendererKind == .guiMode else { return }
+        let script = """
+        (() => {
+          const root = document.getElementById('root');
+          return JSON.stringify({
+            href: window.location.href,
+            htmlKind: document.documentElement.dataset.cmuxWebviewKind || '',
+            bodyKind: document.body.dataset.cmuxWebviewKind || '',
+            rootText: root ? root.innerText : '',
+            rootHTML: root ? root.innerHTML.slice(0, 240) : '',
+            scripts: Array.from(document.scripts).map((script) => script.getAttribute('src') || '').join(',')
+          });
+        })()
+        """
+        webView.evaluateJavaScript(script) { result, error in
+            if let error {
+                cmuxDebugLog("agentSession.web.guiMode.diagnostics.failed error=\(error.localizedDescription)")
+            } else if let result = result as? String {
+                cmuxDebugLog("agentSession.web.guiMode.diagnostics \(result)")
+            }
+        }
+#else
+        _ = webView
+#endif
     }
 
     private func isTrustedBridgeFrame(_ frameInfo: WKFrameInfo) -> Bool {
@@ -546,7 +581,42 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             if let workingDirectory {
                 context["workingDirectory"] = workingDirectory
             }
+            if rendererKind == .guiMode {
+                context["guiMode"] = [
+                    "page": guiModePage.rawValue,
+                    "prompt": guiModePrompt ?? "",
+                    "copy": [
+                        "homeTitle": String(localized: "guiMode.web.home.title", defaultValue: "GUI Mode"),
+                        "taskTitle": String(localized: "guiMode.web.task.title", defaultValue: "/task-worktree-pr"),
+                        "promptPlaceholder": String(
+                            localized: "guiMode.web.promptPlaceholder",
+                            defaultValue: "What should cmux build?"
+                        ),
+                        "submit": String(localized: "guiMode.web.submit", defaultValue: "Submit"),
+                        "submitting": String(localized: "guiMode.web.submitting", defaultValue: "Submitting"),
+                        "taskPromptLabel": String(localized: "guiMode.web.taskPromptLabel", defaultValue: "Prompt"),
+                        "errorMessage": String(
+                            localized: "guiMode.web.errorMessage",
+                            defaultValue: "Could not create the GUI workspace."
+                        )
+                    ]
+                ] as [String: Any]
+            }
             return context
+        case "guiMode.submit":
+            guard rendererKind == .guiMode else {
+                throw AgentSessionBridgeError.unsupportedMethod(request.method)
+            }
+            let prompt = try request.requiredString("prompt").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !prompt.isEmpty else {
+                throw AgentSessionBridgeError.missingParameter("prompt")
+            }
+            let workspace = try GuiModeWorkspaceCoordinator.createTaskWorkspace(
+                prompt: prompt,
+                sourcePanelId: panelId,
+                preferredWorkspaceId: workspaceId
+            )
+            return ["workspaceId": workspace.id.uuidString]
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":

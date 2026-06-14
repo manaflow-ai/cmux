@@ -1076,6 +1076,8 @@ class TabManager: ObservableObject {
                 // single-panel title sync keeps the workspace title following
                 // the page title once the user navigates.
                 defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+            case .guiMode:
+                defaultTitle = String(localized: "guiMode.workspace.home.title", defaultValue: "GUI Mode")
             }
             let newWorkspace = makeWorkspaceForCreation(
                 title: title ?? defaultTitle,

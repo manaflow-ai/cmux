@@ -6936,6 +6936,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         in: context
                     )
                     focusInitialBrowserAddressBar(in: workspace)
+                case .guiMode:
+                    _ = context.tabManager.addWorkspace(initialSurface: .guiMode)
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
                 }
             }
             return true
@@ -7622,6 +7628,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspace: Workspace
         if initialSurface == .browser {
             workspace = context.tabManager.addWorkspace(initialSurface: .browser, select: true)
+        } else if initialSurface == .guiMode {
+            workspace = context.tabManager.addWorkspace(initialSurface: .guiMode, select: true)
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
                 workingDirectory: workingDirectory,

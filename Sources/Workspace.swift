@@ -3282,6 +3282,31 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .guiMode {
+            let guiPanel = AgentSessionPanel(
+                workspaceId: id,
+                rendererKind: .guiMode,
+                initialProviderID: .codex,
+                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            )
+            panels[guiPanel.id] = guiPanel
+            panelTitles[guiPanel.id] = guiPanel.displayTitle
+            if !initialDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                panelDirectories[guiPanel.id] = initialDirectory
+            }
+
+            if let tabId = bonsplitController.createTab(
+                title: guiPanel.displayTitle,
+                icon: guiPanel.displayIcon,
+                kind: SurfaceKind.agentSession,
+                isDirty: guiPanel.isDirty,
+                isLoading: false,
+                isPinned: false
+            ) {
+                surfaceIdToPanelId[tabId] = guiPanel.id
+                initialTabId = tabId
+            }
+            installAgentSessionPanelSubscription(guiPanel)
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
