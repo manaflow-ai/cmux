@@ -19243,9 +19243,9 @@ struct CMUXCLI {
         }
 
         private func stopAppServerLogDiagnostics() {
-            appServerLogQueue.async { [weak self] in
-                self?.appServerLogSource?.cancel()
-                self?.appServerLogSource = nil
+            appServerLogQueue.sync {
+                appServerLogSource?.cancel()
+                appServerLogSource = nil
             }
         }
 
