@@ -1067,7 +1067,7 @@ enum PiSessionLocator {
         registration: CmuxVaultAgentRegistration
     ) -> String {
         let sessionRoot = process.arguments.value(afterOption: "--session-dir")
-            ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
+            ?? piConfiguredSessionDirectory(for: process, registration: registration)
             ?? configuredSessionDirectory(for: registration)
             ?? ompAgentSessionsRoot(for: process, registration: registration)
             ?? campfireAgentSessionsRoot(for: process, registration: registration)
@@ -1079,6 +1079,22 @@ enum PiSessionLocator {
             return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
         }
         return expandedRoot
+    }
+
+    /// Reads `PI_CODING_AGENT_SESSION_DIR` for Pi-based agents only.
+    ///
+    /// Campfire embeds Pi, so a Campfire process can inherit
+    /// `PI_CODING_AGENT_SESSION_DIR` from a user's Pi configuration. Consuming it
+    /// here would resolve Campfire sessions against the Pi session directory and
+    /// pre-empt Campfire's own `CAMPFIRE_CODING_AGENT_SESSION_DIR` /
+    /// `CAMPFIRE_CODING_AGENT_DIR` lookup, so it is gated out for the `campfire`
+    /// registration. Behavior for `pi` and `omp` is unchanged.
+    private static func piConfiguredSessionDirectory(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String? {
+        guard registration.id != "campfire" else { return nil }
+        return process.environment["PI_CODING_AGENT_SESSION_DIR"]
     }
 
     private static func ompAgentSessionsRoot(

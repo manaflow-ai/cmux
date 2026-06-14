@@ -116,7 +116,7 @@ class MockCmuxSocket:
             payload = json.loads(line)
         except json.JSONDecodeError:
             return "OK"
-        request_id = payload.get("id") or "unknown"
+        request_id = payload["id"] if "id" in payload else "unknown"
         method = payload.get("method")
         if method == "surface.list":
             result = {

@@ -252,7 +252,9 @@ function observerNotification(event: CampfireObserverEvent): string | null {
     case "permission.asked":
       return `${name} asked to ${capabilityLabel(event.capability)}`;
     case "relay.error":
-      return `Campfire relay error: ${firstString(event.reason) || "connection failed"}`;
+      // Do not surface the raw upstream reason in a user-facing notification;
+      // keep it generic per cmux's user-facing error privacy policy.
+      return "Campfire relay error: connection failed";
     default:
       return null;
   }

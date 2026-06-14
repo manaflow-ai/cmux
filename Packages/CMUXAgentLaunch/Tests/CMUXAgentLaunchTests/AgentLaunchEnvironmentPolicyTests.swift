@@ -45,10 +45,16 @@ struct AgentLaunchEnvironmentPolicyTests {
 
     @Test("Keeps PI_PACKAGE_DIR for pi and omp resumes")
     func keepsPiPackageDirForPiKinds() {
-        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+        let selectedPi = AgentLaunchEnvironmentPolicy.selectedEnvironment(
             from: ["PI_PACKAGE_DIR": "/nix/store/pi-package"],
             kind: "pi"
         )
-        #expect(selected["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
+        #expect(selectedPi["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
+
+        let selectedOmp = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: ["PI_PACKAGE_DIR": "/nix/store/pi-package"],
+            kind: "omp"
+        )
+        #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
 }

@@ -88,6 +88,50 @@ struct CampfireSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
+    @Test func directProcessDetectionIgnoresPiSessionDirForCampfire() throws {
+        // Campfire embeds Pi, so a Campfire process can inherit
+        // PI_CODING_AGENT_SESSION_DIR from the user's Pi configuration. Session
+        // detection must still resolve Campfire sessions against the
+        // Campfire-specific directory, not the Pi one.
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-pi-precedence-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let piSessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let piProjectSessions = piSessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: piProjectSessions, withIntermediateDirectories: true)
+        let piSession = try Self.writeSessionFile(
+            id: "pi-session",
+            in: piProjectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 5_000)
+        )
+
+        let campfireSessionsRoot = root.appendingPathComponent("campfire-sessions", isDirectory: true)
+        let campfireProjectSessions = campfireSessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: campfireProjectSessions, withIntermediateDirectories: true)
+        let campfireSession = try Self.writeSessionFile(
+            id: "campfire-session",
+            in: campfireProjectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            arguments: ["/Users/example/.local/bin/campfire"],
+            environment: [
+                "PWD": workspace.path,
+                "PI_CODING_AGENT_SESSION_DIR": piSessionsRoot.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": campfireSessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("campfire"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(campfireSession.path))
+        #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(piSession.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
     @Test func taskManagerClassifiesCampfireCompiledBinaryAndDevInvocation() throws {
         let compiled = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "campfire",
