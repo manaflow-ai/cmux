@@ -69,7 +69,18 @@ extension TerminalController {
             params: ["workspace_id": workspaceID],
             requireTerminal: false
         ) else { return }
-        let workspace = resolved.workspace
+        adoptDetectedAgentSessions(workspace: resolved.workspace)
+    }
+
+    /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``,
+    /// for callers that already hold the `Workspace` (the workspace-list RPC
+    /// enumerates every workspace and adopts inline, so the toggle is known
+    /// before the user enters the workspace — no per-open resolution and no
+    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory
+    /// once the surface has a session, so a repeat scan of an already-adopted
+    /// workspace touches no filesystem.
+    func adoptDetectedAgentSessions(workspace: Workspace) {
+        let workspaceID = workspace.id.uuidString
         let service = AgentChatTranscriptService.shared
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
             let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)

@@ -13833,6 +13833,17 @@ class TerminalController {
                     data: ["workspace_id": requestedWorkspaceID.uuidString]
                 )
             }
+            // Adopt any title-detected coding agent in each listed workspace
+            // before serializing, so a hook-bypassed claude registers (and its
+            // chat toggle becomes known) as the phone loads the workspace rows,
+            // not only once the workspace is opened. This piggybacks on the
+            // existing workspace.updated→workspace.list refetch that a terminal
+            // title change ("✳ Claude Code") already triggers, so a claude
+            // launched into an open workspace is adopted live. Idempotent and
+            // filesystem-free once a surface has a session.
+            for workspace in visibleWorkspaces {
+                adoptDetectedAgentSessions(workspace: workspace)
+            }
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
@@ -13866,6 +13877,9 @@ class TerminalController {
                 guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
                 guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    // See the scoped branch: adopt title-detected agents so the
+                    // chat toggle is known as the rows load, across every window.
+                    adoptDetectedAgentSessions(workspace: workspace)
                     flattened.append(
                         mobileWorkspacePayload(
                             workspace: workspace,
