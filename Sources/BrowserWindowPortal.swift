@@ -1462,6 +1462,9 @@ final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
+            if isHidden {
+                setAutomationInputProxy(false)
+            }
             guard isHidden, !oldValue, let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
@@ -1484,6 +1487,7 @@ final class WindowBrowserSlotView: NSView {
     var onHostedInspectorLayout: ((WindowBrowserSlotView) -> Void)?
     fileprivate var isApplyingHostedInspectorLayout = false
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    private var automationInputProxyEnabled = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1513,6 +1517,19 @@ final class WindowBrowserSlotView: NSView {
             yieldOwnedFirstResponderIfNeeded(in: currentWindow, reason: "slotWillLeaveWindow")
         }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if automationInputProxyEnabled {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+
+    fileprivate func setAutomationInputProxy(_ enabled: Bool) {
+        guard automationInputProxyEnabled != enabled else { return }
+        automationInputProxyEnabled = enabled
+        alphaValue = enabled ? 0 : 1
     }
 
     override func layout() {
@@ -3360,6 +3377,7 @@ final class WindowBrowserPortal: NSObject {
         let previousTransientRecoveryReason = entry.transientRecoveryReason
         func hideContainerView(reason: String) {
             cancelPendingHostedWebViewRefreshes(for: webViewId)
+            containerView.setAutomationInputProxy(false)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setOmnibarSuggestions(nil)
@@ -3777,7 +3795,10 @@ final class WindowBrowserPortal: NSObject {
                 "host=\(browserPortalDebugFrame(hostBounds))"
             )
 #endif
+            containerView.setAutomationInputProxy(false)
             containerView.isHidden = false
+        } else if !shouldHide {
+            containerView.setAutomationInputProxy(false)
         }
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
@@ -3972,6 +3993,92 @@ final class WindowBrowserPortal: NSObject {
         }
         return nil
     }
+
+    @discardableResult
+    func prepareWebViewForAutomationInput(withId webViewId: ObjectIdentifier, reason: String) -> Bool {
+        guard ensureInstalled() else { return false }
+        guard let entry = entriesByWebViewId[webViewId],
+              let webView = entry.webView,
+              let containerView = entry.containerView else {
+            return false
+        }
+
+        let shouldPreserveExternalFullscreenHost =
+            webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+        let shouldPreserveExternalHostForHiddenEntry =
+            !shouldPreserveExternalFullscreenHost &&
+            !entry.visibleInUI &&
+            webView.superview !== containerView
+        if shouldPreserveExternalFullscreenHost {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=automationInput.fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView)) " +
+                "state=\(String(describing: webView.fullscreenState))"
+            )
+#endif
+            return false
+        }
+        if shouldPreserveExternalHostForHiddenEntry {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=automationInput.hiddenEntryExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView))"
+            )
+#endif
+            return false
+        }
+
+        if containerView.superview !== hostView {
+            hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+        }
+        if webView.superview !== containerView {
+            if let sourceSuperview = webView.superview {
+                moveWebKitRelatedSubviewsIfNeeded(
+                    from: sourceSuperview,
+                    to: containerView,
+                    primaryWebView: webView,
+                    reason: "automationInput.attachContainer"
+                )
+            } else {
+                containerView.addSubview(webView, positioned: .above, relativeTo: nil)
+            }
+            containerView.pinHostedWebView(webView)
+        }
+
+        if !entry.visibleInUI {
+            containerView.setPaneTopChromeHeight(0)
+            containerView.setSearchOverlay(nil)
+            containerView.setOmnibarSuggestions(nil)
+            containerView.setPaneDropContext(nil)
+            containerView.setPortalDragDropZone(nil)
+            containerView.setDropZoneOverlay(zone: nil)
+            containerView.setAutomationInputProxy(true)
+        } else {
+            containerView.setAutomationInputProxy(false)
+        }
+
+        if containerView.isHidden {
+            containerView.isHidden = false
+        }
+        webView.browserPortalReattachRenderingState(reason: "automationInput:\(reason)")
+        return webView.window != nil && !webView.isHiddenOrHasHiddenAncestor
+    }
+
+    func finishAutomationInput(withId webViewId: ObjectIdentifier, reason: String) {
+        guard let entry = entriesByWebViewId[webViewId],
+              let containerView = entry.containerView else {
+            return
+        }
+        guard !entry.visibleInUI else {
+            containerView.setAutomationInputProxy(false)
+            return
+        }
+        containerView.setAutomationInputProxy(false)
+        hideWebView(withId: webViewId, source: reason)
+    }
 }
 
 @MainActor
@@ -4109,6 +4216,26 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.hideWebView(withId: webViewId, source: source)
+        postRegistryDidChange(for: webView)
+    }
+
+    @discardableResult
+    static func prepareForAutomationInput(webView: WKWebView, reason: String) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return false }
+        let prepared = portal.prepareWebViewForAutomationInput(withId: webViewId, reason: reason)
+        if prepared {
+            postRegistryDidChange(for: webView)
+        }
+        return prepared
+    }
+
+    static func finishAutomationInput(webView: WKWebView, reason: String) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.finishAutomationInput(withId: webViewId, reason: reason)
         postRegistryDidChange(for: webView)
     }
 

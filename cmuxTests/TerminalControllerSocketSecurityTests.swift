@@ -17,6 +17,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .path
     }
 
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
     override func setUp() {
         super.setUp()
         TerminalController.shared.stop()
@@ -131,6 +139,13 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(feedbackOpen.insideSuppressed)
         XCTAssertFalse(feedbackOpen.insideAllowsFocus)
 
+        let browserFocusWebView = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "browser.focus_webview",
+            isV2: true
+        )
+        XCTAssertTrue(browserFocusWebView.insideSuppressed)
+        XCTAssertFalse(browserFocusWebView.insideAllowsFocus)
+
         let debugType = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "debug.type",
             isV2: true
@@ -140,6 +155,72 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif
+    }
+
+    func testBrowserKeyboardInputTargetsHiddenBackgroundWebViewWithoutSelectingWorkspace() throws {
+        _ = NSApplication.shared
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let backgroundWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let foregroundWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let pane = try XCTUnwrap(backgroundWorkspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(backgroundWorkspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: browserPanel.webView)
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected window content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+        BrowserWindowPortalRegistry.bind(webView: browserPanel.webView, to: anchor, visibleInUI: true, zPriority: 2)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        BrowserWindowPortalRegistry.updateEntryVisibility(
+            for: browserPanel.webView,
+            visibleInUI: false,
+            zPriority: 0
+        )
+        BrowserWindowPortalRegistry.hide(webView: browserPanel.webView, source: "unitTest.backgroundWorkspace")
+
+        let hiddenSnapshot = try XCTUnwrap(BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView))
+        XCTAssertFalse(hiddenSnapshot.visibleInUI)
+        XCTAssertTrue(hiddenSnapshot.containerHidden)
+
+        TerminalController.shared.setActiveTabManager(manager)
+        XCTAssertEqual(manager.selectedTabId, foregroundWorkspace.id)
+
+        let response = try handleV2Request(
+            method: "browser.input_keyboard",
+            params: [
+                "surface_id": browserPanel.id.uuidString,
+                "args": ["type", "hello"]
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(
+            manager.selectedTabId,
+            foregroundWorkspace.id,
+            "Background browser input must not select or reveal the target workspace"
+        )
+        let afterSnapshot = try XCTUnwrap(BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView))
+        XCTAssertFalse(afterSnapshot.visibleInUI)
     }
 
     func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {

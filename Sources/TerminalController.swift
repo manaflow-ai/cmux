@@ -211,7 +211,6 @@ class TerminalController {
         "pane.focus",
         "pane.last",
         "file.open",
-        "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
         "notification.open",
@@ -5253,7 +5252,7 @@ class TerminalController {
 
     func v2BrowserWithPanel(
         params: [String: Any],
-        _ body: (_ tabManager: TabManager, _ workspace: Workspace, _ surfaceId: UUID, _ browserPanel: BrowserPanel) -> V2CallResult
+        _ body: @MainActor (_ tabManager: TabManager, _ workspace: Workspace, _ surfaceId: UUID, _ browserPanel: BrowserPanel) -> V2CallResult
     ) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: "Browser operation failed", data: nil)
         v2MainSync {
@@ -8036,11 +8035,12 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
 
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+            if socketCommandAllowsInAppFocusMutations(),
+               let windowId = v2ResolveWindowId(tabManager: tabManager) {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(tabManager)
             }
-            if tabManager.selectedTabId != ws.id {
+            if socketCommandAllowsInAppFocusMutations(), tabManager.selectedTabId != ws.id {
                 tabManager.selectWorkspace(ws)
             }
 
@@ -8048,6 +8048,23 @@ class TerminalController {
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
 
             let webView = browserPanel.webView
+            let didPrepareAutomationInput: Bool
+            if webView.isHiddenOrHasHiddenAncestor {
+                didPrepareAutomationInput = BrowserWindowPortalRegistry.prepareForAutomationInput(
+                    webView: webView,
+                    reason: "focusWebView"
+                )
+            } else {
+                didPrepareAutomationInput = false
+            }
+            defer {
+                if didPrepareAutomationInput {
+                    BrowserWindowPortalRegistry.finishAutomationInput(
+                        webView: webView,
+                        reason: "focusWebView.complete"
+                    )
+                }
+            }
             guard let window = webView.window else {
                 result = .err(code: "invalid_state", message: "WebView is not in a window", data: nil)
                 return
@@ -9961,12 +9978,182 @@ class TerminalController {
         v2BrowserNotSupported("browser.screencast.stop", details: "WKWebView does not expose CDP screencast streaming")
     }
 
-    private func v2BrowserInputMouse(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_mouse", details: "Raw CDP mouse injection is unavailable; use browser.click/hover/scroll")
+    private func v2BrowserInputArgs(_ params: [String: Any]) -> [String] {
+        if let args = params["args"] as? [String] {
+            return args
+        }
+        if let args = params["args"] as? [Any] {
+            return args.map { String(describing: $0) }
+        }
+        return []
     }
 
-    private func v2BrowserInputKeyboard(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_keyboard", details: "Raw CDP keyboard injection is unavailable; use browser.press/keydown/keyup")
+    private func v2PrepareBrowserWebViewForInput(
+        tabManager: TabManager,
+        workspace: Workspace,
+        browserPanel: BrowserPanel,
+        reason: String
+    ) -> (window: NSWindow, restore: @MainActor () -> Void)? {
+        let webView = browserPanel.webView
+        let wasBackgroundWorkspace = tabManager.selectedTabId != workspace.id
+        let previousResponder = webView.window?.firstResponder
+
+        let didPrepareAutomationInput: Bool
+        if webView.isHiddenOrHasHiddenAncestor {
+            didPrepareAutomationInput = BrowserWindowPortalRegistry.prepareForAutomationInput(
+                webView: webView,
+                reason: reason
+            )
+        } else {
+            didPrepareAutomationInput = false
+        }
+
+        guard let window = webView.window,
+              !webView.isHiddenOrHasHiddenAncestor else {
+            if didPrepareAutomationInput {
+                BrowserWindowPortalRegistry.finishAutomationInput(
+                    webView: webView,
+                    reason: "\(reason).failed"
+                )
+            }
+            return nil
+        }
+
+        browserPanel.endSuppressWebViewFocusForAddressBar()
+        browserPanel.clearWebViewFocusSuppression()
+        browserPanel.suppressOmnibarAutofocus(for: 1.0)
+        window.makeFirstResponder(webView)
+
+        let restore: @MainActor () -> Void = { [weak window, weak webView, weak previousResponder] in
+            guard let webView else { return }
+            if (wasBackgroundWorkspace || didPrepareAutomationInput),
+               let window,
+               let previousResponder,
+               previousResponder !== webView {
+                window.makeFirstResponder(previousResponder)
+            }
+            if didPrepareAutomationInput {
+                BrowserWindowPortalRegistry.finishAutomationInput(
+                    webView: webView,
+                    reason: "\(reason).complete"
+                )
+            }
+        }
+        return (window, restore)
+    }
+
+    private func v2BrowserInputMouse(params: [String: Any]) -> V2CallResult {
+        let args = v2BrowserInputArgs(params)
+        guard let action = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !action.isEmpty else {
+            return .err(code: "invalid_params", message: "browser.input_mouse requires move|click", data: nil)
+        }
+        guard args.count >= 3,
+              let x = Double(args[1]),
+              let y = Double(args[2]) else {
+            return .err(code: "invalid_params", message: "browser.input_mouse requires coordinates", data: ["args": args])
+        }
+
+        return v2BrowserWithPanel(params: params) { tabManager, ws, surfaceId, browserPanel in
+            guard let prepared = v2PrepareBrowserWebViewForInput(
+                tabManager: tabManager,
+                workspace: ws,
+                browserPanel: browserPanel,
+                reason: "browser.input_mouse"
+            ) else {
+                return .err(code: "invalid_state", message: "WebView is hidden", data: nil)
+            }
+            defer { prepared.restore() }
+
+            let webView = browserPanel.webView
+            let pointInWebView = NSPoint(x: x, y: max(0, webView.bounds.height - y))
+            let pointInWindow = webView.convert(pointInWebView, to: nil)
+            let eventNumber = Int(ProcessInfo.processInfo.systemUptime * 1000)
+            let timestamp = ProcessInfo.processInfo.systemUptime
+            let windowNumber = prepared.window.windowNumber
+
+            func mouseEvent(_ type: NSEvent.EventType, clickCount: Int = 1) -> NSEvent? {
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: pointInWindow,
+                    modifierFlags: [],
+                    timestamp: timestamp,
+                    windowNumber: windowNumber,
+                    context: nil,
+                    eventNumber: eventNumber,
+                    clickCount: clickCount,
+                    pressure: type == .leftMouseDown ? 1 : 0
+                )
+            }
+
+            switch action {
+            case "move":
+                guard let event = mouseEvent(.mouseMoved, clickCount: 0) else {
+                    return .err(code: "internal_error", message: "Failed to create mouse move event", data: nil)
+                }
+                webView.mouseMoved(with: event)
+            case "click":
+                guard let down = mouseEvent(.leftMouseDown),
+                      let up = mouseEvent(.leftMouseUp) else {
+                    return .err(code: "internal_error", message: "Failed to create mouse click event", data: nil)
+                }
+                webView.mouseDown(with: down)
+                webView.mouseUp(with: up)
+            default:
+                return .err(code: "invalid_params", message: "Unsupported browser.input_mouse action: \(action)", data: ["args": args])
+            }
+
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "action": action
+            ])
+        }
+    }
+
+    private func v2BrowserInputKeyboard(params: [String: Any]) -> V2CallResult {
+        let args = v2BrowserInputArgs(params)
+        guard let action = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !action.isEmpty else {
+            return .err(code: "invalid_params", message: "browser.input_keyboard requires type", data: nil)
+        }
+
+        return v2BrowserWithPanel(params: params) { tabManager, ws, surfaceId, browserPanel in
+            guard let prepared = v2PrepareBrowserWebViewForInput(
+                tabManager: tabManager,
+                workspace: ws,
+                browserPanel: browserPanel,
+                reason: "browser.input_keyboard"
+            ) else {
+                return .err(code: "invalid_state", message: "WebView is hidden", data: nil)
+            }
+            defer { prepared.restore() }
+
+            switch action {
+            case "type":
+                let text = args.dropFirst().joined(separator: " ")
+                guard !text.isEmpty else {
+                    return .err(code: "invalid_params", message: "browser.input_keyboard type requires text", data: nil)
+                }
+                if let client = browserPanel.webView as? NSTextInputClient {
+                    client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                } else {
+                    (browserPanel.webView as NSResponder).insertText(text)
+                }
+            default:
+                return .err(code: "invalid_params", message: "Unsupported browser.input_keyboard action: \(action)", data: ["args": args])
+            }
+
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "action": action
+            ])
+        }
     }
 
     private func v2BrowserInputTouch(params _: [String: Any]) -> V2CallResult {
