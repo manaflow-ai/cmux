@@ -368,27 +368,27 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
 
 @Suite struct FrameCodecTests {
     @Test func parsesSnapshotDeltaTick() throws {
-        let snap = try SyncFrameCodec.parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":7,"records":[{"id":"a","rev":3,"updatedAt":1,"deleted":false,"payload":{"x":1}}],"complete":true}"#.utf8))
+        let snap = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":7,"records":[{"id":"a","rev":3,"updatedAt":1,"deleted":false,"payload":{"x":1}}],"complete":true}"#.utf8))
         #expect(snap == .snapshot(collection: "devices", snapshotRev: 7,
             records: [SyncWireRecord(id: "a", rev: 3, updatedAt: 1, deleted: false, schemaVersion: syncSchemaVersion, payloadJSON: Data(#"{"x":1}"#.utf8))],
             complete: true))
 
-        if case let .delta(collection, rev, records) = try SyncFrameCodec.parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9,"records":[]}"#.utf8)) {
+        if case let .delta(collection, rev, records) = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9,"records":[]}"#.utf8)) {
             #expect(collection == "devices"); #expect(rev == 9); #expect(records.isEmpty)
         } else { Issue.record("expected delta") }
 
-        #expect(try SyncFrameCodec.parse(Data(#"{"type":"sync.tick","collection":"devices","rev":9}"#.utf8)) == .tick(collection: "devices", rev: 9))
+        #expect(try SyncFrameCodec().parse(Data(#"{"type":"sync.tick","collection":"devices","rev":9}"#.utf8)) == .tick(collection: "devices", rev: 9))
     }
 
     @Test func presenceFramesParseAsUnknown() throws {
         // A presence frame on the shared socket is not a sync frame.
-        #expect(try SyncFrameCodec.parse(Data(#"{"type":"online","instance":{}}"#.utf8)) == .unknown)
-        #expect(try SyncFrameCodec.parse(Data(#"{"type":"snapshot","devices":[]}"#.utf8)) == .unknown)
+        #expect(try SyncFrameCodec().parse(Data(#"{"type":"online","instance":{}}"#.utf8)) == .unknown)
+        #expect(try SyncFrameCodec().parse(Data(#"{"type":"snapshot","devices":[]}"#.utf8)) == .unknown)
     }
 
     @Test func nonJSONThrows() {
         #expect(throws: SyncFrameParseError.self) {
-            _ = try SyncFrameCodec.parse(Data("not json".utf8))
+            _ = try SyncFrameCodec().parse(Data("not json".utf8))
         }
     }
 
@@ -397,15 +397,15 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         // throw, so the client resyncs instead of committing an empty frame that
         // would silently advance the cursor / reconcile against nothing.
         #expect(throws: SyncFrameParseError.self) {
-            _ = try SyncFrameCodec.parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9}"#.utf8))
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9}"#.utf8))
         }
         #expect(throws: SyncFrameParseError.self) {
-            _ = try SyncFrameCodec.parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":9,"complete":true,"records":"oops"}"#.utf8))
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":9,"complete":true,"records":"oops"}"#.utf8))
         }
     }
 
     @Test func helloEncodesCollectionsAndCursors() throws {
-        let data = try SyncFrameCodec.encodeHello(collections: [("devices", 12)])
+        let data = try SyncFrameCodec().encodeHello(collections: [("devices", 12)])
         let obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(obj["type"] as? String == "sync.hello")
         #expect(obj["protocol"] as? String == syncProtocolV1)
@@ -414,15 +414,15 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
 
 @Suite struct FlagTests {
     @Test func envOverrideWins() {
-        #expect(MobileDeviceListLocalFirst.isEnabled(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "1"], defaults: UserDefaults(suiteName: "flag-1")!, isDebugBuild: false))
-        #expect(!MobileDeviceListLocalFirst.isEnabled(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: UserDefaults(suiteName: "flag-2")!, isDebugBuild: true))
+        #expect(MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "1"], defaults: UserDefaults(suiteName: "flag-1")!, isDebugBuild: false).isEnabled)
+        #expect(!MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: UserDefaults(suiteName: "flag-2")!, isDebugBuild: true).isEnabled)
     }
 
     @Test func debugDefaultsOnReleaseDefaultsOff() {
         let suite = UserDefaults(suiteName: "flag-3")!
         suite.removePersistentDomain(forName: "flag-3")
-        #expect(MobileDeviceListLocalFirst.isEnabled(environment: [:], defaults: suite, isDebugBuild: true))
-        #expect(!MobileDeviceListLocalFirst.isEnabled(environment: [:], defaults: suite, isDebugBuild: false))
+        #expect(MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: true).isEnabled)
+        #expect(!MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: false).isEnabled)
     }
 }
 

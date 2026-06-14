@@ -30,6 +30,7 @@ public struct SyncClient: Sendable {
     private let applier: SyncFrameApplier
     private let collections: [String]
     private let onApplied: (@Sendable () async -> Void)?
+    private let codec = SyncFrameCodec()
 
     public init(
         transport: any SyncTransport,
@@ -53,7 +54,7 @@ public struct SyncClient: Sendable {
         for name in collections {
             subs.append((name: name, cursor: try await applier.cursor(collection: name)))
         }
-        try await transport.send(try SyncFrameCodec.encodeHello(collections: subs))
+        try await transport.send(try codec.encodeHello(collections: subs))
 
         do {
             for try await raw in transport.frames() {
@@ -65,7 +66,7 @@ public struct SyncClient: Sendable {
                 // (a fresh snapshot/catch-up fills the gap).
                 let frame: SyncServerFrame
                 do {
-                    frame = try SyncFrameCodec.parse(raw)
+                    frame = try codec.parse(raw)
                 } catch SyncFrameParseError.notJSON {
                     continue // presence frame / non-JSON noise; ignore
                 } catch {

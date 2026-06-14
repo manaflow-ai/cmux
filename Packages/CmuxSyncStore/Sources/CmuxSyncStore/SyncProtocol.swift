@@ -61,11 +61,15 @@ public enum SyncFrameParseError: Error, Equatable, Sendable {
     case malformed(String)
 }
 
-public enum SyncFrameCodec {
+/// Encodes/decodes sync/v1 wire frames. An instantiable value (not a static
+/// namespace) per the package conventions; construct once and reuse.
+public struct SyncFrameCodec: Sendable {
+    public init() {}
+
     /// Parse one WS text/data frame. Returns `.unknown` for non-sync frames
     /// (so the caller routes presence frames elsewhere) and only throws on a
     /// frame that claims to be sync but is structurally broken.
-    public static func parse(_ data: Data) throws -> SyncServerFrame {
+    public func parse(_ data: Data) throws -> SyncServerFrame {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SyncFrameParseError.notJSON
         }
@@ -104,7 +108,7 @@ public enum SyncFrameCodec {
 
     /// Encode the `sync.hello` a client sends after connect to subscribe to
     /// collections with the cursors it already holds (DESIGN.md §3.2).
-    public static func encodeHello(collections: [(name: String, cursor: Int)]) throws -> Data {
+    public func encodeHello(collections: [(name: String, cursor: Int)]) throws -> Data {
         let payload: [String: Any] = [
             "type": "sync.hello",
             "protocol": syncProtocolV1,
@@ -119,14 +123,14 @@ public enum SyncFrameCodec {
     /// reconnects/resyncs rather than committing an empty frame that would
     /// silently advance the cursor (or reconcile against an empty snapshot set)
     /// and durably lose records.
-    private static func requireRecords(_ value: Any?, frame: String) throws -> [SyncWireRecord] {
+    private func requireRecords(_ value: Any?, frame: String) throws -> [SyncWireRecord] {
         guard let array = value as? [[String: Any]] else {
             throw SyncFrameParseError.malformed("\(frame) missing or non-array records")
         }
         return try array.map { try parseRecord($0) }
     }
 
-    private static func parseRecord(_ obj: [String: Any]) throws -> SyncWireRecord {
+    private func parseRecord(_ obj: [String: Any]) throws -> SyncWireRecord {
         guard let id = obj["id"] as? String, let rev = intValue(obj["rev"]) else {
             throw SyncFrameParseError.malformed("record missing id/rev")
         }
@@ -145,14 +149,14 @@ public enum SyncFrameCodec {
         )
     }
 
-    private static func intValue(_ value: Any?) -> Int? {
+    private func intValue(_ value: Any?) -> Int? {
         if let i = value as? Int { return i }
         if let d = value as? Double { return Int(d) }
         if let n = value as? NSNumber { return n.intValue }
         return nil
     }
 
-    private static func doubleValue(_ value: Any?) -> Double? {
+    private func doubleValue(_ value: Any?) -> Double? {
         if let d = value as? Double { return d }
         if let i = value as? Int { return Double(i) }
         if let n = value as? NSNumber { return n.doubleValue }
