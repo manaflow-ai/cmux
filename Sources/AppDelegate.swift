@@ -3732,8 +3732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
-        forceSynchronousWrite: Bool = false
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -3744,7 +3743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        let writeSynchronously = forceSynchronousWrite || Self.shouldWriteSessionSnapshotSynchronously(
+        let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
         )
@@ -4018,12 +4017,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func persistSessionSnapshotAfterControlMutation() -> Bool {
         guard !isTerminatingApp else { return false }
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         return saveSessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
-            forceSynchronousWrite: true
+            includeScrollback: false
         )
     }
 
