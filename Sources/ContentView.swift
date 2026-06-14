@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import CmuxCore
 import CmuxPanes
 import CmuxSocketControl
