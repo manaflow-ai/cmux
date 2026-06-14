@@ -3628,7 +3628,6 @@ struct CMUXCLI {
                     print("  image:    \(image)")
                     break
                 }
-                Self.clearVMCreateIdempotency(idempotency)
                 // Create the VM then drop the user into a cmux-managed workspace. Freestyle
                 // attaches over SSH; E2B attaches over cmuxd-remote WebSocket PTY.
                 let shortId = String(id.prefix(8))
@@ -3641,6 +3640,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                Self.clearVMCreateIdempotency(idempotency)
 
             case "shell", "attach":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
