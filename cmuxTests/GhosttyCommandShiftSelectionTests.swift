@@ -114,7 +114,12 @@ struct GhosttyCommandShiftSelectionTests {
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
-        guard hostedTerminal.surface.hasLiveSurface else {
+        let hasLiveSurface = hostedTerminal.surface.hasLiveSurface
+        #expect(
+            hasLiveSurface,
+            Comment(rawValue: "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable.")
+        )
+        guard hasLiveSurface else {
             return
         }
 
