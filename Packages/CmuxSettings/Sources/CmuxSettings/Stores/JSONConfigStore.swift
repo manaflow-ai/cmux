@@ -100,6 +100,13 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Whether the config file currently holds an entry at the key's path, as
+    /// opposed to the key falling back to its default. Used by the settings
+    /// control layer to report a value's source.
+    public func hasValue<Value>(for key: JSONKey<Value>) -> Bool {
+        key.path.lookup(in: loadedRoot()) != nil
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.

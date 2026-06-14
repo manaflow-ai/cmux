@@ -67,6 +67,13 @@ public actor UserDefaultsSettingsStore {
         underlyingDefaults.removeObject(forKey: key.userDefaultsKey)
     }
 
+    /// Whether the suite holds a stored override for the key (decodable or not),
+    /// as opposed to falling back to the key's default. Used by the settings
+    /// control layer to report a value's source.
+    public func hasOverride<Value>(for key: DefaultsKey<Value>) -> Bool {
+        key.hasStoredValue(in: underlyingDefaults)
+    }
+
     /// Removes the stored overrides for every UserDefaults-backed entry in
     /// ``keys``. Entries whose ``AnySettingKey/kind`` is
     /// ``AnySettingKey/Kind/jsonConfig`` are ignored; reset them via the
