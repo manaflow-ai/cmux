@@ -42,9 +42,7 @@ _cmux_run_bg() {
         return 0
     fi
 
-    "$@" >/dev/null 2>&1 &
-    local bg_pid=$!
-    disown "$bg_pid" 2>/dev/null || disown 2>/dev/null || true
+    ( "$@" >/dev/null 2>&1 & disown "$!" 2>/dev/null || true )
 }
 
 _cmux_detach_bg() {
