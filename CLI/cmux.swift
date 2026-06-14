@@ -3323,16 +3323,16 @@ struct CMUXCLI {
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+        let shouldGracefullyNoOpMissingClaudeHookSocket = command == "hooks" && commandArgs.first?.lowercased() == "claude" && processEnv["CMUX_SURFACE_ID"]?.isEmpty != false && processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false && !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) && (claudeAgentPID(from: processEnv) != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"].contains { processEnv[$0]?.isEmpty == false })
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
-            let hasRecoverableClaudeHookTarget = commandArgs.first?.lowercased() == "claude" && (claudeAgentPID(from: processEnv) != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"].contains { processEnv[$0]?.isEmpty == false })
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }),
-               !hasRecoverableClaudeHookTarget {
+               !shouldGracefullyNoOpMissingClaudeHookSocket {
                 print("{}")
                 return
             }
@@ -3355,7 +3355,6 @@ struct CMUXCLI {
             )
             return
         }
-
         // Feed helpers: clear the persistent workstream history.
         if command == "feed" {
             let sub = commandArgs.first?.lowercased() ?? "help"
@@ -3427,6 +3426,7 @@ struct CMUXCLI {
             try client.connect()
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
+            if shouldGracefullyNoOpMissingClaudeHookSocket { print("{}"); return }
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             throw error
@@ -22187,7 +22187,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
+                    pid: resolvedSurface.isAuthoritative ? claudePid : nil,
                     launchCommand: launchCommand,
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,

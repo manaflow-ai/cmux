@@ -6,6 +6,30 @@ struct ClaudeNoFlickerHookTransientTests {
     private let support = ClaudeHookRoutingTestSupport()
 
     @Test
+    func claudeHookNoOpsWhenRecoverableTargetHasNoSocket() throws {
+        let context = try support.makeHookContext(name: "claude-missing-socket")
+        defer { context.cleanup() }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_SOCKET_PATH"] = context.socketPath + ".missing"
+        environment["CMUX_WORKSPACE_ID"] = ""
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "6048"
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: "",
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+    }
+
+    @Test
     func claudePromptSubmitNoOpsWhenPIDOnlyRecoverySurfaceIsGone() throws {
         let context = try support.makeHookContext(name: "claude-pid-recovery-miss")
         defer { context.cleanup() }
@@ -247,7 +271,7 @@ struct ClaudeNoFlickerHookTransientTests {
     }
 
     @Test
-    func claudePromptSubmitDoesNotPersistPIDOnFallbackSurface() throws {
+    func claudeSessionStartDoesNotPersistPIDOnFallbackSurface() throws {
         let context = try support.makeHookContext(name: "claude-fallback-no-pid-gate")
         defer { context.cleanup() }
 
@@ -278,9 +302,9 @@ struct ClaudeNoFlickerHookTransientTests {
 
         let result = support.runProcess(
             executablePath: context.cliPath,
-            arguments: ["hooks", "claude", "prompt-submit"],
+            arguments: ["hooks", "claude", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
@@ -288,7 +312,6 @@ struct ClaudeNoFlickerHookTransientTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
-        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)") && $0.contains("--panel=\(context.surfaceId)") }, "Expected fallback surface to receive best-effort status, saw \(commands)")
         #expect(!commands.contains { $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("--pid=\(livePID)") }, "Fallback surface must not receive durable Claude PID metadata, saw \(commands)")
         let persistedData = try Data(contentsOf: context.root.appendingPathComponent("claude-hook-sessions.json"))
         let persisted = try #require(JSONSerialization.jsonObject(with: persistedData) as? [String: Any])
