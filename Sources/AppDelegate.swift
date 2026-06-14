@@ -6,6 +6,7 @@ import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
 import CmuxIPCService
+import CmuxNotifications
 import CmuxTerminalCore
 import CmuxTerminalEngine
 import CmuxTerminalServices
@@ -667,6 +668,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+
+    /// Notification jump/open navigation, extracted into `CmuxNotifications`.
+    /// `AppDelegate` is the composition root: it conforms to every seam (see
+    /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily
+    /// because the seams read late-bound state (`notificationStore`,
+    /// `mainWindowContexts`) that is `nil` until startup wiring completes; the
+    /// seam contracts already degrade to empty/no-op when that state is absent.
+    lazy var notificationNavigation: NotificationNavigationCoordinator =
+        NotificationNavigationCoordinator(
+            store: self,
+            windows: self,
+            unreadTargeting: self,
+            openRouting: self,
+            clickRouting: self
+        )
+    // The jump-unread `#if DEBUG` UI-test recorders stay in `AppDelegate`,
+    // reached through the open-routing seam whose bodies (`openInWindow` /
+    // `openInActiveWindowFallback`) are the original `openNotificationInContext`
+    // / `openNotificationFallback` and still call `recordJumpUnreadFocusFrom...`
+    // inline. The coordinator's `onDidFocusForJumpUnread` hook is therefore left
+    // unwired in this wave (wiring it would double-record); it exists for a
+    // future wave that moves the open routing itself into the package.
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Strongly-held observers for every active TabManager. Each observer owns
@@ -4125,7 +4148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
+    func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
         mainWindowContexts.values.sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
@@ -6164,7 +6187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts.values.first
     }
 
-    private func preferredRegisteredMainWindowContext(preferredWindow: NSWindow? = nil) -> MainWindowContext? {
+    func preferredRegisteredMainWindowContext(preferredWindow: NSWindow? = nil) -> MainWindowContext? {
         if let preferredWindow,
            let context = contextForMainWindow(preferredWindow) {
             return context
@@ -11684,6 +11707,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
+    /// Forwards to `notificationNavigation` (the extracted
+    /// `NotificationNavigationCoordinator`). The nil-store guard and the
+    /// `#if DEBUG` UI-test recorder stay here because they read app-target state
+    /// (`notificationStore`, the env-gated test sink). The coordinator returns
+    /// the opened notification's id, which we re-resolve to the current store
+    /// snapshot exactly as the legacy body did.
     @discardableResult
     func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
@@ -11698,91 +11727,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
         }
 #endif
-        // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
-        // the window-context registry can lag behind model initialization, so fall back to whatever
-        // tab manager currently owns the tab.
-        for notification in notificationStore.notifications
-            where Self.shouldOpenFromJumpToLatestUnread(
-                notification,
-                excludingNotificationId: excludedNotificationId,
-                excludingWorkspaceId: excludedWorkspaceId
-            ) {
-            if openTerminalNotification(notification) {
-                return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
-            }
+        guard let openedId = notificationNavigation.jumpToLatestUnread(
+            excludingNotificationId: excludedNotificationId,
+            excludingWorkspaceId: excludedWorkspaceId
+        ) else {
+            return nil
         }
-        _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
-        return nil
-    }
-
-    static func shouldOpenFromJumpToLatestUnread(
-        _ notification: TerminalNotification,
-        excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
-    ) -> Bool {
-        guard !notification.isRead, notification.id != excludedNotificationId else { return false }
-        if let excludedWorkspaceId,
-           notification.tabId == excludedWorkspaceId {
-            return false
-        }
-        return notification.clickAction == nil
-    }
-
-    private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
-        guard let notificationStore else { return false }
-        var unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
-        if let excludedWorkspaceId {
-            unreadWorkspaceIds.remove(excludedWorkspaceId)
-        }
-        guard !unreadWorkspaceIds.isEmpty else { return false }
-
-        var seenWindowIds = Set<UUID>()
-        let preferredContext = preferredRegisteredMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
-        let orderedContexts = ([preferredContext].compactMap { $0 } + sortedMainWindowContextsForSessionSnapshot())
-            .filter { seenWindowIds.insert($0.windowId).inserted }
-
-        for context in orderedContexts {
-            for workspace in context.tabManager.tabs where unreadWorkspaceIds.contains(workspace.id) {
-                if openWorkspaceUnread(workspace, in: context) {
-                    return true
-                }
-            }
-        }
-
-        guard let tabManager,
-              let workspace = tabManager.tabs.first(where: { unreadWorkspaceIds.contains($0.id) }) else {
-            return false
-        }
-        let panelId = workspace.preferredUnreadPanelIdForJump()
-        let didOpen = openNotificationFallback(tabId: workspace.id, surfaceId: panelId, notificationId: nil)
-        if didOpen {
-            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
-        }
-        return didOpen
-    }
-
-    private func openWorkspaceUnread(_ workspace: Workspace, in context: MainWindowContext) -> Bool {
-        let panelId = workspace.preferredUnreadPanelIdForJump()
-        let didOpen = openNotificationInContext(context, tabId: workspace.id, surfaceId: panelId, notificationId: nil)
-        if didOpen {
-            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
-        }
-        return didOpen
-    }
-
-    private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
-        if let panelId,
-           shouldTriggerManualUnreadJumpFlash(workspace: workspace, panelId: panelId) {
-            workspace.triggerUnreadIndicatorDismissFlash(panelId: panelId)
-        }
-        workspace.clearUnreadAfterJump(panelId: panelId)
-    }
-
-    private func shouldTriggerManualUnreadJumpFlash(workspace: Workspace, panelId: UUID) -> Bool {
-        workspace.manualUnreadPanelIds.contains(panelId) ||
-            workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
-            (notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false) ||
-            (notificationStore?.hasRestoredUnreadIndicator(forTabId: workspace.id) ?? false)
+        return notificationStore.notifications.first(where: { $0.id == openedId })
     }
 
     @discardableResult
@@ -16137,23 +16088,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
-        if let clickAction = notification.clickAction {
-            let didPerform = performTerminalNotificationClickAction(clickAction)
-            if didPerform {
-                notificationStore?.markRead(id: notification.id)
-            }
-            return didPerform
-        }
-        return openNotification(
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            notificationId: notification.id
+        notificationNavigation.openNotification(
+            NotificationNavSnapshot(
+                id: notification.id,
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId,
+                isRead: notification.isRead,
+                clickAction: notification.clickAction.map(Self.navClickAction)
+            )
         )
     }
 
     @discardableResult
     @MainActor
-    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
+    func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
         switch action {
         case .revealInFinder(let path):
             return revealInFinder(path: path)
@@ -16222,7 +16170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
     }
 
-    private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
@@ -16282,7 +16230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         // If the owning window context hasn't been registered yet, fall back to the "active" window.
         guard let tabManager else {
 #if DEBUG
