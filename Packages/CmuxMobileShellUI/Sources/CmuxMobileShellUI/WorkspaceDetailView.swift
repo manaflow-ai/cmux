@@ -26,7 +26,7 @@ struct WorkspaceDetailView: View {
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
-    @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(BrowserSurfaceStore.self) var browserStore
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -42,79 +42,28 @@ struct WorkspaceDetailView: View {
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
-    @State private var isChatMode = false
+    @State var isChatMode = false
     /// The session chat mode was entered on, pinned so a newer session
     /// sorting first cannot swap the conversation out from under the user
     /// mid-read. Cleared when chat mode turns off.
-    @State private var pinnedChatSessionID: String?
-    @State private var chatSessions: [ChatSessionDescriptor] = []
+    @State var pinnedChatSessionID: String?
+    @State var chatSessions: [ChatSessionDescriptor] = []
     /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State private var chatDrafts: [String: String] = [:]
+    @State var chatDrafts: [String: String] = [:]
     /// Once the live session RPC succeeds, it owns availability. Before that,
     /// the workspace-list seed gives the toolbar a stable first paint.
-    @State private var hasLoadedLiveChatSessions = false
-    @State private var chatSessionsWorkspaceID: MobileWorkspacePreview.ID?
+    @State var hasLoadedLiveChatSessions = false
+    @State var chatSessionsWorkspaceID: MobileWorkspacePreview.ID?
     #endif
 
-    private var selectedTerminal: MobileTerminalPreview? {
+    var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
-
-    #if os(iOS)
-    /// The chat session belonging to the currently visible tab/terminal, if
-    /// any. The toggle and the chat bind to THIS — the tab the user is
-    /// looking at — so a tab's chat never shows another tab's history, and a
-    /// tab with no agent session yields nil (its toggle is hidden). A past
-    /// agent that has since ended still matches here (its record keeps the
-    /// terminal binding), so the tab keeps showing the conversation read-only.
-    ///
-    /// This per-tab match relies on surface ids being stable across app
-    /// relaunch / session restore (cmux reuses a panel's persisted id when it
-    /// is still unique), so the session's recorded terminal id keeps matching
-    /// the live terminal.
-    private var sessionForSelectedTerminal: ChatSessionDescriptor? {
-        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
-        return availableChatSessions.first { $0.terminalID == terminalID }
-    }
-
-    /// The session chat mode opens: the visible tab's session, or the pinned
-    /// session while chat mode is on.
-    private var chosenChatSession: ChatSessionDescriptor? {
-        // While chat is open it is pinned to one session: return that exact
-        // session or nil if it vanished — never silently switch to another
-        // (the transcript/store can't follow that switch, so the header
-        // would claim B while the conversation stays A). nil makes the body
-        // fall back to the terminal and refreshChatSessions exit chat mode.
-        if let pinnedChatSessionID {
-            return availableChatSessions.first { $0.id == pinnedChatSessionID }
-        }
-        return sessionForSelectedTerminal
-    }
-
-    /// Session descriptors currently usable for toolbar availability. The
-    /// workspace-list seed is only a first-paint fallback; the live chat session
-    /// list becomes authoritative after its first successful fetch.
-    private var availableChatSessions: [ChatSessionDescriptor] {
-        let liveSessionsAreCurrent = hasLoadedLiveChatSessions && chatSessionsWorkspaceID == workspace.id
-        let currentChatSessions = chatSessionsWorkspaceID == workspace.id ? chatSessions : []
-        return liveSessionsAreCurrent
-            ? chatSessions
-            : Self.mergedChatSessions(
-                primary: currentChatSessions,
-                fallback: store.seededChatSessions(workspaceID: workspace.id.rawValue)
-            )
-    }
-
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    private func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
-    }
-    #endif
 
     var body: some View {
         #if os(iOS)
@@ -132,180 +81,6 @@ struct WorkspaceDetailView: View {
         detailContent()
         #endif
     }
-
-    #if os(iOS)
-    /// Agent chat rendered in place of the terminal while chat mode is on.
-    /// Carries the same toolbar so the toggle (now filled) flips back.
-    @ViewBuilder
-    private func chatContent(_ session: ChatSessionDescriptor) -> some View {
-        WorkspaceChatPane(
-            session: session,
-            store: store,
-            workspaceName: workspace.name,
-            tabName: tabName(for: session),
-            draft: Binding(
-                get: { chatDrafts[session.id] ?? "" },
-                set: { chatDrafts[session.id] = $0 }
-            ),
-            onExitChat: {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode = false
-                }
-                pinnedChatSessionID = nil
-            }
-        )
-        // Bind the pane's identity to the session so a session change
-        // rebuilds ChatScreen (its store is captured in @State at init and
-        // would otherwise stay on the old session).
-        .id(session.id)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                newWorkspaceToolbarButton
-                terminalPickerToolbarButton
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-    }
-
-    /// Toolbar toggle between terminal and chat. Shown only when the
-    /// currently visible tab has an agent session (or chat is already on), so
-    /// the toggle tracks the tab the user is looking at. Surface ids are
-    /// stable across relaunch/restore, so this per-tab match survives a
-    /// restart.
-    @ViewBuilder
-    private var chatToggleButton: some View {
-        if isChatMode || sessionForSelectedTerminal != nil {
-            Button {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode.toggle()
-                }
-                pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
-            } label: {
-                Image(systemName: isChatMode
-                    ? "bubble.left.and.bubble.right.fill"
-                    : "bubble.left.and.bubble.right")
-            }
-            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
-            .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
-            // Toggling off when the chosen session vanished still works
-            // because the button stays shown while isChatMode is true.
-            .disabled(!isChatMode && chosenChatSession == nil)
-        }
-    }
-
-    /// Identity for the session refetch: workspace plus connection epoch.
-    private var chatRefreshKey: String {
-        "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
-    }
-
-    /// Keeps the chat-capable session list current while this workspace is
-    /// shown, so the GUI toggle appears as soon as a coding agent becomes
-    /// active, without polling. The Mac pushes a `chat.message` frame on
-    /// every descriptor/state change (a brand-new agent emits
-    /// `descriptorChanged`); we register the push stream first, seed the
-    /// list once, then fold each subsequent frame in. Registering before
-    /// seeding plus idempotent folds means a change that races the seed
-    /// converges either way. The stream finishes when the connection drops;
-    /// `.task(id: chatRefreshKey)` re-runs this on reconnect, and cancels it
-    /// on workspace change or when the view goes away.
-    private func refreshChatSessions() async {
-        prepareChatSessionsForCurrentWorkspace()
-        seedChatSessionsFromWorkspaceList()
-        guard let source = store.makeChatEventSource() else {
-            chatSessions = []
-            hasLoadedLiveChatSessions = false
-            applyChatModeFallback()
-            return
-        }
-        let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
-        let stream = await source.sessionEvents()
-        // Animate the list update so the toggle eases in rather than popping
-        // when a session is found (the seed/first frame arriving over the
-        // wire is the "appears real quickly but not smooth" moment).
-        let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
-        withAnimation(.snappy(duration: 0.25)) {
-            chatSessions = seeded
-            hasLoadedLiveChatSessions = true
-        }
-        applyChatModeFallback()
-        for await frame in stream {
-            let next = reducer.applying(frame, to: chatSessions)
-            withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
-            applyChatModeFallback()
-        }
-    }
-
-    private func prepareChatSessionsForCurrentWorkspace() {
-        guard chatSessionsWorkspaceID != workspace.id else { return }
-        chatSessionsWorkspaceID = workspace.id
-        chatSessions = []
-        hasLoadedLiveChatSessions = false
-        pinnedChatSessionID = nil
-        isChatMode = false
-    }
-
-    /// Prime the detail state from the workspace-list payload so the toolbar
-    /// does not wait for `mobile.chat.sessions` on first paint.
-    private func seedChatSessionsFromWorkspaceList() {
-        guard !hasLoadedLiveChatSessions else { return }
-        let seeded = store.seededChatSessions(workspaceID: workspace.id.rawValue)
-        guard !seeded.isEmpty else { return }
-        let next = Self.mergedChatSessions(primary: chatSessions, fallback: seeded)
-        guard next != chatSessions else { return }
-        withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
-    }
-
-    private static func mergedChatSessions(
-        primary: [ChatSessionDescriptor],
-        fallback: [ChatSessionDescriptor]
-    ) -> [ChatSessionDescriptor] {
-        guard !fallback.isEmpty else { return primary }
-        var seen = Set(primary.map(\.id))
-        var merged = primary
-        for session in fallback where seen.insert(session.id).inserted {
-            merged.append(session)
-        }
-        return ChatSessionDescriptor.openable(merged)
-    }
-
-    /// If the session backing chat mode disappeared, fall back to the
-    /// terminal rather than showing an empty chat.
-    private func applyChatModeFallback() {
-        if isChatMode, chosenChatSession == nil {
-            isChatMode = false
-            pinnedChatSessionID = nil
-        }
-    }
-    #endif
-
-    #if os(iOS)
-    /// The browser pane shown when this workspace has an active browser surface.
-    /// It carries its own navigation chrome, so it does not get the terminal's
-    /// keyboard/safe-area handling. Closing returns to the terminal.
-    @ViewBuilder
-    private func browserContent(_ browser: BrowserSurfaceState) -> some View {
-        MobileBrowserPane(
-            state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
-        )
-        // Key on the surface id so switching/reopening rebuilds the WKWebView.
-        .id(browser.id.rawValue)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(browser.title ?? workspace.name)
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                newWorkspaceToolbarButton
-                terminalPickerToolbarButton
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-    }
-    #endif
 
     private func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
@@ -433,7 +208,7 @@ struct WorkspaceDetailView: View {
         terminalPickerToolbarButton
     }
 
-    private var newWorkspaceToolbarButton: some View {
+    var newWorkspaceToolbarButton: some View {
         Button(action: createWorkspaceFromToolbar) {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
@@ -452,7 +227,7 @@ struct WorkspaceDetailView: View {
     // chrome behavior is preserved; only keyboard-dismiss-on-open is dropped
     // because `Menu` has no will-open hook (the menu simply floats over the live
     // keyboard like any nav-bar menu).
-    private var terminalPickerToolbarButton: some View {
+    var terminalPickerToolbarButton: some View {
         Menu {
             terminalPickerMenuContent
         } label: {
