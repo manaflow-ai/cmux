@@ -4430,6 +4430,194 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
     }
 
+    /// Regression: the cmux control socket serves a single request per connection
+    /// (it closes the connection once it has replied). `ssh-pty-attach` reused one
+    /// long-lived SocketClient for every SIGWINCH-driven resize, so after the first
+    /// resize the connection was dead and all later resizes failed silently — the
+    /// remote PTY froze at its initial width. Drive several SIGWINCH signals against
+    /// a one-request-per-connection server and assert each is delivered as its own
+    /// resize RPC (i.e. the handler reconnects). Pre-fix this server would receive
+    /// only the bridge request and zero resizes.
+    func testSSHPTYAttachReconnectsResizeForEachSIGWINCH() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyresizereconnect")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "44444444-4444-4444-4444-444444444444"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let bridgeReady = DispatchSemaphore(value: 0)
+        let closeBridge = DispatchSemaphore(value: 0)
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        // One request per connection: accept, answer a single request, then close —
+        // mirroring the real cmux control socket. The accept loop ends when the
+        // listener is closed in `defer`.
+        DispatchQueue.global(qos: .userInitiated).async {
+            while true {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 { return }
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                var answered = false
+                while !answered {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count <= 0 { break }
+                    pending.append(buffer, count: count)
+                    guard let newlineRange = pending.firstRange(of: Data([0x0A])) else { continue }
+                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { break }
+                    state.append(line)
+                    let response: String
+                    if let payload = self.jsonObject(line),
+                       let id = payload["id"] as? String,
+                       let method = payload["method"] as? String {
+                        switch method {
+                        case "workspace.remote.pty_bridge":
+                            response = self.v2Response(
+                                id: id,
+                                ok: true,
+                                result: [
+                                    "host": "127.0.0.1",
+                                    "port": bridge.port,
+                                    "token": token,
+                                    "session_id": sessionId,
+                                    "attachment_id": surfaceId,
+                                ]
+                            )
+                        default:
+                            response = self.v2Response(id: id, ok: true, result: [:])
+                        }
+                    } else {
+                        response = self.malformedRequestResponse(raw: line)
+                    }
+                    _ = (response + "\n").withCString { Darwin.write(clientFD, $0, strlen($0)) }
+                    answered = true
+                }
+                Darwin.close(clientFD)
+            }
+        }
+
+        // Bridge loopback: complete the attach handshake and hand back the token.
+        DispatchQueue.global(qos: .userInitiated).async {
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(bridge.fd, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 { if errno == EINTR { continue }; return }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            _ = ready.withCString { Darwin.write(clientFD, $0, strlen($0)) }
+            bridgeReady.signal()
+            _ = closeBridge.wait(timeout: .now() + 10)
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "ssh-pty-attach",
+            "--workspace", workspaceId,
+            "--session-id", sessionId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+        }
+        XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
+
+        // Count only resizes that carry the full attach context the remote PTY
+        // requires; a resize that drops workspace/session/attachment ids or the
+        // token would be rejected by the real daemon, so it must not count here.
+        func resizeCount() -> Int {
+            state.snapshot()
+                .compactMap { self.jsonObject($0) }
+                .filter { ($0["method"] as? String) == "workspace.remote.pty_resize" }
+                .filter { request in
+                    guard let params = request["params"] as? [String: Any] else { return false }
+                    return params["workspace_id"] as? String == workspaceId
+                        && params["session_id"] as? String == sessionId
+                        && params["attachment_id"] as? String == surfaceId
+                        && params["attachment_token"] as? String == "attach-token"
+                        && params["cols"] as? Int != nil
+                        && params["rows"] as? Int != nil
+                }
+                .count
+        }
+
+        // Each SIGWINCH must reconnect and deliver its own resize RPC. Pre-fix the
+        // first dead-connection resize would abort the chain at zero.
+        let targetResizes = 3
+        let deadline = Date().addingTimeInterval(10)
+        while resizeCount() < targetResizes, Date() < deadline {
+            Darwin.kill(process.processIdentifier, SIGWINCH)
+            usleep(200_000)
+        }
+        let delivered = resizeCount()
+        closeBridge.signal()
+
+        XCTAssertGreaterThanOrEqual(
+            delivered,
+            targetResizes,
+            "Each SIGWINCH must reconnect and issue a resize RPC; reusing one connection froze resizes after the first (delivered=\(delivered))"
+        )
+
+        // The bridge close must also complete cleanly end-to-end: the EOF
+        // cleanup path runs on the same cached client, so a stale connection
+        // there would surface as a non-zero exit.
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        // Guard-and-return rather than assert-and-continue: reading
+        // terminationStatus on a still-running Process raises an ObjC
+        // exception, which would crash the test run instead of failing it.
+        guard exited.wait(timeout: .now() + 5) == .success else {
+            XCTFail("ssh-pty-attach did not exit after bridge close")
+            return
+        }
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderr)
+        XCTAssertTrue(stdout.isEmpty, stdout)
+        XCTAssertTrue(stderr.isEmpty, stderr)
+    }
+
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshattach")
