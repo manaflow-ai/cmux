@@ -67,9 +67,7 @@ extension ControlCommandCoordinator {
 
     // MARK: - Summary payload
 
-    /// Builds one workspace's summary payload (the legacy
-    /// `v2WorkspaceSummaryPayload`), minting the workspace ref and writing the
-    /// caller-supplied `selected` / optional `index`.
+    /// Builds one workspace summary payload, minting the workspace ref and caller-owned selection keys.
     private func workspaceSummaryPayload(
         _ summary: ControlWorkspaceSummary,
         index: Int?,
@@ -80,9 +78,7 @@ extension ControlCommandCoordinator {
             "ref": ref(.workspace, summary.id),
             "title": .string(summary.title),
             "custom_title": orNull(summary.customTitle),
-            "has_custom_title": .bool(
-                !(summary.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            ),
+            "has_custom_title": .bool(!(summary.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)),
             "description": orNull(summary.customDescription),
             "selected": .bool(selected),
             "pinned": .bool(summary.isPinned),
