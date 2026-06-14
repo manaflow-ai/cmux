@@ -369,6 +369,22 @@ func themedRenderGridEventFrame(
     return try renderGridEventFrame(frame)
 }
 
+/// A *delta* render-grid event frame (full: false, no theme metadata), used to
+/// verify that the inherited chrome background persists across deltas. A delta
+/// legitimately omits the background, unlike a full frame whose nil background
+/// is authoritative.
+func deltaRenderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        full: false,
+        rowSpans: [.init(row: 0, column: 0, text: text)]
+    )
+    return try renderGridEventFrame(frame)
+}
+
 private func renderGridEventFrame(_ frame: MobileTerminalRenderGridFrame) throws -> Data {
     let envelope: [String: Any] = [
         "kind": "event",

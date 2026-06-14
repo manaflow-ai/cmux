@@ -82,10 +82,12 @@ struct MobileShellInheritedThemeTests {
     }
 
     // A subsequent delta (no background) must not clear the inherited value.
-    // Wait until the delta's output has been delivered (proving it passed through
-    // the same `deliverTerminalRenderGrid` funnel that records backgrounds),
-    // then assert the inherited background is unchanged.
-    let delta = try renderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "more")
+    // A delta legitimately omits the background, so the established value must
+    // persist (unlike a full frame's nil background, which clears it). Wait until
+    // the delta's output has been delivered (proving it passed through the same
+    // `deliverTerminalRenderGrid` funnel that records backgrounds), then assert
+    // the inherited background is unchanged.
+    let delta = try deltaRenderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "more")
     await transport.deliver(delta)
     let sawDelta = try await pollUntil {
         collector.lines.contains { $0.contains("more") }
