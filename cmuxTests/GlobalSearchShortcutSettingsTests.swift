@@ -32,10 +32,20 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
     func testGlobalSearchDefaultShortcutIsRemappableAndSystemWideSafe() {
         let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .globalSearch)
+        let localFindShortcut = KeyboardShortcutSettings.shortcut(for: .find)
+        let findInDirectoryShortcut = KeyboardShortcutSettings.shortcut(for: .findInDirectory)
 
         XCTAssertEqual(
             defaultShortcut,
             StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertEqual(
+            localFindShortcut,
+            StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(
+            findInDirectoryShortcut,
+            StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
         )
         XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.globalSearch))
         XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.globalSearch))

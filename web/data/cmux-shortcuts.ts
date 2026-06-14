@@ -35,7 +35,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "globalSearch",
         combos: [["⌥", "⌘", "F"]],
-        description: { en: "Global search", ja: "グローバル検索" },
+        description: { en: "Global search across all windows and tabs", ja: "すべてのウィンドウとタブをグローバル検索" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
