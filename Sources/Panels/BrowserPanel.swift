@@ -4200,9 +4200,9 @@ final class BrowserPanel: Panel, ObservableObject {
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
-    private func refreshPanelAssociations(for webView: CmuxWebView) {
+    private func refreshPanelAssociations(for webView: WKWebView) {
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
-        webView.associateBrowserPanel(panelId: id, workspaceId: workspaceId)
+        (webView as? CmuxWebView)?.associateBrowserPanel(panelId: id, workspaceId: workspaceId)
     }
 
     private func configureNavigationDelegateCallbacks() {
