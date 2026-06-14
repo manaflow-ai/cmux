@@ -2975,10 +2975,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // Record whether this attempt got a request onto the transport,
                     // so the checklist can tell a host rejection (network reached)
                     // from a local pre-send token/ticket failure (issue #6084).
-                    if await client.didAttemptHostSend() {
+                    // Read the per-client signal first, then re-check generation
+                    // before mutating shared state: this `await` can suspend, and a
+                    // newer attempt may have reset `pairingAttemptReachedMac`, so a
+                    // superseded attempt must not write it back.
+                    let didReachHost = await client.didAttemptHostSend()
+                    guard isCurrentConnectionAttempt(generation) else { return nil }
+                    if didReachHost {
                         pairingAttemptReachedMac = true
                     }
-                    guard isCurrentConnectionAttempt(generation) else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
