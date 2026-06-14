@@ -898,15 +898,23 @@ class TerminalController {
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
     private struct V2SocketRequest {
+        let controlRequest: ControlRequest
         let id: Any?
         let method: String
         let params: [String: Any]
 
         init(bridging request: ControlRequest) {
+            controlRequest = request
             id = request.id.map(\.foundationObject)
             method = request.method
             params = request.params.mapValues { $0.foundationObject }
         }
+    }
+
+    private struct SocketReadTextShimInstallRequest {
+        let wrapperURL: URL
+        let surfaceId: UUID
+        let temporaryDirectory: URL
     }
 
     /// Wire-protocol helpers (parse/encode) shared with the package;
@@ -1094,6 +1102,8 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "surface.read_text":
+            return v2SurfaceReadTextOnSocketWorker(request)
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":
@@ -1109,6 +1119,66 @@ class TerminalController {
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
+    }
+
+    private nonisolated func v2SurfaceReadTextOnSocketWorker(_ request: V2SocketRequest) -> String {
+        v2MainSync {
+            v2RefreshKnownRefs()
+        }
+        if let installRequest = v2MainSync({ socketReadTextShimInstallRequest(params: request.params) }) {
+            let shim = TerminalSurface.installClaudeCommandShimIfPossible(
+                wrapperURL: installRequest.wrapperURL,
+                surfaceId: installRequest.surfaceId,
+                temporaryDirectory: installRequest.temporaryDirectory,
+                fileManager: .default
+            )
+            v2MainSync {
+                finishSocketReadTextShimInstall(installRequest, shim: shim)
+            }
+        }
+
+        return v2MainSync {
+            v2RefreshKnownRefs()
+            guard let result = controlCommandCoordinator.handle(request.controlRequest) else {
+                return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+            }
+            return Self.v2Encoder.response(id: request.controlRequest.id, result)
+        }
+    }
+
+    @MainActor
+    private func socketReadTextShimInstallRequest(params: [String: Any]) -> SocketReadTextShimInstallRequest? {
+        guard let tabManager = v2ResolveTabManager(params: params),
+              let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return nil
+        }
+
+        let surfaceId: UUID
+        if params["surface_id"] != nil {
+            guard let explicitSurfaceId = v2UUID(params, "surface_id") else { return nil }
+            surfaceId = explicitSurfaceId
+        } else {
+            guard let focused = workspace.focusedPanelId else { return nil }
+            surfaceId = focused
+        }
+
+        guard let terminalPanel = workspace.terminalPanel(for: surfaceId),
+              let request = terminalPanel.surface.claudeCommandShimInstallRequestForSocketRead() else {
+            return nil
+        }
+        return SocketReadTextShimInstallRequest(
+            wrapperURL: request.wrapperURL,
+            surfaceId: request.surfaceId,
+            temporaryDirectory: request.temporaryDirectory
+        )
+    }
+
+    @MainActor
+    private func finishSocketReadTextShimInstall(
+        _ request: SocketReadTextShimInstallRequest,
+        shim: TerminalSurface.ClaudeCommandShim?
+    ) {
+        terminalPanel(surfaceID: request.surfaceId)?.surface.finishClaudeCommandShimInstallForSocketRead(shim)
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
@@ -1845,9 +1915,11 @@ class TerminalController {
         // surface.drag_to_split/surface.split_off (the latter forwarding to the
         // still-shared v2SurfaceSplitOff) handled by ControlCommandCoordinator too.
         // surface.refresh/health/resume.set/get/clear, debug.terminals (forwards to the
-        // still-shared v2DebugTerminals), surface.send_text/send_key/report_tty/
-        // report_shell_state/ports_kick/clear_history/trigger_flash, and surface.read_text
-        // handled by ControlCommandCoordinator.
+        // still-shared v2DebugTerminals), and surface.send_text/send_key/report_tty/
+        // report_shell_state/ports_kick/clear_history/trigger_flash handled by
+        // ControlCommandCoordinator. surface.read_text runs on the socket worker
+        // for off-main shim preparation, then delegates response shaping to the
+        // coordinator.
 
         // Panes
         // pane.* handled by ControlCommandCoordinator.
@@ -1964,7 +2036,8 @@ class TerminalController {
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
 
-        // surface.read_text handled by ControlCommandCoordinator.
+        // surface.read_text runs on the socket worker, then delegates response
+        // shaping to ControlCommandCoordinator.
 
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,

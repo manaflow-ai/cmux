@@ -169,9 +169,6 @@ extension TerminalSurface {
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
 #endif
-        // Socket reads need a same-turn surface; the ordinary shim path may
-        // defer creation until its detached installer completes.
-        prepareClaudeCommandShimForImmediateSurfaceCreation()
         startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
         let liveSurface = liveSurfaceForGhosttyAccess(reason: reason)
 #if DEBUG
@@ -185,20 +182,33 @@ extension TerminalSurface {
         return liveSurface
     }
 
+    /// Returns the filesystem work needed before an immediate socket-read surface creation.
+    ///
+    /// The caller runs the returned install work off the main actor, then records
+    /// it with ``finishClaudeCommandShimInstallForSocketRead(_:)`` before calling
+    /// ``liveSurfaceForSocketRead(reason:)``.
+    ///
+    /// - Returns: The wrapper URL, surface id, and temporary directory for the shim install.
     @MainActor
-    private func prepareClaudeCommandShimForImmediateSurfaceCreation() {
-        guard !claudeCommandShimInstallCompleted else { return }
+    public func claudeCommandShimInstallRequestForSocketRead() -> (
+        wrapperURL: URL,
+        surfaceId: UUID,
+        temporaryDirectory: URL
+    )? {
+        guard !claudeCommandShimInstallCompleted else { return nil }
         guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
             claudeCommandShimInstallCompleted = true
-            return
+            return nil
         }
+        return (wrapperURL, id, FileManager.default.temporaryDirectory)
+    }
 
-        let shim = Self.installClaudeCommandShimIfPossible(
-            wrapperURL: wrapperURL,
-            surfaceId: id,
-            temporaryDirectory: FileManager.default.temporaryDirectory,
-            fileManager: .default
-        )
+    /// Records a socket-read shim install that was performed off the main actor.
+    ///
+    /// - Parameter shim: The installed shim descriptor, or `nil` when no executable wrapper exists.
+    @MainActor
+    public func finishClaudeCommandShimInstallForSocketRead(_ shim: ClaudeCommandShim?) {
+        guard !claudeCommandShimInstallCompleted else { return }
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimInstallTask = nil
         claudeCommandShim = shim
