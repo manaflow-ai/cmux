@@ -105,17 +105,20 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let data = try XCTUnwrap(result.stdout.data(using: .utf8))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let agents = try XCTUnwrap(object["agents"] as? [[String: Any]])
-        let hookBackedProviderIDs = agents.compactMap { $0["name"] as? String }
+        let agentsByName = Dictionary(uniqueKeysWithValues: agents.compactMap { agent -> (String, [String: Any])? in
+            guard let name = agent["name"] as? String else { return nil }
+            return (name, agent)
+        })
         let guiHookBackedProviderIDs = GuiModeProviderID.allCases
             .filter { $0 != .claude }
             .map(\.rawValue)
 
-        XCTAssertEqual(Set(hookBackedProviderIDs), Set(guiHookBackedProviderIDs))
-        for agent in agents {
-            let name = try XCTUnwrap(agent["name"] as? String)
-            XCTAssertEqual(agent["installCommand"] as? String, "cmux hooks \(name) install")
-            XCTAssertFalse((agent["displayName"] as? String ?? "").isEmpty)
-            XCTAssertFalse((agent["statusKey"] as? String ?? "").isEmpty)
+        XCTAssertEqual(Set(agentsByName.keys), Set(guiHookBackedProviderIDs))
+        for provider in GuiModeProviderID.allCases where provider != .claude {
+            let agent = try XCTUnwrap(agentsByName[provider.rawValue], provider.rawValue)
+            XCTAssertEqual(agent["installCommand"] as? String, provider.setupCommand, provider.rawValue)
+            XCTAssertEqual(agent["displayName"] as? String, provider.displayName, provider.rawValue)
+            XCTAssertFalse((agent["statusKey"] as? String ?? "").isEmpty, provider.rawValue)
         }
     }
 
@@ -132,31 +135,34 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     }
 
     @MainActor
-    func testGuiModeTaskWorkspaceInitialStateBootsTaskPanel() throws {
-        let manager = TabManager()
-        let prompt = "Build a provider catalog smoke test"
+    func testGuiModeTaskWorkspaceInitialStateBootsTaskPanelForEveryProvider() throws {
+        for provider in GuiModeProviderID.allCases {
+            let manager = TabManager()
+            let prompt = "Build a provider catalog smoke test with \(provider.rawValue)"
 
-        let workspace = manager.addWorkspace(
-            title: "GUI task",
-            initialSurface: .guiMode,
-            initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: .qoder),
-            autoRefreshMetadata: false
-        )
+            let workspace = manager.addWorkspace(
+                title: "GUI task \(provider.rawValue)",
+                initialSurface: .guiMode,
+                initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: provider),
+                autoRefreshMetadata: false
+            )
 
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertEqual(workspace.panels.count, 1)
-        let guiPanel = try XCTUnwrap(workspace.panels.values.first as? AgentSessionPanel)
-        XCTAssertEqual(guiPanel.rendererKind, .guiMode)
-        XCTAssertEqual(guiPanel.guiModePage, .taskWorktreePR)
-        XCTAssertEqual(guiPanel.guiModePrompt, prompt)
-        XCTAssertEqual(guiPanel.guiModeProviderID, .qoder)
-        XCTAssertFalse(guiPanel.workingDirectory?.isEmpty ?? true)
-        XCTAssertEqual(
-            guiPanel.displayTitle,
-            String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
-        )
+            XCTAssertEqual(manager.selectedTabId, workspace.id, provider.rawValue)
+            XCTAssertEqual(workspace.panels.count, 1, provider.rawValue)
+            let guiPanel = try XCTUnwrap(workspace.panels.values.first as? AgentSessionPanel, provider.rawValue)
+            XCTAssertEqual(guiPanel.rendererKind, .guiMode, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModePage, .taskWorktreePR, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModePrompt, prompt, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModeProviderID, provider, provider.rawValue)
+            XCTAssertFalse(guiPanel.workingDirectory?.isEmpty ?? true, provider.rawValue)
+            XCTAssertEqual(
+                guiPanel.displayTitle,
+                String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr"),
+                provider.rawValue
+            )
 
-        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, 1)
+            XCTAssertEqual(workspace.bonsplitController.allTabIds.count, 1, provider.rawValue)
+        }
     }
 
     @MainActor
