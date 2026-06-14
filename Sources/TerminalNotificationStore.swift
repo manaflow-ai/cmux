@@ -519,7 +519,9 @@ final class TerminalNotificationStore: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshDockBadge()
+            Task { @MainActor [weak self] in
+                self?.refreshDockBadge()
+            }
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
@@ -1749,12 +1751,21 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { [weak self] authorized, effectiveAuthorizationState in
-            guard let self else { return }
+        let nativeDeliveryHooks = nativeNotificationDeliveryHooks
+        let notificationTitle = resolvedNotificationTitle(for: notification)
+        let notificationSubtitle = notification.subtitle
+        let notificationBody = notification.body
+        let notificationId = notification.id
+        let notificationTabId = notification.tabId
+        let notificationSurfaceId = notification.surfaceId
+        let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
+        let categoryIdentifier = Self.categoryIdentifier
+
+        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
-            content.title = self.resolvedNotificationTitle(for: notification)
-            content.subtitle = notification.subtitle
-            content.body = notification.body
+            content.title = notificationTitle
+            content.subtitle = notificationSubtitle
+            content.body = notificationBody
             guard authorized else {
                 NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
                     effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
@@ -1762,22 +1773,20 @@ final class TerminalNotificationStore: ObservableObject {
                 return
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-            content.categoryIdentifier = Self.categoryIdentifier
+            content.categoryIdentifier = categoryIdentifier
             content.userInfo = [
-                "tabId": notification.tabId.uuidString,
-                "notificationId": notification.id.uuidString,
+                "tabId": notificationTabId.uuidString,
+                "notificationId": notificationId.uuidString,
             ]
-            if let surfaceId = notification.surfaceId {
+            if let surfaceId = notificationSurfaceId {
                 content.userInfo["surfaceId"] = surfaceId.uuidString
             }
-            if let clickAction = notification.clickAction {
-                for (key, value) in clickAction.userInfo {
-                    content.userInfo[key] = value
-                }
+            for (key, value) in clickActionUserInfo {
+                content.userInfo[key] = value
             }
 
             let request = UNNotificationRequest(
-                identifier: notification.id.uuidString,
+                identifier: notificationId.uuidString,
                 content: content,
                 trigger: nil
             )
@@ -1785,7 +1794,6 @@ final class TerminalNotificationStore: ObservableObject {
             let commandSubtitle = content.subtitle
             let commandBody = content.body
 
-            let nativeDeliveryHooks = self.nativeNotificationDeliveryHooks
             nativeDeliveryHooks.schedule(request) { error in
                 if let error {
                     terminalNotificationLogger.error(
@@ -1797,7 +1805,7 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
-        if !nativeNotificationDeliveryHooks.authorizeForTesting(handleAuthorization) {
+        if !nativeDeliveryHooks.authorizeForTesting(handleAuthorization) {
             ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
         }
     }
