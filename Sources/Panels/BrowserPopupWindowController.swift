@@ -105,8 +105,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: browserContext.websiteDataStore,
-            processPool: browserContext.processPool
+            websiteDataStore: browserContext.websiteDataStore
         )
 
         // Create popup web view with WebKit's supplied configuration after

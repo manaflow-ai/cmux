@@ -10,8 +10,12 @@ import Observation
 /// pushed into the optional injected ``SettingsErrorLog`` so the UI can
 /// surface them centrally; the model never silently swallows a failure.
 ///
-/// Lifecycle: the observation `Task` captures `self` weakly inside its
-/// loop body and exits naturally when the model is deallocated.
+/// Lifecycle: the observation is owned by a ``SettingReadDriver`` held by the
+/// model; the driver's `deinit` cancels the iterating task when the model
+/// deallocates, finishing the change stream and tearing down its underlying
+/// observation. A bare `weak self` is **not** enough — the parked task never
+/// re-checks `self` for an idle key (see
+/// https://github.com/manaflow-ai/cmux/issues/5302).
 @MainActor
 @Observable
 public final class JSONValueModel<Value: SettingCodable> {
@@ -26,6 +30,10 @@ public final class JSONValueModel<Value: SettingCodable> {
     private let key: JSONKey<Value>
     private let errorLog: SettingsErrorLog
 
+    /// Owns the change-stream subscription and cancels it when this model
+    /// deallocates.
+    @ObservationIgnored private let observation = SettingReadDriver<Value>()
+
     /// Creates a model bound to ``key`` in ``store``.
     ///
     /// - Parameters:
@@ -34,21 +42,42 @@ public final class JSONValueModel<Value: SettingCodable> {
     ///   - errorLog: Global log that write failures are pushed into so
     ///     they surface centrally. The runtime always provides one; see
     ///     ``SettingsRuntime/errorLog``.
-    public init(
+    public convenience init(
         store: JSONConfigStore,
         key: JSONKey<Value>,
         errorLog: SettingsErrorLog
+    ) {
+        self.init(
+            store: store,
+            key: key,
+            errorLog: errorLog,
+            makeStream: { store.values(for: key) }
+        )
+    }
+
+    /// Designated initializer with an injectable change-stream factory.
+    ///
+    /// The `makeStream` seam lets tests drive the observation with a stream
+    /// whose teardown they can observe. Production code uses the public
+    /// `init(store:key:errorLog:)`, which wires `makeStream` to the store.
+    ///
+    /// - Parameters:
+    ///   - store: The JSON config store used for writes (`set`/`reset`).
+    ///   - key: The setting to observe.
+    ///   - errorLog: Global log that write failures are pushed into.
+    ///   - makeStream: Builds the change stream this model iterates.
+    init(
+        store: JSONConfigStore,
+        key: JSONKey<Value>,
+        errorLog: SettingsErrorLog,
+        makeStream: @escaping () -> AsyncStream<Value>
     ) {
         self.store = store
         self.key = key
         self.errorLog = errorLog
         self.current = key.defaultValue
-        Task { [weak self, store, key] in
-            for await value in store.values(for: key) {
-                guard let self else { return }
-                if Task.isCancelled { break }
-                self.current = value
-            }
+        observation.activate(makeStream) { [weak self] value in
+            self?.current = value
         }
     }
 

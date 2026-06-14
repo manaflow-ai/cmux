@@ -31,6 +31,20 @@ export interface ApnsSendResult {
   readonly prune: boolean;
 }
 
+interface ApnsHttp2Session {
+  request(headers: http2.OutgoingHttpHeaders): http2.ClientHttp2Stream;
+  close(): void;
+  once(event: "error", listener: () => void): this;
+}
+
+interface ApnsTransport {
+  connect(host: string): ApnsHttp2Session;
+}
+
+const nodeApnsTransport: ApnsTransport = {
+  connect: (host) => http2.connect(`https://${host}`),
+};
+
 /** Normalize a .p8 that was stored with literal `\n` (common in env vars). */
 export function normalizeP8(keyP8: string): string {
   return keyP8.includes("\\n") ? keyP8.replace(/\\n/g, "\n") : keyP8;
@@ -85,10 +99,27 @@ export async function sendApnsNotification(
   targets: readonly ApnsTarget[],
   input: ApnsNotificationInput,
   timeoutMs = 8000,
+  transport: ApnsTransport = nodeApnsTransport,
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
   const jwt = providerToken(config);
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
+  // The collapse-id coalesces repeated updates for the same notification into
+  // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
+  // payload key, which iOS maps to delivered banners; the request identifier
+  // equaling the collapse-id is observed OS behavior, not a contract). APNs
+  // caps it at 64 bytes; a UUID is 36, but guard anyway so an over-long id
+  // degrades to "no collapse" instead of a 400.
+  // Never set on a dismiss push: a collapse would try to REPLACE the delivered
+  // banner with the invisible dismiss payload instead of leaving removal to the
+  // app's background handler.
+  const collapseId = input.kind === "dismiss" ? undefined : collapseIdFor(input.notificationId);
+  // A dismiss push carries badge + content-available but nothing visible:
+  // priority 5 (power-friendly, may coalesce) instead of the default 10, which
+  // Apple reserves for pushes that present UI immediately. Still push-type
+  // `alert` because a badge update is user-facing in Apple's taxonomy and a
+  // `background`-type push may not carry `badge`.
+  const priority = input.kind === "dismiss" ? "5" : undefined;
 
   const byHost = new Map<string, ApnsTarget[]>();
   for (const t of targets) {
@@ -96,32 +127,69 @@ export async function sendApnsNotification(
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
   }
 
-  const results: ApnsSendResult[] = [];
-  for (const [host, hostTargets] of byHost) {
-    const client = http2.connect(`https://${host}`);
+  const results = await Promise.all(
+    [...byHost.entries()].map(([host, hostTargets]) =>
+      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs, collapseId, priority).catch(() =>
+        connectionErrorResults(hostTargets),
+      ),
+    ),
+  );
+  return results.flat();
+}
+
+/** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
+function collapseIdFor(notificationId: string | null | undefined): string | undefined {
+  const id = notificationId?.trim();
+  if (!id) return undefined;
+  return Buffer.byteLength(id, "utf8") <= 64 ? id : undefined;
+}
+
+function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
+  return hostTargets.map((target) => ({
+    deviceToken: target.deviceToken,
+    status: 0,
+    reason: "connection_error",
+    prune: false,
+  }));
+}
+
+async function sendHostGroup(
+  transport: ApnsTransport,
+  host: string,
+  hostTargets: readonly ApnsTarget[],
+  jwt: string,
+  body: Buffer,
+  timeoutMs: number,
+  collapseId: string | undefined,
+  priority: string | undefined,
+): Promise<ApnsSendResult[]> {
+  let client: ApnsHttp2Session | null = null;
+  try {
+    const connectedClient = transport.connect(host);
+    client = connectedClient;
     // A connection-level error fails every in-flight request for this host.
     const connError: Promise<null> = new Promise((resolve) => {
-      client.once("error", () => resolve(null));
+      connectedClient.once("error", () => resolve(null));
     });
-    try {
-      const hostResults = await Promise.all(
-        hostTargets.map((t) => sendOne(client, jwt, t, body, timeoutMs, connError)),
-      );
-      results.push(...hostResults);
-    } finally {
-      client.close();
-    }
+    return await Promise.all(
+      hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError, collapseId, priority)),
+    );
+  } catch {
+    return connectionErrorResults(hostTargets);
+  } finally {
+    client?.close();
   }
-  return results;
 }
 
 function sendOne(
-  client: http2.ClientHttp2Session,
+  client: ApnsHttp2Session,
   jwt: string,
   target: ApnsTarget,
   body: Buffer,
   timeoutMs: number,
   connError: Promise<null>,
+  collapseId: string | undefined,
+  priority: string | undefined,
 ): Promise<ApnsSendResult> {
   return new Promise<ApnsSendResult>((resolve) => {
     let settled = false;
@@ -132,15 +200,26 @@ function sendOne(
     };
     void connError.then(() => finish(0, "connection_error"));
 
-    const req = client.request({
-      ":method": "POST",
-      ":path": `/3/device/${target.deviceToken}`,
-      "apns-topic": target.bundleId,
-      "apns-push-type": "alert",
-      authorization: `bearer ${jwt}`,
-      "content-type": "application/json",
-      "content-length": String(body.length),
-    });
+    let req: http2.ClientHttp2Stream;
+    try {
+      const headers: http2.OutgoingHttpHeaders = {
+        ":method": "POST",
+        ":path": `/3/device/${target.deviceToken}`,
+        "apns-topic": target.bundleId,
+        "apns-push-type": "alert",
+        authorization: `bearer ${jwt}`,
+        "content-type": "application/json",
+        "content-length": String(body.length),
+      };
+      // Collapses repeated updates for the same notification into one
+      // delivered banner.
+      if (collapseId) headers["apns-collapse-id"] = collapseId;
+      if (priority) headers["apns-priority"] = priority;
+      req = client.request(headers);
+    } catch (err) {
+      finish(0, err instanceof Error ? err.message : "request_error");
+      return;
+    }
     req.setTimeout(timeoutMs, () => {
       req.close();
       finish(0, "timeout");

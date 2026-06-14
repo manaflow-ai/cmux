@@ -128,6 +128,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     /// store's change stream into the wrapper's `@State`; later calls are no-ops.
     public func update() {
         guard let runtime else { return }
-        driver.activate({ makeStream(runtime) }, sink: $value)
+        let binding = $value
+        driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }

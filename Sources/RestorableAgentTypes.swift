@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 enum RestorableAgentKind: Codable, Hashable, Sendable {
@@ -113,6 +114,14 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .qoder: return "Qoder"
         case .custom(let id): return id
         }
+    }
+
+    /// How an agent's session store is keyed, which decides whether `<agent> --resume <id>` is
+    /// sensitive to the directory it is launched from. Derived from the shared
+    /// ``AgentResumeWorkingDirectory/cwdNamespacing(forKind:)`` so the app and the standalone CLI
+    /// apply one classification.
+    var cwdNamespacing: AgentCwdNamespacing {
+        AgentResumeWorkingDirectory().cwdNamespacing(forKind: rawValue)
     }
 
     init(from decoder: Decoder) throws {

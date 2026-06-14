@@ -11,6 +11,7 @@ import {
   MobileDrawerOverlay,
   MobileDrawerToggle,
 } from "./mobile-drawer";
+import { BrandLogoLink } from "./brand-logo-link";
 
 export function SiteHeader({
   section,
@@ -31,7 +32,7 @@ export function SiteHeader({
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
               <>
-                <Link href="/" className="flex items-center gap-2.5">
+                <BrandLogoLink className="flex items-center gap-2.5">
                   <img
                     src="/logo.png"
                     alt="cmux"
@@ -42,7 +43,7 @@ export function SiteHeader({
                   <span className="text-sm font-semibold tracking-tight">
                     cmux
                   </span>
-                </Link>
+                </BrandLogoLink>
                 {section && (
                   <>
                     <span className="text-border text-[13px]">/</span>

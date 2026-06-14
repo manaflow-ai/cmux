@@ -404,11 +404,13 @@ final class CmuxWebView: WKWebView {
     override init(frame: NSRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
         installPasteAsPlainTextFocusTracking()
+        installContextMenuLinkCapture()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
+        installContextMenuLinkCapture()
     }
 
     private func installPasteAsPlainTextFocusTracking() {
@@ -651,7 +653,7 @@ final class CmuxWebView: WKWebView {
                 let isReturnKey = event.keyCode == 36 || event.keyCode == 76
                 if (normalizedFlags.isEmpty && event.keyCode == 53) ||
                     (isReturnKey && !normalizedFlags.contains(.command)) {
-                    super.keyDown(with: event)
+                    forwardKeyDownToWebKit(event)
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
@@ -711,6 +713,11 @@ final class CmuxWebView: WKWebView {
             }
         }
 
+        if shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+            _ = super.performKeyEquivalent(with: event)
+            return finish(true)
+        }
+
         if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             return finish(super.performKeyEquivalent(with: event))
         }
@@ -759,7 +766,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
                 route = "focusModeWebView"
 #endif
-                super.keyDown(with: event)
+                forwardKeyDownToWebKit(event)
                 return
             case .consume:
 #if DEBUG
@@ -785,6 +792,17 @@ final class CmuxWebView: WKWebView {
             }
         }
 
+        // Inline VS Code owns Cmd+Shift+P for its in-page command palette.
+        // If this path reaches keyDown, forward it to WebKit instead of cmux.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+#if DEBUG
+            route = "inlineVSCode"
+#endif
+            forwardKeyDownToWebKit(event)
+            return
+        }
+
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
@@ -795,7 +813,7 @@ final class CmuxWebView: WKWebView {
             return
         }
 
-        super.keyDown(with: event)
+        forwardKeyDownToWebKit(event)
     }
 
     // MARK: - Focus on click
@@ -814,9 +832,24 @@ final class CmuxWebView: WKWebView {
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
         )
 #endif
+        // Ctrl-click opens the context menu like a right-click; scope the
+        // captured link to this click so a previous click's link can't pair
+        // with the menu this click opens.
+        if event.modifierFlags.contains(.control) {
+            contextMenuCapturedLink = nil
+        }
         performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
+    }
+
+    // Each physical right-click starts a fresh capture lifecycle: WebKit
+    // dispatches the DOM contextmenu event (which refills the capture) after
+    // this and before willOpenMenu, so clearing here guarantees the menu can
+    // only ever pair with a link captured by this exact click.
+    override func rightMouseDown(with event: NSEvent) {
+        contextMenuCapturedLink = nil
+        super.rightMouseDown(with: event)
     }
 
     private func performBrowserClickFocusHandoff(_ action: () -> Void) {
@@ -896,34 +929,24 @@ final class CmuxWebView: WKWebView {
         super.otherMouseUp(with: event)
     }
 
-    /// Finds the nearest anchor element at a given view-local point.
-    /// Used as a context-menu download fallback.
-    private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
-        let js = """
-        (() => {
-            let el = document.elementFromPoint(\(point.x), \(flippedY));
-            while (el) {
-                if (el.tagName === 'A' && el.href) return el.href;
-                el = el.parentElement;
-            }
-            return '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
-        }
-    }
-
     // MARK: - Context menu download support
 
     /// The last context-menu point in view coordinates.
     private var lastContextMenuPoint: NSPoint = .zero
+    /// Link reported by the contextmenu capture hook for the most recent
+    /// right-click (`url` is nil when the click was not on a link). The type
+    /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
+    /// only the stored property has to live in the class body.
+    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    /// Uptime at which the current context menu opened, used to pair the menu
+    /// with the contextmenu capture report from the same right-click.
+    var lastContextMenuOpenUptime: TimeInterval?
+    /// `NSEvent.timestamp` of the event that opened the current context menu
+    /// (same uptime clock as `ProcessInfo.systemUptime`). The DOM contextmenu
+    /// capture for that menu is always reported after this instant, so a
+    /// capture older than it belongs to a previous click and must not pair
+    /// with this menu, even on menu-open paths that never saw a mouse event.
+    var lastContextMenuOpenEventTimestamp: TimeInterval?
     /// Saved native WebKit action for "Download Image".
     private var fallbackDownloadImageTarget: AnyObject?
     private var fallbackDownloadImageAction: Selector?
@@ -1343,11 +1366,11 @@ final class CmuxWebView: WKWebView {
 
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
     private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
+        let cssPoint = cssViewportPoint(for: point)
         let js = """
         (() => {
-            const x = \(point.x);
-            const y = \(flippedY);
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
             const normalize = (raw) => {
                 if (!raw || typeof raw !== 'string') return '';
                 const trimmed = raw.trim();
@@ -1473,89 +1496,9 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    /// Resolve the topmost link URL near a point, accounting for overlay layers.
-    private func findLinkURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
-        let js = """
-        (() => {
-            const x = \(point.x);
-            const y = \(flippedY);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                while (start && !seen.has(start)) {
-                    seen.add(start);
-                    out.push(start);
-                    start = start.parentElement;
-                }
-                return out;
-            };
-            const linkFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.closest) {
-                    const closestLink = el.closest('a[href],area[href]');
-                    if (closestLink && closestLink.href) return normalize(closestLink.href);
-                }
-                if ((el.tagName === 'A' || el.tagName === 'AREA') && el.href) {
-                    return normalize(el.href);
-                }
-                const attrCandidates = ['href', 'data-href', 'data-url', 'data-link', 'data-link-url'];
-                for (const name of attrCandidates) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                if (el.querySelector) {
-                    const nestedLink = el.querySelector('a[href],area[href]');
-                    if (nestedLink && nestedLink.href) return normalize(nestedLink.href);
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const node of collectChain(start)) {
-                        const found = linkFromElement(node);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const node of collectChain(inner)) {
-                                const found = linkFromElement(node);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const found = tryNodes(nodes);
-            if (found) return found;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return linkFromElement(single) || '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
-        }
-    }
-
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
-        let flippedY = bounds.height - point.y
+        let cssPoint = cssViewportPoint(for: point)
         let js = """
         (() => {
             const clip = (value, max = 180) => {
@@ -1563,8 +1506,8 @@ final class CmuxWebView: WKWebView {
                 const s = String(value);
                 return s.length > max ? s.slice(0, max) + '…' : s;
             };
-            const x = \(point.x);
-            const y = \(flippedY);
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
             const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
             const entries = [];
             const limit = Math.min(nodes.length, 8);
@@ -1594,27 +1537,6 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
-    }
-
-    private func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {
-        if let contextMenuLinkURLProvider {
-            contextMenuLinkURLProvider(self, point, completion)
-            return
-        }
-        findLinkURLAtPoint(point, completion: completion)
-    }
-
-    private func canOpenInDefaultBrowser(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https"
-    }
-
-    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
-        if let contextMenuDefaultBrowserOpener {
-            _ = contextMenuDefaultBrowserOpener(url)
-            return
-        }
-        _ = NSWorkspace.shared.open(url)
     }
 
     private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
@@ -1866,19 +1788,19 @@ final class CmuxWebView: WKWebView {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     let mime = response?.mimeType ?? "nil"
                     let expectedLength = response?.expectedContentLength ?? -1
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)"
-                    )
-                    let filenameCandidate = suggestedFilename
-                        ?? response?.suggestedFilename
-                        ?? url.lastPathComponent
-                    let saveName = filenameCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "download" : filenameCandidate
+                    self.debugContextDownload("browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)")
+                    let filenameResolver = BrowserDownloadFilenameResolver()
+                    if case .reject = filenameResolver.httpStatusDecision(for: response) {
+                        self.notifyContextMenuDownloadState(false)
+                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, traceID: traceID, reason: "http_status")
+                        return
+                    }
+                    let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
 
                     let savePanel = NSSavePanel()
                     savePanel.nameFieldStringValue = saveName
                     savePanel.canCreateDirectories = true
                     savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
                         "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
@@ -2175,6 +2097,8 @@ final class CmuxWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
+        lastContextMenuOpenEventTimestamp = event.timestamp
         debugContextDownload(
             "browser.ctxdl.menu open itemCount=\(menu.items.count) point=(\(Int(lastContextMenuPoint.x)),\(Int(lastContextMenuPoint.y)))"
         )
@@ -2522,7 +2446,10 @@ final class CmuxWebView: WKWebView {
         debugContextDownload(
             "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
-        findLinkURLAtPoint(point) { [weak self] url in
+        // Shared link resolution with the Open Link actions: prefer the link
+        // captured at contextmenu time (correct under page zoom and inside
+        // iframes), coordinate hit test only as fallback.
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self else { return }
             self.debugContextDownload(
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"

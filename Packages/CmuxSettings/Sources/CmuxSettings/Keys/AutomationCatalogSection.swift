@@ -15,7 +15,7 @@ public struct AutomationCatalogSection: SettingCatalogSection {
 
     public let claudeCodeIntegration = DefaultsKey<Bool>(
         id: "automation.claudeCodeIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "claudeCodeHooksEnabled"
     )
 
@@ -33,19 +33,35 @@ public struct AutomationCatalogSection: SettingCatalogSection {
 
     public let suppressSubagentNotifications = DefaultsKey<Bool>(
         id: "automation.suppressSubagentNotifications",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "suppressSubagentNotifications"
+    )
+
+    // Several agent-integration toggles are intentionally exposed under both
+    // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
+    // with the same `userDefaultsKey`, so writes through either namespace land
+    // on the same persisted value. The shared keys are claudeCode*, cursor*,
+    // gemini*, kiro* (including kiroNotificationLevel), amp*,
+    // ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
+    // precedence ambiguity because both DefaultsKey wrappers read/write the
+    // same `UserDefaults` slot — the dual namespace exists to keep the JSON
+    // config UX (`automation.*`) and the Settings-catalog UX
+    // (`integrations.*`) separately discoverable.
+    public let ampIntegration = DefaultsKey<Bool>(
+        id: "automation.ampIntegration",
+        defaultValue: true,
+        userDefaultsKey: "ampHooksEnabled"
     )
 
     public let cursorIntegration = DefaultsKey<Bool>(
         id: "automation.cursorIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "cursorHooksEnabled"
     )
 
     public let geminiIntegration = DefaultsKey<Bool>(
         id: "automation.geminiIntegration",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "geminiHooksEnabled"
     )
 

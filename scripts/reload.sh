@@ -16,7 +16,16 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+# Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
+# read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
+# Resolve the real account home via getpwuid (the same syscall
+# homeDirectoryForCurrentUser uses) rather than $HOME, which a shell can override.
+# perl ships with macOS and returns the full home path even when it contains spaces;
+# `dscl ... | awk` mis-parses such paths because dscl wraps a value with spaces onto
+# a second line. `|| true` keeps the lookup from aborting the script under
+# `set -euo pipefail`; an empty result falls back to $HOME.
+_cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
+LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
 XCODEBUILD_STARTED=0
@@ -43,6 +52,36 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+SOCKET_ARG=""
+EXPECT_SOCKET_VALUE=0
+for arg in "\$@"; do
+  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
+    SOCKET_ARG="\$arg"
+    EXPECT_SOCKET_VALUE=0
+    continue
+  fi
+  case "\$arg" in
+    --socket)
+      EXPECT_SOCKET_VALUE=1
+      ;;
+    --socket=*)
+      SOCKET_ARG="\${arg#--socket=}"
+      ;;
+  esac
+done
+if [[ -n "\$SOCKET_ARG" ]]; then
+  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
+  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
+    TAG="\${SOCKET_NAME#cmux-debug-}"
+    TAG="\${TAG%.sock}"
+    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      if [[ -x "\$TAG_CLI" ]] && [[ "\$TAG_CLI" != "\$0" ]]; then
+        exec "\$TAG_CLI" "\$@"
+      fi
+    fi
+  fi
+fi
 if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
   exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
 fi
@@ -278,6 +317,13 @@ set_plist_env() {
   local value="$3"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:${key} \"${value}\"" "$plist" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${key} string \"${value}\"" "$plist"
+}
+
+set_plist_url_scheme() {
+  local plist="$1"
+  local scheme="$2"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 \"${scheme}\"" "$plist" 2>/dev/null \
+    || true
 }
 
 tagged_derived_data_path() {
@@ -543,6 +589,10 @@ reload_finalize() {
     echo
     echo "Dev web origin:"
     echo "  $CMUX_DEV_ORIGIN"
+    if [[ -n "${TAG_SLUG:-}" ]]; then
+      echo "Dev web command:"
+      echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
+    fi
   fi
   if [[ -x "${CLI_PATH:-}" ]]; then
     echo
@@ -860,13 +910,17 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
+      CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
+      set_plist_url_scheme "$INFO_PLIST" "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
+      set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
@@ -1006,9 +1060,21 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u XDG_DATA_DIRS
   )
 
+  # DEBUG dogfood auto-sign-in needs no env injection here: the in-app resolver
+  # reads ~/.secrets/cmuxterm-dev.env (then ~/.secrets/cmux.env) directly on
+  # launch, which fires for every launch method including Finder / the CMUX Tag
+  # Opener that this script's TAG_LAUNCH_ENV never reaches. Exporting the Stack
+  # password into the long-lived GUI process environment would leak it to every
+  # child terminal/CLI it spawns, for zero added coverage, so we deliberately do
+  # not set CMUX_UITEST_STACK_* here.
+  LAUNCH_AUTH_CALLBACK_SCHEME="cmux-dev"
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    LAUNCH_AUTH_CALLBACK_SCHEME="cmux-dev-${TAG_SLUG}"
+  fi
   TAG_LAUNCH_ENV=(
     CMUX_TAG="${TAG_SLUG:-}"
     CMUX_BUNDLE_ID="$BUNDLE_ID"
+    CMUX_AUTH_CALLBACK_SCHEME="$LAUNCH_AUTH_CALLBACK_SCHEME"
     CMUX_SOCKET_ENABLE=1
     CMUX_SOCKET_MODE=allowAll
     CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"

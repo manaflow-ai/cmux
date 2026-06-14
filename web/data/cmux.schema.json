@@ -266,6 +266,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -413,7 +419,7 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
+          "description": "Opt-in Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. A terminal is only suspended when it runs a restorable coding agent, the agent lifecycle reports idle, the terminal is off-screen, the live-terminal limit is exceeded, and its output has stayed unchanged for the idle window plus a short confirmation settle window. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -424,8 +430,8 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 3600,
-              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate."
+              "default": 5,
+              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate. A short confirmation settle window (~60s) still applies on top of this before the agent is killed."
             },
             "maxLiveTerminals": {
               "type": "integer",
@@ -433,6 +439,32 @@
               "maximum": 256,
               "default": 12,
               "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
+            }
+          }
+        },
+        "rendererRealization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Reclaim off-screen terminal renderer memory."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 30,
+              "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
+            },
+            "maxWarmRenderers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }
         },
@@ -871,6 +903,12 @@
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },
+        "ampIntegration": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.ampIntegration",
+          "description": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
@@ -1041,6 +1079,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",
@@ -1052,6 +1112,21 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
+    "diffViewer": {
+      "title": "diffViewer",
+      "description": "Built-in diff viewer settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultLayout": {
+          "type": "string",
+          "enum": ["unified", "split"],
+          "default": "unified",
+          "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
+          "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
         }
       }
     },
@@ -1077,6 +1152,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1116,6 +1192,7 @@
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
               "attachTextBoxFile",
+              "sendCtrlFToTerminal",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1149,6 +1226,7 @@
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
               "toggleReactGrab",
+              "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
               "diffViewerScrollToBottom",
@@ -1175,6 +1253,15 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        },
+        "when": {
+          "type": "object",
+          "default": {},
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "descriptionKey": "schemaDescriptions.shortcuts.when",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }

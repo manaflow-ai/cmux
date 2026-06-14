@@ -175,19 +175,92 @@ _cmux_restore_scrollback_once() {
 _cmux_restore_scrollback_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
 _CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
+_cmux_path_prepend_unique_directory() {
+    local directory="$1"
+    local current_path="${2-}"
+    local skipped_directory="${3-}"
+    local result="$directory"
+    local rest="$current_path"
+    local entry=""
+    local has_more=false
+
+    [[ -n "$directory" ]] || {
+        printf '%s' "$current_path"
+        return 0
+    }
+    [[ -n "$current_path" ]] || {
+        printf '%s' "$directory"
+        return 0
+    }
+
+    while true; do
+        if [[ "$rest" == *:* ]]; then
+            entry="${rest%%:*}"
+            rest="${rest#*:}"
+            has_more=true
+        else
+            entry="$rest"
+            rest=""
+            has_more=false
+        fi
+
+        if [[ "$entry" != "$directory" && ( -z "$skipped_directory" || "$entry" != "$skipped_directory" ) ]]; then
+            result="$result:$entry"
+        fi
+        [[ "$has_more" == true ]] || break
+    done
+
+    printf '%s' "$result"
+}
+_cmux_install_cli_command_shim() {
+    local command_name="$1"
+    local wrapper_path="$2"
+    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local shim_path="$shim_root/$command_name"
+    local escaped_wrapper="$wrapper_path"
+
+    escaped_wrapper="${escaped_wrapper//\\/\\\\}"
+    escaped_wrapper="${escaped_wrapper//\"/\\\"}"
+    escaped_wrapper="${escaped_wrapper//\$/\\\$}"
+    escaped_wrapper="${escaped_wrapper//\`/\\\`}"
+
+    /bin/mkdir -p "$shim_root" >/dev/null 2>&1 || return 0
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        if [[ "$command_name" == "claude" ]]; then
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+        fi
+        printf 'exec "%s" "$@"\n' "$escaped_wrapper"
+    } >"$shim_path" 2>/dev/null || return 0
+    /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
+
+    if [[ "$command_name" == "claude" ]]; then
+        export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
+        export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+    fi
+
+    PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
+    hash -r >/dev/null 2>&1 || true
+}
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
+    local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
     local existing_type=""
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
     local bundle_dir="${integration_dir%/shell-integration}"
-    local wrapper_path="$bundle_dir/bin/$command_name"
+    local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
     existing_type="$(type -t "$command_name" 2>/dev/null || true)"
+    printf -v "$wrapper_variable" '%s' "$wrapper_path"
+    if [[ "$command_name" == "claude" ]]; then
+        _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
+    fi
     case "$existing_type" in
         alias|function)
             return 0
@@ -196,11 +269,10 @@ _cmux_install_cli_wrapper() {
 
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
     # via eval so an existing alias cannot break parsing.
-    printf -v "$wrapper_variable" '%s' "$wrapper_path"
     unalias "$command_name" >/dev/null 2>&1 || true
     eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
 }
-_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER
+_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
@@ -215,6 +287,7 @@ _CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
 _CMUX_GIT_HEAD_LAST_PWD="${_CMUX_GIT_HEAD_LAST_PWD:-}"
 _CMUX_GIT_HEAD_PATH="${_CMUX_GIT_HEAD_PATH:-}"
 _CMUX_GIT_HEAD_SIGNATURE="${_CMUX_GIT_HEAD_SIGNATURE:-}"
+_CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 _CMUX_PR_POLL_PID="${_CMUX_PR_POLL_PID:-}"
 _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
 _CMUX_PR_LAST_BRANCH="${_CMUX_PR_LAST_BRANCH:-}"
@@ -409,10 +482,41 @@ _cmux_git_branch_for_path() {
     printf '%s\n' "${head_line#$prefix}"
 }
 
+_cmux_set_git_active_pwd() {
+    local active_pwd="$1"
+    [[ -n "$active_pwd" ]] || return 0
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    printf '%s\n' "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
+}
+
+_cmux_git_report_path_is_active() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || return 1
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    [[ -r "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] || return 0
+
+    local active_pwd=""
+    IFS= read -r active_pwd < "$_CMUX_GIT_ACTIVE_PWD_FILE" || active_pwd=""
+    # No recorded cwd yet, or the report targets the current cwd exactly: allow.
+    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]] && return 0
+
+    # Otherwise the report is valid only when the current cwd is in the SAME
+    # repository as repo_path. This keeps live branch updates flowing after an
+    # in-repo `cd pkg` while still dropping a report once the shell has left the
+    # repo entirely (the stale-branch case). Resolve both HEAD paths without
+    # invoking git and compare.
+    local repo_head active_head
+    repo_head="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    active_head="$(_cmux_git_resolve_head_path "$active_pwd" 2>/dev/null || true)"
+    [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
+}
+
 _cmux_report_git_branch_for_path() {
     local repo_path="$1"
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
+    _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
         _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     else
@@ -1206,6 +1310,7 @@ _cmux_start_pr_poll_loop() {
 
 _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
+    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
 _cmux_command_starts_nested_shell() {
@@ -1357,6 +1462,7 @@ _cmux_prompt_command() {
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
+    _cmux_set_git_active_pwd "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1515,12 +1621,7 @@ _cmux_fix_path() {
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
         local bin_dir="${gui_dir%/MacOS}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
-            local new_path=":${PATH}:"
-            new_path="${new_path//:${bin_dir}:/:}"
-            new_path="${new_path//:${gui_dir}:/:}"
-            new_path="${new_path#:}"
-            new_path="${new_path%:}"
-            PATH="${bin_dir}:${new_path}"
+            PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
 }

@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import Foundation
+import CmuxTerminal
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -45,6 +47,35 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+func shortcutRoutingShouldBypassForPrintableOptionText(
+    event: NSEvent,
+    textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
+) -> Bool {
+    guard event.type == .keyDown else { return false }
+    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+    guard normalizedFlags.contains(.option),
+          !normalizedFlags.contains(.command),
+          !normalizedFlags.contains(.control) else {
+        return false
+    }
+
+    if shortcutRoutingTextIsPrintable(event.characters) {
+        return true
+    }
+
+    return shortcutRoutingTextIsPrintable(
+        textInputCharacterProvider(event.keyCode, event.modifierFlags)
+    )
+}
+
+private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
+    guard let text, !text.isEmpty else { return false }
+    return text.unicodeScalars.allSatisfy { scalar in
+        guard !isControlCharacterScalar(scalar) else { return false }
+        return scalar.value < 0xF700 || scalar.value > 0xF8FF
+    }
+}
+
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
     browserOmnibarNormalizedModifierFlags(flags) == [.control]
 }
@@ -80,9 +111,8 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return should be
-    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
-    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
+    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
@@ -96,9 +126,7 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
 
     if normalizedFlags.isEmpty {
         return true
@@ -122,6 +150,17 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
+}
+
+/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsTerminal: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
 struct BrowserAddressBarTrackingContext {
@@ -159,9 +198,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 123 || keyCode == 124 else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -188,9 +225,7 @@ private func standaloneTextResponderOwnsArrowKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -220,7 +255,7 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
 ///
 /// This generalizes the per-surface arrow-forwarding seam (browser, omnibar,
 /// command palette, text-box input) to cover the whole class of standalone
-/// editable `NSTextView`s cmux hosts — the file-preview editor today, any
+/// editable `NSTextView`s cmux hosts, the file-preview editor today, any
 /// future one tomorrow. Field editors (the omnibar / command-palette / find
 /// field editors) are excluded by the caller because they have their own
 /// dedicated routing or work through the normal field-editor path. Shares the
@@ -240,15 +275,33 @@ func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
     )
 }
 
+/// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
+/// movement) inside the terminal textbox. Like plain arrows, the window's
+/// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
+/// they must be routed to the first responder explicitly. Scoped to the textbox so
+/// terminal/browser Ctrl-N/Ctrl-P are unaffected.
+func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+    charactersIgnoringModifiers: String?,
+    firstResponderIsTextBoxInput: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTextBoxInput else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    guard normalizedFlags == [.control] else { return false }
+    let key = charactersIgnoringModifiers?.lowercased()
+    return key == "n" || key == "p"
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
     if normalizedChars == "f" {
@@ -375,22 +428,6 @@ enum BrowserZoomShortcutAction: Equatable {
     case reset
 }
 
-struct CommandPaletteDebugResultRow {
-    let commandId: String
-    let title: String
-    let shortcutHint: String?
-    let trailingLabel: String?
-    let score: Int
-}
-
-struct CommandPaletteDebugSnapshot {
-    let query: String
-    let mode: String
-    let results: [CommandPaletteDebugResultRow]
-
-    static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
-}
-
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -487,6 +524,10 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+// Main-actor isolated: TerminalSurface.searchState carries the legacy
+// main-thread-only contract as compiler-enforced isolation after the
+// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
+@MainActor
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
@@ -694,6 +735,16 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     }
 
     return true
+}
+
+func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
+    _ event: NSEvent,
+    pageURL: URL?,
+    inlineVSCodeURLMatcher: (URL?) -> Bool = { VSCodeServeWebController.shared.isServeWebURL($0) },
+    shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+) -> Bool {
+    guard inlineVSCodeURLMatcher(pageURL) else { return false }
+    return shortcutForAction(.commandPalette).matches(event: event)
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
