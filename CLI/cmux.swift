@@ -1005,6 +1005,68 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
+    func recordCodexMonitorIdleIfCurrent(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        turnId: String?
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            let turnStack = activePromptTurnStack(from: record)
+            let activeDepth = max(max(0, record.activePromptDepth ?? 0), turnStack.count)
+            if let normalizedTurnId = normalizeOptional(turnId) {
+                if let activeTurnId = turnStack.last, activeTurnId != normalizedTurnId {
+                    return false
+                }
+                if turnStack.isEmpty, activeDepth > 0 {
+                    return false
+                }
+                if turnStack.last == normalizedTurnId {
+                    var updatedStack = turnStack
+                    updatedStack.removeLast()
+                    setActivePromptTurnStack(updatedStack, totalDepth: max(0, activeDepth - 1), on: &record)
+                    markPromptTurnTerminal(normalizedTurnId, on: &record)
+                } else if !terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
+                    markPromptTurnTerminal(normalizedTurnId, on: &record)
+                }
+            } else if activeDepth > 0 {
+                return false
+            }
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: nil,
+                pid: nil,
+                launchCommand: nil,
+                isRestorable: nil,
+                agentLifecycle: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: .idle,
+                updateLastNotificationStatus: true,
+                runtimeStatus: .idle,
+                updateRuntimeStatus: true,
+                now: now
+            )
+            state.sessions[normalized] = record
+            return true
+        }
+    }
+
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
@@ -25212,6 +25274,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        turnId: turnId,
                         cwd: cwd,
                         env: env,
                         client: client
@@ -25313,21 +25376,29 @@ struct CMUXCLI {
         sessionId: String,
         workspaceId: String,
         surfaceId: String?,
+        turnId: String?,
         cwd: String?,
         env: [String: String],
         client: SocketClient
     ) {
-        recordCodexMonitorRuntimeStatus(
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty, !normalizedWorkspaceId.isEmpty else {
+            return
+        }
+        let normalizedSurfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard ((try? codexHookSessionStore(env: env).recordCodexMonitorIdleIfCurrent(
             sessionId: sessionId,
             workspaceId: workspaceId,
-            surfaceId: surfaceId,
+            surfaceId: normalizedSurfaceId,
             cwd: cwd,
-            env: env,
-            notificationStatus: .idle
-        )
+            turnId: turnId
+        )) == true) else {
+            return
+        }
         guard !hasOtherRunningCodexMonitorSession(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
+            sessionId: normalizedSessionId,
+            workspaceId: normalizedWorkspaceId,
             surfaceId: surfaceId,
             env: env
         ) else {

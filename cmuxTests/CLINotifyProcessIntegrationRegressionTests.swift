@@ -54,7 +54,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sourceRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let wrapperURL = sourceRoot.appendingPathComponent("Resources/bin/claude", isDirectory: false)
+        let wrapperURL = sourceRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
 
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = root.path
