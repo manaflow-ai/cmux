@@ -25,6 +25,7 @@ struct RemoteSessionProcessRunnerTests {
             try? stdoutHandle.close()
             try? stderrHandle.close()
             didCloseReadHandles.signal()
+            return true
         })
 
         let result = try runner.run(
