@@ -167,6 +167,7 @@ struct PairingView: View {
                             } label: {
                                 Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
                             }
+                            .disabled(isPairing)
                             .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
                         }
                     }
