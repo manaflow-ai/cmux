@@ -176,6 +176,13 @@ class TerminalController {
         )
     }
 
+    private static var mainWindowActivationUnavailableMessage: String {
+        String(
+            localized: "socket.mainWindow.activationUnavailable",
+            defaultValue: "No main window is available to activate."
+        )
+    }
+
     private static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -186,6 +193,10 @@ class TerminalController {
 
     private static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
+    }
+
+    private static var mainWindowActivationUnavailableSocketError: String {
+        "ERROR: \(mainWindowActivationUnavailableMessage)"
     }
 
     private nonisolated static let focusIntentV1Commands: Set<String> = [
@@ -10648,10 +10659,11 @@ class TerminalController {
     }
 
     func activateApp() -> String {
+        var didActivate = false
         v2MainSync {
-            _ = AppDelegate.shared?.activateMainWindowFromSocket()
+            didActivate = AppDelegate.shared?.activateMainWindowFromSocket() ?? false
         }
-        return "OK"
+        return didActivate ? "OK" : Self.mainWindowActivationUnavailableSocketError
     }
 
     private func simulateType(_ args: String) -> String {

@@ -1644,7 +1644,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             let staleWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: TabManager())
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowId) }
 
-            _ = appDelegate.activateMainWindowFromSocket()
+            XCTAssertFalse(appDelegate.activateMainWindowFromSocket())
+            XCTAssertTrue(TerminalController.shared.activateApp().hasPrefix("ERROR:"))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
             XCTAssertEqual(

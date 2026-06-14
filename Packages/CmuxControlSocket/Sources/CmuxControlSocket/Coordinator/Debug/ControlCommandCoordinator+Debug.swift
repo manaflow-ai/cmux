@@ -118,6 +118,13 @@ extension ControlCommandCoordinator {
     /// checks, surfacing as the legacy `internal_error` path.
     static let debugContextUnavailableResponse = "ERROR: control context unavailable"
 
+    private static func v1ErrorMessage(_ response: String) -> String {
+        let prefix = "ERROR:"
+        guard response.hasPrefix(prefix) else { return response }
+        let message = response.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? response : message
+    }
+
     /// The debug-domain view of the seam. Once the integrator adds
     /// ``ControlDebugContext`` to the ``ControlCommandContext`` umbrella this
     /// cast is statically guaranteed (and may be simplified to `context`);
@@ -284,9 +291,11 @@ extension ControlCommandCoordinator {
     /// `debug.app.activate` — activate the app via the shared v1 body.
     func debugActivateApp() -> ControlCallResult {
         let resp = debugContext?.controlDebugActivateApp() ?? Self.debugContextUnavailableResponse
-        return resp == "OK"
-            ? .ok(.object([:]))
-            : .err(code: "internal_error", message: resp, data: nil)
+        if resp == "OK" {
+            return .ok(.object([:]))
+        }
+        let code = resp == Self.debugContextUnavailableResponse ? "internal_error" : "not_found"
+        return .err(code: code, message: Self.v1ErrorMessage(resp), data: nil)
     }
 
     // MARK: - debug.command_palette.* (event posts)
