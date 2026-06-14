@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 private struct HorizontalWorkspaceTabSnapshot: Identifiable, Equatable {
