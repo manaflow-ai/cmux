@@ -1,6 +1,50 @@
 import Foundation
 
 extension CMUXCLI {
+    enum AgentAutoNamingSource: Equatable {
+        case codexRollout
+        case grokHistory
+        case hookMessageCache
+    }
+
+    func autoNamingSource(for def: AgentHookDef) -> AgentAutoNamingSource? {
+        switch def.name {
+        case "codex":
+            return .codexRollout
+        case "grok":
+            return .grokHistory
+        case "opencode", "gemini", "pi", "omp":
+            return .hookMessageCache
+        default:
+            return nil
+        }
+    }
+
+    func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
+        autoNamingSource(for: def) == .hookMessageCache
+    }
+
+    func autoNamingMessages(
+        for def: AgentHookDef,
+        parsedInput: ClaudeHookParsedInput,
+        client: SocketClient,
+        workspaceId: String,
+        engine: AutoNamingEngine = AutoNamingEngine()
+    ) -> [AutoNamingTranscriptMessage] {
+        guard usesHookMessageCacheForAutoNaming(def),
+              let object = parsedInput.rawObject ?? parsedInput.object else {
+            return []
+        }
+        guard let probe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        ), probe["enabled"] as? Bool == true,
+           probe["workspace_user_owned"] as? Bool != true else {
+            return []
+        }
+        return engine.extractHookMessages(fromPayloadObjects: [object])
+    }
+
     /// Detached naming pass for non-Codex generic agents.
     func runGenericAgentAutoNameHook(
         def: AgentHookDef,

@@ -1181,12 +1181,23 @@ final class ClaudeHookSessionStore {
     private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
         let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard role == "user" || role == "assistant" else { return nil }
-        let text = normalizedSingleLine(message.text)
+        let text = autoNameNormalizedSingleLine(message.text)
         guard !text.isEmpty else { return nil }
         return AutoNamingTranscriptMessage(
             role: role,
-            text: truncate(text, maxLength: Self.maxAutoNameMessageCharacters)
+            text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
         )
+    }
+
+    private func autoNameNormalizedSingleLine(_ value: String) -> String {
+        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func autoNameTruncate(_ value: String, maxLength: Int) -> String {
+        guard value.count > maxLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
+        return String(value[..<index]) + "…"
     }
 
     private func update(
@@ -23026,41 +23037,6 @@ struct CMUXCLI {
         }
     }
 
-    enum AgentAutoNamingSource: Equatable {
-        case codexRollout
-        case grokHistory
-        case hookMessageCache
-    }
-
-    func autoNamingSource(for def: AgentHookDef) -> AgentAutoNamingSource? {
-        switch def.name {
-        case "codex":
-            return .codexRollout
-        case "grok":
-            return .grokHistory
-        case "opencode", "gemini", "pi", "omp":
-            return .hookMessageCache
-        default:
-            return nil
-        }
-    }
-
-    func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
-        autoNamingSource(for: def) == .hookMessageCache
-    }
-
-    func autoNamingMessages(
-        for def: AgentHookDef,
-        parsedInput: ClaudeHookParsedInput,
-        engine: AutoNamingEngine = AutoNamingEngine()
-    ) -> [AutoNamingTranscriptMessage] {
-        guard usesHookMessageCacheForAutoNaming(def),
-              let object = parsedInput.rawObject ?? parsedInput.object else {
-            return []
-        }
-        return engine.extractHookMessages(fromPayloadObjects: [object])
-    }
-
     private func runAgentHibernation(
         commandArgs: [String],
         client: SocketClient,
@@ -28991,7 +28967,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     pid: pid,
                     launchCommand: launchCommand,
                     agentLifecycle: .running,
-                    autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
+                    autoNameMessages: autoNamingMessages(
+                        for: def,
+                        parsedInput: input,
+                        client: client,
+                        workspaceId: workspaceId
+                    )
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
@@ -29243,7 +29224,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
-                    autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
+                    autoNameMessages: autoNamingMessages(
+                        for: def,
+                        parsedInput: input,
+                        client: client,
+                        workspaceId: workspaceId
+                    )
                 )) ?? false
             } else {
                 nestedPromptStop = false
@@ -29618,7 +29604,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         updateLastNotificationStatus: true,
                         runtimeStatus: runtimeStatus(for: summary.status),
                         updateRuntimeStatus: true,
-                        autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
+                        autoNameMessages: autoNamingMessages(
+                            for: def,
+                            parsedInput: input,
+                            client: client,
+                            workspaceId: workspaceId
+                        )
                     )
                 } else {
                     try? store.upsert(
@@ -29746,7 +29737,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
                         lastBody: nil,
-                        autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
+                        autoNameMessages: autoNamingMessages(
+                            for: def,
+                            parsedInput: input,
+                            client: client,
+                            workspaceId: mapped.workspaceId
+                        )
                     )
                 }
 #if DEBUG
