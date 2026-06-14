@@ -22,6 +22,30 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omp", kind: "pi"))
     }
 
+    func testSubrouterWrapperLaunchersDescribeEveryKind() {
+        // The team launches every agent through the `sr` subrouter wrapper
+        // (`sr claude`, `sr codex`, `sr opencode`, `sr pi`), exported as the
+        // captured launcher. `sr` is a symlink to `~/bin/subrouter`, so the
+        // resolved binary name `subrouter` can appear too. Both are generic
+        // wrappers that can front ANY kind and must be trusted for all of them,
+        // exactly like the cmux-owned `claudeTeams`/`codexTeams`/`omo` wrappers.
+        // Regression: https://github.com/manaflow-ai/cmux/pull/5937 omitted them,
+        // distrusting every sr-launched session and hiding Fork Conversation.
+        for kind in ["claude", "codex", "opencode", "pi"] {
+            XCTAssertTrue(
+                AgentLaunchCaptureTrust.launcherDescribesKind("sr", kind: kind),
+                "sr should describe \(kind)"
+            )
+            XCTAssertTrue(
+                AgentLaunchCaptureTrust.launcherDescribesKind("subrouter", kind: kind),
+                "subrouter should describe \(kind)"
+            )
+        }
+        // Launcher matching is case-insensitive (the launcher is lowercased).
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("SR", kind: "claude"))
+        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("Subrouter", kind: "codex"))
+    }
+
     func testCrossAgentLauncherIsDistrusted() {
         XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("claude", kind: "codex"))
         XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "claude"))
