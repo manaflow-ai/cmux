@@ -7,6 +7,7 @@ import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
+import CmuxTerminal
 
 private enum TextBoxLayout {
     static let minLines = 1
