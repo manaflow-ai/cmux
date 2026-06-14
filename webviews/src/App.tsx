@@ -265,6 +265,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
+  useFileSearchBridge(dispatch);
   useKeyboardShortcuts(payload.shortcuts ?? {}, state.fileSearchOpen, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
@@ -1402,6 +1403,14 @@ function useKeyboardShortcuts(
       document.removeEventListener("keydown", listener);
     };
   }, [dispatch, fileSearchOpen, shortcuts, viewerRef]);
+}
+
+function useFileSearchBridge(dispatch: React.Dispatch<AppAction>): void {
+  useEffect(() => {
+    const listener = () => dispatch({ type: "focus-file-search" });
+    document.addEventListener("cmux:focus-file-search", listener);
+    return () => document.removeEventListener("cmux:focus-file-search", listener);
+  }, [dispatch]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

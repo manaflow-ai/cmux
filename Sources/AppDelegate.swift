@@ -6747,51 +6747,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private static let diffViewerFindMenuBridgeScript = """
     (() => {
-      function findFileSearchInput(root) {
+      function findOpenFileSearchInput(root) {
         const direct = root.querySelector?.("[data-file-tree-search-input]");
-        if (direct) return direct;
+        if (direct) {
+          const container = direct.closest("[data-file-tree-search-container]");
+          if (container?.getAttribute("data-open") === "true") return direct;
+        }
         for (const element of root.querySelectorAll?.("*") ?? []) {
           if (!element.shadowRoot) continue;
-          const found = findFileSearchInput(element.shadowRoot);
-          if (found) return found;
-        }
-        return null;
-      }
-
-      const toggle = document.getElementById("file-search-toggle");
-      const searchInput = findFileSearchInput(document);
-      const searchContainer = searchInput?.closest("[data-file-tree-search-container]");
-      const searchIsOpen = toggle?.getAttribute("aria-pressed") === "true" ||
-        searchContainer?.getAttribute("data-open") === "true";
-
-      if (searchIsOpen) {
-        if (searchInput) {
-          searchInput.focus();
-          if (typeof searchInput.select === "function") searchInput.select();
-        }
-        return "already-open";
-      }
-
-      const event = new KeyboardEvent("keydown", {
-        bubbles: true,
-        cancelable: true,
-        code: "KeyF",
-        key: "f",
-        metaKey: true
-      });
-      document.dispatchEvent(event);
-      return event.defaultPrevented ? "opened" : "unhandled";
-    })()
-    """
-
-    private static let diffViewerFocusFileSearchScript = """
-    (() => {
-      function findFileSearchInput(root) {
-        const direct = root.querySelector?.("[data-file-tree-search-input]");
-        if (direct) return direct;
-        for (const element of root.querySelectorAll?.("*") ?? []) {
-          if (!element.shadowRoot) continue;
-          const found = findFileSearchInput(element.shadowRoot);
+          const found = findOpenFileSearchInput(element.shadowRoot);
           if (found) return found;
         }
         return null;
@@ -6804,31 +6768,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true;
       }
 
-      const toggle = document.getElementById("file-search-toggle");
-      let searchInput = findFileSearchInput(document);
-      const searchContainer = searchInput?.closest("[data-file-tree-search-container]");
-      const searchIsOpen = toggle?.getAttribute("aria-pressed") === "true" ||
-        searchContainer?.getAttribute("data-open") === "true";
+      function requestFileSearchFocus() {
+        document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+      }
 
-      if (searchIsOpen && focusInput(searchInput)) {
+      const searchInput = findOpenFileSearchInput(document);
+      if (focusInput(searchInput)) {
+        return "already-open";
+      }
+
+      requestFileSearchFocus();
+      return "opened";
+    })()
+    """
+
+    private static let diffViewerFocusFileSearchScript = """
+    (() => {
+      function findOpenFileSearchInput(root) {
+        const direct = root.querySelector?.("[data-file-tree-search-input]");
+        if (direct) {
+          const container = direct.closest("[data-file-tree-search-container]");
+          if (container?.getAttribute("data-open") === "true") return direct;
+        }
+        for (const element of root.querySelectorAll?.("*") ?? []) {
+          if (!element.shadowRoot) continue;
+          const found = findOpenFileSearchInput(element.shadowRoot);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      function focusInput(input) {
+        if (!input) return false;
+        input.focus();
+        if (typeof input.select === "function") input.select();
+        return true;
+      }
+
+      function requestFileSearchFocus() {
+        document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+      }
+
+      let searchInput = findOpenFileSearchInput(document);
+      if (focusInput(searchInput)) {
         return "focused";
       }
 
-      const event = new KeyboardEvent("keydown", {
-        bubbles: true,
-        cancelable: true,
-        code: "KeyF",
-        key: "f",
-        metaKey: true
-      });
-      document.dispatchEvent(event);
+      requestFileSearchFocus();
 
-      searchInput = findFileSearchInput(document);
+      searchInput = findOpenFileSearchInput(document);
       if (focusInput(searchInput)) {
         return "opened";
       }
 
-      return event.defaultPrevented ? "opened-pending" : "unhandled";
+      return "opened-pending";
     })()
     """
 

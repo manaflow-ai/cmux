@@ -201,6 +201,14 @@ test("Cmd+F opens diff viewer file search, then typing targets can fall through 
 
   expect(activeFileTreeSearchInput()?.dispatchEvent(repeatedCmdF)).toBe(true);
   expect(repeatedCmdF.defaultPrevented).toBe(false);
+
+  const visibleSearchInput = findFileTreeSearchInput(dom.window.document.getElementById("file-list"));
+  visibleSearchInput?.closest("[data-file-tree-search-container]")?.setAttribute("data-open", "false");
+  visibleSearchInput?.blur();
+  expect(activeFileTreeSearchInput()).toBeNull();
+
+  dom.window.document.dispatchEvent(new dom.window.CustomEvent("cmux:focus-file-search", { bubbles: true }));
+  await waitFor(() => activeFileTreeSearchInput() != null);
 });
 
 test("layout toggle persists user choice while explicit payload layout wins", async () => {
@@ -295,6 +303,7 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLTemplateElement = nextDom.window.HTMLTemplateElement;
   (globalThis as any).ShadowRoot = nextDom.window.ShadowRoot;
   (globalThis as any).SVGElement = nextDom.window.SVGElement;
+  (globalThis as any).CustomEvent = nextDom.window.CustomEvent;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).requestAnimationFrame = requestAnimationFrame;
   (globalThis as any).cancelAnimationFrame = cancelAnimationFrame;
