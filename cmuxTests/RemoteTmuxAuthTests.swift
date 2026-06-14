@@ -52,6 +52,19 @@ import Testing
         let stderr = "no server running on /tmp/tmux-501/default"
         #expect(RemoteTmuxSSHTransport.indicatesNoServer(stderr))
         #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
+
+        let socketMissing = "error connecting to /tmp/tmux-501/default (No such file or directory)"
+        #expect(RemoteTmuxSSHTransport.indicatesNoServer(socketMissing))
+        #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(socketMissing))
+    }
+
+    @Test func staleSSHAgentErrorDoesNotMaskPermissionDeniedAuthRequirement() {
+        let stderr = """
+        Error connecting to agent: No such file or directory
+        user@host: Permission denied (publickey,password).
+        """
+        #expect(!RemoteTmuxSSHTransport.indicatesNoServer(stderr))
+        #expect(RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
     }
 
     // MARK: - Host-key policy in the standard control args

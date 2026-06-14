@@ -51,6 +51,9 @@ actor RemoteTmuxSSHTransport {
             "list-sessions", "-F", RemoteTmuxSessionListParser.formatString,
         ])
         if !result.succeeded {
+            if Self.indicatesAuthRequired(result.stderr) {
+                throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+            }
             if Self.indicatesNoServer(result.stderr) { return [] }
             throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
         }
@@ -151,7 +154,7 @@ actor RemoteTmuxSSHTransport {
         let lowered = stderr.lowercased()
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
-            || lowered.contains("error connecting to")
+            || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
     }
 
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because

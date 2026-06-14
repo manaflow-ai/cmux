@@ -522,7 +522,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "mobile.terminal.replay",
                 "terminal.replay",
                 "mobile.terminal.viewport",
-                "terminal.viewport",
+                "terminal.viewport", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
