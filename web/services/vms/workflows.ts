@@ -316,16 +316,11 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const signedWebSocketAuth =
-      input.options?.signedWebSocketAuth ??
-      imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, {
-      ...input.options,
-      signedWebSocketAuth,
-      webSocketReadinessVerified:
-        input.options?.webSocketReadinessVerified ??
-        (signedWebSocketAuth && Date.now() - vm.createdAt.getTime() <= SIGNED_ATTACH_CREATE_READINESS_TRUST_MS),
-    });
+    const endpoint = yield* providers.openAttach(
+      vm.provider,
+      input.providerVmId,
+      attachOptionsForVm(vm, input.options),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -380,6 +375,19 @@ export function openSshEndpoint(input: {
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
   });
+}
+
+export function attachOptionsForVm(vm: CloudVmRow, options?: AttachOptions): AttachOptions {
+  const signedWebSocketAuth =
+    options?.signedWebSocketAuth ??
+    imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId);
+  return {
+    ...options,
+    signedWebSocketAuth,
+    webSocketReadinessVerified:
+      options?.webSocketReadinessVerified ??
+      (signedWebSocketAuth && Date.now() - vm.createdAt.getTime() <= SIGNED_ATTACH_CREATE_READINESS_TRUST_MS),
+  };
 }
 
 function requireUserVm(userId: string, providerVmId: string) {
