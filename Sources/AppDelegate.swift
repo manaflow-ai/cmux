@@ -1659,6 +1659,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
+        enqueuePostHogTerminationFlushIfNeeded(
+            reason: "applicationShouldTerminate",
+            preservePendingCaptures: true
+        )
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
 
@@ -1765,15 +1769,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
-        if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flush()
-        }
+        enqueuePostHogTerminationFlushIfNeeded(
+            reason: "applicationWillTerminate",
+            preservePendingCaptures: false
+        )
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
+    }
+
+    private func enqueuePostHogTerminationFlushIfNeeded(reason: String, preservePendingCaptures: Bool) {
+        guard TelemetrySettings.enabledForCurrentLaunch else { return }
+        PostHogAnalytics.shared.flushForApplicationTermination(
+            reason: reason,
+            preservePendingCaptures: preservePendingCaptures
+        )
     }
 
     func applicationWillResignActive(_ notification: Notification) {

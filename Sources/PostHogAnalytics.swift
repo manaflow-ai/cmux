@@ -1,6 +1,10 @@
 import AppKit
 import Foundation
+import OSLog
 import PostHog
+
+nonisolated private let postHogAnalyticsLogger = Logger(subsystem: "com.cmuxterm.app", category: "PostHogAnalytics")
+nonisolated private let postHogAnalyticsSignposter = OSSignposter(logger: postHogAnalyticsLogger)
 
 final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
@@ -18,15 +22,26 @@ final class PostHogAnalytics {
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
     private let workQueue: DispatchQueue
+    private let terminationFlushQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
+    private let sdkFlush: () -> Void
 
     private var didStart = false
     private var activeCheckTimer: Timer?
 
-    private init() {
-        workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+    // Internal so @testable regression tests can inject a busy queue and stub flush.
+    internal init(
+        workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
+        terminationFlushQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics.terminationFlush", qos: .utility),
+        didStart: Bool = false,
+        sdkFlush: @escaping () -> Void = { PostHogSDK.shared.flush() }
+    ) {
+        self.workQueue = workQueue
+        self.terminationFlushQueue = terminationFlushQueue
+        self.sdkFlush = sdkFlush
+        self.didStart = didStart
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
@@ -56,7 +71,7 @@ final class PostHogAnalytics {
             let didCaptureHourly = self.trackHourlyActiveOnWorkQueue(reason: reason, flush: false)
             if didCaptureDaily || didCaptureHourly {
                 // On app focus we can capture both events; flush once to reduce extra work.
-                PostHogSDK.shared.flush()
+                self.flushOnWorkQueue(reason: "trackActive")
             }
         }
     }
@@ -74,9 +89,17 @@ final class PostHogAnalytics {
     }
 
     func flush() {
-        dispatchSyncOnWorkQueue {
-            guard didStart else { return }
-            PostHogSDK.shared.flush()
+        flushSynchronously(reason: "manual")
+    }
+
+    func flushForApplicationTermination(
+        reason: String = "applicationWillTerminate",
+        preservePendingCaptures: Bool = false
+    ) {
+        if preservePendingCaptures {
+            enqueueFlush(reason: reason)
+        } else {
+            enqueueTerminationFlush(reason: reason)
         }
     }
 
@@ -144,7 +167,7 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // For active metrics we care more about delivery than batching.
-            PostHogSDK.shared.flush()
+            flushOnWorkQueue(reason: "trackDailyActive")
         }
 
         return true
@@ -176,10 +199,82 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
-            PostHogSDK.shared.flush()
+            flushOnWorkQueue(reason: "trackHourlyActive")
         }
 
         return true
+    }
+
+    private func flushSynchronously(reason: String) {
+        postHogAnalyticsLogger.debug("posthog.flush.sync.request reason=\(reason, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.sync.request reason=\(reason)")
+#endif
+        dispatchSyncOnWorkQueue { [self] in
+            flushOnWorkQueue(reason: reason)
+        }
+    }
+
+    private func enqueueFlush(reason: String) {
+        postHogAnalyticsLogger.debug("posthog.flush.enqueue reason=\(reason, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.enqueue reason=\(reason)")
+#endif
+
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            flushOnWorkQueue(reason: reason)
+            return
+        }
+
+        let workItem = DispatchWorkItem { [self] in
+            flushOnWorkQueue(reason: reason)
+        }
+        workQueue.async(execute: workItem)
+    }
+
+    private func enqueueTerminationFlush(reason: String) {
+        postHogAnalyticsLogger.debug("posthog.flush.termination.enqueue reason=\(reason, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.termination.enqueue reason=\(reason)")
+#endif
+
+        let workItem = DispatchWorkItem { [sdkFlush] in
+            Self.performSDKFlush(reason: reason, sdkFlush: sdkFlush)
+        }
+        terminationFlushQueue.async(execute: workItem)
+    }
+
+    private func flushOnWorkQueue(reason: String) {
+        guard didStart else {
+            postHogAnalyticsLogger.debug("posthog.flush.skip reason=\(reason, privacy: .public) started=0")
+#if DEBUG
+            cmuxDebugLog("posthog.flush.skip reason=\(reason) started=0")
+#endif
+            return
+        }
+
+        Self.performSDKFlush(reason: reason, sdkFlush: sdkFlush)
+    }
+
+    private nonisolated static func performSDKFlush(reason: String, sdkFlush: () -> Void) {
+        let signpostID = postHogAnalyticsSignposter.makeSignpostID()
+        let signpostState = postHogAnalyticsSignposter.beginInterval(
+            "PostHog Flush",
+            id: signpostID,
+            "reason=\(reason, privacy: .public)"
+        )
+        let start = DispatchTime.now().uptimeNanoseconds
+        postHogAnalyticsLogger.debug("posthog.flush.begin reason=\(reason, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.begin reason=\(reason)")
+#endif
+        sdkFlush()
+        let elapsedMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        postHogAnalyticsLogger.info("posthog.flush.end reason=\(reason, privacy: .public) elapsedMs=\(elapsedMilliseconds, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.end reason=\(reason) elapsedMs=\(String(format: "%.1f", elapsedMilliseconds))")
+#endif
+        postHogAnalyticsSignposter.endInterval("PostHog Flush", signpostState)
     }
 
     private func dispatchAsyncOnWorkQueue(_ block: @escaping () -> Void) {

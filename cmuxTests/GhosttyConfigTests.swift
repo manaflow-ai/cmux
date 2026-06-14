@@ -3799,6 +3799,87 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
         XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
     }
+
+    func testTerminationFlushReturnsWhileAnalyticsQueueIsBusy() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test")
+        let blockerStarted = DispatchSemaphore(value: 0)
+        let releaseBlocker = DispatchSemaphore(value: 0)
+        let flushed = DispatchSemaphore(value: 0)
+
+        queue.async {
+            blockerStarted.signal()
+            releaseBlocker.wait()
+        }
+        XCTAssertEqual(blockerStarted.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.signal()
+            }
+        )
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        analytics.flushForApplicationTermination(preservePendingCaptures: false)
+        let elapsedMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+
+        XCTAssertLessThan(
+            elapsedMilliseconds,
+            100,
+            "Termination flush must return without waiting on the analytics queue"
+        )
+        XCTAssertEqual(
+            flushed.wait(timeout: .now() + 1),
+            .success,
+            "Termination flush should not wait behind the busy analytics queue"
+        )
+
+        releaseBlocker.signal()
+    }
+
+    func testTerminationFlushCanPreservePendingAnalyticsQueueCaptures() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.ordered")
+        let blockerStarted = DispatchSemaphore(value: 0)
+        let releaseBlocker = DispatchSemaphore(value: 0)
+        let flushed = DispatchSemaphore(value: 0)
+
+        queue.async {
+            blockerStarted.signal()
+            releaseBlocker.wait()
+        }
+        XCTAssertEqual(blockerStarted.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.signal()
+            }
+        )
+
+        analytics.flushForApplicationTermination(preservePendingCaptures: true)
+
+        XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
+        releaseBlocker.signal()
+        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
+    }
+
+    func testTerminationFlushEventuallyRunsWhenAnalyticsQueueIsAvailable() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.idle")
+        let flushed = DispatchSemaphore(value: 0)
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.signal()
+            }
+        )
+
+        analytics.flushForApplicationTermination(preservePendingCaptures: false)
+
+        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
