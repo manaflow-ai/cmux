@@ -199,6 +199,45 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(Set(live.map(\.recordID)) == ["prov", "dev-A"])
     }
 
+    @Test func resetSnapshotRecoversFromAheadCursorAndClearsStaleRows() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Client is from an OLD DO history: high revs, cursor ahead of the reset.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 100, records: [
+            try deviceRecord(id: "old-A", rev: 100, displayName: "OldHistory"),
+            try deviceRecord(id: "old-B", rev: 99),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 100)
+        // The DO storage was reset; the worker forces a snapshot at a LOWER rev.
+        // It contains only new-A (rev 2); old-A/old-B are from the dead history.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 2, records: [
+            try deviceRecord(id: "new-A", rev: 2, displayName: "NewHistory"),
+        ], sortKeyFor: sortKey, now: Date())
+        let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
+        // Stale old-history rows are gone; only the reset snapshot's record remains.
+        #expect(live.map(\.recordID) == ["new-A"])
+        // The cursor moved DOWN to the reset head, so the client stops sending an
+        // ahead cursor and converges.
+        #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 2)
+    }
+
+    @Test func resetSnapshotKeepsProvisionalRows() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Provisional rev-0 fallback the DO does not know about.
+        let prov = try JSONEncoder().encode(SyncedDeviceRecord(deviceId: "prov", platform: "mac",
+            displayName: "Local", ownerUserId: nil, lastSeenAtAtRev: T0_MS, instances: []))
+        try await store.seedProvisional(teamID: TEAM, collection: COLL, recordID: "prov",
+            payloadJSON: prov, sortKey: T0_MS, now: Date())
+        // An ahead cursor from an old history, then a reset snapshot omitting prov.
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 100,
+            records: [try deviceRecord(id: "old", rev: 100)], sortKeyFor: sortKey, now: Date())
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1,
+            records: [try deviceRecord(id: "new", rev: 1)], sortKeyFor: sortKey, now: Date())
+        // Provisional survives the reset (rev 0 exempt); stale old is gone.
+        #expect(Set(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID)) == ["prov", "new"])
+    }
+
     @Test func authoritativeRecordOverwritesProvisional() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }

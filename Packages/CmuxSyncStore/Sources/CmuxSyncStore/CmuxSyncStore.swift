@@ -201,30 +201,78 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     ) throws {
         try ensureReady()
         try transaction {
+            // Reset detection: if our local cursor is AHEAD of this snapshot's rev,
+            // the DO history was reset/rolled back (the worker forced this snapshot
+            // precisely because cursor > head, DESIGN.md §3.6). Local authoritative
+            // rows then carry revs from the OLD history that exceed snapshotRev, so
+            // the normal monotone apply would ignore the snapshot and the
+            // [1, snapshotRev] reconciliation would miss them, stranding stale
+            // devices behind an unrecoverable ahead cursor. In a reset, the
+            // snapshot is the new ground truth: replace its records unconditionally,
+            // reconcile ALL authoritative rows (any rev) absent from it, and force
+            // the cursor DOWN to snapshotRev.
+            let localCursor = try cursor(teamID: teamID, collection: collection)
+            let isReset = localCursor > snapshotRev
+
             var present = Set<String>()
             for record in records {
-                try applyOneRecord(teamID: teamID, collection: collection, record: record, sortKey: sortKeyFor(record))
+                if isReset {
+                    try forceApplyRecord(teamID: teamID, collection: collection, record: record, sortKey: sortKeyFor(record))
+                } else {
+                    try applyOneRecord(teamID: teamID, collection: collection, record: record, sortKey: sortKeyFor(record))
+                }
                 present.insert(record.id)
             }
-            // Missing-record reconciliation, scoped to authoritative records
-            // (rev >= 1): any local record in [1, snapshotRev] not in the
-            // snapshot was deleted while we were disconnected. Provisional
-            // rev == 0 migration rows are EXEMPT and survive (DESIGN.md §3.2a/§6).
+            // Missing-record reconciliation. Normally scoped to authoritative rows
+            // in [1, snapshotRev] (a record deleted while disconnected). On a reset
+            // it covers ALL authoritative rows (up to Int.max), since old-history
+            // revs can exceed snapshotRev. Provisional rev == 0 migration rows are
+            // EXEMPT either way and survive (DESIGN.md §3.2a/§6).
             //
-            // We do NOT hard-delete: that would drop the per-record rev watermark
-            // and let a delayed/duplicate delta with rev <= snapshotRev (e.g. a
-            // queued delta from a reconnect/snapshot overlap) resurrect the row,
-            // since applyOneRecord's guard reads nil for a missing record. Instead
-            // we write a TOMBSTONE at rev = snapshotRev: it is excluded from the
-            // live read (deleted=1) and its rev watermark makes applyOneRecord
-            // ignore any later rev <= snapshotRev delta for that id, so a snapshot
-            // that proved a record gone can never be undone by a stale delta.
-            let existing = try allRecordIDs(teamID: teamID, collection: collection, minRev: 1, maxRev: snapshotRev)
+            // We TOMBSTONE rather than hard-delete: a hard delete drops the rev
+            // watermark, letting a queued/duplicate delta resurrect the row, since
+            // applyOneRecord reads nil for a missing record. The tombstone at
+            // snapshotRev is excluded from the live read and its rev makes the
+            // guard ignore any later rev <= snapshotRev delta for that id.
+            let maxRev = isReset ? Int.max : snapshotRev
+            let existing = try allRecordIDs(teamID: teamID, collection: collection, minRev: 1, maxRev: maxRev)
             for id in existing where !present.contains(id) {
                 try tombstoneAt(teamID: teamID, collection: collection, recordID: id, rev: snapshotRev, now: now)
             }
-            try setCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
+            // On a reset the cursor must move DOWN to the new head; setCursor's MAX
+            // would keep the stale ahead cursor, so force it on reset.
+            if isReset {
+                try forceCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
+            } else {
+                try setCursor(teamID: teamID, collection: collection, to: snapshotRev, now: now)
+            }
         }
+    }
+
+    /// Apply one record UNCONDITIONALLY (no monotone guard), used during a reset
+    /// snapshot where the snapshot is the new ground truth and local revs come
+    /// from an obsolete history.
+    private func forceApplyRecord(teamID: String, collection: String, record: SyncWireRecord, sortKey: Double) throws {
+        let updatedAtSeconds = record.updatedAt / 1000.0
+        try exec("""
+            INSERT INTO sync_records (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(team_id, collection, record_id) DO UPDATE SET
+                rev = excluded.rev,
+                updated_at = excluded.updated_at,
+                sort_key = excluded.sort_key,
+                deleted = excluded.deleted,
+                payload = excluded.payload;
+        """, binding: [
+            .text(teamID),
+            .text(collection),
+            .text(record.id),
+            .int(Int64(record.rev)),
+            .real(updatedAtSeconds),
+            .real(sortKey),
+            .int(record.deleted ? 1 : 0),
+            .text(record.deleted ? "{}" : jsonString(record.payloadJSON)),
+        ])
     }
 
     /// Apply one wire record under the monotone `local.rev >= r.rev` guard. A
@@ -406,6 +454,21 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             VALUES (?, ?, ?, ?)
             ON CONFLICT(team_id, collection) DO UPDATE SET
                 cursor_rev = MAX(cursor_rev, excluded.cursor_rev),
+                synced_at = excluded.synced_at;
+        """, binding: [
+            .text(teamID), .text(collection), .int(Int64(rev)), .real(now.timeIntervalSince1970),
+        ])
+    }
+
+    /// Set the cursor UNCONDITIONALLY (no MAX), used on a reset snapshot to move
+    /// the cursor DOWN to the new (lower) head so the client stops sending an
+    /// ahead cursor and converges to the reset DO history.
+    private func forceCursor(teamID: String, collection: String, to rev: Int, now: Date) throws {
+        try exec("""
+            INSERT INTO sync_cursors (team_id, collection, cursor_rev, synced_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(team_id, collection) DO UPDATE SET
+                cursor_rev = excluded.cursor_rev,
                 synced_at = excluded.synced_at;
         """, binding: [
             .text(teamID), .text(collection), .int(Int64(rev)), .real(now.timeIntervalSince1970),
