@@ -21200,6 +21200,7 @@ struct CMUXCLI {
             if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
                 splitParams["tmux_start_command"] = startCommand
             }
+            if parsed.hasFlag("-P") { splitParams["remote_tmux_unsupported_options"] = ["-P"] }
             let sizeTargetPaneId = target.paneId
                 ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
                 ?? (try? tmuxPaneIdForSurface(
@@ -21227,11 +21228,8 @@ struct CMUXCLI {
                 // means a plain split: succeed quietly (tmux split-window
                 // prints nothing without -P) and skip local layout tracking.
                 // Erroring here would invite retries that duplicate the
-                // already-created remote pane. -P is the one thing we cannot
-                // honor after the fact — there is no local surface id yet.
-                if parsed.hasFlag("-P") {
-                    throw CLIError(message: "split-window -P is not supported in a remote tmux mirror workspace (the split was already applied to the remote tmux session; the new pane id is not yet known)")
-                }
+                // already-created remote pane. Current apps reject -P before
+                // routing; if an older app still accepts it, the split already happened.
                 break
             }
             guard let surfaceId = created["surface_id"] as? String else {

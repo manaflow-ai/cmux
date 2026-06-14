@@ -9,7 +9,6 @@ internal import Foundation
 /// This file carries the dispatch plus the read/lifecycle methods; the remaining
 /// methods live in `+Surface2.swift` / `+Surface3.swift` (500-line budget).
 extension ControlCommandCoordinator {
-
     /// Runs one decoded request if it belongs to the surface domain, returning the
     /// typed result; returns `nil` otherwise so the caller can fall through. The
     /// integrator calls this from the core `handle`.
@@ -249,6 +248,7 @@ extension ControlCommandCoordinator {
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
+            clientUnsupportedRemoteTmuxOptions: stringArray(params, "remote_tmux_unsupported_options") ?? [],
             requestedFocus: bool(params, "focus") ?? false,
             initialDividerPosition: parsedDivider.value
         )

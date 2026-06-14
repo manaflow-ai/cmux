@@ -143,6 +143,7 @@ extension TerminalController {
                 initialDividerPosition: inputs.initialDividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID
             )
+                + inputs.clientUnsupportedRemoteTmuxOptions
             if !unsupported.isEmpty {
                 return .mirrorUnsupportedOptions(unsupported)
             }
