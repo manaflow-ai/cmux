@@ -3180,7 +3180,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
-            initialSurface: NewWorkspaceInitialSurface,
+            initialSurface: NewWorkspaceInitialSurface, initialGuiModeState: GuiModePanelInitialState,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -3191,7 +3191,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
-                initialSurface: initialSurface,
+                initialSurface: initialSurface, initialGuiModeState: initialGuiModeState,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -3481,7 +3481,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
-            initialSurface: NewWorkspaceInitialSurface,
+            initialSurface: NewWorkspaceInitialSurface, initialGuiModeState: GuiModePanelInitialState,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -3492,7 +3492,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
-                initialSurface: initialSurface,
+                initialSurface: initialSurface, initialGuiModeState: initialGuiModeState,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment

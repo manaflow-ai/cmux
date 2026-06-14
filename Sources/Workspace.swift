@@ -3185,9 +3185,11 @@ final class Workspace: Identifiable, ObservableObject {
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialGuiModeState: GuiModePanelInitialState = .home,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -3258,7 +3260,8 @@ final class Workspace: Identifiable, ObservableObject {
         } else if initialSurface == .guiMode {
             initialTabId = installInitialGuiModePanel(
                 initialDirectory: initialDirectory,
-                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+                guiModeInitialState: initialGuiModeState
             )
         } else {
             // Create initial terminal panel

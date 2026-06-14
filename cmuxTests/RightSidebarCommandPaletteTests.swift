@@ -74,6 +74,33 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     }
 
     @MainActor
+    func testGuiModeTaskWorkspaceInitialStateBootsTaskPanel() throws {
+        let manager = TabManager()
+        let prompt = "Build a provider catalog smoke test"
+
+        let workspace = manager.addWorkspace(
+            title: "GUI task",
+            initialSurface: .guiMode,
+            initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: .qoder),
+            autoRefreshMetadata: false
+        )
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(workspace.panels.count, 1)
+        let guiPanel = try XCTUnwrap(workspace.panels.values.first as? AgentSessionPanel)
+        XCTAssertEqual(guiPanel.rendererKind, .guiMode)
+        XCTAssertEqual(guiPanel.guiModePage, .taskWorktreePR)
+        XCTAssertEqual(guiPanel.guiModePrompt, prompt)
+        XCTAssertEqual(guiPanel.guiModeProviderID, .qoder)
+        XCTAssertEqual(
+            guiPanel.displayTitle,
+            String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
+        )
+
+        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, 1)
+    }
+
+    @MainActor
     func testGuiModeContextPayloadIncludesEveryProviderSnapshotField() throws {
         let payload = AgentSessionWebRendererCoordinator.guiModeContextPayload(
             page: .home,

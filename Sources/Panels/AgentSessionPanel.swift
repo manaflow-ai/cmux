@@ -6,6 +6,18 @@ enum GuiModePanelPage: String, Sendable {
     case taskWorktreePR = "task-worktree-pr"
 }
 
+struct GuiModePanelInitialState: Equatable, Sendable {
+    let page: GuiModePanelPage
+    let prompt: String?
+    let providerID: GuiModeProviderID
+
+    static let home = GuiModePanelInitialState(page: .home, prompt: nil, providerID: .codex)
+
+    static func taskWorktreePR(prompt: String, providerID: GuiModeProviderID) -> GuiModePanelInitialState {
+        GuiModePanelInitialState(page: .taskWorktreePR, prompt: prompt, providerID: providerID)
+    }
+}
+
 @MainActor
 final class AgentSessionPanel: Panel {
     let id: UUID
@@ -47,7 +59,11 @@ final class AgentSessionPanel: Panel {
         self.guiModePage = guiModePage
         self.guiModePrompt = guiModePrompt
         self.guiModeProviderID = guiModeProviderID
-        self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
+        self.displayTitle = Self.title(
+            provider: initialProviderID,
+            rendererKind: rendererKind,
+            guiModePage: guiModePage
+        )
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }
@@ -58,9 +74,13 @@ final class AgentSessionPanel: Panel {
 
     nonisolated static func title(
         provider: AgentSessionProviderID,
-        rendererKind: AgentSessionRendererKind
+        rendererKind: AgentSessionRendererKind,
+        guiModePage: GuiModePanelPage = .home
     ) -> String {
         if rendererKind == .guiMode {
+            if guiModePage == .taskWorktreePR {
+                return String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
+            }
             return String(localized: "guiMode.panel.title", defaultValue: "GUI Mode")
         }
         let format = String(localized: "agentSession.panel.title", defaultValue: "%@ · %@")
@@ -88,7 +108,11 @@ final class AgentSessionPanel: Panel {
         guiModePage = .taskWorktreePR
         guiModePrompt = prompt
         guiModeProviderID = providerID
-        displayTitle = String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
+        displayTitle = Self.title(
+            provider: initialProviderID,
+            rendererKind: rendererKind,
+            guiModePage: guiModePage
+        )
         emitDisplayStateChanged()
     }
 
@@ -101,7 +125,7 @@ final class AgentSessionPanel: Panel {
     private func setCurrentProviderID(_ providerID: AgentSessionProviderID) {
         guard currentProviderID != providerID else { return }
         currentProviderID = providerID
-        displayTitle = Self.title(provider: providerID, rendererKind: rendererKind)
+        displayTitle = Self.title(provider: providerID, rendererKind: rendererKind, guiModePage: guiModePage)
         emitDisplayStateChanged()
     }
 

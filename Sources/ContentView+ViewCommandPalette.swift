@@ -76,6 +76,7 @@ enum GuiModeWorkspaceCoordinator {
             title: title,
             workingDirectory: location.workspace.currentDirectory,
             initialSurface: .guiMode,
+            initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: providerID),
             inheritWorkingDirectory: false,
             select: true,
             autoRefreshMetadata: false
@@ -86,7 +87,6 @@ enum GuiModeWorkspaceCoordinator {
         }) else {
             throw AgentSessionBridgeError.invalidRequest
         }
-        guiPanel.configureGuiModeTask(prompt: prompt, providerID: providerID)
 
         guard let guiPaneId = workspace.paneId(forPanelId: guiPanel.id) else {
             throw AgentSessionBridgeError.invalidRequest

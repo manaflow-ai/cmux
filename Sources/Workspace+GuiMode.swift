@@ -32,13 +32,17 @@ extension Workspace {
 
     func installInitialGuiModePanel(
         initialDirectory: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        guiModeInitialState: GuiModePanelInitialState = .home
     ) -> TabID? {
         let guiPanel = AgentSessionPanel(
             workspaceId: id,
             rendererKind: .guiMode,
             initialProviderID: .codex,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            guiModePage: guiModeInitialState.page,
+            guiModePrompt: guiModeInitialState.prompt,
+            guiModeProviderID: guiModeInitialState.providerID
         )
         panels[guiPanel.id] = guiPanel
         panelTitles[guiPanel.id] = guiPanel.displayTitle
