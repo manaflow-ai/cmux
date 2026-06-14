@@ -1854,6 +1854,57 @@
         }
       }
     },
+    "mobile.settings.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocorrect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard Autocorrection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードの自動修正"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocorrectFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, the keyboard's autocorrect, predictive text, and spell-check work in the terminal as they do in other apps. Off by default, since they can mangle commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、キーボードの自動修正・予測変換・スペルチェックが他のアプリと同じようにターミナルで機能します。コマンドを書き換えてしまうことがあるため、デフォルトではオフです。"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.addAction": {
       "extractionState": "manual",
       "localizations": {
