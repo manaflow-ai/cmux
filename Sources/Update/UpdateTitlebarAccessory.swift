@@ -1729,7 +1729,7 @@ enum TitlebarWindowGeometryNotifications {
 }
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
-    private let hostingView: NonDraggableHostingView<TitlebarControlsView>
+    private let hostingView: NonDraggableHostingView<AnyView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -1745,7 +1745,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
-    init(notificationStore: TerminalNotificationStore) {
+    init(notificationStore: TerminalNotificationStore, settingsRuntime: SettingsRuntime?) {
         let containerView = NSView()
         self.containerView = containerView
         self.notificationStore = notificationStore
@@ -1762,16 +1762,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let focusHistoryForward = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
         }
+        let rootView = TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: toggleSidebar,
+            onToggleNotifications: toggleNotifications,
+            onNewTab: newTab,
+            onFocusHistoryBack: focusHistoryBack,
+            onFocusHistoryForward: focusHistoryForward,
+            visibilityMode: .alwaysVisible
+        )
         hostingView = NonDraggableHostingView(
-            rootView: TitlebarControlsView(
-                notificationStore: notificationStore,
-                viewModel: viewModel,
-                onToggleSidebar: toggleSidebar,
-                onToggleNotifications: toggleNotifications,
-                onNewTab: newTab,
-                onFocusHistoryBack: focusHistoryBack,
-                onFocusHistoryForward: focusHistoryForward,
-                visibilityMode: .alwaysVisible
+            rootView: AnyView(
+                rootView.environment(\.settingsRuntime, settingsRuntime)
             )
         )
 
@@ -2665,6 +2668,7 @@ private final class HoverTrackingNSView: NSView {
 @MainActor
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
+    private let settingsRuntime: SettingsRuntime?
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -2676,8 +2680,9 @@ final class UpdateTitlebarAccessoryController {
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(updateLog: UpdateLogStore) {
+    init(updateLog: UpdateLogStore, settingsRuntime: SettingsRuntime?) {
         self.updateLog = updateLog
+        self.settingsRuntime = settingsRuntime
     }
 
     deinit {
@@ -2822,7 +2827,8 @@ final class UpdateTitlebarAccessoryController {
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
-                notificationStore: TerminalNotificationStore.shared
+                notificationStore: TerminalNotificationStore.shared,
+                settingsRuntime: settingsRuntime
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
