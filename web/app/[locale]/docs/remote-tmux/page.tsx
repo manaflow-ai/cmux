@@ -1,22 +1,40 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { notFound } from "next/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
 import { DocsHeading } from "../../components/docs-heading";
+import { remoteTmuxDocsLocales } from "../../components/docs-nav-items";
+
+function assertSupportedLocale(locale: string) {
+  if (
+    !remoteTmuxDocsLocales.includes(
+      locale as (typeof remoteTmuxDocsLocales)[number],
+    )
+  ) {
+    notFound();
+  }
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
+  assertSupportedLocale(locale);
   const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/remote-tmux"),
+    alternates: buildAlternates(locale, "/docs/remote-tmux", remoteTmuxDocsLocales),
   };
 }
 
-export default function RemoteTmuxPage() {
-  const t = useTranslations("docs.remoteTmux");
+export default async function RemoteTmuxPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  assertSupportedLocale(locale);
+  const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
 
   return (
     <>
