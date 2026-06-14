@@ -116,6 +116,76 @@ test("GUI mode submit sends the selected provider to native", async () => {
   }
 });
 
+test("GUI mode provider picker submits every provider from the rendered composer", async () => {
+  for (const provider of guiModeFallbackProviders) {
+    const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+      url: "file:///tmp/gui-mode.html",
+    });
+    const postedMessages: unknown[] = [];
+    const restoreGlobals = installDomGlobals(dom);
+    (dom.window as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: unknown) => {
+            postedMessages.push(message);
+            if ((message as any).method === "app.context") {
+              return Promise.resolve({
+                ok: true,
+                value: {
+                  guiMode: {
+                    ...taskContextForProvider(provider),
+                    page: "home",
+                    prompt: "",
+                    selectedProviderId: "codex",
+                  },
+                },
+              });
+            }
+            return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1" } });
+          },
+        },
+      },
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+
+    try {
+      flushSync(() => {
+        root.render(<GuiModeApp />);
+      });
+      await waitFor(() => dom.window.document.querySelectorAll(".gui-mode-provider-option").length > 0);
+
+      const providerOption = Array.from(
+        dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option"),
+      ).find((element) => element.textContent?.includes(provider.displayName));
+      expect(providerOption).toBeTruthy();
+      flushSync(() => {
+        providerOption?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+
+      const prompt = `Build with ${provider.displayName}`;
+      pasteIntoPromptEditor(dom, prompt);
+      await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
+      flushSync(() => {
+        (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click();
+      });
+      await waitFor(() => postedMessages.some((message) => (message as any).method === "guiMode.submit"));
+
+      expect(postedMessages.at(-1)).toMatchObject({
+        method: "guiMode.submit",
+        params: {
+          prompt,
+          providerId: provider.id,
+        },
+      });
+    } finally {
+      flushSync(() => root.unmount());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      restoreGlobals();
+      dom.window.close();
+    }
+  }
+});
+
 test("GUI mode task page renders every provider from native context", async () => {
   for (const provider of guiModeFallbackProviders) {
     const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
@@ -237,6 +307,7 @@ function installDomGlobals(dom: JSDOM): () => void {
   const originalNode = (globalThis as any).Node;
   const originalHTMLElement = (globalThis as any).HTMLElement;
   const originalGetSelection = (globalThis as any).getSelection;
+  const originalGetComputedStyle = (globalThis as any).getComputedStyle;
   const originalInnerHeight = (globalThis as any).innerHeight;
   const originalScrollTo = (globalThis as any).scrollTo;
   const originalWebkit = (globalThis as any).webkit;
@@ -249,6 +320,7 @@ function installDomGlobals(dom: JSDOM): () => void {
   (globalThis as any).Node = dom.window.Node;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
   (globalThis as any).getSelection = dom.window.getSelection.bind(dom.window);
+  (globalThis as any).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   (globalThis as any).innerHeight = 800;
   (globalThis as any).scrollTo = () => {};
   dom.window.scrollTo = () => {};
@@ -262,6 +334,7 @@ function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("Node", originalNode);
     restoreGlobal("HTMLElement", originalHTMLElement);
     restoreGlobal("getSelection", originalGetSelection);
+    restoreGlobal("getComputedStyle", originalGetComputedStyle);
     restoreGlobal("innerHeight", originalInnerHeight);
     restoreGlobal("scrollTo", originalScrollTo);
     restoreGlobal("webkit", originalWebkit);
@@ -286,6 +359,57 @@ function taskContextForProvider(provider: (typeof guiModeFallbackProviders)[numb
     providers: guiModeFallbackProviders,
     selectedProviderId: provider.id,
   };
+}
+
+function pasteIntoPromptEditor(dom: JSDOM, text: string): void {
+  installEditorGeometryShim(dom);
+  const editor = dom.window.document.querySelector(".ProseMirror") as HTMLElement;
+  expect(editor).toBeTruthy();
+  editor.focus();
+  const pasteEvent = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(pasteEvent, "clipboardData", {
+    value: {
+      getData: (type: string) => (type === "text/plain" || type === "Text" ? text : ""),
+      types: ["text/plain"],
+    },
+  });
+  editor.dispatchEvent(pasteEvent);
+}
+
+function installEditorGeometryShim(dom: JSDOM): void {
+  const rect = {
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  };
+  const list = {
+    0: rect,
+    length: 1,
+    item: (index: number) => (index === 0 ? rect : null),
+    [Symbol.iterator]: function* () {
+      yield rect;
+    },
+  };
+  for (const prototype of [dom.window.Text.prototype, dom.window.Element.prototype, dom.window.Range.prototype]) {
+    if (!("getClientRects" in prototype)) {
+      Object.defineProperty(prototype, "getClientRects", {
+        configurable: true,
+        value: () => list,
+      });
+    }
+    if (!("getBoundingClientRect" in prototype)) {
+      Object.defineProperty(prototype, "getBoundingClientRect", {
+        configurable: true,
+        value: () => rect,
+      });
+    }
+  }
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
