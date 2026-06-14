@@ -283,7 +283,7 @@
 
 .gui-mode-task-panel {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   align-content: start;
   min-height: calc(100vh - 40px);
   border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 28%, var(--agent-border));
@@ -296,18 +296,61 @@
 
 .gui-mode-task-provider {
   display: grid;
-  gap: 2px;
+  gap: 8px;
   border-bottom: 1px solid var(--agent-border);
-  padding-bottom: 12px;
+  padding-bottom: 14px;
+}
+
+.gui-mode-task-provider-heading {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.gui-mode-task-support {
+  max-width: 132px;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 42%, var(--agent-border));
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 76%, var(--agent-text));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  overflow: hidden;
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gui-mode-task-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gui-mode-task-chip {
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 24%, var(--agent-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 7%, transparent);
+  color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-muted));
+  font-size: 11px;
+  line-height: 15px;
+  padding: 3px 7px;
+  white-space: nowrap;
 }
 
 .gui-mode-task-command {
-  margin-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid var(--agent-border);
   color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
+  padding-top: 10px;
 }
 
 .gui-mode-task-label {

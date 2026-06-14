@@ -162,6 +162,10 @@ test("GUI mode task page renders every provider from native context", async () =
         .toBe(provider.displayName);
       expect(dom.window.document.querySelector(".gui-mode-task-command")?.textContent)
         .toBe(provider.taskCommandPreview);
+      expect(dom.window.document.querySelector(".gui-mode-task-support")?.textContent)
+        .toBe(provider.supportLabel);
+      expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-task-chip")).map((element) => element.textContent))
+        .toEqual(provider.capabilities);
       expect(dom.window.document.querySelector(".gui-mode-task-prompt")?.textContent)
         .toBe(`Build with ${provider.displayName}`);
       expect((dom.window.document.querySelector(".gui-mode-task") as HTMLElement)
