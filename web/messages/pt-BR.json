@@ -792,6 +792,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileExplorer": {
+          "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
           "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux."
         },
         "diffViewer": {

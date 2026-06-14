@@ -792,6 +792,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "fileExplorer": {
+          "description": "إعدادات مستكشف الملفات (شجرة الملفات) في الشريط الجانبي الأيمن.",
           "doubleClickAction": "ما يفعله النقر المزدوج (أو الضغط على Return في نتيجة بحث) على ملف في مستكشف الملفات. يفتح `preview` معاينة ملفات cmux المضمنة (السلوك الافتراضي والتاريخي). يفتح `defaultEditor` الملف باستخدام تطبيق macOS الافتراضي لنوع الملف. يفتح `preferredEditor` باستخدام أمر `app.preferredEditor`، مع الرجوع إلى التطبيق الافتراضي عند عدم ضبطه. ينطبق ذلك على الملفات فقط؛ فالمجلدات تُوسَّع أو تُطوى دائمًا، ومستكشفات الملفات غير المحلية (البعيدة) تفتح دائمًا معاينة cmux."
         },
         "diffViewer": {

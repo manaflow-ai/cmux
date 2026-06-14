@@ -1118,6 +1118,7 @@
     "fileExplorer": {
       "title": "fileExplorer",
       "description": "Right-sidebar file explorer (file tree) settings.",
+      "descriptionKey": "schemaDescriptions.fileExplorer.description",
       "type": "object",
       "additionalProperties": false,
       "properties": {
