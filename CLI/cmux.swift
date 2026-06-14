@@ -22453,25 +22453,13 @@ struct CMUXCLI {
             return false
         }
 
-        // A mapped session record only authorizes skipping the recovered-target
-        // no-op when its stored workspace is still reachable. In the ambient
-        // no-flicker path (no --workspace/--surface flag and no
-        // CMUX_WORKSPACE_ID/CMUX_SURFACE_ID) a record that points at a closed
-        // workspace must not fall through to the focused-pane fallback and
-        // publish status onto whichever pane happens to be focused — the
-        // cross-pane routing class this change fixes.
+        // In ambient no-flicker hooks, a stored record can skip recovery only
+        // while both its workspace and surface still exist; otherwise fallback
+        // routing can publish status onto the focused pane.
         // https://github.com/manaflow-ai/cmux/issues/6048
         func mappedHookTargetIsReachable(_ mappedSession: ClaudeHookSessionRecord?) -> Bool {
             guard let mappedSession else { return false }
-            // Explicit/env targets keep their prior behavior; only the ambient
-            // recovery path is at risk of borrowing the focused pane.
             guard needsRecoveredHookTarget else { return true }
-            // The stored target only authorizes skipping the no-op when BOTH its
-            // workspace and surface are still present. If the workspace survives
-            // but the stored surface was closed, the surface resolver falls
-            // through to the focused/default surface (isAuthoritative == false)
-            // and leaks status across panes — so a closed stored workspace OR
-            // surface must defer to the recovery check instead of being trusted.
             guard let workspaceId = resolveClaudeHookWorkspaceId(mappedSession.workspaceId, client: client),
                   claudeHookWorkspaceIsAccessible(workspaceId, client: client, allowUnknown: true),
                   resolveAccessibleClaudeHookSurfaceId(mappedSession.surfaceId, workspaceId: workspaceId, client: client) != nil else { return false }
@@ -23391,7 +23379,18 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client, allowUnknown: true) {
-            if let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client), let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), boundWorkspaceId != resolvedPreferred, resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil { return boundWorkspaceId }
+            if let binding = resolveClaudeHookTerminalBinding(
+                agentPID: agentPID,
+                allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+                terminalBindingCache: &terminalBindingCache,
+                client: client
+            ),
+               binding.isProcessSnapshotBound,
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+               boundWorkspaceId != resolvedPreferred,
+               resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil {
+                return boundWorkspaceId
+            }
             return resolvedPreferred
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -23485,7 +23484,7 @@ struct CMUXCLI {
         }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
            let surfaceId = resolveAccessibleClaudeHookSurfaceId(preferred, workspaceId: workspaceId, client: client) {
-            if let boundSurface = terminalBindingSurface(), boundSurface.surfaceId != surfaceId { return boundSurface } // Live binding beats stale stored routing.
+            if let boundSurface = terminalBindingSurface(), boundSurface.isProcessSnapshotBound, boundSurface.surfaceId != surfaceId { return boundSurface }
             return ClaudeHookResolvedSurface(surfaceId: surfaceId, isAuthoritative: true)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -29541,7 +29540,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = agentPID()
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -29671,7 +29669,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = mapped?.pid ?? agentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
