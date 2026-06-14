@@ -630,7 +630,9 @@ final class CmuxSettingsFileStore {
 
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {
-                snapshot.managedUserDefaults[SidebarBranchLayoutSettings.key] = .bool(value)
+                snapshot.managedUserDefaults[
+                    SidebarCatalogSection().branchVerticalLayout.userDefaultsKey
+                ] = .bool(value)
             } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
