@@ -13347,6 +13347,17 @@ struct VerticalTabsSidebar: View {
                             .padding(.vertical, -tabRowSpacing / 2)
                     }
                 }
+                // Hovering a nested member highlights its whole group too (not
+                // just the header). Guarded so passing ungrouped rows writes
+                // nothing. Drag takes precedence over hover in highlightedGroupId.
+                .onHover { [groupId = tab.groupId] hovering in
+                    let target: UUID? = hovering
+                        ? groupId
+                        : (hoveredGroupId == groupId ? nil : hoveredGroupId)
+                    if hoveredGroupId != target {
+                        hoveredGroupId = target
+                    }
+                }
         }
     }
 
