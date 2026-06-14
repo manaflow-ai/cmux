@@ -17895,6 +17895,7 @@ private extension NSWindow {
         if let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) {
             if let target = cmuxDirectMainPaneBodyPointerFocusTarget(
                 forHitView: hitView,
+                in: window,
                 appDelegate: appDelegate
             ) {
                 return target
@@ -17921,6 +17922,7 @@ private extension NSWindow {
         ) as? CmuxWebView,
            let target = cmuxMainPaneBodyPointerFocusTarget(
                forWebView: webView,
+               in: window,
                appDelegate: appDelegate,
                source: .portalFallback
            ) {
@@ -17932,6 +17934,7 @@ private extension NSWindow {
 
     private static func cmuxDirectMainPaneBodyPointerFocusTarget(
         forHitView hitView: NSView,
+        in window: NSWindow,
         appDelegate: AppDelegate
     ) -> CmuxPaneBodyPointerFocusTarget? {
         if let terminalView = cmuxOwningGhosttyView(for: hitView) {
@@ -17940,6 +17943,7 @@ private extension NSWindow {
         if let webView = cmuxDirectOwningWebView(for: hitView) {
             return cmuxMainPaneBodyPointerFocusTarget(
                 forWebView: webView,
+                in: window,
                 appDelegate: appDelegate,
                 source: .directHit
             )
@@ -17968,15 +17972,20 @@ private extension NSWindow {
 
     private static func cmuxMainPaneBodyPointerFocusTarget(
         forWebView webView: CmuxWebView,
+        in window: NSWindow,
         appDelegate: AppDelegate,
         source: CmuxPaneBodyPointerFocusTargetSource
     ) -> CmuxPaneBodyPointerFocusTarget? {
-        guard let panel = appDelegate.browserPanelOwning(webView),
-              let located = appDelegate.workspaceContainingPanel(panelId: panel.id) else {
+        guard let association = webView.browserPanelAssociation,
+              let context = appDelegate.contextForMainWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              workspace.id == association.workspaceId,
+              let panel = workspace.panels[association.panelId] as? BrowserPanel,
+              panel.webView === webView else {
             return nil
         }
         return CmuxPaneBodyPointerFocusTarget(
-            workspaceId: located.workspace.id,
+            workspaceId: workspace.id,
             panelId: panel.id,
             focusIntent: .browser(.webView),
             source: source

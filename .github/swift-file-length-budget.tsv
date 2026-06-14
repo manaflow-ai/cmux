@@ -2,10 +2,10 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33857	CLI/cmux.swift
-18189	Sources/AppDelegate.swift
-16740	Sources/ContentView.swift
+18198	Sources/AppDelegate.swift
+16709	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
-13595	Sources/Panels/BrowserPanel.swift
+13596	Sources/Panels/BrowserPanel.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12001	Sources/Workspace.swift
@@ -13,8 +13,8 @@
 7911	Sources/Panels/BrowserPanelView.swift
 7350	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
+6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
-6299	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
@@ -35,8 +35,8 @@
 3200	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
+2600	Sources/Panels/CmuxWebView.swift
 2573	Sources/KeyboardShortcutSettings.swift
-2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2449	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift

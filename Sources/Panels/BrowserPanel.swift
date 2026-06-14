@@ -4175,6 +4175,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func bindWebView(_ webView: CmuxWebView) {
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
+        webView.associateBrowserPanel(panelId: id, workspaceId: workspaceId)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }
