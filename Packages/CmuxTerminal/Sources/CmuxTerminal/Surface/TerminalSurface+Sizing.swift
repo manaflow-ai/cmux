@@ -45,8 +45,8 @@ extension TerminalSurface {
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.
-    /// - Parameter currentWidthPx: The current surface width in pixels.
-    /// - Parameter currentHeightPx: The current surface height in pixels.
+    /// - Parameter currentWidthPx: The current raw surface width in pixels.
+    /// - Parameter currentHeightPx: The current raw surface height in pixels.
     /// - Parameter currentCellWidthPx: The current terminal cell width in pixels.
     /// - Parameter currentCellHeightPx: The current terminal cell height in pixels.
     /// - Parameter targetWidthPx: The candidate surface width in pixels.
@@ -75,23 +75,32 @@ extension TerminalSurface {
             return true
         }
 
-        let currentGridWidthPx = UInt64(currentColumns) * UInt64(currentCellWidthPx)
-        let currentGridHeightPx = UInt64(currentRows) * UInt64(currentCellHeightPx)
-        let horizontalNonGridPixels = UInt64(currentWidthPx) > currentGridWidthPx
+        let cellWidth = UInt64(currentCellWidthPx)
+        let cellHeight = UInt64(currentCellHeightPx)
+        let currentColumnCount = UInt64(currentColumns)
+        let currentRowCount = UInt64(currentRows)
+        let rawTargetColumns = max(UInt64(1), UInt64(targetWidthPx) / cellWidth)
+        let rawTargetRows = max(UInt64(1), UInt64(targetHeightPx) / cellHeight)
+        let currentGridWidthPx = currentColumnCount * cellWidth
+        let currentGridHeightPx = currentRowCount * cellHeight
+        let horizontalCurrentRemainder = UInt64(currentWidthPx) > currentGridWidthPx
             ? UInt64(currentWidthPx) - currentGridWidthPx
             : 0
-        let verticalNonGridPixels = UInt64(currentHeightPx) > currentGridHeightPx
+        let verticalCurrentRemainder = UInt64(currentHeightPx) > currentGridHeightPx
             ? UInt64(currentHeightPx) - currentGridHeightPx
             : 0
-        let targetGridWidthPx = UInt64(targetWidthPx) > horizontalNonGridPixels
-            ? UInt64(targetWidthPx) - horizontalNonGridPixels
+        let adjustedTargetGridWidthPx = UInt64(targetWidthPx) > horizontalCurrentRemainder
+            ? UInt64(targetWidthPx) - horizontalCurrentRemainder
             : 0
-        let targetGridHeightPx = UInt64(targetHeightPx) > verticalNonGridPixels
-            ? UInt64(targetHeightPx) - verticalNonGridPixels
+        let adjustedTargetGridHeightPx = UInt64(targetHeightPx) > verticalCurrentRemainder
+            ? UInt64(targetHeightPx) - verticalCurrentRemainder
             : 0
-        let targetColumns = max(UInt64(1), targetGridWidthPx / UInt64(currentCellWidthPx))
-        let targetRows = max(UInt64(1), targetGridHeightPx / UInt64(currentCellHeightPx))
-        return targetColumns != UInt64(currentColumns) || targetRows != UInt64(currentRows)
+        let adjustedTargetColumns = max(UInt64(1), adjustedTargetGridWidthPx / cellWidth)
+        let adjustedTargetRows = max(UInt64(1), adjustedTargetGridHeightPx / cellHeight)
+        return rawTargetColumns != currentColumnCount
+            || rawTargetRows != currentRowCount
+            || adjustedTargetColumns != currentColumnCount
+            || adjustedTargetRows != currentRowCount
     }
 
     /// Applies a new backing size/scale to the runtime surface.
