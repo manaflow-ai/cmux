@@ -6,6 +6,7 @@ import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { DiffFileHeader } from "./diff-file-header";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
@@ -380,6 +381,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={renderedCodeViewOptions}
+                renderCustomHeader={(item: any) => <DiffFileHeader fileDiff={item.fileDiff} label={label} />}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />

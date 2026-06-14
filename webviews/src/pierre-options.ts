@@ -13,12 +13,30 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+// Fixed height of the custom Graphite-style file header, in px. The CodeView
+// virtualizer estimates each file's height from the `diffHeaderHeight` metric
+// (it never remeasures the header DOM), so the header element is pinned to this
+// exact height in `codeViewUnsafeCSS` AND reported via `itemMetrics` below.
+// Keeping the two in lockstep is what prevents per-file layout drift. The header
+// content itself is the <DiffFileHeader> React component, wired through the
+// `renderCustomHeader` prop on <CodeView> (see App.tsx) — the React layer
+// portals it into the virtualized file's header slot, which is why it cannot be
+// passed here as a plain option.
+export const DIFF_HEADER_HEIGHT = 44;
+
 export function codeViewOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
 ): CodeViewOptions<any> {
   return {
-    layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    itemMetrics: { diffHeaderHeight: DIFF_HEADER_HEIGHT },
+    // Graphite-style per-file cards: vertical gap between files plus a little
+    // breathing room at the very top/bottom of the scroll content. The
+    // virtualizer applies `gap`/padding as item margins, so this is the safe,
+    // library-sanctioned way to separate cards without perturbing height
+    // measurement. The card frame itself (radius + hairline ring) lives in
+    // styles.css on `#viewer diffs-container`.
+    layout: { paddingTop: 10, gap: 10, paddingBottom: 16 },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -69,10 +87,33 @@ export function codeViewUnsafeCSS(): string {
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
       --diffs-fg-number-deletion-override: var(--diffs-deletion-base);
-      --diffs-bg-addition-override: color-mix(in srgb, var(--diffs-addition-base) 34%, transparent);
-      --diffs-bg-deletion-override: color-mix(in srgb, var(--diffs-deletion-base) 34%, transparent);
-      --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
-      --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
+      /* Muted, low-contrast line-number gutter (Graphite keeps the gutter quiet
+         so the code reads first). The library default is 65% toward the
+         foreground; pull it back toward the background for a calmer column. */
+      --diffs-fg-number-override: light-dark(
+        color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg)),
+        color-mix(in lab, var(--cmux-diff-fg) 46%, var(--cmux-diff-bg))
+      );
+      /* Soft, desaturated full-line tints with a visibly darker tint on the
+         changed tokens (word/intraline emphasis), matching Graphite's
+         translucent diff fills. The library default makes the emphasis tint
+         *weaker* than the line tint; invert that so changed tokens stand out. */
+      --diffs-bg-addition-override: light-dark(
+        color-mix(in srgb, var(--diffs-addition-base) 15%, transparent),
+        color-mix(in srgb, var(--diffs-addition-base) 20%, transparent)
+      );
+      --diffs-bg-deletion-override: light-dark(
+        color-mix(in srgb, var(--diffs-deletion-base) 15%, transparent),
+        color-mix(in srgb, var(--diffs-deletion-base) 20%, transparent)
+      );
+      --diffs-bg-addition-emphasis-override: light-dark(
+        color-mix(in srgb, var(--diffs-addition-base) 38%, transparent),
+        color-mix(in srgb, var(--diffs-addition-base) 42%, transparent)
+      );
+      --diffs-bg-deletion-emphasis-override: light-dark(
+        color-mix(in srgb, var(--diffs-deletion-base) 38%, transparent),
+        color-mix(in srgb, var(--diffs-deletion-base) 42%, transparent)
+      );
     }
     :host,
     pre,
@@ -82,8 +123,27 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      min-height: 30px;
+      /* Pinned to the exact \`diffHeaderHeight\` metric (see DIFF_HEADER_HEIGHT):
+         the virtualizer estimates file heights from that constant and never
+         remeasures the header, so a fixed height keeps the per-file layout from
+         drifting. The divider is an inset shadow rather than a border-bottom for
+         the same reason (a border would add a pixel the metric doesn't know
+         about). */
+      height: ${DIFF_HEADER_HEIGHT}px;
+      min-height: ${DIFF_HEADER_HEIGHT}px;
+      padding-inline: 14px !important;
+      display: flex;
+      align-items: center;
       background-color: var(--cmux-diff-surface-bg) !important;
+      box-shadow: inset 0 -1px 0 var(--cmux-diff-border);
+    }
+    /* The custom header (renderDiffFileHeader) is projected through this slot
+       wrapper, which @pierre/diffs creates in the *light* DOM — so the wrapper
+       and the header itself are styled from styles.css, not here. Make the slot
+       stretch across the band. */
+    ::slotted([slot='header-custom']) {
+      flex: 1 1 auto;
+      min-width: 0;
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -132,6 +192,22 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-separator-content],
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
+    }
+    /* "Expand context" / show-more-lines affordances between hunks: quiet by
+       default, clearly interactive on hover (a deliberate control rather than a
+       default-styled link). */
+    [data-separator='line-info'] [data-separator-content],
+    [data-separator='line-info'] [data-expand-button] {
+      color: var(--diffs-fg-number);
+    }
+    [data-expand-index] [data-separator-content]:hover {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
+      text-decoration: none;
+    }
+    [data-expand-button]:hover {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
     }
     [data-diffs-header=default],
     [data-diffs-header=default] [data-additions-count],
