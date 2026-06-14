@@ -57,6 +57,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case chatSession = "chat_session"
         }
 
+        /// Decodes required terminal metadata strictly while treating
+        /// `chat_session` as a lossy first-paint optimization.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
