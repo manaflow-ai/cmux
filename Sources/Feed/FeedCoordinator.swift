@@ -158,10 +158,26 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
 
+        // While this decision is pending, this banner is the canonical
+        // desktop alert for the surface: the same prompt also fires the
+        // agent's notification hook, which would otherwise post a second
+        // banner (and second sound) through TerminalNotificationStore
+        // (manaflow-ai/cmux#2322). Claim the surface for the decision's
+        // lifetime so the store keeps its sidebar record but stands down
+        // from desktop alerts.
+        let deliveryGateKey = resolvedAttentionTarget.map {
+            TerminalNotificationDeliveryGate.key(workspaceId: $0.workspaceId, surfaceId: $0.surfaceId)
+        }
+        TerminalNotificationDeliveryGate.shared.beginBlockingDecision(forKey: deliveryGateKey)
+
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postNotificationIfStillAwaiting(event: event, requestId: requestId)
+        postNotificationIfStillAwaiting(
+            event: event,
+            requestId: requestId,
+            deliveryGateKey: deliveryGateKey
+        )
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
@@ -169,6 +185,7 @@ final class FeedCoordinator: @unchecked Sendable {
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
         waiterLock.unlock()
+        TerminalNotificationDeliveryGate.shared.endBlockingDecision(forKey: deliveryGateKey)
 
         switch waitResult {
         case .success:
@@ -710,7 +727,11 @@ private extension FeedCoordinator {
     /// Notification eligibility is derived only from the waiter table so
     /// resolved/timed-out requests cannot enqueue stale banners while the main
     /// queue, policy hooks, or notification center catches up.
-    func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
+    func postNotificationIfStillAwaiting(
+        event: WorkstreamEvent,
+        requestId: String,
+        deliveryGateKey: String? = nil
+    ) {
         Task { @MainActor [weak self] in
             guard let self, self.isAwaitingDecision(requestId: requestId) else {
                 return
@@ -790,7 +811,8 @@ private extension FeedCoordinator {
                     title: title,
                     subtitle: "",
                     body: body,
-                    effects: policyContext.envelope.effects
+                    effects: policyContext.envelope.effects,
+                    deliveryGateKey: deliveryGateKey
                 )
             }
 
@@ -824,7 +846,8 @@ private extension FeedCoordinator {
                     title: payload.title,
                     subtitle: payload.subtitle,
                     body: payload.body,
-                    effects: envelope.effects
+                    effects: envelope.effects,
+                    deliveryGateKey: deliveryGateKey
                 )
             case .failure(let failure):
                 deliverDefault()
@@ -862,11 +885,24 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        deliveryGateKey: String? = nil
     ) {
+        var effects = effects
         guard isAwaitingDecision(requestId: requestId),
               effects.desktop || effects.sound || effects.command
         else { return }
+
+        // One blocking prompt also fires the agent's notification hook. The
+        // delivery gate makes this banner the canonical alert: the store
+        // stands down while the decision is pending, any agent-hook banner
+        // that raced ahead of the claim is withdrawn below, and the shared
+        // sound window guarantees a single ding either way
+        // (manaflow-ai/cmux#2322).
+        if effects.sound,
+           !TerminalNotificationDeliveryGate.shared.claimSound(forKey: deliveryGateKey) {
+            effects.sound = false
+        }
 
         if !effects.desktop {
             runFallbackEffectsIfStillAwaiting(
@@ -877,6 +913,16 @@ private extension FeedCoordinator {
                 effects: effects
             )
             return
+        }
+
+        // This banner supersedes any agent-hook banner that raced ahead of
+        // the blocking-decision claim — withdraw it so exactly one banner
+        // remains visible for the prompt.
+        if let deliveryGateKey {
+            TerminalNotificationStore.shared.withdrawRecentDeliveredDesktopNotifications(
+                forGateKey: deliveryGateKey,
+                since: Date().addingTimeInterval(-5)
+            )
         }
 
         let content = UNMutableNotificationContent()
