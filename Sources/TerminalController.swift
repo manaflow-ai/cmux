@@ -13208,7 +13208,7 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+                    tab.recordAgentPIDForSurvivingStatusKey(key, pid: pidValue, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -13223,7 +13223,7 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+                tab.recordAgentPIDForSurvivingStatusKey(key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
