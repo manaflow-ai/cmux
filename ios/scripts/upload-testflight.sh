@@ -374,27 +374,49 @@ fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
-  # Archive WITHOUT signing. The export step below does all signing (manual cert
-  # or automatic cloud distribution). Signing the archive with automatic +
-  # -allowProvisioningUpdates makes Xcode mint a NEW Apple Development cert on
-  # every ephemeral CI runner, which exhausts the account's certificate cap and
-  # then fails ("maximum number of certificates" / "no profiles found"). An
-  # unsigned archive creates no certs; the reused (cloud-managed) distribution
-  # cert is applied only at export, where it does not churn.
-  xcodebuild archive \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -destination "generic/platform=iOS" \
-    -archivePath "$ARCHIVE_PATH" \
-    -derivedDataPath "$DERIVED_DATA" \
-    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-    CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGN_IDENTITY="" \
-    | tee "$OUT_DIR/archive.log"
+  if [[ "$SIGNING" == "automatic" ]]; then
+    # Automatic signing must archive a signed app so Xcode has the requested
+    # Release entitlements to preserve during App Store Connect export. An
+    # unsigned archive exports with only the profile baseline and drops
+    # aps-environment, which the gate below correctly refuses to upload.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      -allowProvisioningUpdates \
+      "${XCODE_AUTH_ARGS[@]}" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGN_STYLE=Automatic \
+      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
+      CODE_SIGN_IDENTITY="Apple Distribution" \
+      CODE_SIGNING_ALLOWED=YES \
+      CODE_SIGNING_REQUIRED=YES \
+      | tee "$OUT_DIR/archive.log"
+  else
+    # Manual signing archives WITHOUT signing. The export step signs with the
+    # installed distribution profile, then the manual path below re-signs with
+    # the full Release entitlements from the local Apple Distribution cert.
+    # This keeps signing material off shared fleet builders.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
+      | tee "$OUT_DIR/archive.log"
+  fi
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
     echo "error: archive not found: $ARCHIVE_PATH" >&2
@@ -454,12 +476,13 @@ fi
 # Re-sign the exported app with the FULL entitlements (production aps-environment
 # et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
 #
-# Why this is necessary: the archive is built UNSIGNED (CODE_SIGNING_ALLOWED=NO,
-# see above) to avoid distribution-cert churn on ephemeral runners. An unsigned
-# archive carries NO entitlements, so `-exportArchive` re-adds only the profile
-# baseline (application-identifier, com.apple.developer.team-identifier,
-# get-task-allow, beta-reports-active) and SILENTLY DROPS app-capability
-# entitlements such as aps-environment. This regressed in
+# Why this is necessary for the manual path: the archive is built UNSIGNED
+# (CODE_SIGNING_ALLOWED=NO, see above) to keep distribution material off shared
+# fleet builders. An unsigned archive carries NO entitlements, so
+# `-exportArchive` re-adds only the profile baseline (application-identifier,
+# com.apple.developer.team-identifier, get-task-allow, beta-reports-active) and
+# SILENTLY DROPS app-capability entitlements such as aps-environment. This
+# regressed in
 # https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
 # had aps-environment absent entirely, so the device registered no push token and
 # beta/prod push was dead. The per-config entitlements file fix
