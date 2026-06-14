@@ -247,16 +247,18 @@ extension TerminalController {
     }
 
     /// Groups chat sessions for workspace-list serialization after one
-    /// process-liveness sweep, instead of one sweep per workspace row.
+    /// process-liveness sweep over the visible terminal set, instead of one
+    /// unbounded sweep per workspace row.
     func mobileChatSessionsByWorkspaceAndTerminalID(
-        workspaceIDs: Set<String>
+        workspaceTerminalIDsByWorkspaceID: [String: Set<String>]
     ) -> [String: [String: [ChatSessionDescriptor]]] {
-        guard !workspaceIDs.isEmpty else { return [:] }
+        guard !workspaceTerminalIDsByWorkspaceID.isEmpty else { return [:] }
         let service = AgentChatTranscriptService.shared
         var grouped: [String: [String: [ChatSessionDescriptor]]] = [:]
-        for descriptor in service.sessionDescriptors(workspaceID: nil) {
+        for descriptor in service.sessionDescriptors(
+            workspaceAndTerminalIDs: workspaceTerminalIDsByWorkspaceID
+        ) {
             guard let workspaceID = descriptor.workspaceID,
-                  workspaceIDs.contains(workspaceID),
                   let terminalID = descriptor.terminalID else {
                 continue
             }

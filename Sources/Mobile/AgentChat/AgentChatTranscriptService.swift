@@ -109,6 +109,16 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID).map(\.descriptor)
     }
 
+    /// Lists chat-capable sessions for known workspace/terminal ids.
+    ///
+    /// This is the bounded workspace-list path: unrelated historical records
+    /// are neither swept nor sorted.
+    func sessionDescriptors(
+        workspaceAndTerminalIDs: [String: Set<String>]
+    ) -> [ChatSessionDescriptor] {
+        registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs).map(\.descriptor)
+    }
+
     /// Adopts a Claude session cmux detected by terminal title but that
     /// never registered via a hook (e.g. launched through a shell wrapper
     /// that bypasses cmux's hook injection), so it gains a chat session and

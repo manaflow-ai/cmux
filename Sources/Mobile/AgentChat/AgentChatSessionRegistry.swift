@@ -31,18 +31,45 @@ final class AgentChatSessionRegistry {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Matching records.
     func sessions(workspaceID: String?) -> [AgentChatSessionRecord] {
-        sweepDeadProcesses()
+        sweepDeadProcesses(workspaceID: workspaceID)
         return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
+            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    /// Sessions bound to a known set of workspace/surface ids, most recent
+    /// first. Used by mobile workspace-list serialization so historical
+    /// sessions outside the visible terminal set are not swept on every refresh.
+    func sessions(workspaceAndSurfaceIDs: [String: Set<String>]) -> [AgentChatSessionRecord] {
+        guard !workspaceAndSurfaceIDs.isEmpty else { return [] }
+        sweepDeadProcesses(workspaceAndSurfaceIDs: workspaceAndSurfaceIDs)
+        return records.values
+            .filter { record in
+                guard let workspaceID = record.workspaceID,
+                      let surfaceID = record.surfaceID else { return false }
+                return workspaceAndSurfaceIDs[workspaceID]?.contains(surfaceID) == true
+            }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
     /// Marks sessions whose agent process died without a SessionEnd hook
     /// (crash, kill, closed terminal) as ended, so a missing Stop hook
     /// cannot wedge a session in "working" forever.
-    private func sweepDeadProcesses() {
+    private func sweepDeadProcesses(
+        workspaceID: String? = nil,
+        workspaceAndSurfaceIDs: [String: Set<String>]? = nil
+    ) {
         for (sessionID, record) in records {
             guard record.state != .ended, let pid = record.pid else { continue }
+            if let workspaceAndSurfaceIDs {
+                guard let workspaceID = record.workspaceID,
+                      let surfaceID = record.surfaceID,
+                      workspaceAndSurfaceIDs[workspaceID]?.contains(surfaceID) == true else {
+                    continue
+                }
+            } else if let workspaceID, record.workspaceID != workspaceID {
+                continue
+            }
             // ESRCH means the process is gone; EPERM means it exists but is
             // not signalable, which still counts as alive.
             if kill(pid_t(pid), 0) != 0, errno == ESRCH {

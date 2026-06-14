@@ -13845,8 +13845,11 @@ class TerminalController {
             for workspace in visibleWorkspaces {
                 adoptDetectedAgentSessions(workspace: workspace)
             }
+            let terminalIDsByWorkspaceID = Dictionary(uniqueKeysWithValues: visibleWorkspaces.map {
+                ($0.id.uuidString, Set(mobileTerminalPanels(in: $0).map { $0.id.uuidString }))
+            })
             let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
-                workspaceIDs: Set(visibleWorkspaces.map { $0.id.uuidString })
+                workspaceTerminalIDsByWorkspaceID: terminalIDsByWorkspaceID
             )
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
@@ -13888,8 +13891,11 @@ class TerminalController {
                     listedWorkspaces.append((workspace, workspace.id == selectedWorkspaceID))
                 }
             }
+            let terminalIDsByWorkspaceID = Dictionary(uniqueKeysWithValues: listedWorkspaces.map { item in
+                (item.workspace.id.uuidString, Set(mobileTerminalPanels(in: item.workspace).map { $0.id.uuidString }))
+            })
             let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
-                workspaceIDs: Set(listedWorkspaces.map { $0.workspace.id.uuidString })
+                workspaceTerminalIDsByWorkspaceID: terminalIDsByWorkspaceID
             )
             workspaces = listedWorkspaces.map { item in
                 mobileWorkspacePayload(
