@@ -1021,6 +1021,75 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testWebSocketEndpointRefreshPreservesReadyTrackedTerminal() throws {
+        let workspace = Workspace()
+        let firstEndpoint = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://sandbox.example/rpc",
+            headers: ["e2b-traffic-access-token": "header-a"],
+            token: "token-a",
+            sessionId: "session-a",
+            expiresAtUnix: 1_800_000_000
+        )
+        let refreshedEndpoint = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://sandbox.example/rpc",
+            headers: ["e2b-traffic-access-token": "header-b"],
+            token: "token-b",
+            sessionId: "session-b",
+            expiresAtUnix: 1_800_000_100
+        )
+        let firstConfig = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness-endpoint-refresh",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness-endpoint-refresh",
+            daemonWebSocketEndpoint: firstEndpoint,
+            skipDaemonBootstrap: true
+        )
+        let refreshedConfig = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness-endpoint-refresh",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness-endpoint-refresh",
+            daemonWebSocketEndpoint: refreshedEndpoint,
+            skipDaemonBootstrap: true
+        )
+
+        XCTAssertNotEqual(firstConfig, refreshedConfig)
+        XCTAssertFalse(firstConfig.hasSamePersistentPTYIdentity(as: refreshedConfig))
+
+        workspace.configureRemoteConnection(firstConfig, autoConnect: true)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
+        workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: firstConfig.destination)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+
+        workspace.configureRemoteConnection(refreshedConfig, autoConnect: true)
+        workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: refreshedConfig.destination)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+    }
+
+    @MainActor
     func testRemoteReconnectTreatsKnownTTYForTrackedTerminalAsReady() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(

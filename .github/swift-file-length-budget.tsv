@@ -6,13 +6,13 @@
 16709	Sources/ContentView.swift
 14671	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
+12125	Sources/Workspace.swift
 12088	Sources/GhosttyTerminalView.swift
-12080	Sources/Workspace.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
 7350	cmuxTests/WorkspaceUnitTests.swift
-7099	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7168	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift

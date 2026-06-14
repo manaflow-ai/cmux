@@ -2884,6 +2884,51 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
+    private static func shouldPreserveRemoteTerminalReadiness(
+        from previous: WorkspaceRemoteConfiguration,
+        to current: WorkspaceRemoteConfiguration
+    ) -> Bool {
+        previous == current ||
+            previous.hasSamePersistentPTYIdentity(as: current) ||
+            hasSameWebSocketTerminalReadinessIdentity(previous, current)
+    }
+
+    private static func hasSameWebSocketTerminalReadinessIdentity(
+        _ previous: WorkspaceRemoteConfiguration,
+        _ current: WorkspaceRemoteConfiguration
+    ) -> Bool {
+        guard previous.transport == .websocket,
+              current.transport == .websocket,
+              let previousStartupCommand = normalizedRemoteTerminalStartupCommand(previous.terminalStartupCommand),
+              previousStartupCommand == normalizedRemoteTerminalStartupCommand(current.terminalStartupCommand) else {
+            return false
+        }
+
+        return previous.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+            == current.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+            && previous.port == current.port
+            && previous.identityFile == current.identityFile
+            && previous.sshOptions == current.sshOptions
+            && previous.localProxyPort == current.localProxyPort
+            && previous.relayPort == current.relayPort
+            && previous.relayID == current.relayID
+            && previous.relayToken == current.relayToken
+            && previous.localSocketPath == current.localSocketPath
+            && previous.foregroundAuthToken == current.foregroundAuthToken
+            && previous.agentSocketPath == current.agentSocketPath
+            && previous.preserveAfterTerminalExit == current.preserveAfterTerminalExit
+            && previous.persistentDaemonSlot == current.persistentDaemonSlot
+            && previous.skipDaemonBootstrap == current.skipDaemonBootstrap
+    }
+
+    private static func normalizedRemoteTerminalStartupCommand(_ command: String?) -> String? {
+        guard let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     private func resetRemoteTerminalReadiness(preservingExistingSignals: Bool) {
         guard preservingExistingSignals else {
             readyRemoteTerminalSurfaceIds.removeAll()
@@ -5519,7 +5564,7 @@ final class Workspace: Identifiable, ObservableObject {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         let preservesExistingTerminalReadiness = previousConfiguration.map { previous in
-            previous == configuration || previous.hasSamePersistentPTYIdentity(as: configuration)
+            Self.shouldPreserveRemoteTerminalReadiness(from: previous, to: configuration)
         } ?? false
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         if let previousConfiguration,
