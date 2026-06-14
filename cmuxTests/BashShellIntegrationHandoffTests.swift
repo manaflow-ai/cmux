@@ -1,9 +1,10 @@
-@preconcurrency import XCTest
 import Darwin
 import Foundation
+import Testing
 
-final class BashShellIntegrationHandoffTests: XCTestCase {
-    func testShellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
+@Suite
+struct BashShellIntegrationHandoffTests {
+    @Test func shellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-relay-report-tty-\(UUID().uuidString)")
@@ -39,13 +40,13 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
-            result.stdout
+            Comment(rawValue: result.stdout)
         )
     }
 
-    func testShellIntegrationRelayPreexecWorksBeforeSurfaceIDExistsInBash() throws {
+    @Test func shellIntegrationRelayPreexecWorksBeforeSurfaceIDExistsInBash() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-relay-preexec-no-surface-\(UUID().uuidString)")
@@ -86,18 +87,18 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys889"}"#),
-            result.stdout
+            Comment(rawValue: result.stdout)
         )
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"command"}"#),
-            result.stdout
+            Comment(rawValue: result.stdout)
         )
-        XCTAssertFalse(result.stdout.contains(#""surface_id""#), result.stdout)
+        #expect(!result.stdout.contains(#""surface_id""#), Comment(rawValue: result.stdout))
     }
 
-    func testShellIntegrationRelayPromptRefreshUsesRefreshReasonInBashWithoutPromptNoise() throws {
+    @Test func shellIntegrationRelayPromptRefreshUsesRefreshReasonInBashWithoutPromptNoise() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-relay-prompt-\(UUID().uuidString)")
@@ -138,14 +139,14 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertFalse(result.stderr.contains("_cmux_report_tmux_state"), result.stderr)
-        XCTAssertTrue(
+        #expect(!result.stderr.contains("_cmux_report_tmux_state"), Comment(rawValue: result.stderr))
+        #expect(
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
-            result.stdout
+            Comment(rawValue: result.stdout)
         )
     }
 
-    func testBashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
+    @Test func bashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-no-git-watch-\(UUID().uuidString)")
@@ -198,15 +199,18 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertFalse(result.stdout.contains(repoA.appendingPathComponent(".git/HEAD").path), result.stdout)
-        XCTAssertTrue(result.stdout.contains("HEAD_PATH=\n"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("HEAD_LAST_PWD=\n"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("LAST_PR_ACTION=\n"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("clear_pr"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("report_pr_action"), result.stdout)
+        #expect(
+            !result.stdout.contains(repoA.appendingPathComponent(".git/HEAD").path),
+            Comment(rawValue: result.stdout)
+        )
+        #expect(result.stdout.contains("HEAD_PATH=\n"), Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("HEAD_LAST_PWD=\n"), Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("LAST_PR_ACTION=\n"), Comment(rawValue: result.stdout))
+        #expect(!result.stdout.contains("clear_pr"), Comment(rawValue: result.stdout))
+        #expect(!result.stdout.contains("report_pr_action"), Comment(rawValue: result.stdout))
     }
 
-    func testBashFireAndForgetSocketReportsDoNotEmitJobStatus() throws {
+    @Test func bashFireAndForgetSocketReportsDoNotEmitJobStatus() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-background-reports-\(UUID().uuidString)")
@@ -248,14 +252,14 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertNil(
-            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression),
-            result.stderr
+        #expect(
+            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression) == nil,
+            Comment(rawValue: result.stderr)
         )
-        XCTAssertFalse(result.stderr.contains("Done"), result.stderr)
+        #expect(!result.stderr.contains("Done"), Comment(rawValue: result.stderr))
     }
 
-    func testBashRelayFireAndForgetReportsDoNotEmitJobStatus() throws {
+    @Test func bashRelayFireAndForgetReportsDoNotEmitJobStatus() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-relay-background-reports-\(UUID().uuidString)")
@@ -297,18 +301,18 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(
+        #expect(
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"command","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
-            result.stdout
+            Comment(rawValue: result.stdout)
         )
-        XCTAssertNil(
-            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression),
-            result.stderr
+        #expect(
+            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression) == nil,
+            Comment(rawValue: result.stderr)
         )
-        XCTAssertFalse(result.stderr.contains("Done"), result.stderr)
+        #expect(!result.stderr.contains("Done"), Comment(rawValue: result.stderr))
     }
 
-    func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
+    @Test func bashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
@@ -354,10 +358,10 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(result.stdout.contains("MARKER=0"), result.stdout)
+        #expect(result.stdout.contains("MARKER=0"), Comment(rawValue: result.stdout))
     }
 
-    func testBashPromptResetsTerminalKeyboardProtocols() throws {
+    @Test func bashPromptResetsTerminalKeyboardProtocols() throws {
         let result = try runInteractiveBash(
             cmuxLoadShellIntegration: true,
             command: """
@@ -375,7 +379,7 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(result.stdout, "\u{1B}[>m\u{1B}[<8u")
+        #expect(result.stdout == "\u{1B}[>m\u{1B}[<8u")
     }
 
     private func runInteractiveBash(
@@ -438,13 +442,13 @@ final class BashShellIntegrationHandoffTests: XCTestCase {
         if process.isRunning {
             process.terminate()
             process.waitUntilExit()
-            XCTFail("Timed out waiting for bash to exit")
+            Issue.record("Timed out waiting for bash to exit")
         }
 
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
-        XCTAssertEqual(process.terminationStatus, 0, error)
+        #expect(process.terminationStatus == 0, Comment(rawValue: error))
         return (
             stdout: output.trimmingCharacters(in: .whitespacesAndNewlines),
             stderr: error.trimmingCharacters(in: .whitespacesAndNewlines)
