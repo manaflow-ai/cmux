@@ -35,7 +35,7 @@
 3200	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
-2604	Sources/KeyboardShortcutSettings.swift
+2586	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2449	cmuxTests/CommandPaletteSearchEngineTests.swift

@@ -54,10 +54,8 @@ extension ShortcutAction {
         case .focusRight: return Self.shortcut(key: "→", command: true, option: true)
         case .focusUp: return Self.shortcut(key: "↑", command: true, option: true)
         case .focusDown: return Self.shortcut(key: "↓", command: true, option: true)
-        case .resizeSplitLeft: return Self.tmuxSplitResizeShortcut(chordKey: "←")
-        case .resizeSplitRight: return Self.tmuxSplitResizeShortcut(chordKey: "→")
-        case .resizeSplitUp: return Self.tmuxSplitResizeShortcut(chordKey: "↑")
-        case .resizeSplitDown: return Self.tmuxSplitResizeShortcut(chordKey: "↓")
+        case .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown:
+            return nil
         case .splitRight: return Self.shortcut(key: "d", command: true)
         case .splitDown: return Self.shortcut(key: "d", command: true, shift: true)
         case .toggleSplitZoom: return Self.shortcut(key: "\r", command: true, shift: true)
@@ -149,10 +147,4 @@ extension ShortcutAction {
         )
     }
 
-    private static func tmuxSplitResizeShortcut(chordKey: String) -> StoredShortcut {
-        StoredShortcut(
-            first: ShortcutStroke(key: "b", control: true),
-            second: ShortcutStroke(key: chordKey, option: true)
-        )
-    }
 }

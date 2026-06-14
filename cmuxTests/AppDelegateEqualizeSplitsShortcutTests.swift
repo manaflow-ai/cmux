@@ -157,7 +157,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     func testTmuxStyleResizeSplitShortcutMovesFocusedDividerAndUpdatesCachedLayout() {
-        withTemporaryShortcut(action: .resizeSplitRight) {
+        withTemporaryShortcut(action: .resizeSplitRight, shortcut: tmuxStyleResizeShortcut(chordKey: "→")) {
             guard let appDelegate = AppDelegate.shared else {
                 XCTFail("Expected AppDelegate.shared")
                 return
@@ -373,6 +373,21 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
         body()
+    }
+
+    private func tmuxStyleResizeShortcut(chordKey: String) -> StoredShortcut {
+        StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: chordKey,
+            chordCommand: false,
+            chordShift: false,
+            chordOption: true,
+            chordControl: false
+        )
     }
 
     private func window(withId windowId: UUID) -> NSWindow? {

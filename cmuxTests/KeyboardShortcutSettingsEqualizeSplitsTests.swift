@@ -23,19 +23,19 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
         }
     }
 
-    func testResizeSplitDefaultsUseTmuxStyleArrowChords() {
-        let expected: [(KeyboardShortcutSettings.Action, String)] = [
-            (.resizeSplitLeft, "←"),
-            (.resizeSplitRight, "→"),
-            (.resizeSplitUp, "↑"),
-            (.resizeSplitDown, "↓"),
+    func testResizeSplitDefaultsAreUnbound() {
+        let expected: [KeyboardShortcutSettings.Action] = [
+            .resizeSplitLeft,
+            .resizeSplitRight,
+            .resizeSplitUp,
+            .resizeSplitDown,
         ]
 
-        for (action, chordKey) in expected {
+        for action in expected {
             XCTAssertEqual(
                 action.defaultShortcut,
-                tmuxResizeShortcut(chordKey: chordKey),
-                "Expected \(action.rawValue) to use Ctrl+B then Option+\(chordKey)"
+                .unbound,
+                "Expected \(action.rawValue) to be opt-in so Ctrl+B reaches the focused terminal"
             )
         }
     }

@@ -425,14 +425,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
-            case .resizeSplitLeft:
-                return Self.tmuxSplitResizeShortcut(chordKey: "←")
-            case .resizeSplitRight:
-                return Self.tmuxSplitResizeShortcut(chordKey: "→")
-            case .resizeSplitUp:
-                return Self.tmuxSplitResizeShortcut(chordKey: "↑")
-            case .resizeSplitDown:
-                return Self.tmuxSplitResizeShortcut(chordKey: "↓")
+            case .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown:
+                // Unbound by default: a tmux-style Ctrl+B prefix would consume
+                // Ctrl+B before the focused terminal, shell, or nested tmux sees it.
+                // Users can still opt into chorded resize bindings via Settings or cmux.json.
+                return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
@@ -567,21 +564,6 @@ enum KeyboardShortcutSettings {
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
             }
-        }
-
-        private static func tmuxSplitResizeShortcut(chordKey: String) -> StoredShortcut {
-            StoredShortcut(
-                key: "b",
-                command: false,
-                shift: false,
-                option: false,
-                control: true,
-                chordKey: chordKey,
-                chordCommand: false,
-                chordShift: false,
-                chordOption: true,
-                chordControl: false
-            )
         }
 
         func tooltip(_ base: String) -> String {
