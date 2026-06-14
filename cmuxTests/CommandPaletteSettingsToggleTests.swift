@@ -79,6 +79,18 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testMenuBarOnlyCommandIsNotExposedAsInstantToggle() {
+        XCTAssertNil(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.menuBarOnly"
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteSettingsToggleCommandContributions()
+                .contains { $0.commandId == "palette.toggleSetting.menuBarOnly" }
+        )
+    }
+
     func testInterceptTerminalOpenCommandReadsRawSettingWhenBrowserIsDisabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

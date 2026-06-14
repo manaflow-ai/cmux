@@ -816,6 +816,23 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
     }
 
+    func testRawMenuBarOnlyDefaultDoesNotEnableAccessoryPolicy() {
+        let suiteName = "MenuBarOnlyUnconfirmedSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+        XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+    }
+
     func testMenuBarOnlyForcesMenuBarExtraVisible() {
         let suiteName = "MenuBarOnlyVisibilityTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
