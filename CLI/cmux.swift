@@ -7198,7 +7198,7 @@ struct CMUXCLI {
             do {
                 contents = try String(contentsOfFile: resolved, encoding: .utf8)
             } catch {
-                throw CLIError(message: "\(commandName): could not read --env-file '\(path)': \(error.localizedDescription)")
+                throw CLIError(message: "\(commandName): could not read --env-file '\(path)': \(String(describing: error))")
             }
             for rawLine in contents.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
                 var line = String(rawLine).trimmingCharacters(in: .whitespaces)

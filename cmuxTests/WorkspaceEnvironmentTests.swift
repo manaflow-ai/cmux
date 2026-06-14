@@ -66,6 +66,20 @@ struct WorkspaceEnvironmentTests {
         #expect(second.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
+    /// `newTerminalSplit` is the other later-surface choke point (splitting a
+    /// surface into a new pane); it must fold in the workspace environment too.
+    @Test
+    func splitSurfaceInheritsWorkspaceEnvironment() throws {
+        let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let split = try #require(workspace.newTerminalSplit(
+            from: firstPanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+        #expect(split.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
+    }
+
     /// An explicit per-surface environment (layout `env`, scrollback replay, SSH
     /// startup) overlays the workspace set rather than being discarded.
     @Test
