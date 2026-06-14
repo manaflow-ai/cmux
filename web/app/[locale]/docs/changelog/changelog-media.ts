@@ -26,6 +26,99 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.15": {
+    title:
+      "Diff Viewer Review Comments, Rebindable ⌘1-9 + Shortcut When-Clauses, In-Process Custom Sidebars, iOS Terminal Composer",
+    features: [
+      {
+        title: "Review Comments in the Diff Viewer",
+        description:
+          "Comment on changed lines in the diff viewer, persisted per repo. Attach the comment set to a terminal TextBox to hand structured review feedback straight to an agent.",
+      },
+      {
+        title: "Rebindable Shortcuts with When-Clauses",
+        description:
+          "The Select Workspace and Surface 1…9 shortcuts (⌘1-9) can finally be rebound, and every shortcut supports VS Code-style `when` context clauses so a binding only applies where you want it.",
+      },
+      {
+        title: "Custom Sidebars, In-Process by Default",
+        description:
+          "Custom sidebars now render in-process by default with a dedicated Settings section, instant toggling, live-resize repaint, and example sidebars to start from.",
+      },
+      {
+        title: "iOS Beta: Composer, Toolbar, Multi-Mac",
+        description:
+          "An iMessage-style terminal composer with per-terminal drafts, a customizable terminal toolbar, a multi-Mac host switcher, clipboard image paste, and notification forwarding only while you're away from the Mac.",
+      },
+      {
+        title: "Stability Under Load",
+        description:
+          "Fixes for the macOS 26 launch hang, a macOS 27 beta launch crash, SSH typing lag, sidebar livelocks with many workspaces, white-on-white light themes, and a UI freeze when closing tabs.",
+      },
+    ],
+  },
+  "0.64.14": {
+    title:
+      "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",
+    features: [
+      {
+        title: "iPhone Companion App (Beta)",
+        description:
+          "Pair an iPhone with your Mac from the new Mobile Connect window and attach to your terminals from your phone, with opt-in forwarding of terminal notifications. The iOS beta ships on TestFlight as cmux BETA.",
+      },
+      {
+        title: "Cross-Window Workspace Drag",
+        description:
+          "Drag a workspace out of one window's sidebar and drop it into another window's sidebar to move it, including grouped workspaces.",
+      },
+      {
+        title: "Out-of-Process Custom Sidebars",
+        description:
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The omnibar selects the whole URL on the first focusing click (Chrome parity), browser chrome scales with the tab bar font size, a typing beachball with large histories is fixed, and hidden panes no longer stop actively-playing audio or video.",
+      },
+      {
+        title: "Agent Session Fixes",
+        description:
+          "Claude resume keeps cmux hooks attached so notifications and status tracking survive resumes, Agent Hibernation works for node-backed Claude sessions, and Codex resume preserves CODEX_HOME and pane order.",
+      },
+    ],
+  },
+  "0.64.13": {
+    title:
+      "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",
+    features: [
+      {
+        title: "Browser Focus Mode",
+        description:
+          "Browser panes get a focus mode that strips away the surrounding chrome so a single page can take over the pane while you read or work in it.",
+      },
+      {
+        title: "SSH Agent Forwarding",
+        description:
+          "`cmux ssh` now forwards your local SSH agent, so remote sessions can use your local keys for git pushes and further hops without copying private keys onto the remote.",
+      },
+      {
+        title: "Vibe-Codable Custom Sidebars (Beta)",
+        description:
+          "Build your own sidebar with a runtime Swift interpreter, behind the Beta Features flag. Edit the sidebar source, validate it from the CLI, and reload it live without rebuilding the app.",
+      },
+      {
+        title: "Browser Mouse Back & Forward",
+        description:
+          "The browser now responds to the dedicated back and forward buttons on a mouse, so side-button navigation works the way it does in a normal browser.",
+      },
+      {
+        title: "Major Stability & Performance Fixes",
+        description:
+          "Fixed a settings-observation leak that grew the app to 4.4 GB over a day, a browser render loop burning ~39% of the main thread on every CoreAnimation commit, a WebKit crash after sleep/wake, a 100% CPU hang in the Markdown and file-preview editor, and child processes launching under Rosetta on Apple Silicon.",
+      },
+    ],
+  },
   "0.64.12": {
     title:
       "Diff Viewer Shortcut, Markdown Zoom, Prompt & Remote SSH Fixes",
