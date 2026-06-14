@@ -171,6 +171,72 @@ final class BrowserPopupDecisionTests: XCTestCase {
         )
     }
 
+    func testCreateWebViewDecisionRoutesBareOtherNavigationToNewTab() {
+        XCTAssertEqual(
+            browserCreateWebViewDecision(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://example.com"),
+                openerURL: URL(string: "https://app.example.com"),
+                modifierFlags: [],
+                buttonNumber: 0,
+                popupFeaturesWereSpecified: false,
+                currentEventType: .keyDown,
+                currentEventButtonNumber: 0
+            ),
+            .newTab
+        )
+    }
+
+    func testCreateWebViewDecisionRoutesExplicitFeaturesToPopup() {
+        XCTAssertEqual(
+            browserCreateWebViewDecision(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://accounts.example.com/oauth"),
+                openerURL: URL(string: "https://app.example.com/login"),
+                modifierFlags: [],
+                buttonNumber: 0,
+                popupFeaturesWereSpecified: true,
+                currentEventType: .keyDown,
+                currentEventButtonNumber: 0
+            ),
+            .popup
+        )
+    }
+
+    func testCreateWebViewDecisionKeepsSimpleSameSiteSearchInCurrentTab() {
+        XCTAssertEqual(
+            browserCreateWebViewDecision(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
+                openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
+                modifierFlags: [],
+                buttonNumber: 0,
+                popupFeaturesWereSpecified: false,
+                currentEventType: .keyDown,
+                currentEventButtonNumber: 0
+            ),
+            .currentTab
+        )
+    }
+
+    func testCreateWebViewDecisionKeepsMiddleClickOnNewTabPath() {
+        XCTAssertEqual(
+            browserCreateWebViewDecision(
+                navigationType: .other,
+                requestMethod: "GET",
+                requestURL: URL(string: "https://accounts.example.com/oauth"),
+                openerURL: URL(string: "https://app.example.com/login"),
+                modifierFlags: [],
+                buttonNumber: 2,
+                popupFeaturesWereSpecified: true
+            ),
+            .newTab
+        )
+    }
+
     func testPopupFeaturesAreAbsentWhenAllWindowFeaturesAreNil() {
         XCTAssertFalse(
             browserNavigationPopupFeaturesWereSpecified(
