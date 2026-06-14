@@ -4059,6 +4059,7 @@ class TerminalController {
         ]
     }
 
+    @MainActor
     func v2WorkspaceSetColor(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(
@@ -4083,29 +4084,26 @@ class TerminalController {
             return error
         }
 
-        var result: V2CallResult = .err(
-            code: "not_found",
-            message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
-            data: nil
-        )
-        v2MainSync {
-            let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
-            guard let workspaceId,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-                return
-            }
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            tabManager.setTabColor(tabId: workspace.id, color: color)
-            result = .ok(v2WorkspaceColorActionPayload(
-                action: "set_color",
-                workspace: workspace,
-                windowId: windowId,
-                color: color
-            ))
+        let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
+        guard let workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+                data: nil
+            )
         }
-        return result
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        tabManager.setTabColor(tabId: workspace.id, color: color)
+        return .ok(v2WorkspaceColorActionPayload(
+            action: "set_color",
+            workspace: workspace,
+            windowId: windowId,
+            color: color
+        ))
     }
 
+    @MainActor
     func v2WorkspaceClearColor(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(
@@ -4123,27 +4121,23 @@ class TerminalController {
             )
         }
 
-        var result: V2CallResult = .err(
-            code: "not_found",
-            message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
-            data: nil
-        )
-        v2MainSync {
-            let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
-            guard let workspaceId,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-                return
-            }
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            tabManager.setTabColor(tabId: workspace.id, color: nil)
-            result = .ok(v2WorkspaceColorActionPayload(
-                action: "clear_color",
-                workspace: workspace,
-                windowId: windowId,
-                color: NSNull()
-            ))
+        let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
+        guard let workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+                data: nil
+            )
         }
-        return result
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        tabManager.setTabColor(tabId: workspace.id, color: nil)
+        return .ok(v2WorkspaceColorActionPayload(
+            action: "clear_color",
+            workspace: workspace,
+            windowId: windowId,
+            color: NSNull()
+        ))
     }
 
     @MainActor
