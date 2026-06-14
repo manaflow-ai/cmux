@@ -26,6 +26,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("tmux resume command approval", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
+        assertSearch("hotkey hint chips", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "modifier-hold-hints"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
         assertSearch("imessage", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
         assertSearch("chat prompt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
@@ -94,6 +95,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings"),
             SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesModifierHoldHints() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.showModifierHoldHints"),
+            SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "modifier-hold-hints")
         )
     }
 

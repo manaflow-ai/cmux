@@ -1057,9 +1057,10 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 func titlebarShortcutHintShouldShow(
     shortcut: StoredShortcut,
     alwaysShowShortcutHints: Bool,
-    modifierPressed: Bool
+    modifierPressed: Bool,
+    modifierHoldHintsEnabled: Bool = true
 ) -> Bool {
-    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (modifierHoldHintsEnabled && shortcut.command && modifierPressed))
 }
 
 struct ContentView: View {
@@ -1085,6 +1086,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2930,6 +2932,10 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
+            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
         })
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
@@ -10696,6 +10702,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -11114,12 +11121,17 @@ struct VerticalTabsSidebar: View {
         }
         .background(
             WindowAccessor { window in
-                modifierKeyMonitor.setHostWindow(window)
+                modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            modifierKeyMonitor.start()
+            if showModifierHoldHints {
+                modifierKeyMonitor.setHostWindow(observedWindow)
+                modifierKeyMonitor.start()
+            } else {
+                modifierKeyMonitor.stop()
+            }
             dragState.clearDrag()
             isBonsplitWorkspaceDropTargetCollectionActive = false
             // Defensive reset: if a prior simulation died without running
@@ -11151,6 +11163,16 @@ struct VerticalTabsSidebar: View {
                 tabId: nil,
                 reason: "sidebar_disappear"
             )
+        }
+        .onChange(of: showModifierHoldHints) { _, enabled in
+            if enabled {
+                modifierKeyMonitor.setHostWindow(observedWindow)
+                modifierKeyMonitor.start()
+            } else {
+                modifierKeyMonitor.stop()
+                frozenShortcutHintsTabId = nil
+                frozenShortcutHintsValue = false
+            }
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification.postStateDidChange(
@@ -12667,7 +12689,7 @@ struct VerticalTabsSidebar: View {
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
-        let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
+        let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
             live: liveShowsModifierShortcutHints,
             currentTabId: tab.id,
@@ -12872,6 +12894,8 @@ enum ShortcutHintModifierPolicy {
 }
 
 enum ShortcutHintDebugSettings {
+    static let showModifierHoldHintsKey = SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey
+    static let defaultShowModifierHoldHints = SettingCatalog().shortcuts.showModifierHoldHints.defaultValue
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
     static let defaultTitlebarHintX = 0.0
@@ -12898,12 +12922,19 @@ enum ShortcutHintDebugSettings {
         defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
     }
 
+    static func modifierHoldHintsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: showModifierHoldHintsKey) != nil else {
+            return defaultShowModifierHoldHints
+        }
+        return defaults.bool(forKey: showModifierHoldHintsKey)
+    }
+
     static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnCommandHold
+        defaultShowHintsOnCommandHold && modifierHoldHintsEnabled(defaults: defaults)
     }
 
     static func showHintsOnControlHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnControlHold
+        defaultShowHintsOnControlHold && modifierHoldHintsEnabled(defaults: defaults)
     }
 
 }

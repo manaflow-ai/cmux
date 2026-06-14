@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
@@ -827,6 +829,7 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -837,8 +840,21 @@ struct TitlebarControlsView: View {
         var id: String { action.rawValue }
     }
 
+    private var modifierHoldHintsEnabled: Bool {
+        _ = showModifierHoldHints
+        return ShortcutHintDebugSettings.modifierHoldHintsEnabled()
+    }
+
     private var shouldShowTitlebarShortcutHints: Bool {
-        alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
+        alwaysShowShortcutHints || (modifierHoldHintsEnabled && modifierKeyMonitor.isModifierPressed)
+    }
+
+    private func startShortcutHintMonitorIfNeeded() {
+        if modifierHoldHintsEnabled {
+            modifierKeyMonitor.start()
+        } else {
+            modifierKeyMonitor.stop()
+        }
     }
 
     private var shouldShowControls: Bool {
@@ -882,7 +898,7 @@ struct TitlebarControlsView: View {
                             }
                         }
                     }
-                    modifierKeyMonitor.setHostWindow(window)
+                    modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
             )
@@ -891,6 +907,10 @@ struct TitlebarControlsView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                shortcutRefreshTick &+= 1
+                startShortcutHintMonitorIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
@@ -905,11 +925,14 @@ struct TitlebarControlsView: View {
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
-                modifierKeyMonitor.start()
+                startShortcutHintMonitorIfNeeded()
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
                 hostWindowNumber = nil
+            }
+            .onChange(of: showModifierHoldHints) { _, _ in
+                startShortcutHintMonitorIfNeeded()
             }
     }
 
@@ -1099,7 +1122,8 @@ struct TitlebarControlsView: View {
             guard titlebarShortcutHintShouldShow(
                 shortcut: shortcut,
                 alwaysShowShortcutHints: alwaysShowShortcutHints,
-                modifierPressed: modifierKeyMonitor.isModifierPressed
+                modifierPressed: modifierKeyMonitor.isModifierPressed,
+                modifierHoldHintsEnabled: modifierHoldHintsEnabled
             ) else { return nil }
 
             let width = titlebarHintWidth(for: shortcut, config: config)

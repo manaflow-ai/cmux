@@ -1,4 +1,6 @@
 import Bonsplit
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import WebKit
 import AppKit
@@ -437,6 +439,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
@@ -789,7 +792,15 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
-            (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
+            (ShortcutHintDebugSettings.alwaysShowHints() || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
+    }
+
+    private func startFocusModeShortcutHintMonitorIfNeeded() {
+        if showModifierHoldHints {
+            focusModeShortcutHintMonitor.start()
+        } else {
+            focusModeShortcutHintMonitor.stop()
+        }
     }
 
     private func handleBrowserPanelAppear() {
@@ -817,7 +828,7 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
-        focusModeShortcutHintMonitor.start()
+        startFocusModeShortcutHintMonitorIfNeeded()
     }
 
     /// Runs the view-state initialization that should happen on first appearance,
@@ -1181,6 +1192,9 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            startFocusModeShortcutHintMonitorIfNeeded()
+        }
     }
 
     var body: some View {
@@ -1239,7 +1253,7 @@ struct BrowserPanelView: View {
         .background(browserChromeBackground)
         .background(
             WindowAccessor { window in
-                focusModeShortcutHintMonitor.setHostWindow(window)
+                focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
         )
         .background {

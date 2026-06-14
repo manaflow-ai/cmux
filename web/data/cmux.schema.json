@@ -1114,6 +1114,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},

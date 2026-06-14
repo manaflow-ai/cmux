@@ -36,7 +36,7 @@ extension VerticalTabsSidebar {
             workspaceCount: renderContext.workspaceCount
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
+        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,

@@ -947,6 +947,22 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         )
         XCTAssertFalse(
             titlebarShortcutHintShouldShow(
+                shortcut: commandShortcut,
+                alwaysShowShortcutHints: false,
+                modifierPressed: true,
+                modifierHoldHintsEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: controlShortcut,
+                alwaysShowShortcutHints: true,
+                modifierPressed: false,
+                modifierHoldHintsEnabled: false
+            )
+        )
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
                 shortcut: .unbound,
                 alwaysShowShortcutHints: true,
                 modifierPressed: true
@@ -993,10 +1009,22 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
-    func testCommandAndControlHintsAreHardcodedEnabled() {
+    func testCommandAndControlHintsDefaultToEnabled() {
         withDefaultsSuite { defaults in
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testModifierHoldHintsSettingSuppressesCommandAndControlHints() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showModifierHoldHintsKey)
+
+            XCTAssertFalse(ShortcutHintDebugSettings.modifierHoldHintsEnabled(defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
         }
     }
 

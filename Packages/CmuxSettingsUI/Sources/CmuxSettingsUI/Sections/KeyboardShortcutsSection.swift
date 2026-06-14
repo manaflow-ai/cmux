@@ -27,6 +27,7 @@ public struct KeyboardShortcutsSection: View {
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     /// Per-action set marking a recording rejected because a numbered
     /// action (``ShortcutAction/usesNumberedDigitMatching``) was given a
     /// non-`1…9` key. Mirrors legacy `.numberedShortcutRequiresDigit`: the
@@ -60,6 +61,8 @@ public struct KeyboardShortcutsSection: View {
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
                 chordsRow
+                SettingsCardDivider()
+                modifierHoldHintsRow
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
@@ -122,6 +125,29 @@ public struct KeyboardShortcutsSection: View {
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
             }
+        }
+    }
+
+    private var modifierHoldHintsTitle: String {
+        String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys")
+    }
+
+    @ViewBuilder
+    private var modifierHoldHintsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("shortcuts.showModifierHoldHints"),
+            modifierHoldHintsTitle,
+            subtitle: showModifierHoldHints
+                ? String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOn", defaultValue: "Holding Cmd or Control shows shortcut hint chips.")
+                : String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOff", defaultValue: "Holding Cmd or Control does not show shortcut hint chips.")
+        ) {
+            Toggle(isOn: $showModifierHoldHints) {
+                EmptyView()
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsKeyboardShortcutsModifierHoldHintsToggle")
+            .accessibilityLabel(modifierHoldHintsTitle)
         }
     }
 
