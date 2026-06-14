@@ -128,6 +128,36 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Disabling suppresses bootstrap TTY resolution ssh")
+    func disablingSuppressesBootstrapTTYResolution() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(runner: runner, relayPort: 41000)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanningEnabledLocked(false)
+            coordinator.requestBootstrapRemoteTTYIfNeededLocked()
+        }
+
+        #expect(runner.runCount == 0)
+        coordinator.stop()
+    }
+
+    @Test("Enabled bootstrap TTY resolution spawns ssh (sanity)")
+    func enabledBootstrapTTYResolutionSpawnsSSH() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(runner: runner, relayPort: 41000)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.requestBootstrapRemoteTTYIfNeededLocked()
+        }
+
+        #expect(runner.runCount == 1)
+        coordinator.queue.sync { coordinator.cancelBootstrapRemoteTTYRetryLocked() }
+        coordinator.stop()
+    }
+
     @Test("Re-enabling after a disable restarts the poll timer")
     func reEnablingRestartsPolling() {
         let runner = SpyProcessRunner()
@@ -153,7 +183,8 @@ struct RemotePortScanGatingTests {
 
     private static func makeCoordinator(
         runner: SpyProcessRunner,
-        terminalStartupCommand: String? = nil
+        terminalStartupCommand: String? = nil,
+        relayPort: Int? = nil
     ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -161,7 +192,7 @@ struct RemotePortScanGatingTests {
             identityFile: nil,
             sshOptions: [],
             localProxyPort: nil,
-            relayPort: nil,
+            relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,

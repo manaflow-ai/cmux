@@ -47,12 +47,17 @@ extension RemoteSessionCoordinator {
             return
         }
         updateRemotePortPollingStateLocked()
-        // TTY-scoped workspaces without a fallback poll timer only refresh
-        // ports on a shell-activity kick, so re-arm one refresh burst now to
-        // repopulate the display promptly when it is turned back on. The
-        // host-wide/delta poll modes already refresh themselves through the
-        // timer restarted above, so skip the burst when that timer is live.
-        if daemonReady, !isStopping, !remotePortScanTTYNames.isEmpty, remotePortPollTimer == nil {
+        guard daemonReady, !isStopping else { return }
+        if remotePortScanTTYNames.isEmpty {
+            // Resume bootstrap TTY resolution (its ssh is gated on the flag
+            // too) so TTY-scoped scanning can start once the remote TTY is
+            // known again.
+            requestBootstrapRemoteTTYIfNeededLocked()
+        } else if remotePortPollTimer == nil {
+            // TTYs are known but no fallback poll timer covers them, so re-arm
+            // one refresh burst to repopulate the display promptly. The
+            // host-wide/delta poll modes already refresh themselves through the
+            // timer restarted above.
             remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
             scheduleRemotePortScanCoalesceLocked()
         }
@@ -69,6 +74,7 @@ extension RemoteSessionCoordinator {
         remotePortScanActiveReason = nil
         remotePortScanPendingReason = nil
         cancelRemotePortScanCoalesceLocked()
+        cancelBootstrapRemoteTTYRetryLocked()
         remoteScannedPortsByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
