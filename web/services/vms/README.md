@@ -194,7 +194,6 @@ Set these Vercel environment variables per production/staging environment:
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
-- `CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY`, build-time Ed25519 public key baked into new Cloud VM images so cmuxd can verify signed attach tokens.
 - `CMUX_VM_DEFAULT_PROVIDER`, `freestyle` or `e2b`.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
@@ -207,6 +206,10 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
+
+Image build env:
+
+- `CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY`, build-time Ed25519 public key baked into new Cloud VM images so cmuxd can verify signed attach tokens.
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 

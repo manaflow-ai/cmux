@@ -131,9 +131,6 @@ func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {
 	now := time.Now().Unix()
 	wsSignedLeaseMu.Lock()
 	defer wsSignedLeaseMu.Unlock()
-	if err := cleanupSignedLeaseJTIFiles(now); err != nil {
-		return errWSSignedLeaseInvalid
-	}
 	path := signedLeaseJTIPath(jti)
 	if existing, err := os.ReadFile(path); err == nil {
 		expiry, parseErr := strconv.ParseInt(strings.TrimSpace(string(existing)), 10, 64)
@@ -156,31 +153,6 @@ func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {
 	if writeErr != nil || closeErr != nil {
 		_ = os.Remove(path)
 		return errWSSignedLeaseInvalid
-	}
-	return nil
-}
-
-func cleanupSignedLeaseJTIFiles(now int64) error {
-	entries, err := os.ReadDir(wsSignedLeaseUsedDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(wsSignedLeaseUsedDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		expiry, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-		if err == nil && expiry <= now {
-			_ = os.Remove(path)
-		}
 	}
 	return nil
 }
