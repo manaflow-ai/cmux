@@ -11,6 +11,8 @@ import WebKit
 
 @MainActor
 final class BrowserPaneDropRoutingTests: XCTestCase {
+    private final class WKNonInspectorProbeView: NSView {}
+
     private final class DragSpyWebView: WKWebView {
         var dragCalls: [String] = []
 
@@ -374,6 +376,15 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(target.draggingEntered(dragInfo), .move)
         XCTAssertTrue(target.prepareForDragOperation(dragInfo))
         XCTAssertEqual(webView.dragCalls, [])
+    }
+
+    func testPinningIgnoresNonInspectorWebKitSibling() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 360, height: 160), configuration: WKWebViewConfiguration())
+        slot.addSubview(webView)
+        slot.addSubview(WKNonInspectorProbeView(frame: NSRect(x: 24, y: 24, width: 48, height: 48)))
+        slot.pinHostedWebView(webView)
+        XCTAssertEqual(webView.frame, slot.bounds)
     }
 
     func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {

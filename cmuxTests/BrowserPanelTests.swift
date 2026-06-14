@@ -2935,7 +2935,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     }
 
     private final class WKInspectorProbeView: NSView {}
-    private final class WKNonInspectorProbeView: NSView {}
 
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
@@ -3389,24 +3388,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             slot.bounds.width,
             "The page frame should stay narrower than the full slot while a side-docked inspector is present"
         )
-    }
-
-    func testPortalSlotPinsPlainWebViewWhenNonInspectorWebKitSiblingExists() {
-        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 360, height: 160), configuration: WKWebViewConfiguration())
-        let nonInspectorWebKitView = WKNonInspectorProbeView(frame: NSRect(x: 24, y: 24, width: 48, height: 48))
-
-        slot.addSubview(webView)
-        slot.addSubview(nonInspectorWebKitView)
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        webView.autoresizingMask = []
-
-        slot.pinHostedWebView(webView)
-
-        XCTAssertEqual(webView.frame.origin.x, slot.bounds.origin.x, accuracy: 0.5)
-        XCTAssertEqual(webView.frame.origin.y, slot.bounds.origin.y, accuracy: 0.5)
-        XCTAssertEqual(webView.frame.size.width, slot.bounds.size.width, accuracy: 0.5)
-        XCTAssertEqual(webView.frame.size.height, slot.bounds.size.height, accuracy: 0.5)
     }
 
     func testPortalResizePreservesSideDockedInspectorManagedWebViewFrame() {

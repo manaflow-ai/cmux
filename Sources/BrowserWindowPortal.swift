@@ -1463,25 +1463,18 @@ enum BrowserWebInspectorCompanionDetector {
     static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
         var stack = host.subviews.filter { $0 !== primaryWebView }
         while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
+            guard !current.isDescendant(of: primaryWebView), !current.isHidden, current.alphaValue > 0 else {
                 continue
             }
-            guard isVisibleCompanionCandidate(current) else {
-                continue
-            }
+            let width = max(current.frame.width, current.bounds.width)
+            let height = max(current.frame.height, current.bounds.height)
+            guard width > 1, height > 1 else { continue }
             if cmuxIsWebInspectorObject(current) {
                 return true
             }
             stack.append(contentsOf: current.subviews)
         }
         return false
-    }
-
-    private static func isVisibleCompanionCandidate(_ view: NSView) -> Bool {
-        guard !view.isHidden, view.alphaValue > 0 else { return false }
-        let width = max(view.frame.width, view.bounds.width)
-        let height = max(view.frame.height, view.bounds.height)
-        return width > 1 && height > 1
     }
 }
 
