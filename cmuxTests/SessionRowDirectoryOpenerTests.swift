@@ -7,21 +7,46 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for issue #5977: the session-index row "Open Working
-/// Directory" action must route its `cwd` through the shared
-/// ``WorkspaceFinderDirectoryOpener`` (existence check + reveal + beep on a
-/// stale/moved directory) instead of `NSWorkspace.shared.open`, which silently
-/// does nothing when the directory was deleted or moved.
-///
-/// `SessionRowDirectoryOpener` is the single shared seam used by both the full
-/// row and the popover row; injecting a capturing closure asserts the routed URL
-/// without touching NSWorkspace. (Pre-fix, the action called
-/// `NSWorkspace.shared.open` directly and ignored the opener, so this fails.)
 @Suite struct SessionRowDirectoryOpenerTests {
-    @Test @MainActor func routesWorkingDirectoryThroughFinderOpener() async {
+    @Test @MainActor func rowMenuActionRoutesWorkingDirectoryThroughFinderOpener() async {
         let cwd = "/private/tmp/cmux-openwd-\(UUID().uuidString)"
+        let entry = makeEntry(cwd: cwd)
         var routed: [URL] = []
-        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd) { routed.append($0) }
+
+        let actions = SessionRowMenuActions { routed.append($0) }
+        await actions.openWorkingDirectory(for: entry)
+
         #expect(routed == [URL(fileURLWithPath: cwd)])
+    }
+
+    @Test(arguments: [nil, ""])
+    @MainActor func rowMenuActionIgnoresMissingWorkingDirectory(cwd: String?) async {
+        let entry = makeEntry(cwd: cwd)
+        var routed: [URL] = []
+
+        let actions = SessionRowMenuActions { routed.append($0) }
+        await actions.openWorkingDirectory(for: entry)
+
+        #expect(routed.isEmpty)
+    }
+
+    private func makeEntry(cwd: String?) -> SessionEntry {
+        SessionEntry(
+            id: "session-row-opener-test-\(UUID().uuidString)",
+            agent: .codex,
+            sessionId: "codex-session",
+            title: "Session row opener test",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
     }
 }

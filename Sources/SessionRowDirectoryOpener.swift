@@ -16,3 +16,17 @@ enum SessionRowDirectoryOpener {
         await open(URL(fileURLWithPath: cwd))
     }
 }
+
+@MainActor
+struct SessionRowMenuActions {
+    var openWorkingDirectoryURL: @MainActor (URL) async -> Void
+
+    static let live = SessionRowMenuActions { url in
+        await WorkspaceFinderDirectoryOpener.openInFinder(url)
+    }
+
+    func openWorkingDirectory(for entry: SessionEntry) async {
+        guard let cwd = entry.cwd, !cwd.isEmpty else { return }
+        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd, open: openWorkingDirectoryURL)
+    }
+}

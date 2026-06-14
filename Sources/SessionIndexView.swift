@@ -665,8 +665,13 @@ private struct SessionRow: View, Equatable {
 /// Right-click menu items for any session row (full or popover). Built as a
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
+@MainActor
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?,
+    actions: SessionRowMenuActions = .live
+) -> some View {
     if let onResume {
         Button {
             onResume(entry)
@@ -707,7 +712,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
             Task { @MainActor in
-                await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd)
+                await actions.openWorkingDirectory(for: entry)
             }
         } label: {
             Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
