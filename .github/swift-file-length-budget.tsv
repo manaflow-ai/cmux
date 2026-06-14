@@ -4,7 +4,7 @@
 32576	CLI/cmux.swift
 22034	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19810	Sources/ContentView.swift
+19834	Sources/ContentView.swift
 17920	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
@@ -175,11 +175,11 @@
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/CmuxConfigExecutor.swift
 514	cmuxUITests/UpdatePillUITests.swift
+511	Sources/SidebarWorkspaceGroupHeaderView.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 506	Sources/App/MainWindowVisibilityController.swift
-506	Sources/SidebarWorkspaceGroupHeaderView.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift

@@ -15,7 +15,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
-            lhs.isMembershipPreviewTarget == rhs.isMembershipPreviewTarget &&
+            lhs.isGroupHighlighted == rhs.isGroupHighlighted &&
             lhs.memberCount == rhs.memberCount &&
             lhs.groupUnreadCount == rhs.groupUnreadCount &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
@@ -40,11 +40,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
-    /// True while a gesture-reorder drag's resolved landing membership is
-    /// THIS group: releasing now drops the dragged row into it. Rendered as
-    /// a soft background tint so "you are inside this group" is unmistakable
-    /// during the drag.
-    let isMembershipPreviewTarget: Bool
+    /// True while the WHOLE group region (this header plus its member rows)
+    /// should read as highlighted: either a gesture drag's resolved landing
+    /// membership is THIS group (drop-into target), or the cursor is hovering
+    /// the group. The member rows draw the matching tint themselves so the
+    /// area reads as one block.
+    let isGroupHighlighted: Bool
+    /// Reports header hover up to the parent so it can highlight the whole
+    /// group region (header + members), not just this row.
+    let onHoverChanged: (Bool) -> Void
     let memberCount: Int
     let groupUnreadCount: Int
     let shortcutDigit: Int?
@@ -244,10 +248,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .background {
-            if isMembershipPreviewTarget {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.14))
+            if isGroupHighlighted {
+                Color.accentColor.opacity(0.10)
                     .padding(.horizontal, 6)
+                    .padding(.bottom, -rowSpacing / 2)
             }
         }
         .modifier(SidebarReorderRowModifier(
@@ -258,6 +262,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         ))
         .onHover { hovering in
             isHovered = hovering
+            onHoverChanged(hovering)
         }
         .contextMenu {
             Button(

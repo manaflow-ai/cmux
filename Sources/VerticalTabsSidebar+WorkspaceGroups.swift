@@ -64,9 +64,14 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            isMembershipPreviewTarget: role == .list
-                && dragState.draggedTabId != nil
-                && dragState.previewMembershipGroupId == group.id,
+            isGroupHighlighted: role == .list && highlightedGroupId == group.id,
+            onHoverChanged: { [groupId = group.id] hovering in
+                if hovering {
+                    hoveredGroupId = groupId
+                } else if hoveredGroupId == groupId {
+                    hoveredGroupId = nil
+                }
+            },
             memberCount: memberWorkspaceIds.count,
             groupUnreadCount: groupUnreadCount,
             shortcutDigit: shortcutDigit,

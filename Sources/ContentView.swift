@@ -11134,6 +11134,10 @@ struct VerticalTabsSidebar: View {
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
+    /// The group whose header the cursor is currently hovering (no drag).
+    /// Highlights the whole group region; cleared on leave. Not `private`:
+    /// the group-header builder lives in a sibling file.
+    @State var hoveredGroupId: UUID?
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
     @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
@@ -12965,6 +12969,13 @@ struct VerticalTabsSidebar: View {
         .frame(minHeight: minHeight, alignment: .top)
     }
 
+    /// The group whose entire region (header + member rows) is currently
+    /// highlighted: during a drag it is the membership the dragged row would
+    /// commit to (the drop-into target); otherwise the hovered group's id.
+    var highlightedGroupId: UUID? {
+        dragState.draggedTabId != nil ? dragState.previewMembershipGroupId : hoveredGroupId
+    }
+
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         let baseRenderItems = SidebarWorkspaceRenderItem.renderItems(
@@ -13030,7 +13041,8 @@ struct VerticalTabsSidebar: View {
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
                         isHiddenInDraggedGroupBlock: tab.groupId != nil
                             && dragState.draggedTabId != nil
-                            && tab.groupId.flatMap { renderContext.workspaceGroupById[$0]?.anchorWorkspaceId } == dragState.draggedTabId
+                            && tab.groupId.flatMap { renderContext.workspaceGroupById[$0]?.anchorWorkspaceId } == dragState.draggedTabId,
+                        isInHighlightedGroup: tab.groupId != nil && tab.groupId == highlightedGroupId
                     )
                     .transition(.sidebarGroupRow)
                 }
@@ -13177,6 +13189,7 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool,
         isHiddenInDraggedGroupBlock: Bool = false,
+        isInHighlightedGroup: Bool = false,
         role: SidebarWorkspaceRowRenderRole = .list
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
@@ -13323,6 +13336,17 @@ struct VerticalTabsSidebar: View {
                 .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
                 .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
                 .padding(.leading, indent)
+                // Whole-group highlight: a full-width tint behind every member
+                // of the highlighted group (applied AFTER the indent so it
+                // spans the full row width, and bled 1pt past each edge to
+                // close the 2pt inter-row gap so the group reads as one block).
+                .background {
+                    if isInHighlightedGroup {
+                        Color.accentColor.opacity(0.10)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, -tabRowSpacing / 2)
+                    }
+                }
         }
     }
 
