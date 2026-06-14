@@ -86,4 +86,19 @@ public struct PresenceMap: Equatable, Sendable {
             lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000)
         )
     }
+
+    /// The device ids the live presence stream currently reports online (any
+    /// instance online), using the same rollup rule as ``deviceSummary``. This
+    /// is the auto-attach target selector's presence signal: it prefers a single
+    /// live Mac and treats 2+ live Macs as ambiguous instead of guessing on
+    /// recency. Empty when no presence data has streamed yet, which the caller
+    /// distinguishes from "data exists, nobody online" via ``isEmpty``.
+    public func onlineDeviceIDs() -> Set<String> {
+        var ids: Set<String> = []
+        for (deviceId, instances) in instancesByDevice
+        where instances.values.contains(where: { $0.online }) {
+            ids.insert(deviceId)
+        }
+        return ids
+    }
 }

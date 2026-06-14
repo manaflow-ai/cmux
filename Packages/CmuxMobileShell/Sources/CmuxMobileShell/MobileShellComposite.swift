@@ -418,6 +418,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let presence: (any PresenceSubscribing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    /// Whether registry-driven auto-attach ("sign in → connected") is enabled.
+    /// Resolved from ``MobileAutoAttachFlag`` at the composition root (DEBUG on,
+    /// Release off until dogfooded) and injected as a plain `Bool` so the shell
+    /// stays testable without `UserDefaults`.
+    private let autoAttachEnabled: Bool
+    /// Optional online/offline signal for auto-attach target selection. When
+    /// `nil` (the presence service is not wired yet, #5792), selection degrades
+    /// to most-recently-seen, which is correct for the dominant single-Mac team.
+    private let autoAttachPresence: (any MobileAutoAttachPresenceProviding)?
+    /// Monotonic per-attempt token for registry-driven auto-attach.
+    ///
+    /// Every new attempt claims the next generation; the gate-owning runner, its
+    /// restoring deadline, and its cleanup all compare against the generation they
+    /// captured, so only the *current* attempt can resolve the restoring gate or
+    /// run the destructive connect. A boolean is insufficient because sign-out
+    /// resets it while an old runner/deadline is still alive and the next sign-in
+    /// re-sets it for a different attempt — a generation cannot be confused across
+    /// attempts. ``cancelAutoAttach`` bumps it on sign-out and when a manual
+    /// pairing begins, superseding any in-flight attempt so its still-alive awaits
+    /// discard their results at the next ``performAutoAttach`` guard.
+    private var autoAttachGeneration: Int = 0
+    /// The generation of the auto-attach attempt currently running, or `nil` when
+    /// none is in flight. Set synchronously when an attempt claims its generation
+    /// and cleared when it finishes (if still current). The reconnect caller reads
+    /// ``autoAttachInFlight`` to dedupe a concurrent trigger without disturbing the
+    /// running attempt's gate.
+    private var autoAttachRunningGeneration: Int?
+    /// Whether an auto-attach attempt is currently running.
+    private var autoAttachInFlight: Bool { autoAttachRunningGeneration != nil }
+    /// True while a gate-owning auto-attach runner holds the restoring gate, so
+    /// ``cancelAutoAttach`` knows to resolve the gate when it supersedes that
+    /// runner (otherwise a manual pairing that fails after superseding the runner
+    /// would leave RestoringSessionView stuck up).
+    private var autoAttachOwnsRestoringGate: Bool = false
     // Internal (not private): used by the dismiss-sync extension file.
     let deliveredNotificationClearer: any DeliveredNotificationClearing
     /// Durable outbox for phone→Mac dismissals.
@@ -596,6 +630,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
+        autoAttachEnabled: Bool = MobileAutoAttachFlag.isEnabled(),
+        autoAttachPresence: (any MobileAutoAttachPresenceProviding)? = nil,
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
@@ -612,6 +648,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.presence = presence
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.autoAttachEnabled = autoAttachEnabled
+        self.autoAttachPresence = autoAttachPresence
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
@@ -773,6 +811,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
         storedMacReconnectGeneration &+= 1
+        // Supersede any in-flight auto-attach BEFORE resetting the restoring-gate
+        // flags below, so sign-out's resets are the final word. `cancelAutoAttach`
+        // sets `didFinishStoredMacReconnectAttempt = true` when it supersedes a
+        // gate-owning attempt; doing it first means the resets below clear that,
+        // leaving the next account's sign-in with a clean (not "already finished")
+        // gate. This supersedes a fresh-install attempt parked in connectManualHost
+        // so it cannot suppress the next account's reconnect/auto-attach, resolve a
+        // gate, or drive a connect under the new account.
+        cancelAutoAttach()
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
@@ -1093,6 +1140,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func connectManualHost(name: String, host: String, port: Int) async {
+        await connectManualHost(name: name, host: host, port: port, supersedeAutoAttach: true)
+    }
+
+    /// - Parameter supersedeAutoAttach: `true` for a user-initiated submission, so
+    ///   it cancels any in-flight auto-attach BEFORE the validation guards (an
+    ///   invalid host/port returns before `beginPairingAttempt`, so the cancel must
+    ///   happen here). Auto-attach's OWN connect passes `false` so it does not
+    ///   cancel itself. This is an explicit per-call parameter (not a shared
+    ///   marker), so a concurrent user submission during auto-attach's own connect
+    ///   is never misclassified: each call carries its own intent on the stack.
+    func connectManualHost(name: String, host: String, port: Int, supersedeAutoAttach: Bool) async {
+        if supersedeAutoAttach {
+            supersedeInFlightAutoAttach()
+        }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
@@ -1124,7 +1185,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
-        let attemptID = beginPairingAttempt(method: "manual")
+        // Propagate the supersede intent: a user submission already cancelled
+        // auto-attach above; auto-attach's own connect (supersedeAutoAttach=false)
+        // must not cancel itself here either.
+        let attemptID = beginPairingAttempt(method: "manual", supersedeAutoAttach: supersedeAutoAttach)
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
@@ -1203,8 +1267,56 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         guard let mac = saved else {
-            // Definitively no active Mac: clear the hint so future launches show
-            // the add-device sheet immediately with no restoring flash.
+            // Definitively no active Mac. Before falling through to the pair
+            // screen, try registry-driven auto-attach: a signed-in phone whose
+            // team has one reachable Mac connects with no QR. Auto-attach owns the
+            // restoring gate from here (it persists a paired Mac on success, so the
+            // next launch takes the normal stored-mac path above and never
+            // re-runs). It is bounded, cancellable, and falls through to the pair
+            // screen on no candidate / failure, so it can't strand the user.
+            if autoAttachEnabled {
+                // A concurrent reconnect trigger (foreground + sign-in) must not
+                // touch the restoring gate while the FIRST auto-attach is still
+                // running: that would drop RestoringSessionView to the pair/QR
+                // screen mid-connect, defeating the no-flash onboarding path. The
+                // first attempt owns the gate and resolves it itself, so this
+                // superseding trigger bails without disturbing it. (`autoAttachInFlight`
+                // is set synchronously before any await in the runner, so this
+                // read is race-free on the main actor.)
+                //
+                // The cross-account hazard — a fresh-install attempt parked in
+                // connectManualHost while the user signs out and into another
+                // account — is handled at the source: `signOut()` resets
+                // `autoAttachInFlight` (and the restoring-gate flags), so the new
+                // account's reconnect sees the flag false here and runs its own
+                // auto-attach normally rather than being suppressed by the stale
+                // attempt.
+                if autoAttachInFlight { return false }
+                let attached = await runAutoAttachOwningRestoringGate(stackUserID: stackUserID)
+                if attached { return true }
+                // Auto-attach finished without connecting; the runner already
+                // resolved the restoring gate. Clear the hint so future launches
+                // show the add-device sheet immediately with no restoring flash.
+                //
+                // Guard the write: a concurrent event (a manual pairing the user
+                // completed, or an account switch) could have run while this
+                // attempt awaited the registry. Only write the negative hint when
+                // we are still the current reconnect generation, still
+                // disconnected, and still signed in — otherwise this stale write
+                // would clobber the `true` hint a successful manual pairing set, or
+                // write the global hint after sign-out. `setHasKnownPairedMac` is
+                // generation-guarded; the extra state checks cover the
+                // manual-pairing case (which does not bump the reconnect
+                // generation but does flip connectionState/hint).
+                if generation == storedMacReconnectGeneration,
+                   isSignedIn,
+                   connectionState != .connected {
+                    setHasKnownPairedMac(false, generation: generation)
+                }
+                return false
+            }
+            // Auto-attach disabled: no stored Mac means resolve the gate and fall
+            // through to add-device.
             setHasKnownPairedMac(false, generation: generation)
             finishStoredMacReconnectAttempt(generation: generation)
             return false
@@ -1335,6 +1447,283 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             await self.loadPairedMacs()
         }
+    }
+
+    // MARK: - Registry-driven auto-attach
+
+    /// Registry-driven auto-attach: the "sign in → connected" onboarding path.
+    ///
+    /// When a signed-in phone has no stored pairing and is disconnected, this
+    /// loads the team-scoped device registry, picks the single obvious Mac (the
+    /// one online Mac, else the single most-recently-active Mac with a reachable
+    /// route), and connects to it via the same path the device-tree tap uses
+    /// (`connectToRegistryInstance`), which mints the attach ticket
+    /// Stack-authenticated on the Mac and persists the pairing. The persist means
+    /// the *next* launch takes the ordinary stored-mac reconnect path and never
+    /// re-runs auto-attach.
+    ///
+    /// Conservative and bounded by construction:
+    /// - Same-account only: the registry is scoped to the signed-in user's team,
+    ///   and the Mac authorizes the mint on matching Stack account, so a
+    ///   different-account Mac never appears and could never be connected.
+    /// Cancel any in-flight auto-attach attempt and supersede it by bumping the
+    /// generation, so its still-alive awaits discard their results and its
+    /// runner/deadline can no longer resolve the restoring gate or drive a
+    /// connect. Called on sign-out and on every user-initiated pairing, so a stale
+    /// background auto-attach never overrides the new account or the user's manual
+    /// pairing.
+    ///
+    /// When the superseded attempt was holding the launch restoring gate, this
+    /// resolves the gate here: the superseded runner's own cleanup is generation-
+    /// guarded and now a no-op, so without this a manual pairing that later fails
+    /// would leave RestoringSessionView stuck up.
+    /// Supersede any in-flight auto-attach on a USER-initiated pairing.
+    ///
+    /// Beyond `cancelAutoAttach` (which bumps the generation so a parked attempt's
+    /// awaits discard their results), this also invalidates the active pairing
+    /// attempt when an auto-attach is in flight. That covers the case where
+    /// auto-attach has ALREADY entered its own `connectManualHost` and minted a
+    /// `pairingAttemptID`: bumping the generation alone would not stop that
+    /// in-flight connect (its `isCurrentPairingAttempt` checks key off the
+    /// attempt id, not the generation), so a user's invalid manual submission that
+    /// returns before its own `beginPairingAttempt` could still be overridden by
+    /// the background connect. Regenerating the attempt id makes auto-attach's
+    /// in-flight connect bail at its next `isCurrentPairingAttempt` check.
+    ///
+    /// Guarded on `autoAttachInFlight` so it never clobbers an unrelated live
+    /// pairing attempt when no auto-attach is running.
+    private func supersedeInFlightAutoAttach() {
+        let wasInFlight = autoAttachInFlight
+        cancelAutoAttach()
+        guard wasInFlight else { return }
+        // Auto-attach may already be inside its own `connect()`, which installs the
+        // live client guarded by `connectionGeneration` (not `pairingAttemptID`),
+        // and whose `isCurrentPairingAttempt` check runs only AFTER it has set
+        // `connectionState = .connected`. Invalidating the pairing attempt alone
+        // would not stop that in-flight connect. Bump the connection generation and
+        // cancel in-flight remote work — the same supersession `beginPairingAttempt`
+        // performs — so auto-attach's running connect discards its result at its
+        // `generation == connectionGeneration` guard instead of landing over the
+        // user's explicit pairing. This runs BEFORE the validation guards in
+        // `connectManualHost`, so even an invalid user submission supersedes it.
+        invalidatePairingAttempt()
+        connectionGeneration = UUID()
+        cancelRemoteOperationTasks()
+    }
+
+    private func cancelAutoAttach() {
+        autoAttachGeneration &+= 1
+        autoAttachRunningGeneration = nil
+        if autoAttachOwnsRestoringGate {
+            autoAttachOwnsRestoringGate = false
+            isReconnectingStoredMac = false
+            didFinishStoredMacReconnectAttempt = true
+        }
+    }
+
+    /// Runs an auto-attach attempt that owns the launch restoring gate
+    /// (``RestoringSessionView``) for its whole lifetime, then resolves it.
+    ///
+    /// Used from the no-stored-Mac reconnect branch. It holds the gate up while
+    /// auto-attach runs (so onboarding shows "Restoring session…" instead of a QR
+    /// flash), caps that window with the same bounded deadline the stored-Mac path
+    /// uses, and resolves the gate based on the per-attempt generation it owns —
+    /// not the stored-Mac reconnect generation, which a concurrent trigger may
+    /// bump. A newer auto-attach (or `cancelAutoAttach`) supersedes this one by
+    /// advancing ``autoAttachGeneration``, so a stale runner/deadline becomes a
+    /// no-op and cannot strand the gate or run a connect.
+    ///
+    /// - Returns: `true` only when a live connection landed under this attempt.
+    private func runAutoAttachOwningRestoringGate(stackUserID: String?) async -> Bool {
+        let generation = beginAutoAttachGeneration()
+        isReconnectingStoredMac = true
+        // Mark that an auto-attach runner holds the gate, so a user-initiated
+        // pairing that supersedes this attempt via `cancelAutoAttach` resolves the
+        // gate instead of leaving it stranded.
+        autoAttachOwnsRestoringGate = true
+        // Cap the restoring-gate window: a single stale/offline registry candidate
+        // makes the manual connect hang on its timeout, so without this deadline
+        // the gate would stay up for the whole registry + connect timeout and the
+        // fresh-install path would look hung instead of falling through to the
+        // pair sheet. The connect keeps running in the background, so a later
+        // success still flips to the workspaces; this only resolves the visible
+        // gate. Guarded by the per-attempt generation, so a superseded attempt's
+        // deadline can never clear a newer attempt's gate. Bounded and cancellable
+        // (not a poll) — cancelled the instant the attempt returns below.
+        let restoringDeadline = Task { [weak self] in
+            try? await ContinuousClock().sleep(
+                for: .seconds(Self.storedMacReconnectRestoringDeadlineSeconds)
+            )
+            guard let self, !Task.isCancelled,
+                  generation == self.autoAttachGeneration,
+                  self.connectionState != .connected else { return }
+            self.isReconnectingStoredMac = false
+            self.didFinishStoredMacReconnectAttempt = true
+        }
+        let attached = await performAutoAttach(stackUserID: stackUserID, generation: generation)
+        restoringDeadline.cancel()
+        endAutoAttachGeneration(generation)
+        // Resolve the gate only if we are still the current attempt: a superseding
+        // attempt (or cancel) now owns the gate and will resolve it itself (the
+        // cancel path already did so via `cancelAutoAttach`).
+        if generation == autoAttachGeneration {
+            autoAttachOwnsRestoringGate = false
+            isReconnectingStoredMac = false
+            didFinishStoredMacReconnectAttempt = true
+            // This runner is the authoritative determiner for the no-stored-Mac
+            // path: it definitively found no stored Mac AND no auto-attach target.
+            // Clear the negative hint HERE (keyed on the auto-attach generation,
+            // which we still own) rather than relying on the caller's
+            // stored-mac-generation-guarded write, which a concurrent duplicate
+            // reconnect trigger can supersede — leaving `pairedMacHintUndetermined`
+            // unresolved and the restoring gate stuck on a fresh install.
+            if !attached, isSignedIn, connectionState != .connected {
+                hasKnownPairedMac = false
+            }
+        }
+        return attached
+    }
+
+    /// Public/test entry point for a one-shot auto-attach attempt that does NOT
+    /// own the restoring gate.
+    ///
+    /// Dedupes against any attempt already in flight: if one is running, returns
+    /// `false` immediately rather than racing a second registry load / destructive
+    /// connect, satisfying the one-attempt-at-a-time contract for every caller.
+    ///
+    /// - Returns: `true` only when a live connection landed under this attempt.
+    @discardableResult
+    func attemptAutoAttachIfEligible(stackUserID: String?) async -> Bool {
+        guard autoAttachEnabled, isSignedIn, connectionState != .connected else { return false }
+        guard !autoAttachInFlight else { return false }
+        let generation = beginAutoAttachGeneration()
+        defer { endAutoAttachGeneration(generation) }
+        return await performAutoAttach(stackUserID: stackUserID, generation: generation)
+    }
+
+    /// Claim the next auto-attach generation and mark it the in-flight attempt.
+    /// Synchronous (no await), so a concurrent caller observes `autoAttachInFlight`
+    /// true at its next main-actor hop and dedupes.
+    private func beginAutoAttachGeneration() -> Int {
+        autoAttachGeneration &+= 1
+        let generation = autoAttachGeneration
+        autoAttachRunningGeneration = generation
+        return generation
+    }
+
+    /// Clear the in-flight marker when `generation` is still current, so a
+    /// superseded attempt does not erase a newer attempt's running marker.
+    private func endAutoAttachGeneration(_ generation: Int) {
+        guard generation == autoAttachGeneration else { return }
+        autoAttachRunningGeneration = nil
+    }
+
+    /// The shared auto-attach flow: load the registry, pick the single obvious
+    /// Mac, and connect to it via the proven registry connect path.
+    ///
+    /// Guarded by the per-attempt `generation`: after every suspension it bails
+    /// unless this is still the current attempt AND the same signed-in account, so
+    /// a task left alive by a sign-out/account switch or superseded by a newer
+    /// attempt can never resume and drive a destructive connect. This is the
+    /// equivalent of the stored-Mac path owning a pairing attempt id before its
+    /// connect, and mirrors the account-switch guard in ``loadPairedMacs`` /
+    /// ``loadRegistryDevices``.
+    ///
+    /// - Returns: `true` only when a live connection landed under this attempt.
+    private func performAutoAttach(stackUserID: String?, generation: Int) async -> Bool {
+        // Capture the requesting account; after any suspension the result is
+        // discarded unless this is still the same signed-in user and the current
+        // attempt.
+        let requestingUserID = stackUserID ?? identityProvider?.currentUserID
+        func stillCurrent() -> Bool {
+            generation == autoAttachGeneration
+                && isSignedIn
+                && connectionState != .connected
+                && identityProvider?.currentUserID == requestingUserID
+        }
+        guard autoAttachEnabled, stillCurrent(), let deviceRegistry else { return false }
+        // Auto-attach decides from a FRESHLY-confirmed registry list, not the
+        // store-wide `registryDevices` cache. `loadRegistryDevices()` deliberately
+        // keeps the prior cache on a transient failure (so a UI blip never blanks
+        // the device tree), but auto-attach must NOT connect off a stale list
+        // during a registry outage — the contract is to degrade to manual. So we
+        // read the outcome directly and proceed only on `.ok`; `.authRejected` /
+        // `.transientFailure` fall through to the pair screen. The UI cache is
+        // refreshed separately below so the tree still benefits from this load.
+        let outcome = await deviceRegistry.listDevices()
+        // The load suspended the main actor; bail if the user connected, signed
+        // out, switched accounts, or a newer attempt superseded this one.
+        guard stillCurrent() else { return false }
+        guard case let .ok(freshDevices) = outcome else {
+            // Registry unreachable/unauthorized: degrade to manual. Still refresh
+            // the UI cache (it honors the same outcome semantics) so the device
+            // tree reflects the latest known state.
+            await loadRegistryDevices()
+            return false
+        }
+        // Keep the UI device tree in sync with this fresh list.
+        await loadRegistryDevices()
+        guard stillCurrent() else { return false }
+
+        // Prefer an explicitly injected presence provider; otherwise fall back to
+        // the shell's own live presence stream (#5792), which the device tree
+        // already subscribes. Either way the selector prefers a single online Mac
+        // and treats multiple online Macs as ambiguous. `nil` (no provider AND no
+        // presence data yet) keeps the recency-only path unchanged.
+        let presenceOnline: Set<String>?
+        if let provided = await autoAttachPresence?.onlineDeviceIDs() {
+            presenceOnline = provided
+        } else if !presenceMap.isEmpty {
+            presenceOnline = presenceMap.onlineDeviceIDs()
+        } else {
+            presenceOnline = nil
+        }
+        guard stillCurrent() else { return false }
+
+        // On a physical phone, reject loopback routes: a `127.0.0.1` route names
+        // the phone itself, not the Mac, and loopback is Stack-auth-trusted, so
+        // auto-dialing it would fail and could hand the bearer to a phone-local
+        // listener. The simulator (where 127.0.0.1 IS the host Mac) keeps loopback.
+        let rejectLoopback = Self.isPhysicalDevice
+        guard let target = MobileAutoAttachTargetSelector.selectTarget(
+            devices: freshDevices,
+            supportedRouteKinds: runtime?.supportedRouteKinds ?? [],
+            presenceOnlineDeviceIDs: presenceOnline ?? [],
+            presenceAvailable: presenceOnline != nil,
+            rejectLoopback: rejectLoopback,
+            now: runtime?.now() ?? Date()
+        ) else {
+            return false
+        }
+
+        // Final guard immediately before the destructive connect: if a manual
+        // pairing began (which calls `cancelAutoAttach`), the user connected, or
+        // the account changed since the last await, do NOT start
+        // connectToRegistryInstance — that would invalidate the user's manual
+        // pairing attempt. `selectTarget` is synchronous, so this covers the
+        // window up to the connect.
+        guard stillCurrent() else { return false }
+
+        analytics.capture("ios_auto_attach_attempt", [
+            "candidate_device_count": .int(registryDevices.count),
+            "presence_available": .bool(presenceOnline != nil),
+        ])
+        // Reuse the proven registry connect path: it mints Stack-authenticated,
+        // rolls back to the previous active Mac on failure, and persists the
+        // pairing into the store on success. `supersedeAutoAttach: false` marks
+        // this as auto-attach's OWN connect (an explicit per-call parameter, not a
+        // shared marker), so the `beginPairingAttempt` inside it does not cancel
+        // auto-attach. A concurrent USER pairing during this connect carries
+        // `supersedeAutoAttach: true` on its own call and still supersedes us.
+        await connectToRegistryInstance(
+            device: target.device,
+            instance: target.instance,
+            rejectLoopback: rejectLoopback,
+            supersedeAutoAttach: false
+        )
+        let connected = connectionState == .connected
+        analytics.capture("ios_auto_attach_result", ["connected": .bool(connected)])
+        return connected
     }
 
     // MARK: - Paired Mac switching
@@ -1698,14 +2087,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Parameters:
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
+    /// - Parameter rejectLoopback: When `true`, loopback routes are skipped when
+    ///   choosing the host. Auto-attach passes the physical-device flag so a
+    ///   fresh phone never auto-dials a `127.0.0.1` route (which names the phone
+    ///   itself, not the Mac, and is Stack-auth-trusted). The default `false`
+    ///   preserves the simulator dev flow and the explicit user device-tree tap.
+    /// - Parameter supersedeAutoAttach: `true` (default) for a user-initiated
+    ///   device-tree tap, which cancels any in-flight auto-attach. Auto-attach's
+    ///   OWN connect passes `false` so it does not cancel itself.
     public func connectToRegistryInstance(
         device: RegistryDevice,
-        instance: RegistryAppInstance
+        instance: RegistryAppInstance,
+        rejectLoopback: Bool = false,
+        supersedeAutoAttach: Bool = true
     ) async {
+        // A user-initiated device-tree tap supersedes any in-flight auto-attach
+        // FIRST — before the no-route guard below — so even tapping an
+        // unavailable/stale instance (which returns early) still cancels a
+        // background attempt rather than letting it later connect to a different
+        // target over the user's explicit choice. Auto-attach's own connect passes
+        // `supersedeAutoAttach: false` and is exempt.
+        if supersedeAutoAttach {
+            supersedeInFlightAutoAttach()
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        guard let (host, port) = MobileAttachRoutePriority.firstReachableHostPort(
             instance.routes,
-            supportedKinds: supportedKinds
+            supportedKinds: supportedKinds,
+            rejectLoopback: rejectLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
@@ -1727,7 +2136,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale/offline. Excluding it would strand the user on a same-device tag
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
-        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        // The supersede already ran at the top of this method (for user taps), so
+        // the inner connect must not re-run it: `false` here means "this connect
+        // does not itself supersede auto-attach." For auto-attach's own call
+        // (supersedeAutoAttach == false at the top) this is likewise false, so its
+        // own connect never cancels itself.
+        await connectManualHost(
+            name: device.displayName ?? host,
+            host: host,
+            port: port,
+            supersedeAutoAttach: false
+        )
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -1744,11 +2163,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
+            // Persist the same route set we were willing to dial. When loopback is
+            // rejected (physical phone), strip loopback routes BEFORE storing, so
+            // the next stored-Mac reconnect (which uses `firstReconnectHostPortRoute`
+            // without a rejectLoopback flag) can never pick a `127.0.0.1` route that
+            // names the phone itself and is Stack-auth-trusted. The simulator keeps
+            // loopback (there it IS the host Mac).
+            let persistedRoutes = rejectLoopback
+                ? instance.routes.filter { !MobileShellRouteAuthPolicy.routeIsLoopback($0) }
+                : instance.routes
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: device.deviceId,
                     displayName: device.displayName,
-                    routes: instance.routes,
+                    routes: persistedRoutes,
                     markActive: true,
                     stackUserID: identityProvider?.currentUserID
                 )
@@ -1859,16 +2287,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind]
     ) -> (String, Int)? {
-        let supportedKinds = Set(supportedKinds)
-        for route in routes.sorted(by: routeSortsBefore) {
-            if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                continue
-            }
-            if case let .hostPort(host, port) = route.endpoint {
-                return (host, port)
-            }
-        }
-        return nil
+        MobileAttachRoutePriority.firstReachableHostPort(routes, supportedKinds: supportedKinds)
+            .map { ($0.host, $0.port) }
     }
 
     /// Runs one paired-Mac store mutation on the serialized write chain.
@@ -2122,6 +2542,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
+        // A user-initiated manual pairing supersedes any in-flight auto-attach
+        // (and resolves its restoring gate) here at the top, BEFORE validation, so
+        // even an invalid code parks the background attempt and a later resume
+        // cannot invalidate this manual attempt. (Main split the post-validation
+        // `beginPairingAttempt(method: "qr")` out of this early path, so the
+        // supersede no longer rides on it and must fire explicitly.)
+        supersedeInFlightAutoAttach()
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
@@ -3161,7 +3588,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The one shared entry every pairing flow funnels through, so it is also the
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
-    private func beginPairingAttempt(method: String? = nil) -> UUID {
+    private func beginPairingAttempt(method: String? = nil, supersedeAutoAttach: Bool = true) -> UUID {
+        // Every pairing attempt funnels through here, so this is the single seam
+        // that supersedes any in-flight auto-attach when the user initiates a
+        // pairing (manual host, QR/code, or a device-tree tap). Auto-attach's OWN
+        // connect passes `supersedeAutoAttach: false` so it does not cancel itself.
+        // The supersede resolves the restoring gate if the superseded attempt held
+        // it (so the user is never stranded on RestoringSessionView) and
+        // invalidates auto-attach's in-flight pairing attempt so a background
+        // connect already in progress bails. The fresh `pairingAttemptID` below
+        // then becomes the current attempt for this user pairing.
+        if supersedeAutoAttach {
+            supersedeInFlightAutoAttach()
+        }
         let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
@@ -4978,10 +5417,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
-        if left.priority == right.priority {
-            return left.id < right.id
-        }
-        return left.priority < right.priority
+        MobileAttachRoutePriority.sortsBefore(left, right)
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {

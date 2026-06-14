@@ -116,4 +116,21 @@ import Testing
         #expect(map.instance(deviceId: "mac-a", tag: "ghost") == nil)
         #expect(map.deviceSummary(deviceId: "mac-z") == nil)
     }
+
+    @Test func onlineDeviceIDsRollsUpAnyOnlineInstancePerDevice() {
+        var map = PresenceMap()
+        // mac-a: one online instance; mac-b: only offline instances; mac-c: a
+        // mix (offline default + online build tag) so the device counts as online.
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "default", online: true),
+            instance(deviceId: "mac-b", tag: "default", online: false),
+            instance(deviceId: "mac-c", tag: "default", online: false),
+            instance(deviceId: "mac-c", tag: "beta", online: true),
+        ]))
+        #expect(map.onlineDeviceIDs() == ["mac-a", "mac-c"])
+        // An empty map yields no online ids; the auto-attach caller distinguishes
+        // this "no presence data yet" case from "data exists, nobody online" via
+        // `isEmpty`, so it can fall back to recency only when truly unseeded.
+        #expect(PresenceMap().onlineDeviceIDs().isEmpty)
+    }
 }
