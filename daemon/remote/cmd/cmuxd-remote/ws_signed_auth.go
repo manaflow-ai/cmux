@@ -93,6 +93,9 @@ func parseSignedAuthPublicKey(text string) (ed25519.PublicKey, error) {
 	}
 	decoded, err := base64.StdEncoding.DecodeString(trimmed)
 	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(trimmed)
+	}
+	if err != nil {
 		decoded, err = base64.RawURLEncoding.DecodeString(trimmed)
 	}
 	if err != nil {

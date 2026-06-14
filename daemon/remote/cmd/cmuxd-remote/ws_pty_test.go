@@ -317,13 +317,18 @@ func TestWebSocketPTYRejectsSignedTokenForWrongAudience(t *testing.T) {
 
 func TestParseSignedAuthPublicKeyAcceptsPaddedBase64URL(t *testing.T) {
 	raw := bytes.Repeat([]byte{0xff}, ed25519.PublicKeySize)
-	encoded := base64.URLEncoding.EncodeToString(raw)
-	parsed, err := parseSignedAuthPublicKey(encoded)
-	if err != nil {
-		t.Fatalf("parse padded base64url public key: %v", err)
+	encodings := map[string]string{
+		"padded base64url": base64.URLEncoding.EncodeToString(raw),
+		"unpadded base64":  base64.RawStdEncoding.EncodeToString(raw),
 	}
-	if !bytes.Equal(parsed, raw) {
-		t.Fatalf("parsed public key = %x, want %x", []byte(parsed), raw)
+	for name, encoded := range encodings {
+		parsed, err := parseSignedAuthPublicKey(encoded)
+		if err != nil {
+			t.Fatalf("parse %s public key: %v", name, err)
+		}
+		if !bytes.Equal(parsed, raw) {
+			t.Fatalf("%s parsed public key = %x, want %x", name, []byte(parsed), raw)
+		}
 	}
 }
 
