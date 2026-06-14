@@ -140,7 +140,14 @@ export async function POST(request: Request): Promise<Response> {
   const deviceUuid = trimmedString(body.value.deviceId).toLowerCase();
   const platform = trimmedString(body.value.platform).toLowerCase();
   const displayName = trimmedString(body.value.displayName) || null;
-  const labels = recordOrEmpty(body.value.labels);
+  const rawLabels = recordOrEmpty(body.value.labels);
+  // `manual` is a server-controlled trust marker: it gates loopback/attachability
+  // validation AND is what `cmux remotes` uses to scope list/remove. Strip any
+  // client-supplied `manual` from the labels so a caller cannot set
+  // `labels.manual: true` while omitting the top-level `manual` flag to bypass
+  // route validation yet still have the row treated as a manual remote.
+  const { manual: _ignoredManualLabel, ...labels } = rawLabels;
+  void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
   const routes = routesArray(body.value.routes);
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);

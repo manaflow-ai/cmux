@@ -483,6 +483,33 @@ describe("device registry route", () => {
     expect(response.status).toBe(200);
   });
 
+  dbTest("client-supplied labels.manual cannot spoof the manual marker", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // No top-level `manual`, but labels claim manual: the validation gate must
+    // not be bypassed and the persisted marker must not be set from labels.
+    const resp = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        displayName: "spoof",
+        labels: { manual: true },
+        // A loopback route that WOULD be rejected on the manual path; since this
+        // is treated as a self-registration (no top-level manual), it stores.
+        routes: [{ id: "r0", kind: "debug_loopback", endpoint: { type: "host_port", host: "127.0.0.1", port: 51001 } }],
+      }),
+    );
+    expect(resp.status).toBe(200); // not the manual path, so not rejected
+
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as { devices: Array<{ deviceId: string; labels: Record<string, unknown> }> };
+    const row = list.devices.find((d) => d.deviceId === DEVICE_A);
+    // The spoofed labels.manual was stripped, so `cmux remotes` (which filters on
+    // labels.manual === true) will NOT treat this self-registered row as manual.
+    expect(row?.labels.manual ?? false).toBe(false);
+  });
+
   dbTest("rejects a manual remote whose route is loopback", async () => {
     if (!sql) throw new Error("test database not initialized");
 
