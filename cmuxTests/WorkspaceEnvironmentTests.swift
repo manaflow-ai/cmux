@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -104,6 +105,17 @@ struct WorkspaceEnvironmentTests {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
         let replacement = workspace.createReplacementTerminalPanel()
         #expect(replacement.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
+    }
+
+    /// A new terminal panel records the workspace env keys it was seeded with, so a
+    /// later respawn can drop a previous workspace's env when the surface has been
+    /// moved (the same panel travels with the move).
+    @Test
+    func newPanelRecordsSeededWorkspaceEnvironmentKeys() throws {
+        let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod", "API_BASE": "https://x"])
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        #expect(panel.seededWorkspaceEnvironmentKeys == ["AWS_PROFILE", "API_BASE"])
     }
 
     /// An explicit per-surface environment (layout `env`, scrollback replay, SSH

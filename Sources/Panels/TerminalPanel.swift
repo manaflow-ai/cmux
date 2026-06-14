@@ -49,6 +49,13 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// Keys this panel inherited from its workspace's `workspaceEnvironment` at
+    /// creation. The same panel travels when a surface is moved between
+    /// workspaces, so a respawn uses these to drop the (possibly previous)
+    /// workspace's variables and re-apply the current workspace's, rather than
+    /// re-seeding the source workspace's env (issue #5995).
+    var seededWorkspaceEnvironmentKeys: Set<String> = []
+
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
 

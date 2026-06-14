@@ -3672,6 +3672,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
+        // Record which env keys this freshly-created panel inherited from the
+        // workspace, so a later respawn (which reuses this panel even after a
+        // move to another workspace) can drop them and re-apply the current
+        // workspace's env instead of leaking the source workspace's (#5995).
+        // Only creation runs through here — attach uses configureTerminalPanel —
+        // so the keys keep reflecting the workspace the surface's env was built
+        // from until the panel is respawned.
+        terminalPanel.seededWorkspaceEnvironmentKeys = Set(workspaceEnvironment.keys)
         if TerminalTextBoxInputSettings.focusOnNewTerminals() {
             terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
@@ -7047,8 +7055,17 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        // Drop env this surface inherited from its (possibly previous) workspace,
+        // then re-fold the current workspace's env below, so a terminal moved
+        // between workspaces respawns with the destination's variables rather than
+        // the source's (#5995). configureNewTerminalPanel re-records the keys for
+        // the replacement panel against the current workspace.
+        let oldSeededWorkspaceKeys = oldPanel.seededWorkspaceEnvironmentKeys
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+            .filter { !oldSeededWorkspaceKeys.contains($0.key) }
+        let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
+            oldPanel.surface.respawnAdditionalEnvironment.filter { !oldSeededWorkspaceKeys.contains($0.key) }
+        )
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
