@@ -147,12 +147,15 @@ struct ChatScrollButtonFramePreferenceKey: PreferenceKey {
 
 extension View {
     /// Publishes this control's frame so the keyboard-dismiss tap excludes it.
+    /// The scroll button extends its hit area 3pt beyond its frame
+    /// (`contentShape(Circle().inset(by: -3))`); match that here so a tap in
+    /// the halo scrolls without also dismissing the keyboard.
     func excludedFromKeyboardDismiss() -> some View {
         background(
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: ChatScrollButtonFramePreferenceKey.self,
-                    value: proxy.frame(in: .global)
+                    value: proxy.frame(in: .global).insetBy(dx: -3, dy: -3)
                 )
             }
         )
