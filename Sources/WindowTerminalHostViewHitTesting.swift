@@ -2,12 +2,16 @@ import AppKit
 
 extension WindowTerminalHostView {
     func hasHostedTerminal(at point: NSPoint) -> Bool {
-        for subview in subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView,
-                  !hostedView.isHidden,
-                  hostedView.alphaValue > 0,
-                  hostedView.frame.contains(point) else { continue }
-            return true
+        hasHostedTerminal(at: point, in: self)
+    }
+
+    private func hasHostedTerminal(at point: NSPoint, in view: NSView) -> Bool {
+        guard !view.isHidden, view.alphaValue > 0 else { return false }
+        let pointInView = view.convert(point, from: self)
+        guard view.bounds.contains(pointInView) else { return false }
+        if view is GhosttySurfaceScrollView { return true }
+        for subview in view.subviews.reversed() {
+            if hasHostedTerminal(at: point, in: subview) { return true }
         }
         return false
     }
@@ -19,10 +23,12 @@ extension WindowTerminalHostView {
 
     private static func hasHostedTerminal(atWindowPoint windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden, view.alphaValue > 0 else { return false }
+        let pointInView = view.convert(windowPoint, from: nil)
+        guard view.bounds.contains(pointInView) else { return false }
 
         if let hostView = view as? WindowTerminalHostView {
             let pointInHost = hostView.convert(windowPoint, from: nil)
-            if hostView.bounds.contains(pointInHost), hostView.hasHostedTerminal(at: pointInHost) {
+            if hostView.hasHostedTerminal(at: pointInHost) {
                 return true
             }
         }

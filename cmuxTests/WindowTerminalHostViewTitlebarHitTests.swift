@@ -54,8 +54,11 @@ struct WindowTerminalHostViewTitlebarHitTests {
         let container = try #require(contentView.superview, "Expected window content container")
 
         let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        let wrapperView = NSView(frame: host.bounds)
+        wrapperView.autoresizingMask = [.width, .height]
         let hostedView = makeHostedTerminalView(frame: host.bounds)
-        host.addSubview(hostedView)
+        wrapperView.addSubview(hostedView)
+        host.addSubview(wrapperView)
         container.addSubview(host, positioned: .above, relativeTo: contentView)
 
         let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
