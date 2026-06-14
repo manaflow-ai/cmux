@@ -16,6 +16,7 @@ final class SSHPTYAttachReconnectInputFilter {
     private static let semicolon: UInt8 = 0x3B
     private static let questionMark: UInt8 = 0x3F
     private static let dollar: UInt8 = 0x24
+    private static let maxPendingProbeBytes = 512
 
     private var isFiltering: Bool
     private var pending = [UInt8]()
@@ -83,7 +84,13 @@ final class SSHPTYAttachReconnectInputFilter {
             case .strip(let length):
                 index += length
             case .incomplete:
-                pending.append(contentsOf: bytes[index...])
+                let suffix = bytes[index...]
+                guard suffix.count <= Self.maxPendingProbeBytes else {
+                    isFiltering = false
+                    output.append(contentsOf: suffix)
+                    return output
+                }
+                pending.append(contentsOf: suffix)
                 return output
             case .passThrough:
                 isFiltering = false
@@ -109,7 +116,7 @@ final class SSHPTYAttachReconnectInputFilter {
             return .passThrough
         }
         guard start + 1 < bytes.count else {
-            return .incomplete
+            return .passThrough
         }
 
         switch bytes[start + 1] {
@@ -139,7 +146,7 @@ final class SSHPTYAttachReconnectInputFilter {
         }
 
         guard cursor < bytes.count else {
-            return oscCommandCouldBecomeColorReply(command) ? .incomplete : .passThrough
+            return .passThrough
         }
         guard bytes[cursor] == semicolon else {
             return .passThrough
@@ -164,17 +171,7 @@ final class SSHPTYAttachReconnectInputFilter {
             }
             cursor += 1
         }
-        return .incomplete
-    }
-
-    private static func oscCommandCouldBecomeColorReply(_ command: [UInt8]) -> Bool {
-        if command.isEmpty {
-            return true
-        }
-        if command == [0x31] {
-            return true
-        }
-        return command == [0x31, 0x30] || command == [0x31, 0x31]
+        return .passThrough
     }
 
     private static func csiProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
