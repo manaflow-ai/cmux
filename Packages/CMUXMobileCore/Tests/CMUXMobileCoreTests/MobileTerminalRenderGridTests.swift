@@ -325,6 +325,112 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func applyInheritedThemeBackfillsDefaultsButProgramColorsWin() throws {
+    let palette = (0..<16).map { _ in "#445566" }
+    // The program already set a runtime background (OSC 11) but no foreground.
+    var frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalBackground: "#ABCDEF"
+    )
+    frame.applyInheritedTheme(
+        MobileInheritedTerminalTheme(
+            palette: palette,
+            foreground: "#111111",
+            background: "#222222",
+            cursor: "#333333"
+        )
+    )
+    // Palette always comes from the theme.
+    #expect(frame.terminalPalette == palette)
+    // The program's live background is preserved (theme does not clobber it).
+    #expect(frame.terminalBackground == "#ABCDEF")
+    // Unset defaults are backfilled from the theme.
+    #expect(frame.terminalForeground == "#111111")
+    #expect(frame.terminalCursorColor == "#333333")
+}
+
+@Test func renderGridFullSnapshotReplaysInheritedPalette() throws {
+    // The Mac's resolved 16-color palette is replayed as OSC 4 so the phone's
+    // surface resolves ANSI-indexed colors against the Mac's theme instead of
+    // its hardcoded Monokai fallback.
+    let palette = (0..<16).map { index in
+        String(format: "#%02X0000", index * 16)
+    }
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalPalette: palette
+    )
+
+    #expect(frame.terminalPalette == palette)
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    // Index 1 is "#100000" -> rgb:10/00/00 at OSC 4 index 1.
+    #expect(vt.contains("\u{1B}]4;0;rgb:00/00/00\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;1;rgb:10/00/00\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;15;rgb:f0/00/00\u{1B}\\"))
+    // Every one of the 16 indices is emitted.
+    for index in 0..<16 {
+        #expect(vt.contains("\u{1B}]4;\(index);"))
+    }
+}
+
+@Test func renderGridPaletteRoundTripsThroughJSON() throws {
+    let palette = (0..<16).map { String(format: "#0000%02X", $0 * 16) }
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 3,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalPalette: palette
+    )
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+    #expect(decoded == frame)
+    #expect(decoded.terminalPalette == palette)
+}
+
+@Test func renderGridPaletteRequiresSixteenEntries() throws {
+    // A partial palette is dropped so the phone keeps its consistent built-in
+    // fallback rather than mixing inherited and fallback entries.
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 4,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalPalette: ["#000000", "#111111", "#222222"]
+    )
+    #expect(frame.terminalPalette == nil)
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(!vt.contains("\u{1B}]4;"))
+}
+
+@Test func renderGridDeltaDropsInheritedPalette() throws {
+    let palette = (0..<16).map { _ in "#123456" }
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 5,
+        columns: 4,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "hi")],
+        terminalPalette: palette
+    )
+    #expect(full.terminalPalette == palette)
+    // The delta derived from the full frame must not carry the palette; only the
+    // full snapshot establishes the theme.
+    let delta = try full.filteredRows([0], full: false)
+    #expect(delta.terminalPalette == nil)
+    let vt = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
+    #expect(!vt.contains("\u{1B}]4;"))
+}
+
 @Test func renderGridEncodesFullStateFields() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

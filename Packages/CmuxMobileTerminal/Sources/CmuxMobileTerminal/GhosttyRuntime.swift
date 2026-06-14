@@ -189,6 +189,17 @@ public final class GhosttyRuntime {
         // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
         // 5000-line budget while keeping the worst-case read (which runs on
         // the serial output queue) and per-surface memory phone-sized.
+        //
+        // Theme note: the Monokai colors below are ONLY the pre-first-frame
+        // fallback. Once a paired Mac sends a full render-grid frame, the phone
+        // inherits that Mac's resolved Ghostty theme: the 16-color ANSI palette
+        // is replayed via OSC 4 and the default fg/bg/cursor via OSC 10/11/12
+        // (see MobileTerminalRenderGridReplay), and the surrounding chrome is
+        // recolored from the inherited background. This block just gives a sane
+        // dark default for the brief window before that frame arrives, and for an
+        // unpaired/preview surface that never receives one. The theme is
+        // per-surface/per-Mac, so switching workspaces or Macs shows each one's
+        // own theme rather than a cached global.
         let monokai = """
         scrollback-limit = 2000000
         font-family = Menlo
