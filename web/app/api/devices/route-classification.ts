@@ -250,13 +250,17 @@ export function manualRoutesAreValid(routes: unknown[]): boolean {
     if (!route || typeof route !== "object" || Array.isArray(route)) return false;
     const record = route as Record<string, unknown>;
     if (record.kind !== "tailscale") return false;
+    // Require a non-empty `id`: the iOS `CmxAttachRoute` decoder requires it, so
+    // a route without one stores but the phone drops it as malformed.
+    if (typeof record.id !== "string" || record.id.trim().length === 0) return false;
     const endpoint = record.endpoint;
     if (!endpoint || typeof endpoint !== "object" || Array.isArray(endpoint)) {
       return false;
     }
     const ep = endpoint as Record<string, unknown>;
-    // Tolerate a missing `type` (older shape) but reject a wrong one.
-    if (ep.type !== undefined && ep.type !== "host_port") return false;
+    // Require `type: "host_port"` exactly: the iOS endpoint decoder keys on it,
+    // so a missing/other type is undecodable on the phone.
+    if (ep.type !== "host_port") return false;
     const host = ep.host;
     if (typeof host !== "string" || host.trim().length === 0) return false;
     if (!hostIsTailscaleAttachable(host)) return false;

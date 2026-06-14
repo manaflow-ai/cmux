@@ -389,44 +389,28 @@ describe("device registry route", () => {
   });
 
   test("manualRoutesAreValid enforces the full attach-route schema", () => {
-    // Valid: tailscale host:port, attachable host, in-range port.
-    expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } },
-      ]),
-    ).toBe(true);
-    // Valid without an explicit endpoint type (older shape).
-    expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { host: "my-mac.ts.net", port: 1 } },
-      ]),
-    ).toBe(true);
+    const ok = (overrides: Record<string, unknown> = {}, ep: Record<string, unknown> = {}) => [
+      {
+        id: "m0",
+        kind: "tailscale",
+        endpoint: { type: "host_port", host: "100.64.1.2", port: 51001, ...ep },
+        ...overrides,
+      },
+    ];
+    // Valid: id present, tailscale host:port, attachable host, in-range port.
+    expect(manualRoutesAreValid(ok())).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(true);
     // Invalid cases.
     expect(manualRoutesAreValid([])).toBe(false); // empty
+    expect(manualRoutesAreValid(ok({ id: undefined }))).toBe(false); // missing id (iOS requires it)
+    expect(manualRoutesAreValid(ok({ id: "" }))).toBe(false); // empty id
+    expect(manualRoutesAreValid(ok({}, { type: undefined }))).toBe(false); // missing endpoint.type (iOS requires it)
+    expect(manualRoutesAreValid(ok({}, { port: 0 }))).toBe(false); // port 0
+    expect(manualRoutesAreValid(ok({}, { port: 70000 }))).toBe(false); // port out of range
+    expect(manualRoutesAreValid(ok({ kind: "iroh" }))).toBe(false); // wrong kind
+    expect(manualRoutesAreValid(ok({}, { host: "192.168.1.5" }))).toBe(false); // non-attachable host
     expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 0 } },
-      ]),
-    ).toBe(false); // port 0
-    expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 70000 } },
-      ]),
-    ).toBe(false); // port out of range
-    expect(
-      manualRoutesAreValid([
-        { kind: "iroh", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } },
-      ]),
-    ).toBe(false); // wrong kind
-    expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { type: "host_port", host: "192.168.1.5", port: 51001 } },
-      ]),
-    ).toBe(false); // non-attachable host
-    expect(
-      manualRoutesAreValid([
-        { kind: "tailscale", endpoint: { type: "url", url: "wss://x" } },
-      ]),
+      manualRoutesAreValid([{ id: "m0", kind: "tailscale", endpoint: { type: "url", url: "wss://x" } }]),
     ).toBe(false); // wrong endpoint type
   });
 
@@ -562,6 +546,40 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes[0].endpoint.port).toBe(51001);
   });
 
+  dbTest("marks manual remotes with labels.manual; self-registration is unmarked", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // A manual remote (cmux remotes add) and a self-registered Mac.
+    await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        displayName: "manual-remote",
+        manual: true,
+        routes: [{ id: "m0", kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } }],
+      }),
+    );
+    await POST(
+      registerRequest({
+        deviceId: DEVICE_B,
+        platform: "mac",
+        displayName: "self-registered",
+        routes: [{ id: "r0", kind: "tailscale", endpoint: { type: "host_port", host: "192.168.1.5", port: 51001 } }],
+      }),
+    );
+
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as {
+      devices: Array<{ deviceId: string; labels: Record<string, unknown> }>;
+    };
+    const byId = new Map(list.devices.map((d) => [d.deviceId, d.labels]));
+    // The CLI (RemotesClient.list) filters on `labels.manual === true`, so only
+    // the manual remote is listed/removable by `cmux remotes`.
+    expect(byId.get(DEVICE_A)?.manual).toBe(true);
+    expect(byId.get(DEVICE_B)?.manual ?? false).toBe(false);
+  });
+
   dbTest("re-adding the same manual remote updates its routes in place", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -617,7 +635,9 @@ describe("device registry route", () => {
         platform: "mac",
         displayName: "studio",
         manual: true,
-        routes: [{ id: "m0", kind: "tailscale", endpoint: { type: "host_port", host: "100.6.6.6", port: 51666 } }],
+        // CGNAT host so it passes attachability validation and reaches the
+        // ownership guard (the behavior under test).
+        routes: [{ id: "m0", kind: "tailscale", endpoint: { type: "host_port", host: "100.66.6.6", port: 51666 } }],
       }),
     );
     expect(overwrite.status).toBe(403);

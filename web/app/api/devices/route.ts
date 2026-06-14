@@ -175,6 +175,11 @@ export async function POST(request: Request): Promise<Response> {
   if (manual && !manualRoutesAreValid(routes)) {
     return jsonResponse({ error: "non_attachable_route_rejected" }, 400);
   }
+  // Persist the manual marker on the device so `cmux remotes` can scope list and
+  // remove to user-added remotes only, and never touch a self-registered Mac's
+  // registry row (deleting that would break the phone's reconnect). Stored in
+  // `labels` so it survives in GET without a schema change.
+  const deviceLabels = manual ? { ...labels, manual: true } : labels;
 
   const db = cloudDb();
   const now = new Date();
@@ -224,7 +229,7 @@ export async function POST(request: Request): Promise<Response> {
         userId: user.id,
         platform,
         displayName,
-        labels,
+        labels: deviceLabels,
         lastSeenAt: now,
         updatedAt: now,
       })
@@ -234,7 +239,7 @@ export async function POST(request: Request): Promise<Response> {
           userId: user.id,
           platform,
           displayName,
-          labels,
+          labels: deviceLabels,
           lastSeenAt: now,
           updatedAt: now,
         },

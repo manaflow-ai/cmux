@@ -51,119 +51,6 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
     }
 }
 
-/// One parsed `host:port` attach route for a manually-added remote, plus the
-/// loopback decision. Pure value type so route parsing and the loopback refusal
-/// are unit-testable without any network or running app.
-struct RemoteRouteSpec: Equatable {
-    let host: String
-    let port: Int
-
-    /// Parse a `host:port` string. Accepts bracketed IPv6 (`[::1]:51001`) and a
-    /// trailing `:port`; rejects empty host, missing/out-of-range port, and
-    /// loopback hosts (the same classifier the phone uses to reject a scanned
-    /// loopback QR), so a remote a phone could never dial never reaches the
-    /// registry.
-    static func parse(_ raw: String) throws -> RemoteRouteSpec {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw RemotesClientError.invalidRoute(raw) }
-
-        let host: String
-        let portString: String
-        if trimmed.hasPrefix("[") {
-            // Bracketed IPv6 literal: `[<ipv6>]:<port>`.
-            guard let close = trimmed.firstIndex(of: "]") else {
-                throw RemotesClientError.invalidRoute(raw)
-            }
-            host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<close])
-            let afterBracket = trimmed[trimmed.index(after: close)...]
-            guard afterBracket.hasPrefix(":") else {
-                throw RemotesClientError.invalidRoute(raw)
-            }
-            portString = String(afterBracket.dropFirst())
-        } else {
-            // host:port — split on the LAST colon so a bare (unbracketed) IPv6
-            // literal without a port is rejected rather than mis-split.
-            guard let lastColon = trimmed.lastIndex(of: ":") else {
-                throw RemotesClientError.invalidRoute(raw)
-            }
-            host = String(trimmed[trimmed.startIndex..<lastColon])
-            portString = String(trimmed[trimmed.index(after: lastColon)...])
-            // A bare IPv6 literal (multiple colons, no brackets) is ambiguous
-            // and unsupported; require brackets for IPv6.
-            if host.contains(":") {
-                throw RemotesClientError.invalidRoute(raw)
-            }
-        }
-
-        let cleanedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedHost.isEmpty else { throw RemotesClientError.invalidRoute(raw) }
-        guard let port = Int(portString), (1...65535).contains(port) else {
-            throw RemotesClientError.invalidRoute(raw)
-        }
-        if CmxLoopbackHost().matches(cleanedHost) {
-            throw RemotesClientError.loopbackRoute(host: cleanedHost)
-        }
-        return RemoteRouteSpec(host: cleanedHost, port: port)
-    }
-
-    /// The `CmxAttachRoute` for this spec. Manual remotes are plain LAN/Tailscale
-    /// host:port routes, so they use the `tailscale` transport kind (the route
-    /// kind iOS treats as a directly-dialable host:port).
-    func attachRoute(id: String, priority: Int) throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: id,
-            kind: .tailscale,
-            endpoint: .hostPort(host: host, port: port),
-            priority: priority
-        )
-    }
-
-    /// Whether a signed-in phone could authenticate to this host from the
-    /// registry. Manual routes are stored as `.tailscale`, and the iOS attach
-    /// path (`MobileShellRouteAuthPolicy.routeAllowsStackAuth`) only sends the
-    /// Stack token over a `.tailscale` route whose host is a Tailscale address:
-    /// a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Any other host
-    /// (LAN IP, bare hostname, Tailscale IPv6 ULA) would show in the device list
-    /// but fail to connect with `insecureManualRoute`. This mirrors that policy;
-    /// keep the two in sync. (`MobileShellRouteAuthPolicy` is in a mobile-only
-    /// package the macOS CLI/app entry does not link, so the predicate is
-    /// reimplemented here rather than imported.)
-    var isTailscaleAttachable: Bool {
-        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.hasSuffix(".ts.net") { return true }
-        // CGNAT 100.64.0.0/10: first octet 100, second octet 64...127, dotted
-        // quad with all-decimal octets in 0...255.
-        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return false }
-        let octets = parts.compactMap { part -> Int? in
-            guard !part.isEmpty,
-                  part.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let value = Int(part),
-                  (0...255).contains(value) else {
-                return nil
-            }
-            return value
-        }
-        guard octets.count == 4 else { return false }
-        return octets[0] == 100 && (64...127).contains(octets[1])
-    }
-}
-
-/// A registered remote as returned by the device registry, flattened to one
-/// row per device for `cmux remotes list`.
-struct RemoteSummary {
-    let deviceId: String
-    let displayName: String?
-    let platform: String
-    let tag: String?
-    let routes: [RemoteRouteDisplay]
-    let lastSeen: String?
-}
-
-struct RemoteRouteDisplay {
-    let host: String
-    let port: Int
-}
 
 /// Manages user-initiated remotes in the team-scoped device registry
 /// (`/api/devices`). Mirrors ``VMClient``: an actor with an injected
@@ -195,9 +82,17 @@ actor RemotesClient {
 
     // MARK: - Public operations
 
-    /// List the caller's team's registered remotes (devices + their instance
-    /// routes), flattened to one row per device for display.
+    /// List the caller's team's MANUAL remotes (those added via
+    /// `cmux remotes add`), flattened to one row per device for display.
+    /// Self-registered Macs are excluded so this command never lists or removes
+    /// a device the user did not add through the CLI.
     func list() async throws -> [RemoteSummary] {
+        try await allDevices().filter(\.manual)
+    }
+
+    /// Every device row in the team (manual and self-registered). Internal; the
+    /// public `list()` filters to manual remotes.
+    private func allDevices() async throws -> [RemoteSummary] {
         let (data, http) = try await request("GET", path: "/api/devices")
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
@@ -210,13 +105,16 @@ actor RemotesClient {
             // recently seen instance's routes/tag in the flattened row.
             let primary = instances.first
             let routes = Self.parseDisplayRoutes(primary?["routes"])
+            let labels = device["labels"] as? [String: Any]
+            let manual = (labels?["manual"] as? Bool) ?? false
             return RemoteSummary(
                 deviceId: (device["deviceId"] as? String) ?? "",
                 displayName: device["displayName"] as? String,
                 platform: (device["platform"] as? String) ?? "?",
                 tag: primary?["tag"] as? String,
                 routes: routes,
-                lastSeen: (primary?["lastSeenAt"] as? String) ?? (device["lastSeenAt"] as? String)
+                lastSeen: (primary?["lastSeenAt"] as? String) ?? (device["lastSeenAt"] as? String),
+                manual: manual
             )
         }
     }
@@ -231,6 +129,16 @@ actor RemotesClient {
         guard !routeStrings.isEmpty else { throw RemotesClientError.noRoutes }
 
         let specs = try routeStrings.map { try RemoteRouteSpec.parse($0) }
+        // Await the auth bootstrap/token path FIRST. `currentTokens()` waits for
+        // launch session restore; on a refresh-token-only start `currentUser` is
+        // nil until then, so reading the owner id before this could mint an
+        // unsalted (name-only) device id and break per-user idempotency. After
+        // this await `currentUser` reflects the restored session.
+        do {
+            _ = try await auth.currentTokens()
+        } catch {
+            throw RemotesClientError.notSignedIn
+        }
         let ownerID = await auth.currentUser?.id
         let deviceId = Self.deviceId(forName: name, ownerID: ownerID)
         let attachRoutes = try specs.enumerated().map { index, spec in
@@ -285,18 +193,16 @@ actor RemotesClient {
 
     // MARK: - Resolution
 
-    /// Resolve a `name-or-deviceId` target to a device UUID. A UUID is used
-    /// as-is; anything else is matched against the registry by display name
-    /// (case-insensitive) and, as a fallback, the name-derived UUID.
+    /// Resolve a `name-or-deviceId` target to a MANUAL remote's device UUID.
+    /// Only manual remotes (added via `cmux remotes add`) are candidates, so this
+    /// command can never delete a self-registered Mac's registry row and break
+    /// the phone's reconnect.
     private func resolveDeviceId(target: String) async throws -> String {
-        // Always resolve against the team's registry list so removal reports
-        // success only when a row this caller can actually delete exists. The
-        // DELETE endpoint is idempotent (it returns ok even when nothing was
-        // deleted, e.g. a UUID that does not exist or belongs to another
-        // member), so without this pre-check `remotes remove <uuid>` could print
-        // success while leaving the remote in the list. team members can see
-        // each other's deviceIds via `remotes list`, so this guards both typos
-        // and not-owned ids.
+        // Resolve against the team's MANUAL remotes so removal reports success
+        // only when a manual row this caller can delete exists. The DELETE
+        // endpoint is idempotent and userId-scoped (it returns ok with
+        // deleted=0 for a not-owned/unknown id), so this pre-check is what turns
+        // a no-op into a clear not-found.
         let remotes = try await list()
         if Self.isUUID(target) {
             let normalized = target.lowercased()
@@ -305,18 +211,25 @@ actor RemotesClient {
             }
             throw RemotesClientError.notFound(target)
         }
-        // Prefer the deterministic id THIS name was added under (the caller's
-        // own manual remote), so a duplicate display name shared with a
-        // co-member's or auto-registered device does not shadow the user's own
-        // remote and make removal silently no-op. Salt by the same owner id used
-        // at add time so the caller resolves their own row, not a co-member's.
+        // Await bootstrap so the owner salt matches the one used at add time
+        // (mirrors `add`); on a refresh-token-only start `currentUser` is nil
+        // until the session restores.
+        do {
+            _ = try await auth.currentTokens()
+        } catch {
+            throw RemotesClientError.notSignedIn
+        }
+        // Prefer the deterministic id THIS name was added under (the caller's own
+        // manual remote), so a duplicate manual name shared with a co-member does
+        // not shadow the user's own remote.
         let ownerID = await auth.currentUser?.id
         let derived = Self.deviceId(forName: target, ownerID: ownerID)
         if remotes.contains(where: { $0.deviceId.lowercased() == derived }) {
             return derived
         }
-        // Fall back to an exact display-name match (case-insensitive), e.g. for a
-        // remote whose deviceId was not derived from this exact name.
+        // Fall back to an exact display-name match among manual remotes only
+        // (case-insensitive). Safe because `list()` excludes self-registered
+        // devices and DELETE is userId-scoped.
         if let match = remotes.first(where: {
             ($0.displayName ?? "").compare(target, options: .caseInsensitive) == .orderedSame
         }) {
