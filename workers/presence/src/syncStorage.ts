@@ -62,6 +62,12 @@ const RECORD_PREFIX = "synced:";
 const HEAD_PREFIX = "synchead:";
 const TOMB_PREFIX = "synctomb:";
 const GC_FLOOR_PREFIX = "syncgcfloor:";
+/** `syncbackfill:<collection>` -> 1, set once the DO has projected its full
+ * pre-existing presence map into the collection on rollout. Distinct from
+ * head !== 0: a head can become nonzero from a single device's change while
+ * other devices that only `seen`-heartbeat were never projected, so head is NOT
+ * proof the projection is complete (DESIGN.md §5.4 rollout). */
+const BACKFILL_PREFIX = "syncbackfill:";
 
 function recordKey(collection: string, id: string): string {
   return `${RECORD_PREFIX}${collection}:${id}`;
@@ -84,6 +90,20 @@ function tombPrefix(collection: string): string {
 }
 function gcFloorKey(collection: string): string {
   return `${GC_FLOOR_PREFIX}${collection}`;
+}
+function backfillKey(collection: string): string {
+  return `${BACKFILL_PREFIX}${collection}`;
+}
+
+/** Whether the one-time rollout backfill (project the full pre-existing presence
+ * map into the collection) has run. Defaults false on an old DO. */
+export async function readBackfillDone(storage: SyncStorage, collection: string): Promise<boolean> {
+  return ((await storage.get<number>(backfillKey(collection))) ?? 0) === 1;
+}
+
+/** Mark the one-time rollout backfill complete. */
+export async function markBackfillDone(storage: SyncStorage, collection: string): Promise<void> {
+  await storage.put(backfillKey(collection), 1);
 }
 
 /** Read the per-collection rev clock, defaulting to 0 for a collection (or an

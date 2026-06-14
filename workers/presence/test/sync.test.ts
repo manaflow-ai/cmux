@@ -89,6 +89,14 @@ describe("resolveHello (snapshot vs delta floor)", () => {
   it("forces a snapshot for a client below the GC floor (may have missed a deletion)", () => {
     expect(resolveHello({ cursor: 3, gcFloor: 4, head: 10 })).toEqual({ mode: "snapshot" });
   });
+
+  it("forces a snapshot for a client whose cursor is AHEAD of head (storage reset/rollback)", () => {
+    // A cursor above head cannot come from this DO's current history; delta mode
+    // would send nothing and leave stale devices forever. Force a resnapshot.
+    expect(resolveHello({ cursor: 12, gcFloor: 0, head: 10 })).toEqual({ mode: "snapshot" });
+    // cursor == head is current (delta mode, empty catch-up).
+    expect(resolveHello({ cursor: 10, gcFloor: 0, head: 10 })).toEqual({ mode: "delta", sinceRev: 10 });
+  });
 });
 
 describe("pageSnapshot", () => {

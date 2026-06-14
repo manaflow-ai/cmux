@@ -13,7 +13,9 @@ import {
   gcTombstones,
   lazyUpgradeRecord,
   listRecords,
+  markBackfillDone,
   nextTombstoneGcTime,
+  readBackfillDone,
   readGcFloor,
   readHead,
   readRecord,
@@ -419,6 +421,23 @@ describe("device derivation idempotency through reconcileDeviceRecords (DESIGN ย
     await reconcileDeviceRecords(storage, groupInstancesByDevice([instance()]), ownersFromList(owners), T0);
     const rec = await readRecord<DeviceRecord>(storage, COLL, "dev-A");
     expect(rec!.payload.ownerUserId).toBe("user-123");
+  });
+});
+
+describe("rollout backfill marker (head != 0 is not completion, DESIGN ยง5.4)", () => {
+  it("defaults to not-done and flips on mark", async () => {
+    const storage = new FakeStorage();
+    expect(await readBackfillDone(storage, COLL)).toBe(false);
+    await markBackfillDone(storage, COLL);
+    expect(await readBackfillDone(storage, COLL)).toBe(true);
+  });
+
+  it("is independent of the head being nonzero", async () => {
+    const storage = new FakeStorage();
+    // One device projects (head becomes 1) but backfill never ran: still not done.
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
+    expect(await readHead(storage, COLL)).toBe(1);
+    expect(await readBackfillDone(storage, COLL)).toBe(false);
   });
 });
 

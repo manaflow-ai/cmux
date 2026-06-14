@@ -34,7 +34,14 @@ import {
   type PresenceInstance,
 } from "./core";
 import { parseHello, type SyncServerFrame } from "./sync";
-import { gcTombstones, nextTombstoneGcTime, readHead, resolveHelloFrames, type SyncStorage } from "./syncStorage";
+import {
+  gcTombstones,
+  markBackfillDone,
+  nextTombstoneGcTime,
+  readBackfillDone,
+  resolveHelloFrames,
+  type SyncStorage,
+} from "./syncStorage";
 import {
   DEVICES_COLLECTION,
   groupInstancesByDevice,
@@ -366,14 +373,16 @@ export class TeamPresence extends DurableObject {
       subscribed.push(name);
       // Rollout backfill: an existing DO has `inst:*` presence but no
       // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
-      // after this code deploys). If a client subscribes before any heartbeat
-      // rebuilds the projection, the head is still 0 and it would get an empty
-      // snapshot, hiding currently-present devices. So when the projection is
-      // empty but presence instances exist, build it from the live presence map
-      // once, here, before resolving. Additive and idempotent (the per-device
-      // upsert mints revs only for real records).
-      if ((await readHead(this.syncStorage(), name)) === 0) {
+      // after this code deploys). If a client subscribes before the projection
+      // is complete, it would get a partial/empty snapshot, hiding currently-
+      // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
+      // `head === 0`: a single device's change makes the head nonzero while
+      // other devices that only `seen`-heartbeat remain unprojected, so head !=0
+      // is not proof the projection is complete. Reconcile the whole presence map
+      // once, then mark backfill done. Additive and idempotent.
+      if (!(await readBackfillDone(this.syncStorage(), name))) {
         await this.syncDeviceRecords(Date.now());
+        await markBackfillDone(this.syncStorage(), name);
       }
       const resolved = await resolveHelloFrames<DeviceRecord>(
         this.syncStorage(),

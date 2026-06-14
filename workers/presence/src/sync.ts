@@ -144,7 +144,13 @@ export function resolveHello(input: {
   gcFloor: number;
   head: number;
 }): HelloResolution {
+  // A cursor below the GC floor may have missed a GC'd deletion: full snapshot.
   if (input.cursor < input.gcFloor) return { mode: "snapshot" };
+  // A cursor AHEAD of the head cannot have come from this DO's current history
+  // (storage was reset/rolled back, or the client cached a previous history).
+  // Delta mode would send nothing (head <= cursor), leaving stale/deleted
+  // devices forever. Force a snapshot so the client reconciles to current state.
+  if (input.cursor > input.head) return { mode: "snapshot" };
   return { mode: "delta", sinceRev: input.cursor };
 }
 
