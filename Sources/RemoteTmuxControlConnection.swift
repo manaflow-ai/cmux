@@ -1223,6 +1223,9 @@ final class RemoteTmuxControlConnection {
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }
+        case let .streamError(reason):
+            record("stream-error \(reason)")
+            beginReconnecting()
         case .ignoredNotification, .unparsed:
             break
         }

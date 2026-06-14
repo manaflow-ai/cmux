@@ -51,6 +51,10 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// The coalesced output of one command block (`%begin`…`%end`/`%error`).
     case commandResult(commandNumber: Int, lines: [String], isError: Bool)
 
+    /// The control stream became unsafe to keep parsing, for example because an
+    /// unterminated line or command block exceeded the parser's memory budget.
+    case streamError(String)
+
     /// A recognized notification cmux does not act on (kept for diagnostics).
     case ignoredNotification(String)
 

@@ -15,10 +15,21 @@ import Foundation
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
 struct RemoteTmuxControlStreamParser {
+    private let maxBufferedLineBytes: Int
+    private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
     private var inBlock = false
     private var blockNumber = 0
     private var blockLines: [String] = []
+    private var blockBufferedBytes = 0
+
+    init(
+        maxBufferedLineBytes: Int = 1_048_576,
+        maxCommandBlockBytes: Int = 16_777_216
+    ) {
+        self.maxBufferedLineBytes = max(1, maxBufferedLineBytes)
+        self.maxCommandBlockBytes = max(1, maxCommandBlockBytes)
+    }
 
     /// The DCS sequence tmux emits to enter control mode: `ESC P 1000 p`.
     private static let enterSequence: [UInt8] = [0x1b, 0x50, 0x31, 0x30, 0x30, 0x30, 0x70]
@@ -30,12 +41,22 @@ struct RemoteTmuxControlStreamParser {
     /// Feeds a chunk of stream bytes and returns any newly completed messages.
     mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
         var messages: [RemoteTmuxControlMessage] = []
-        buffer.append(contentsOf: data)
-        while let newlineIndex = buffer.firstIndex(of: 0x0a) {
-            var lineBytes = Array(buffer[..<newlineIndex])
-            buffer.removeSubrange(...newlineIndex)
-            if lineBytes.last == 0x0d { lineBytes.removeLast() } // strip pty CR
-            for message in parse(lineBytes: lineBytes) { messages.append(message) }
+        for byte in data {
+            if byte == 0x0a {
+                var lineBytes = buffer
+                buffer.removeAll(keepingCapacity: true)
+                if lineBytes.last == 0x0d { lineBytes.removeLast() } // strip pty CR
+                for message in parse(lineBytes: lineBytes) {
+                    messages.append(message)
+                    if case .streamError = message { return messages }
+                }
+            } else {
+                buffer.append(byte)
+                if buffer.count > maxBufferedLineBytes {
+                    messages.append(streamError("line exceeded \(maxBufferedLineBytes) bytes"))
+                    return messages
+                }
+            }
         }
         return messages
     }
@@ -86,6 +107,7 @@ struct RemoteTmuxControlStreamParser {
                 )
                 inBlock = false
                 blockLines = []
+                blockBufferedBytes = 0
                 return prefixMessages + [result]
             }
             // Block content is always tmux-formatted text — `capture-pane`/
@@ -93,6 +115,10 @@ struct RemoteTmuxControlStreamParser {
             // bytes split mid-character — so this String round-trip is lossless.
             // Only `%output` (handled above, from raw bytes) carries raw PTY bytes
             // that a String decode would corrupt.
+            if blockBufferedBytes + bytes.count + 1 > maxCommandBlockBytes {
+                return prefixMessages + [streamError("command block exceeded \(maxCommandBlockBytes) bytes")]
+            }
+            blockBufferedBytes += bytes.count + 1
             blockLines.append(line)
             return prefixMessages
         }
@@ -108,10 +134,20 @@ struct RemoteTmuxControlStreamParser {
             blockNumber = number
             inBlock = true
             blockLines = []
+            blockBufferedBytes = 0
             return prefixMessages
         }
 
         return prefixMessages + [parseNotification(line)]
+    }
+
+    private mutating func streamError(_ reason: String) -> RemoteTmuxControlMessage {
+        buffer.removeAll(keepingCapacity: false)
+        inBlock = false
+        blockNumber = 0
+        blockLines = []
+        blockBufferedBytes = 0
+        return .streamError(reason)
     }
 
     /// Parses an `%output %<pane> <octal-escaped data…>` line directly from its raw
