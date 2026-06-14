@@ -3,10 +3,10 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34488	CLI/cmux.swift
 18056	Sources/AppDelegate.swift
-16949	Sources/ContentView.swift
+16919	Sources/ContentView.swift
 14636	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
-12791	Sources/Workspace.swift
+12789	Sources/Workspace.swift
 12112	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12088	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -14,7 +14,7 @@
 7351	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6396	cmuxTests/SessionPersistenceTests.swift
-6299	cmuxTests/GhosttyConfigTests.swift
+6363	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
 6077	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
@@ -93,11 +93,11 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
+934	Sources/NotesTreeStorage.swift
 931	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 926	Sources/DockPanelView.swift
 920	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-917	Sources/NotesTreeStorage.swift
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 893	Sources/WorkspaceContentView.swift
