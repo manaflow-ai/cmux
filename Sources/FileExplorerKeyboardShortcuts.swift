@@ -27,6 +27,7 @@ extension FileExplorerPanelView.Coordinator {
 
 extension FileExplorerNSOutlineView {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard !RightSidebarKeyboardNavigation.isPlainPrintableText(event) else { return false }
         guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         endQuickSearch()
         fileExplorerCoordinator?.openSelectedNode(in: self)
