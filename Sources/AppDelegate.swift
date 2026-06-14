@@ -17959,7 +17959,7 @@ private extension NSWindow {
               let panelId = terminalView.terminalSurface?.id else {
             return nil
         }
-        guard !TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) else {
+        guard !GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) else {
             return nil
         }
         return CmuxPaneBodyPointerFocusTarget(
