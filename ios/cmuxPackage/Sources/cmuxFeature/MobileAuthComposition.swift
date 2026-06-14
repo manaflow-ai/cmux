@@ -140,7 +140,7 @@ public struct MobileAuthComposition {
     private static func localConfigStringOverrides(in bundle: Bundle) -> [String: String] {
         guard let path = bundle.path(forResource: "LocalConfig", ofType: "plist"),
               let dict = NSDictionary(contentsOfFile: path) as? [String: Any] else {
-            return [:]
+            return infoPlistStringOverrides(in: bundle)
         }
         var overrides: [String: String] = [:]
         for (key, value) in dict {
@@ -151,6 +151,18 @@ public struct MobileAuthComposition {
                 }
             }
         }
+        for (key, value) in infoPlistStringOverrides(in: bundle) where overrides[key] == nil {
+            overrides[key] = value
+        }
         return overrides
+    }
+
+    private static func infoPlistStringOverrides(in bundle: Bundle) -> [String: String] {
+        guard let apiBaseURL = bundle.object(forInfoDictionaryKey: "CMUXApiBaseURL") as? String else {
+            return [:]
+        }
+        let trimmed = apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return [:] }
+        return ["ApiBaseURL": trimmed]
     }
 }

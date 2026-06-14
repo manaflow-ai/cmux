@@ -16,6 +16,8 @@
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXApiBaseURL</key>
+	<string>$(CMUX_API_BASE_URL)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -63,8 +65,10 @@
 		     ONLY WKWebView web content from ATS; the app's own API/auth/pairing
 		     traffic stays under ATS and still requires HTTPS. NSAllowsLocalNetworking
 		     alone would not cover routable private-LAN dev servers. -->
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
+			<key>NSAllowsArbitraryLoads</key>
+			<true/>
+			<key>NSAllowsArbitraryLoadsInWebContent</key>
+			<true/>
 	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
