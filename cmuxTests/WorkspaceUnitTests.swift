@@ -1076,7 +1076,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(
             defaults.string(forKey: BrowserEngineSettings.engineKey),
-            BrowserEngine.systemDefault.rawValue
+            CmuxSettings.BrowserEngine.systemDefault.rawValue
         )
         XCTAssertEqual(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool, true)
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled())
@@ -1145,7 +1145,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             XCTAssertNil(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey))
             XCTAssertEqual(
                 defaults.string(forKey: BrowserSearchSettings.searchEngineKey),
-                BrowserSearchEngine.duckduckgo.rawValue
+                CmuxSettings.BrowserSearchEngine.duckduckgo.rawValue
             )
         }
     }
