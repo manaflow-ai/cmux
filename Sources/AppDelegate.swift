@@ -6729,7 +6729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.main.async {
                 guard let browserPanel else { return }
                 if let result = result as? String,
-                   result == "opened" || result == "focused" {
+                   result == "opened" {
                     return
                 }
 #if DEBUG
@@ -6768,7 +6768,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if (searchInput) {
           searchInput.focus();
           if (typeof searchInput.select === "function") searchInput.select();
-          return "focused";
         }
         return "already-open";
       }
