@@ -887,7 +887,7 @@ struct TitlebarControlsView: View {
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
-                WindowAccessor { window in
+                WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
                     if hostWindowNumber != nextWindowNumber {
                         DispatchQueue.main.async {

@@ -254,7 +254,7 @@ struct RightSidebarPanelView: View {
             .frame(width: 1, height: 1)
         )
         .background(
-            WindowAccessor { window in
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
                 let hintWindow = showModifierHoldHints ? window : nil
                 modeShortcutHintMonitor.setHostWindow(hintWindow)
                 focusShortcutHintMonitor.setHostWindow(hintWindow)

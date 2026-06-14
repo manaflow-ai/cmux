@@ -11111,7 +11111,7 @@ struct VerticalTabsSidebar: View {
             SidebarTrailingBorder()
         }
         .background(
-            WindowAccessor { window in
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
                 modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
             .frame(width: 0, height: 0)

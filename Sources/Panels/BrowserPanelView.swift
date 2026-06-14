@@ -1252,7 +1252,7 @@ struct BrowserPanelView: View {
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
         .background(
-            WindowAccessor { window in
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
                 focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
         )
