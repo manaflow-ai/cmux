@@ -1,5 +1,6 @@
-import Foundation
 import Bonsplit
+import CmuxSettings
+import Foundation
 
 struct CloseOtherTabsConfirmationPrompt: Sendable {
     let title: String
@@ -59,7 +60,7 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {

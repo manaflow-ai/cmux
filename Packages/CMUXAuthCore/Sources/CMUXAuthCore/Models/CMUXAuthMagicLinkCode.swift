@@ -1,6 +1,6 @@
 import Foundation
 
-/// The full magic-link verification code: the digits the user typed plus the
+/// The full magic-link verification code: the characters the user typed plus the
 /// opaque nonce the send-email call returned.
 ///
 /// Stack Auth verifies the concatenation, so both halves travel together:
@@ -21,7 +21,11 @@ public struct CMUXAuthMagicLinkCode: Equatable, Sendable {
     }
 
     /// The composed value Stack Auth verifies (`code` + `nonce`).
+    ///
+    /// Stack stores generated codes lowercase while email templates display the
+    /// visible prefix uppercase, so normalize the user-entered prefix before
+    /// appending the opaque nonce.
     public var composed: String {
-        code + nonce
+        code.lowercased() + nonce
     }
 }
