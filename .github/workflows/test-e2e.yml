@@ -15,6 +15,10 @@ on:
         description: "Per-test timeout in seconds"
         required: false
         default: "120"
+      job_timeout:
+        description: "Job timeout in minutes (cold builds on 6-vcpu runners can exceed the 20-minute default)"
+        required: false
+        default: "20"
       record_video:
         description: Record the virtual display during tests
         required: false
@@ -42,7 +46,7 @@ concurrency:
 jobs:
   e2e:
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
@@ -357,11 +361,13 @@ jobs:
           )
 
           set +e
-          OUTPUT=$("${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
-          EXIT_CODE=$?
+          # Stream xcodebuild output into the live job log (and a file for the
+          # summary parsing below). The previous buffered capture lost all
+          # build/test output whenever the job hit its timeout mid-run.
+          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
-
-          echo "$OUTPUT"
+          OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
           # Save summary for the issue
           SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)

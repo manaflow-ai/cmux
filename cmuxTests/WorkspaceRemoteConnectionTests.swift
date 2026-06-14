@@ -1,11 +1,38 @@
 import Combine
 import XCTest
+import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteSession
+import CmuxRemoteWorkspace
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Closure shape shared by the scripted process-runner tests; mirrors the
+/// legacy `runProcessOverrideForTesting` static signature so the scripted
+/// bodies stay byte-identical.
+private typealias RemoteProcessScript = (
+    _ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval
+) throws -> (status: Int32, stdout: String, stderr: String)
+
+/// Test fake for the coordinator's injected process-runner seam: scripts each
+/// subprocess invocation. `@unchecked Sendable` because the scripts capture
+/// test-local locks/semaphores exactly like the legacy static override did.
+private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+    let script: RemoteProcessScript
+
+    func run(
+        _ request: RemoteProcessRequest,
+        operation: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
+        return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+    }
+}
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
@@ -282,7 +309,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remoteRelayMetadataCleanupScript(relayPort: 64008),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64008),
             ],
             timeout: 5
         )
@@ -320,7 +347,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remoteRelayMetadataCleanupScript(relayPort: 64009),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64009),
             ],
             timeout: 5
         )
@@ -367,7 +394,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -429,7 +456,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -487,7 +514,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-a"
             )
@@ -556,7 +583,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -632,7 +659,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -751,8 +778,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonSocketForwardArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonSocketForwardArguments(
             localPort: 64123,
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
@@ -910,7 +936,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
-        let message = remoteDaemonMissingRequiredCapabilitiesMessage([
+        let message = RemoteDaemonStrings.appLocalized.missingRequiredCapabilitiesMessage([
             "pty.session",
             "pty.session.token",
         ])
@@ -921,12 +947,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         XCTAssertFalse(message.contains("pty.session"))
 
-        let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.session,pty.session.token",
+        let notificationMessage = RemoteDaemonStrings.appLocalized.missingRequiredCapabilitiesMessage([
+            "pty.write.notification",
         ])
-        let bootstrapMessage = WorkspaceRemoteSessionController.userFacingRemoteDaemonBootstrapErrorMessage(rawError)
+        XCTAssertEqual(notificationMessage, message)
+        XCTAssertFalse(notificationMessage.contains("pty.write.notification"))
+
+        let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.write.notification",
+        ])
+        let bootstrapMessage = RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
+            rawError,
+            strings: .appLocalized
+        )
         XCTAssertEqual(bootstrapMessage, message)
         XCTAssertFalse(bootstrapMessage.contains("pty.session"))
+        XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
     }
 
     @MainActor
@@ -971,7 +1007,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         try process.run()
 
-        let detail = WorkspaceRemoteSessionController.reverseRelayStartupFailureDetail(
+        let detail = RemoteSessionCoordinator.reverseRelayStartupFailureDetail(
             process: process,
             stderrPipe: stderrPipe,
             gracePeriod: 1.0
@@ -981,7 +1017,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
-        let paths = WorkspaceRemoteSessionController.executableSearchPaths(
+        let paths = RemoteSessionCoordinator.executableSearchPaths(
             environment: [
                 "HOME": "/Users/tester",
                 "PATH": "/usr/bin:/bin",
@@ -1009,7 +1045,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     func testParsePathHelperPathsExtractsPathEntries() {
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.parsePathHelperPaths(
+            RemoteSessionCoordinator.parsePathHelperPaths(
                 "PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin\"; export PATH;\n"
             ),
             [
@@ -1022,7 +1058,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     func testParsePathHelperPathsIgnoresMANPATHAssignments() {
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.parsePathHelperPaths(
+            RemoteSessionCoordinator.parsePathHelperPaths(
                 """
                 MANPATH="/opt/homebrew/share/man:/usr/share/man"; export MANPATH;
                 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin"; export PATH;
@@ -1983,7 +2019,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
         let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
 
-        let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
+        let remotePath = RemoteSessionCoordinator.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
     }
@@ -2022,7 +2058,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
@@ -2052,9 +2088,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -2108,7 +2145,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
@@ -2159,9 +2196,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: nil,
@@ -2196,7 +2234,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             guard executable == "/usr/bin/ssh" else {
                 XCTFail("unexpected executable \(executable)")
                 return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2238,9 +2276,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -2288,7 +2327,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         var cleanupInvoked = false
         var cleanupArguments: [String] = []
 
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             guard executable == "/usr/bin/ssh" else {
                 XCTFail("unexpected executable \(executable)")
                 return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2352,9 +2391,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -3182,8 +3222,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonTransportArguments(
             remotePath: "/remote/cmuxd-remote"
         )
 
@@ -3213,8 +3252,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonTransportArguments(
             remotePath: "/remote/cmuxd-remote"
         )
 
@@ -3243,8 +3281,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterArguments(
                 controlCommand: "forward",
                 forwardSpec: "127.0.0.1:64007:127.0.0.1:54321"
             )
@@ -3280,8 +3317,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterCancelArguments(
                 relayPort: 64007
             )
         )
@@ -3317,8 +3353,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterArguments(
                 controlCommand: "forward",
                 forwardSpec: "127.0.0.1:64033:127.0.0.1:54321"
             )
@@ -3522,7 +3557,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let requireExisting: Bool
     }
 
-    private final class ImmediateExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class ImmediateExitPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         private let lock = NSLock()
         private var recordedAttachCalls: [PTYAttachCall] = []
 
@@ -3540,8 +3575,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             lock.lock()
             recordedAttachCalls.append(PTYAttachCall(
                 sessionID: sessionID,
@@ -3553,14 +3588,22 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             queue.async {
                 onEvent(.exit)
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
-    private final class ImmediateOutputThenExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class ImmediateOutputThenExitPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         func attachBridgePTY(
             sessionID: String,
             attachmentID: String,
@@ -3569,20 +3612,28 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             queue.async {
                 onEvent(.data(Data("early-output".utf8)))
                 onEvent(.exit)
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
-    private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class FloodPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
         func attachBridgePTY(
@@ -3593,32 +3644,40 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             queue.async {
                 let chunk = Data(repeating: 0x78, count: 64 * 1024)
                 for _ in 0..<512 {
                     onEvent(.data(chunk))
                 }
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {}
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            completion(nil)
+        }
 
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
         }
     }
 
-    private final class DelayedOutputPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class DelayedOutputPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
         private let attachStarted: DispatchSemaphore?
         private let attachGate: DispatchSemaphore?
         private let lock = NSLock()
         private var queue: DispatchQueue?
-        private var onEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+        private var onEvent: ((RemotePTYBridgeEvent) -> Void)?
         private var didEmit = false
 
         init(attachStarted: DispatchSemaphore? = nil, attachGate: DispatchSemaphore? = nil) {
@@ -3634,8 +3693,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             attachStarted?.signal()
             if let attachGate {
                 _ = attachGate.wait(timeout: .now() + 2)
@@ -3644,16 +3703,23 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             self.queue = queue
             self.onEvent = onEvent
             lock.unlock()
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
         }
 
-        func writePTY(sessionID: String, attachmentID: String, attachmentToken: String, data: Data) throws {
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
+                completion(nil)
                 return
             }
 
             let emitQueue: DispatchQueue?
-            let emitEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+            let emitEvent: ((RemotePTYBridgeEvent) -> Void)?
             lock.lock()
             if didEmit {
                 emitQueue = nil
@@ -3669,10 +3735,66 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 emitEvent?(.data(Data("after-half-close-output\n".utf8)))
                 emitEvent?(.exit)
             }
+            completion(nil)
         }
 
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {
             detachSemaphore.signal()
+        }
+    }
+
+    private final class DeferredWriteCompletionPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
+        private let lock = NSLock()
+        private var completions: [(Error?) -> Void] = []
+
+        let firstWrite = DispatchSemaphore(value: 0)
+        let secondWrite = DispatchSemaphore(value: 0)
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
+        }
+
+        func writePTY(
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            data: Data,
+            completion: @escaping (Error?) -> Void
+        ) {
+            let writeCount: Int
+            lock.lock()
+            completions.append(completion)
+            writeCount = completions.count
+            lock.unlock()
+
+            if writeCount == 1 {
+                firstWrite.signal()
+            } else if writeCount == 2 {
+                secondWrite.signal()
+            }
+        }
+
+        func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
+
+        func completeWrites() {
+            let pending: [(Error?) -> Void]
+            lock.lock()
+            pending = completions
+            completions.removeAll()
+            lock.unlock()
+
+            for completion in pending {
+                completion(nil)
+            }
         }
     }
 
@@ -3755,27 +3877,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(
-            at: appBundleURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
     private func runProcess(
@@ -3831,47 +3933,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    @MainActor
-    func testARunProcessCaptureSurvivesPipeReadHandleTeardown() throws {
-        let controller = WorkspaceRemoteSessionController(
-            workspace: Workspace(),
-            configuration: WorkspaceRemoteConfiguration(
-                destination: "test@example.invalid",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: nil,
-                relayID: nil,
-                relayToken: nil,
-                localSocketPath: nil,
-                terminalStartupCommand: nil
-            ),
-            controllerID: UUID()
-        )
-
-        let didCloseReadHandles = DispatchSemaphore(value: 0)
-        WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = { stdoutHandle, stderrHandle in
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-            didCloseReadHandles.signal()
-        }
-        defer {
-            WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = nil
-        }
-
-        let result = try controller.runProcessForTesting(
-            executable: "/usr/bin/true",
-            arguments: [],
-            timeout: 2
-        )
-
-        XCTAssertEqual(didCloseReadHandles.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(result.status, 0)
-        XCTAssertEqual(result.stdout, "")
-        XCTAssertEqual(result.stderr, "")
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
@@ -5500,12 +5561,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeFlushesReadyBeforeImmediateExit() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-short-lived",
             attachmentID: "attachment-short-lived",
             command: "printf done",
-            requireExisting: true
+            requireExisting: true,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5546,12 +5608,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeBuffersOutputUntilReadyFrame() throws {
         let rpcClient = ImmediateOutputThenExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-early-output",
             attachmentID: "attachment-early-output",
             command: nil,
-            requireExisting: true
+            requireExisting: true,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5584,15 +5647,58 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(responseText.contains("early-output"), responseText)
     }
 
+    func testPTYBridgeForwardsInputWithoutWaitingForWriteCompletion() throws {
+        let rpcClient = DeferredWriteCompletionPTYBridgeRPC()
+        let server = RemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-input-completion",
+            attachmentID: "attachment-input-completion",
+            command: nil,
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
+        ) {}
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            rpcClient.completeWrites()
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let readyLine = try readLine(from: fd, timeout: 2)
+        XCTAssertTrue(readyLine.contains("\"ready\""), readyLine)
+
+        XCTAssertTrue(writeAll("a", to: fd))
+        XCTAssertEqual(rpcClient.firstWrite.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(writeAll("b", to: fd))
+        XCTAssertEqual(
+            rpcClient.secondWrite.wait(timeout: .now() + 1.0),
+            .success,
+            "Bridge input forwarding should not wait for the prior pty.write response"
+        )
+        rpcClient.completeWrites()
+    }
+
     func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        var server: WorkspaceRemotePTYBridgeServer? = WorkspaceRemotePTYBridgeServer(
+        var server: RemotePTYBridgeServer? = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-stop-retain",
             attachmentID: "attachment-stop-retain",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5610,12 +5716,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeKeepsOutputOpenAfterClientHalfClose() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close",
             attachmentID: "attachment-half-close",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5648,12 +5755,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeKeepsOutputOpenAfterClientHalfCloseWithoutPID() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-no-pid",
             attachmentID: "attachment-half-close-no-pid",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5688,12 +5796,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let attachGate = DispatchSemaphore(value: 0)
         let rpcClient = DelayedOutputPTYBridgeRPC(attachStarted: attachStarted, attachGate: attachGate)
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-before-attach",
             attachmentID: "attachment-half-close-before-attach",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5730,12 +5839,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeDetachesWhenClientSocketClosesAfterAttach() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-client-close",
             attachmentID: "attachment-client-close",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5767,12 +5877,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeClosesBackpressuredOutput() throws {
         let rpcClient = FloodPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-output-flood",
             attachmentID: "attachment-output-flood",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }

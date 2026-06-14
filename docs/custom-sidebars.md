@@ -6,7 +6,7 @@ native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
-It is an opt-in beta: turn on **Settings → Beta features → Custom sidebars**
+It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 
 ## If you are an agent building this for someone
@@ -49,6 +49,48 @@ hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 
+## Choosing the renderer (in-process vs remote)
+
+By default a custom sidebar renders in-process: the interpreted view mounts
+as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
+and same-frame resize all work natively. The tradeoff is that the
+interpreter shares the host process.
+
+For sidebars from sources you do not fully trust you can switch to the
+remote renderer, an out-of-process worker. That is the containment lane: a
+crash or hang caused by the interpreted file cannot take down cmux, but
+input is limited to forwarded clicks (no hover, focus, or keyboard).
+
+Set it in **Settings → Custom Sidebars**, or in `~/.config/cmux/cmux.json`:
+
+    { "customSidebars": { "renderer": "remote" } }
+
+Valid values are `"inProcess"` (default) and `"remote"`. The setting is read
+live; flipping it re-renders the selected sidebar without a restart. Both
+renderers protect the host against pathological sources with an evaluation
+budget (nesting depth and total produced nodes): a render that exceeds the
+budget is discarded and the last good render stays up.
+
+## Downloadable examples
+
+The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
+
+- `status-board.swift` groups workspaces by live signals like urgent bugs,
+  review, progress, research, and done.
+- `finder.swift` shows a macOS Finder-style workspace browser with a source
+  list, selected workspace details, and tabs.
+
+Install one from a cmux checkout:
+
+    mkdir -p ~/.config/cmux/sidebars
+    cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
+    cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+
+Then validate and select it:
+
+    cmux sidebar validate status-board
+    cmux sidebar select status-board
+
 ## Quick start
 
     cat > ~/.config/cmux/sidebars/mine.swift <<'SWIFT'
@@ -77,7 +119,9 @@ Then right-click the sidebar button and choose **mine**.
   (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
-  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
+  workspace's first pull request in sidebar display order) + `prs` (array of
+  the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
@@ -96,43 +140,83 @@ they exist.
 
 ## Views
 
-- `Text("...")`
-- `VStack(alignment: .leading, spacing: 8) { ... }`, `HStack`, `ZStack`
-- `HSplitView { columnA; columnB }` — two columns with a draggable, persisted
-  divider; each column scrolls independently.
-- `Button("Title") { <action> }` and the rich form
-  `Button(action: { <action> }) { <label view> }`
-- `Image(systemName: "folder.fill")` (SF Symbols)
-- `Spacer()`, `Divider()`
-- Shapes: `Rectangle()`, `RoundedRectangle(cornerRadius: 6)`, `Capsule()`,
-  `Circle()` (fill with `.fill(color)` / `.foregroundColor`, size with `.frame`)
-- `Reorderable(data, move: "workspace.reorder") { item in <row> }` — see below.
+Containers: `VStack(alignment:spacing:)`, `HStack`, `ZStack`, `LazyVStack`,
+`LazyHStack`, `Group`, `EmptyView()`, `List { ... }`, `Section("Header") { ... }`,
+`Grid { GridRow { ... } }`, `LazyVGrid`, `LazyHGrid`, `ViewThatFits { ... }`,
+`ScrollView { ... }` (use `ScrollView(.horizontal) { HStack { ... } }` for a
+horizontal strip — vertical scrolling is automatic), and
+`HSplitView { columnA; columnB }` (two resizable, independently-scrolling
+columns with a persisted divider).
+
+Content: `Text("...")`, `Label("Title", systemImage: "folder")`,
+`Image(systemName: "folder.fill")` (SF Symbols),
+`Button("Title") { <action> }` / `Button(action:){ <label> }`,
+`Menu("Title") { <items> }`, `ProgressView(value: 0.4)` / `ProgressView()`,
+`Gauge(value: 0.7)`, `Spacer()`, `Divider()`, `AnyView(<view>)`.
+
+Shapes: `Rectangle`, `RoundedRectangle(cornerRadius:)`,
+`UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse` — fill with
+`.fill(color)` / `.foregroundColor`, outline with `.stroke("#hex", lineWidth: 2)`,
+arc with `.trim(from:to:)`, size with `.frame`.
+
+Reorder: `Reorderable(data, move: "workspace.reorder") { item in <row> }` (see below).
 
 ## Modifiers
 
-`.font(.title2|.headline|.body|.caption|...)`, `.bold()`,
-`.fontWeight(.semibold|.bold|...)`, `.foregroundColor(.blue)` or
-`.foregroundColor("#FF8800")`, `.background("#1C1C1E")`, `.cornerRadius(6)`,
-`.padding(8)`, `.opacity(0.6)`, `.lineLimit(1)`, `.fill(color)` (shapes),
-`.frame(width: 40, height: 6)` / `.frame(maxWidth: .infinity, alignment: .leading)`,
-`.onTapGesture { <action> }` (makes any view tappable).
+Text/typography: `.font(.title2|.headline|.caption|.system(size:design:)...)`,
+`.bold()`, `.italic()`, `.fontWeight(.semibold)`, `.fontDesign(.monospaced)`,
+`.monospaced()`, `.monospacedDigit()`, `.lineLimit(1)`, `.truncationMode(.tail)`,
+`.multilineTextAlignment(.center)`, `.textCase(.uppercase)`, `.strikethrough()`,
+`.underline()`.
 
-Colors: named tokens (`accent`, `primary`, `secondary`, `red`, `blue`, …) or
-hex strings `"#RRGGBB"` / `"#RRGGBBAA"`.
+Color/fill: `.foregroundColor`/`.foregroundStyle`/`.fill`/`.tint` taking a hex
+string `"#FF8800"` or a token (`primary`, `secondary`, `tertiary`, `accent`,
+`red`, `blue`, `mint`, `indigo`, `teal`, `cyan`, `brown`, …). `Color("#hex")` /
+`Color(red:green:blue:)` values too.
+
+Layout: `.padding(8)`, `.frame(width:height:maxWidth:.infinity, alignment:)`,
+`.fixedSize()`, `.layoutPriority(1)`, `.offset(x:y:)`, `.zIndex(1)`,
+`.aspectRatio(contentMode:.fit)`, `.scaledToFit()`/`.scaledToFill()`.
+
+Decoration: `.background("#hex")` **or** `.background { <view> }`,
+`.overlay(alignment:.topTrailing) { <view> }`, `.mask { <view> }`,
+`.safeAreaInset(edge:.top) { <view> }`, `.cornerRadius(8)`,
+`.clipShape(Circle())`, `.clipped()`, `.shadow(color:radius:x:y:)`,
+`.border(.gray, width:1)`, `.blur(radius:)`, `.opacity(0.6)`,
+`.brightness`/`.contrast`/`.saturation`/`.grayscale`,
+`.rotationEffect(.degrees(45))`, `.scaleEffect(1.2)`, `.redacted(reason:.placeholder)`.
+
+SF Symbols: `.imageScale(.large)`, `.symbolRenderingMode(.hierarchical)`,
+`.symbolVariant(.fill)`.
+
+Interaction/semantics: `.onTapGesture { <action> }` (any view tappable),
+`.contextMenu { <buttons> }`, `.help("tip")`, `.disabled(cond)`,
+`.accessibilityLabel("...")`.
+
+The decoration modifiers that take a trailing `{ <view> }` (`.overlay`,
+`.background`, `.mask`, `.safeAreaInset`, `.contextMenu`) accept **any** nested
+view, so you can compose badges, rings, status dots, etc.
 
 ## Language
 
-`let` bindings; `for i in 0..<n` / `1...n` / `for x in array`;
-`ForEach(array) { item in ... }` (and `{ $0 }`); `if/else`; the ternary
-`cond ? a : b` (works inside modifiers and interpolation); string interpolation
-`"\(expr)"`; arithmetic `+ - * / %`; comparisons; `&& || !`; ranges; array
-literals; member access (`obj.field`, `array.count`, `array.isEmpty`,
-`string.count`); subscript `array[i]`, `obj["key"]`.
+`let` bindings; user `func` helpers (value helpers and view helpers returning
+`some View`, explicit `return` supported); `for i in 0..<n` / `1...n` /
+`for x in array`; `ForEach(array) { item in ... }`,
+`ForEach(array.indices) { i in }`, and
+`ForEach(Array(array.enumerated()), id: \.offset) { i, item in }`; `if/else`;
+ternary `cond ? a : b` (works in modifiers and interpolation); string
+interpolation `"\(expr)"`; arithmetic `+ - * / %` (safe on `/ 0`); comparisons;
+`&& || !` (short-circuiting); ranges; array/dictionary literals; member access
+(`obj.field`, `array.count`/`.first`/`.last`/`.indices`, `string.count`);
+subscript `array[i]`, `obj["key"]`.
 
-Array methods: `.filter { $0.selected }`, `.map { $0.title }`, `.sorted()`,
-`.first { $0.selected }`, `.contains { ... }`, `.count { ... }`, `.reversed()`,
-`.prefix(n)`. String methods: `.hasPrefix`, `.hasSuffix`, `.contains`,
-`.uppercased()`, `.lowercased()`, `.split(separator: "/")`.
+Array methods: `.filter`, `.map`, `.flatMap`, `.reduce`, `.sorted { $0 > $1 }`,
+`.first`, `.contains`, `.count`, `.reversed`, `.prefix(n)`, `.suffix(n)`,
+`.dropFirst(n)`, `.dropLast(n)`, `.enumerated()`, `.indices`. String methods:
+`.hasPrefix`, `.hasSuffix`, `.contains`, `.uppercased()`, `.lowercased()`,
+`.split(separator:)`. Numbers: `.formatted(.currency(code:"USD"))` /
+`.formatted(.percent)` / `.formatted(.notation(.compactName))`. Builtins:
+`min`, `max`, `abs`, `Int(...)`, `Double(...)`, `String(...)`.
 
 ## Actions (run real cmux commands on tap)
 
@@ -188,15 +272,21 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
 
 ## Not yet supported
 
-The interpreter is a growing subset. Currently missing: `@State` and input
-controls (`TextField`, `Toggle`, `Slider`, `Picker`); `switch`; reusable view
-structs; `popover`/`sheet`/`menu`; gradients and arbitrary `.overlay`/
-`.background(<view>)`. User `func`s and number/date formatting (`.formatted`)
-are supported. Workspace data (git branch/dirty, ports, PR, unread, remote,
-latest agent/prompt messages) is live; data cmux doesn't track (custom domain
-collections) won't appear. If your sidebar needs a missing feature, write it the
-natural Swift way anyway, unsupported syntax is skipped rather than crashing, and
-ask for the feature.
+The interpreter is a growing subset. `.overlay`/`.background`/`.mask`/
+`.contextMenu` with arbitrary nested views, `Menu`, `List`/`Section`/grids,
+shape `.stroke`/`.trim`, and user `func` helpers are all supported now.
+
+Still missing: `@State` and the interactive input controls that need it
+(`TextField`, `Toggle`, `Slider`, `Picker`) — buttons/taps that run `cmux(...)`
+work, but two-way-bound editing does not yet; `switch`; custom `struct`/`View`
+definitions; `gradients` (`LinearGradient`/…); navigation (`sheet`/`popover`/
+`NavigationStack`); `.keyboardShortcut`; `AsyncImage`/`.resizable`. Workspace
+data (git branch/dirty, ports, PR, unread, remote, latest agent/prompt messages)
+is live; data cmux doesn't track (custom domain collections) won't appear.
+
+If your sidebar needs a missing feature, write it the natural Swift way anyway —
+unsupported syntax is skipped (and even deeply nested or pathological source is
+rendered best-effort, never crashes) — and ask for the feature.
 
 ## Performance and lazy loading
 

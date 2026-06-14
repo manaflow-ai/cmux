@@ -24,6 +24,12 @@ import Testing
             "Text", "VStack", "HStack", "ZStack", "HSplitView", "Button", "Image",
             "Spacer", "Divider", "Rectangle", "RoundedRectangle", "Capsule", "Circle",
             "ForEach", "Reorderable", "cmux", "log", "Color", "ScrollView", "openURL",
+            "LazyVStack", "LazyHStack", "Group", "EmptyView", "List", "Section",
+            "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
+            "min", "max", "abs",
+            "Grid", "GridRow", "LazyVGrid", "LazyHGrid", "ViewThatFits", "GridItem",
+            "ProgressView", "Gauge", "Menu", "AnyView",
+            "LinearGradient", "RadialGradient", "AngularGradient", "Gradient",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",
@@ -32,6 +38,20 @@ import Testing
             "filter", "map", "flatMap", "reduce", "sorted", "first", "contains", "count",
             "reversed", "prefix", "isEmpty", "hasPrefix", "hasSuffix", "uppercased",
             "lowercased", "split", "formatted", "currency", "notation", "percent", "strikethrough", "system",
+            "indices", "enumerated", "dropFirst", "dropLast", "suffix",
+            "joined", "capitalized", "replacingOccurrences", "trimmingCharacters",
+            "italic", "monospaced", "monospacedDigit", "fontDesign", "underline",
+            "multilineTextAlignment", "textCase", "truncationMode",
+            "shadow", "border", "blur", "offset", "scaleEffect", "rotationEffect",
+            "zIndex", "brightness", "contrast", "saturation", "grayscale",
+            "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
+            "overlay", "mask", "safeAreaInset",
+            "imageScale", "symbolRenderingMode", "symbolVariant",
+            "stroke", "strokeBorder", "trim",
+            "contextMenu", "help", "disabled", "keyboardShortcut",
+            "redacted", "unredacted", "accessibilityLabel", "accessibilityHint",
+            "accessibilityValue", "accessibilityHidden", "scrollIndicators",
+            "scrollContentBackground", "aspectRatio", "scaledToFit", "scaledToFill", "resizable",
         ]
 
         var unsupportedCalls: [String: Int] = [:]
