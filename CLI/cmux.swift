@@ -368,132 +368,6 @@ private struct AgentHookNotificationSummary {
     let isFallback: Bool
 }
 
-private enum AgentNeedsInputSourceSignal: String {
-    case claudeAskUserQuestion
-    case claudeNotification
-    case codexOsc
-    case grokHook
-    case opencodeQuestion
-    case cursorHook
-    case geminiHook
-    case qwenHook
-    case unknown
-}
-
-private struct AgentNeedsInputEvent {
-    let agentKind: String
-    let statusKey: String
-    let title: String
-    let workspaceId: String
-    let surfaceId: String
-    let sessionId: String?
-    let subtitle: String
-    let body: String
-    let dedupKey: String?
-    let sourceSignal: AgentNeedsInputSourceSignal
-}
-
-private enum AgentNeedsInputPublishResult: Equatable {
-    case published(response: String)
-    case duplicateSuppressed
-    case targetUnavailable
-}
-
-private struct AgentNeedsInputPublisher {
-    let sessionStore: ClaudeHookSessionStore
-    let sendCommand: (String) throws -> String
-    let notificationPayload: (String, String, String) -> String
-    let surfaceOption: (String?) -> String
-    let quote: (String) -> String
-    let redact: (String) -> String
-    let recordPersistenceError: (String, Error) -> Void
-    var dedupInterval: TimeInterval = 60 * 60
-
-    func publish(_ event: AgentNeedsInputEvent) throws -> AgentNeedsInputPublishResult {
-        guard !event.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !event.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .targetUnavailable
-        }
-
-        if isDuplicate(event) {
-            return .duplicateSuppressed
-        }
-
-        let statusValue = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
-            event.title
-        )
-        let redactedSubtitle = redact(event.subtitle)
-        let redactedBody = redact(event.body)
-        let statusCommand = "set_status \(event.statusKey) \(quote(statusValue)) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(event.workspaceId)\(surfaceOption(event.surfaceId))"
-        _ = try? sendCommand(statusCommand)
-
-        let payload = notificationPayload(event.title, redactedSubtitle, redactedBody)
-        let response = try sendCommand("notify_target_async \(event.workspaceId) \(event.surfaceId) \(payload)")
-        markPublished(event)
-        return .published(response: response)
-    }
-
-    func isDuplicate(_ event: AgentNeedsInputEvent) -> Bool {
-        guard let sessionId = normalized(event.sessionId),
-              let dedupKey = normalized(event.dedupKey) else {
-            return false
-        }
-        do {
-            return try sessionStore.recentlyEmittedNotification(
-                sessionId: sessionId,
-                fingerprint: dedupKey,
-                within: dedupInterval
-            )
-        } catch {
-            recordPersistenceError("dedup-read", error)
-            return false
-        }
-    }
-
-    func markPublished(_ event: AgentNeedsInputEvent) {
-        guard let sessionId = normalized(event.sessionId),
-              let dedupKey = normalized(event.dedupKey) else {
-            return
-        }
-        do {
-            try sessionStore.markNotificationEmitted(
-                sessionId: sessionId,
-                fingerprint: dedupKey,
-                marksAskUserQuestion: event.sourceSignal == .claudeAskUserQuestion
-            )
-        } catch {
-            recordPersistenceError("dedup-write", error)
-        }
-    }
-
-    static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
-        guard let sessionId = normalized(sessionId) else { return nil }
-        let bodyFingerprint = normalizedSingleLineForNeedsInput(body).lowercased()
-        guard !bodyFingerprint.isEmpty else { return nil }
-        let digest = SHA256.hash(data: Data(bodyFingerprint.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return "needs-input:\(agentKind):\(sessionId):\(digest)"
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func normalized(_ value: String?) -> String? {
-        Self.normalized(value)
-    }
-
-    private static func normalizedSingleLineForNeedsInput(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -1812,6 +1686,8 @@ private final class ClaudeHookSessionStore {
         return value
     }
 }
+
+extension ClaudeHookSessionStore: AgentNeedsInputSessionStoring {}
 
 private let agentHookWrapperProcessNames: Set<String> = [
     "sh",

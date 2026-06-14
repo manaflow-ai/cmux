@@ -17,6 +17,11 @@
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
+		C0A43990000000000000001 /* AgentNeedsInputEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A43990000000000000002 /* AgentNeedsInputEvent.swift */; };
+		C0A43990000000000000003 /* AgentNeedsInputPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A43990000000000000004 /* AgentNeedsInputPublisher.swift */; };
+		C0A43990000000000000005 /* AgentNeedsInputPublishResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A43990000000000000006 /* AgentNeedsInputPublishResult.swift */; };
+		C0A43990000000000000009 /* AgentNeedsInputSessionStoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A4399000000000000000A /* AgentNeedsInputSessionStoring.swift */; };
+		C0A43990000000000000007 /* AgentNeedsInputSourceSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A43990000000000000008 /* AgentNeedsInputSourceSignal.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000008 /* AgentSessionBridge.swift */; };
 		A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000B /* AgentSessionBridgeError.swift */; };
@@ -950,6 +955,11 @@
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
+		C0A43990000000000000002 /* AgentNeedsInputEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNeedsInputEvent.swift; sourceTree = "<group>"; };
+		C0A43990000000000000004 /* AgentNeedsInputPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNeedsInputPublisher.swift; sourceTree = "<group>"; };
+		C0A43990000000000000006 /* AgentNeedsInputPublishResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNeedsInputPublishResult.swift; sourceTree = "<group>"; };
+		C0A4399000000000000000A /* AgentNeedsInputSessionStoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNeedsInputSessionStoring.swift; sourceTree = "<group>"; };
+		C0A43990000000000000008 /* AgentNeedsInputSourceSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNeedsInputSourceSignal.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000008 /* AgentSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridge.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000B /* AgentSessionBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridgeError.swift; sourceTree = "<group>"; };
@@ -2464,6 +2474,11 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				C0A43990000000000000002 /* AgentNeedsInputEvent.swift */,
+				C0A43990000000000000004 /* AgentNeedsInputPublisher.swift */,
+				C0A43990000000000000006 /* AgentNeedsInputPublishResult.swift */,
+				C0A4399000000000000000A /* AgentNeedsInputSessionStoring.swift */,
+				C0A43990000000000000008 /* AgentNeedsInputSourceSignal.swift */,
 				C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
@@ -3663,6 +3678,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+				C0A43990000000000000001 /* AgentNeedsInputEvent.swift in Sources */,
+				C0A43990000000000000003 /* AgentNeedsInputPublisher.swift in Sources */,
+				C0A43990000000000000005 /* AgentNeedsInputPublishResult.swift in Sources */,
+				C0A43990000000000000009 /* AgentNeedsInputSessionStoring.swift in Sources */,
+				C0A43990000000000000007 /* AgentNeedsInputSourceSignal.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
