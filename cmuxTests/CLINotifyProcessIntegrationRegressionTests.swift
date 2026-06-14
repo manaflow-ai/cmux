@@ -4934,6 +4934,123 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("https://example.test"), result.stdout)
     }
 
+    func testListSurfacesHonorsGlobalWindowOverride() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("listsurf-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.tree")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_windows"] as? Bool, false)
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            XCTAssertNil(params["workspace_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "active": NSNull(),
+                    "caller": NSNull(),
+                    "windows": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--window", windowId, "list-surfaces", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["count"] as? Int, 0)
+    }
+
+    func testListSurfacesCommandWinsOverSameNamedPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("listsurf-path")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = try makeTemporaryDirectory(prefix: "cmux-list-surfaces-path")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("list-surfaces", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.tree")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_windows"] as? Bool, true)
+            XCTAssertNil(params["window_id"])
+            XCTAssertNil(params["workspace_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "active": NSNull(),
+                    "caller": NSNull(),
+                    "windows": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-surfaces", "--json"],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["count"] as? Int, 0)
+    }
+
     func testListSurfacesRejectsWorkspaceWithAll() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment

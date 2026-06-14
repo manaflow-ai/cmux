@@ -15,12 +15,14 @@ extension CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        terminalOnly: Bool
+        terminalOnly: Bool,
+        windowOverride: String? = nil
     ) throws {
         let options = try parseListSurfacesCommandOptions(
             commandArgs,
             commandName: commandName,
-            terminalOnly: terminalOnly
+            terminalOnly: terminalOnly,
+            windowOverride: windowOverride
         )
         let payload = try buildListSurfacesPayload(
             options: options,
@@ -41,7 +43,8 @@ extension CMUXCLI {
     private func parseListSurfacesCommandOptions(
         _ args: [String],
         commandName: String,
-        terminalOnly: Bool
+        terminalOnly: Bool,
+        windowOverride: String?
     ) throws -> ListSurfacesCommandOptions {
         let workspaceWasProvided = listSurfaceOptionWasProvided(args, name: "--workspace")
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
@@ -87,18 +90,19 @@ extension CMUXCLI {
                 defaultValue: "%@: unexpected argument '%@'"
             ), commandName, extra))
         }
-        if includeAll, let scopedOption = windowOpt != nil ? "--window" : (workspaceOpt != nil ? "--workspace" : nil) {
+        let effectiveWindowOpt = windowOpt ?? windowOverride
+        if includeAll, let scopedOption = effectiveWindowOpt != nil ? "--window" : (workspaceOpt != nil ? "--workspace" : nil) {
             throw CLIError(message: String(format: String(
                 localized: "cli.listSurfaces.error.windowWithAll",
                 defaultValue: "%@: %@ cannot be combined with --all"
             ), commandName, scopedOption))
         }
 
-        let includeAllByDefault = windowOpt == nil && workspaceOpt == nil
+        let includeAllByDefault = effectiveWindowOpt == nil && workspaceOpt == nil
         return ListSurfacesCommandOptions(
             includeAllWindows: includeAll || includeAllByDefault,
             workspaceHandle: workspaceOpt,
-            windowHandle: windowOpt,
+            windowHandle: effectiveWindowOpt,
             jsonOutput: jsonOutput,
             terminalOnly: terminalOnly
         )

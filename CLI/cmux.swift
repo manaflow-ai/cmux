@@ -4244,7 +4244,8 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                terminalOnly: false
+                terminalOnly: false,
+                windowOverride: windowId
             )
 
         case "list-terminals":
@@ -4254,7 +4255,8 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                terminalOnly: true
+                terminalOnly: true,
+                windowOverride: windowId
             )
 
         case "tree":
@@ -5377,6 +5379,8 @@ struct CMUXCLI {
         "list-panels",
         "list-panes",
         "list-status",
+        "list-surfaces",
+        "list-terminals",
         "list-windows",
         "list-workspaces",
         "log",
