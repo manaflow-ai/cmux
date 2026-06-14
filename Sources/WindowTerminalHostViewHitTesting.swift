@@ -1,6 +1,30 @@
 import AppKit
 
 extension WindowTerminalHostView {
+    func hostedTerminalHitView(at point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  !hostedView.isHidden,
+                  hostedView.alphaValue > 0,
+                  hostedView.frame.contains(point) else { continue }
+
+            return hostedView.hitTest(point) ?? hostedView
+        }
+        return nil
+    }
+
+    func hostedTerminalHitViewResolver(at point: NSPoint) -> () -> NSView? {
+        var cachedHitView: NSView?
+        var didResolve = false
+        return {
+            if !didResolve {
+                cachedHitView = self.hostedTerminalHitView(at: point)
+                didResolve = true
+            }
+            return cachedHitView
+        }
+    }
+
     func hasHostedTerminal(at point: NSPoint) -> Bool {
         hasHostedTerminal(at: point, in: self)
     }

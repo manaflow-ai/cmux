@@ -126,13 +126,14 @@ final class WindowTerminalHostView: NSView {
         let eventType = routingContext.eventType
 
         if routingContext.allowsPortalPointerHitTesting {
-            let hostedTerminalHitView = hostedTerminalHitView(at: point)
-            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: hostedTerminalHitView) {
+            let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
+
+            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
 
-            if shouldPassThroughToPaneTabBar(at: point, eventType: currentEvent?.type, hostedTerminalHitView: hostedTerminalHitView) {
+            if shouldPassThroughToPaneTabBar(at: point, eventType: currentEvent?.type, hostedTerminalHitView: resolveHostedTerminalHitView) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -202,17 +203,18 @@ final class WindowTerminalHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    private func shouldPassThroughToTitlebar(at point: NSPoint, hostedTerminalHitView: NSView?) -> Bool {
+    private func shouldPassThroughToTitlebar(at point: NSPoint, hostedTerminalHitView: () -> NSView?) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
         guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else { return false }
-        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) || hostedTerminalHitView == nil
+        if isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) { return true }
+        return hostedTerminalHitView() == nil
     }
 
     private func shouldPassThroughToPaneTabBar(
         at point: NSPoint,
         eventType: NSEvent.EventType?,
-        hostedTerminalHitView: NSView?
+        hostedTerminalHitView: () -> NSView?
     ) -> Bool {
         guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
             at: point,
@@ -221,25 +223,14 @@ final class WindowTerminalHostView: NSView {
         ) else { return false }
         guard decision.result else { return false }
         if decision.registryHit { return true }
-        return hostedTerminalHitView == nil
-    }
-
-    private func hostedTerminalHitView(at point: NSPoint) -> NSView? {
-        for subview in subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView,
-                  !hostedView.isHidden,
-                  hostedView.alphaValue > 0,
-                  hostedView.frame.contains(point) else { continue }
-
-            return hostedView.hitTest(point) ?? hostedView
-        }
-        return nil
+        return hostedTerminalHitView() == nil
     }
 
     private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
-        let hostedTerminalHitView = hostedTerminalHitView(at: point)
-        return shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: hostedTerminalHitView)
-            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: hostedTerminalHitView)
+        let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
+
+        return shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView)
+            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: resolveHostedTerminalHitView)
     }
 
     private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
