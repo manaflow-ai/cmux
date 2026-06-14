@@ -259,7 +259,11 @@ extension TerminalController {
             }
             return .created(id)
         }
-        switch tab.newTerminalSurfaceOutcome(inPane: targetPaneId, focus: focus) {
+        switch tab.newTerminalSurfaceOutcome(
+            inPane: targetPaneId,
+            focus: focus,
+            inheritWorkingDirectoryFallback: true
+        ) {
         case .created(let panel):
             return .created(panel.id)
         case .routedToRemote:

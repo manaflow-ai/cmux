@@ -183,7 +183,12 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            switch workspace.newTerminalSurfaceOutcome(inPane: paneId, focus: focus) {
+            switch workspace.newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: focus,
+                inheritWorkingDirectoryFallback: true,
+                workingDirectoryFallbackSourcePanelId: surfaceId
+            ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 return finish(.created(newPanel.id))
