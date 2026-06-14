@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import CmuxTerminal
 
@@ -272,10 +273,10 @@ extension TerminalController: ControlDebugContext {
         if let enabled {
             UserDefaults.standard.set(
                 enabled,
-                forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+                forKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey
             )
         }
-        return CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
+        return CommandPaletteSettingsStore(defaults: .standard).renameSelectsAllOnFocus
     }
 
     // MARK: - debug.browser.*
