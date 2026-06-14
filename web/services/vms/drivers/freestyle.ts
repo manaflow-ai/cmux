@@ -109,6 +109,7 @@ export class FreestyleProvider implements VMProvider {
           if (imageSupportsSignedWebSocketAuth("freestyle", image)) {
             try {
               await writeFreestyleSignedAttachAudience(fs.vms.ref({ vmId: created.vmId }), created.vmId);
+              await ensureFreestyleWebSocketHealthy(`${created.vmId}.vm.freestyle.sh`);
             } catch (err) {
               await fs.vms.ref({ vmId: created.vmId }).delete().catch(() => undefined);
               throw err;
