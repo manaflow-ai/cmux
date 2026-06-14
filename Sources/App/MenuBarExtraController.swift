@@ -524,7 +524,10 @@ enum MenuBarOnlySettings {
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: menuBarOnlyKey) != nil, defaults.bool(forKey: menuBarOnlyKey) else { return defaultMenuBarOnly }
-        return defaults.object(forKey: explicitEnableKey) != nil ? defaults.bool(forKey: explicitEnableKey) : !legacyCommandPaletteToggleWasUsed(defaults: defaults)
+        if defaults.object(forKey: explicitEnableKey) != nil {
+            return defaults.bool(forKey: explicitEnableKey)
+        }
+        return !legacyCommandPaletteToggleLikelyEnabledMenuBarOnly(defaults: defaults)
     }
 
     static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {

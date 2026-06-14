@@ -9,13 +9,18 @@ extension MenuBarOnlySettings {
         guard defaults.object(forKey: menuBarOnlyKey) != nil,
               defaults.bool(forKey: menuBarOnlyKey),
               defaults.object(forKey: explicitEnableKey) == nil else { return }
-        setEnabled(!legacyCommandPaletteToggleWasUsed(defaults: defaults), defaults: defaults)
+        setEnabled(!legacyCommandPaletteToggleLikelyEnabledMenuBarOnly(defaults: defaults), defaults: defaults)
     }
 
-    static func legacyCommandPaletteToggleWasUsed(defaults: UserDefaults = .standard) -> Bool {
+    static func legacyCommandPaletteToggleLikelyEnabledMenuBarOnly(defaults: UserDefaults = .standard) -> Bool {
         guard let data = defaults.data(forKey: legacyCommandPaletteUsageKey) else { return false }
         guard let history = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
-        return history[legacyCommandPaletteMenuBarOnlyCommandId] != nil
+        guard let entry = history[legacyCommandPaletteMenuBarOnlyCommandId] else { return false }
+        guard let usage = entry as? [String: Any] else { return true }
+        if let useCount = usage["useCount"] as? NSNumber {
+            return useCount.intValue % 2 == 1
+        }
+        return true
     }
 }
 

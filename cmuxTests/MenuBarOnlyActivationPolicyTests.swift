@@ -64,6 +64,29 @@ struct MenuBarOnlyActivationPolicyTests {
         }
     }
 
+    @Test func evenCommandHistoryPreservesLegacyOptIn() throws {
+        try withTemporaryDefaults { defaults in
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+            defaults.set(
+                try JSONSerialization.data(withJSONObject: [
+                    MenuBarOnlySettings.legacyCommandPaletteMenuBarOnlyCommandId: [
+                        "useCount": 2,
+                        "lastUsedAt": 1_700_000_000,
+                    ],
+                ]),
+                forKey: MenuBarOnlySettings.legacyCommandPaletteUsageKey
+            )
+
+            #expect(MenuBarOnlySettings.isEnabled(defaults: defaults))
+            #expect(MenuBarOnlySettings.activationPolicy(defaults: defaults) == .accessory)
+
+            MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
+
+            #expect((defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool) == true)
+            #expect((defaults.object(forKey: MenuBarOnlySettings.explicitEnableKey) as? Bool) == true)
+        }
+    }
+
     @Test func unreadableCommandHistoryDoesNotEnableAccessoryPolicy() throws {
         try withTemporaryDefaults { defaults in
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)

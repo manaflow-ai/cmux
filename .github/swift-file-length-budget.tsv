@@ -93,7 +93,7 @@
 926	Sources/DockPanelView.swift
 919	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 917	cmuxTests/WorkspaceGroupTests.swift
-910	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
+915	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
 880	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
@@ -113,7 +113,7 @@
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-743	Sources/App/MenuBarExtraController.swift
+746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 738	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
