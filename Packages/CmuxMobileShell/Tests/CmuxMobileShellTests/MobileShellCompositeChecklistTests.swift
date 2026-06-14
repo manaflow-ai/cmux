@@ -24,6 +24,23 @@ import Testing
         #expect(checklist.trust == .pending)
     }
 
+    @Test func backgroundReconnectDoesNotPublishChecklist() async throws {
+        // A non-foreground attempt (background reconnect, host switch, device-tree
+        // tap) must not paint the Add Device checklist, so it can never overwrite or
+        // render the foreground sheet's state (issue #6084 autoreview follow-up).
+        let store = MobileShellComposite(reachability: StubReachability(online: false))
+        store.signIn()
+        await store.performConnectManualHost(
+            name: "Stored Mac",
+            host: "100.64.0.1",
+            port: 58_465,
+            isForegroundPairing: false
+        )
+        #expect(store.pairingChecklist == nil)
+        // The failure is still recorded normally for the (non-checklist) surfaces.
+        #expect(store.connectionError != nil)
+    }
+
     @Test func authRejectionClearsNetworkThenFailsAuthenticationGate() async throws {
         let store = makeStore(errorCode: "unauthorized", message: "invalid token")
         let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))
