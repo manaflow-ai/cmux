@@ -207,7 +207,7 @@ struct DeviceTreeView: View {
                         workspace: workspace,
                         connectionStatus: store.macConnectionStatus,
                         isSelected: false,
-                        navigationStyle: .push,
+                        navigationStyle: .sidebar,
                         wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                         previewLineLimit: displaySettings.workspacePreviewLineCount,
                         selectWorkspace: { id in
