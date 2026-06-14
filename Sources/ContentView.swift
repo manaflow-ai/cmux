@@ -48,7 +48,6 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
     }
     return (themeFrame, contentView)
 }
-
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
