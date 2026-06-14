@@ -667,6 +667,10 @@ func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     return false
 }
 
+func cmuxIsDiffViewerURL(_ url: URL?) -> Bool {
+    CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) != nil
+}
+
 private func browserFindCommandEquivalent(
     for event: NSEvent,
     shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
@@ -702,18 +706,25 @@ func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
 
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
 /// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
-/// find from the current focus owner.
+/// find from the current focus owner. Diff viewer pages are the narrow exception:
+/// their first Cmd+F opens the in-page file search, and an unhandled repeat falls
+/// through to WebKit find so the user can search the whole rendered UI.
 func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil,
-    owningWebView: CmuxWebView? = nil
+    owningWebView: CmuxWebView? = nil,
+    pageURL: URL? = nil
 ) -> Bool {
     guard let shortcut = browserFindCommandEquivalent(for: event) else {
         return false
     }
 
     if case .find = shortcut {
-        return false
+        let effectiveURL = pageURL ?? owningWebView?.url
+        guard cmuxIsDiffViewerURL(effectiveURL) else {
+            return false
+        }
+        return true
     }
 
     if case .findInDirectory = shortcut {

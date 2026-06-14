@@ -58,6 +58,7 @@ type AppState = {
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
+  fileSearchFocusRequest: number;
   fileSearchOpen: boolean;
   filesWidth: number;
   filesVisible: boolean;
@@ -77,6 +78,7 @@ type AppAction =
   | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
+  | { type: "focus-file-search" }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
@@ -101,6 +103,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     comments: [],
     copyFeedback: "",
     draft: null,
+    fileSearchFocusRequest: 0,
     fileSearchOpen: false,
     filesWidth: 252,
     filesVisible: true,
@@ -176,6 +179,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       ...state,
       draft: action.draft,
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
+    };
+  case "focus-file-search":
+    return {
+      ...state,
+      fileSearchFocusRequest: state.fileSearchFocusRequest + 1,
+      fileSearchOpen: true,
+      filesVisible: true,
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
@@ -900,6 +910,7 @@ function FilesSidebar({
         {state.treeSource ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
+            fileSearchFocusRequest={state.fileSearchFocusRequest}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -923,12 +934,14 @@ function FilesSidebar({
 
 function PierreFileTree({
   fileSearchOpen,
+  fileSearchFocusRequest,
   label,
   onSelectItem,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
+  fileSearchFocusRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
@@ -961,7 +974,7 @@ function PierreFileTree({
   });
 
   usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchFocusRequest);
   usePierreFileTreeSelection(model, selectedPath);
 
   return <FileTree model={model} style={{ height: "100%" }} />;
@@ -1105,14 +1118,18 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+function usePierreFileTreeSearch(
+  model: ReturnType<typeof useFileTree>["model"],
+  fileSearchOpen: boolean,
+  fileSearchFocusRequest: number,
+): void {
   useEffect(() => {
     if (fileSearchOpen) {
       model.openSearch("");
     } else {
       model.closeSearch();
     }
-  }, [fileSearchOpen, model]);
+  }, [fileSearchFocusRequest, fileSearchOpen, model]);
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
@@ -1298,7 +1315,7 @@ function useKeyboardShortcuts(
       }
       if (shortcutMatchesEvent(fileSearchShortcut, event)) {
         event.preventDefault();
-        dispatch({ type: "set-file-search-open", open: true });
+        dispatch({ type: "focus-file-search" });
         return;
       }
       if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
