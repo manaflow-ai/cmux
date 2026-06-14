@@ -6,7 +6,12 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
-import { testimonials, getTestimonialTranslation } from "./testimonials";
+import { BrandLogoLink } from "./components/brand-logo-link";
+import {
+  testimonials,
+  getTestimonialSubtitle,
+  getTestimonialTranslation,
+} from "./testimonials";
 import { Link } from "../../i18n/navigation";
 
 export default function Home() {
@@ -17,6 +22,7 @@ function HomeContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const tt = useTranslations("testimonials");
+  const tst = useTranslations("testimonialSubtitles");
   const locale = useLocale();
 
   const linkClass =
@@ -29,13 +35,15 @@ function HomeContent() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
-          <img
-            src="/logo.png"
-            alt="cmux icon"
-            width={48}
-            height={48}
-            className="rounded-xl"
-          />
+          <BrandLogoLink className="shrink-0">
+            <img
+              src="/logo.png"
+              alt="cmux icon"
+              width={48}
+              height={48}
+              className="rounded-xl"
+            />
+          </BrandLogoLink>
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
         </div>
 
@@ -55,7 +63,15 @@ function HomeContent() {
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
-          <Balancer>{t("subtitle")}</Balancer>
+          <Balancer>
+            {t.rich("subtitle", {
+              cliLink: (chunks) => (
+                <Link href="/docs/api" className={linkClass}>
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </Balancer>
         </p>
 
         {/* Download */}
@@ -244,6 +260,7 @@ function HomeContent() {
           >
             {testimonials.map((item) => {
               const translation = getTestimonialTranslation(item, locale, tt);
+              const subtitle = getTestimonialSubtitle(item, tst);
               return (
               <li key={item.url}>
                 <span>
@@ -276,13 +293,13 @@ function HomeContent() {
                         alt={item.name}
                         width={16}
                         height={16}
-                        className="rounded-full inline-block"
+                        loading="lazy"
+                        decoding="async"
+                        className="rounded-full inline-block object-cover"
                       />
                     )}
                     {item.name}
-                    {"subtitle" in item && item.subtitle
-                      ? `, ${item.subtitle}`
-                      : ""}
+                    {subtitle ? `, ${subtitle}` : ""}
                   </a>
                 </span>
               </li>
