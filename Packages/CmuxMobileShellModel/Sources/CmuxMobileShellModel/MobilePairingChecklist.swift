@@ -1,71 +1,22 @@
 import Foundation
 
-/// One of the three discrete gates a pairing attempt must clear, in the order
-/// they are attempted. Surfacing each as its own check mark lets the user tell
-/// exactly which stage succeeded or failed instead of reading one opaque
-/// "could not connect" (https://github.com/manaflow-ai/cmux/issues/6084).
-public enum MobilePairingStage: Equatable, Sendable, CaseIterable {
-    /// Reaching the Mac over the network: reachability, routing, the listener,
-    /// and opening the transport to the address the pairing code points at. The
-    /// first gate — nothing else can be attempted until it clears.
-    case network
-    /// Verifying this device's signed-in account credential with the Mac.
-    case authentication
-    /// Confirming the Mac belongs to the same cmux account, over a route trusted
-    /// to carry that credential. The last gate.
-    case trust
-
-    /// Position in the attempt order, used to decide which gates an earlier
-    /// failure leaves untested (`.pending`) versus provably cleared.
-    public var order: Int {
-        switch self {
-        case .network: return 0
-        case .authentication: return 1
-        case .trust: return 2
-        }
-    }
-}
-
-/// The resolution state of a single pairing gate, mirrored into an individual
-/// check mark in the pairing UI.
-public enum MobilePairingStageStatus: Equatable, Sendable {
-    /// Not started, or left untested because an earlier gate has not cleared.
-    case pending
-    /// Currently being attempted.
-    case inProgress
-    /// Cleared.
-    case succeeded
-    /// Failed, carrying the localized headline and optional actionable guidance
-    /// the UI shows beneath this gate's row.
-    case failed(message: String, guidance: String?)
-
-    /// Whether this gate is the one that failed.
-    public var isFailed: Bool {
-        if case .failed = self { return true }
-        return false
-    }
-
-    /// The failure headline, when this gate failed.
-    public var failureMessage: String? {
-        if case let .failed(message, _) = self { return message }
-        return nil
-    }
-
-    /// The actionable next-step line, when this gate failed and one applies.
-    public var failureGuidance: String? {
-        if case let .failed(_, guidance) = self { return guidance }
-        return nil
-    }
-}
-
 /// The per-gate status of the network / authentication / trust pairing
 /// checklist. A value type so the whole "how far did pairing get" projection is
-/// computed in one place and rendered as plain immutable data by the UI.
+/// computed in one place and rendered as plain immutable data by the UI
+/// (https://github.com/manaflow-ai/cmux/issues/6084).
 public struct MobilePairingChecklist: Equatable, Sendable {
+    /// Status of the network gate (reaching the Mac).
     public var network: MobilePairingStageStatus
+    /// Status of the authentication gate (verifying this device's account).
     public var authentication: MobilePairingStageStatus
+    /// Status of the trust gate (confirming it's the right Mac on a trusted route).
     public var trust: MobilePairingStageStatus
 
+    /// Create a checklist from an explicit status for each gate.
+    /// - Parameters:
+    ///   - network: Status of the network gate.
+    ///   - authentication: Status of the authentication gate.
+    ///   - trust: Status of the trust gate.
     public init(
         network: MobilePairingStageStatus,
         authentication: MobilePairingStageStatus,
