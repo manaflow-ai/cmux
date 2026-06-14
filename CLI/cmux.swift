@@ -27077,6 +27077,8 @@ function markSessionNotIdle(event) {
 function markSessionUpdated(event) {
   const record = lifecycleRecordFor(event);
   if (!record) return false;
+  // Metadata refreshes must not clear unresolved prompts or errors.
+  if (record.phase === "needs-input" || record.phase === "error") return false;
   const didChange = record.phase !== "active";
   record.phase = "active";
   record.errorNotified = false;
