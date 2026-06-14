@@ -30,11 +30,11 @@ import Observation
 @Observable
 public final class TerminalKeyboardConfiguration {
     /// Shared instance backing the live input field and the settings toggle.
-    // Read from the UIKit input view inside the off-limits typing-latency path
-    // (TerminalInputTextView) and bound by the mobile settings toggle; retires
-    // alongside TerminalAccessoryConfiguration.shared in the GhosttySurfaceView
-    // UI-god-object split.
-    // TRANSITIONAL — construction-at-root injection lands with that wave.
+    ///
+    /// Read from the UIKit input view in the off-limits typing-latency path
+    /// (``TerminalInputTextView``) and bound by the mobile settings toggle.
+    /// TRANSITIONAL — retires with ``TerminalAccessoryConfiguration/shared`` once
+    /// construction-at-root injection lands in the GhosttySurfaceView split.
     public static let shared = TerminalKeyboardConfiguration()
 
     /// Posted (on the main thread) whenever the preference changes, so the UIKit
