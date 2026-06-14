@@ -148,7 +148,7 @@ describe("FreestyleProvider signed attach", () => {
     process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
     globalThis.fetch = (() => {
       fetchCalls += 1;
-      throw new Error("signed attach should not probe health");
+      return Promise.resolve(new Response("ok", { status: 200 }));
     }) as typeof fetch;
 
     try {
@@ -162,7 +162,7 @@ describe("FreestyleProvider signed attach", () => {
       if (endpoint.transport !== "websocket") throw new Error("expected websocket endpoint");
       expect(endpoint.daemon).toBeTruthy();
       expect(endpoint.url).toBe("wss://vm-1.vm.freestyle.sh/terminal");
-      expect(fetchCalls).toBe(0);
+      expect(fetchCalls).toBe(1);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalKey === undefined) {

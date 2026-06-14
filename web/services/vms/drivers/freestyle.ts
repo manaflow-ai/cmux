@@ -368,6 +368,7 @@ export class FreestyleProvider implements VMProvider {
           const domain = `${vmId}.vm.freestyle.sh`;
           const signingPrivateKey = signedAttachPrivateKey();
           if (options?.signedWebSocketAuth === true && signingPrivateKey) {
+            await ensureFreestyleWebSocketHealthy(domain);
             const pty = makeSignedWebSocketAuthToken("pty", vmId, true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, signingPrivateKey);
             const daemon = makeSignedWebSocketAuthToken("rpc", vmId, false, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
             span.setAttribute("cmux.vm.attach.transport", "websocket");
