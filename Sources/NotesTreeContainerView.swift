@@ -441,6 +441,9 @@ final class NotesTreeOutlineView: NSOutlineView {
             // A live pane pointer: nothing on disk to mutate. Notes attach to
             // it via New Note on the surface or `cmux note new`.
             add(String(localized: "notes.terminal.focus", defaultValue: "Focus terminal"), #selector(focusTerminalContext))
+        case .pastFolder:
+            add(String(localized: "notes.action.collapseAll", defaultValue: "Collapse All"), #selector(collapseAllContext))
+            add(String(localized: "notes.action.refresh", defaultValue: "Refresh"), #selector(refreshContext))
         }
         return menu
     }

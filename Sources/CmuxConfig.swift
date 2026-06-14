@@ -1221,13 +1221,11 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
     static let more = actionReference(CmuxSurfaceTabBarBuiltInAction.more.configID)
 
     static let defaultMoreMenu: [CmuxSurfaceTabBarMenuItem] = [
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.diffViewer.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.filesPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.findPane.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.diffViewer.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.newNote.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.customizeSurfaceTabBar.configID),
     ]
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
@@ -1811,6 +1809,15 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             actionSourcePath: nil,
             iconSourcePath: nil
         )
+    }
+
+    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
+        switch action {
+        case .builtIn(let builtIn):
+            return builtIn.isAvailable(defaults: defaults)
+        case .agent, .command, .workspaceCommand, .actionReference:
+            return true
+        }
     }
 
     private static func defaultTitle(for id: String, action: CmuxSurfaceTabBarButtonAction) -> String {
@@ -2857,10 +2864,13 @@ final class CmuxConfigStore: ObservableObject {
             menuButtons = nil
         }
         guard let menuButtons else { return nil }
-        return try menuButtons.map {
-            try CmuxSurfaceTabBarMenuItem(
-                resolvedSurfaceTabBarButton($0.button, actions: actions).button
-            )
+        return try menuButtons.compactMap { item in
+            let resolved = try resolvedSurfaceTabBarButton(item.button, actions: actions)
+            if let builtIn = resolved.button.action.builtInActionReference,
+               !builtIn.isAvailable() {
+                return nil
+            }
+            return CmuxSurfaceTabBarMenuItem(resolved.button)
         }
     }
 
@@ -2979,14 +2989,16 @@ final class CmuxConfigStore: ObservableObject {
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
-            action.palette && !builtInIDs.contains(action.id)
+            action.palette && !builtInIDs.contains(action.id) && action.isAvailable()
         }
     }
 
     func shortcutActions() -> [CmuxResolvedConfigAction] {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
-            action.shortcut != nil && (builtInIDs.contains(action.id) || action.actionSourcePath != nil)
+            action.shortcut != nil
+                && (builtInIDs.contains(action.id) || action.actionSourcePath != nil)
+                && action.isAvailable()
         }.sorted { lhs, rhs in
             let lhsPriority = builtInIDs.contains(lhs.id) ? 0 : 1
             let rhsPriority = builtInIDs.contains(rhs.id) ? 0 : 1

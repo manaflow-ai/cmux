@@ -105,13 +105,13 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .rightSidebarDock:
             return "dock.rectangle"
         case .filesPane:
-            return "folder.badge.plus"
+            return "folder"
         case .findPane:
-            return "doc.text.magnifyingglass"
+            return "magnifyingglass"
         case .vaultPane:
-            return "books.vertical.fill"
+            return "books.vertical"
         case .diffViewer:
-            return "plusminus"
+            return "doc.text.magnifyingglass"
         case .revealCurrentDirectoryInFinder:
             return "folder"
         case .customizeSurfaceTabBar:
@@ -126,15 +126,15 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     var menuTitle: String {
         switch self {
         case .newWorkspace:
-            return String(localized: "surfaceTabBar.menu.newWorkspace", defaultValue: "New Workspace")
+            return String(localized: "surfaceTabBar.menu.newWorkspace", defaultValue: "Workspace")
         case .cloudVM:
             return String(localized: "surfaceTabBar.menu.cloudVM", defaultValue: "Cloud VM")
         case .newTerminal:
-            return String(localized: "surfaceTabBar.menu.newTerminal", defaultValue: "New Terminal")
+            return String(localized: "surfaceTabBar.menu.newTerminal", defaultValue: "Terminal")
         case .newBrowser:
-            return String(localized: "surfaceTabBar.menu.newBrowser", defaultValue: "New Browser")
+            return String(localized: "surfaceTabBar.menu.newBrowser", defaultValue: "Browser")
         case .newNote:
-            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "New Note")
+            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "Note")
         case .splitRight:
             return String(localized: "surfaceTabBar.menu.splitRight", defaultValue: "Split Right")
         case .splitDown:
@@ -142,15 +142,15 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .more:
             return String(localized: "surfaceTabBar.menu.more", defaultValue: "More")
         case .rightSidebarFiles:
-            return String(localized: "surfaceTabBar.menu.rightSidebarFiles", defaultValue: "Sidebar Files")
+            return String(localized: "surfaceTabBar.menu.rightSidebarFiles", defaultValue: "Files")
         case .rightSidebarFind:
-            return String(localized: "surfaceTabBar.menu.rightSidebarFind", defaultValue: "Sidebar Find")
+            return String(localized: "surfaceTabBar.menu.rightSidebarFind", defaultValue: "Find")
         case .rightSidebarVault:
-            return String(localized: "surfaceTabBar.menu.rightSidebarVault", defaultValue: "Sidebar Vault")
+            return String(localized: "surfaceTabBar.menu.rightSidebarVault", defaultValue: "Vault")
         case .rightSidebarFeed:
-            return String(localized: "surfaceTabBar.menu.rightSidebarFeed", defaultValue: "Sidebar Feed")
+            return String(localized: "surfaceTabBar.menu.rightSidebarFeed", defaultValue: "Feed")
         case .rightSidebarDock:
-            return String(localized: "surfaceTabBar.menu.rightSidebarDock", defaultValue: "Sidebar Dock")
+            return String(localized: "surfaceTabBar.menu.rightSidebarDock", defaultValue: "Dock")
         case .filesPane:
             return String(localized: "surfaceTabBar.menu.filesPane", defaultValue: "Files")
         case .findPane:
@@ -160,9 +160,23 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .diffViewer:
             return String(localized: "surfaceTabBar.menu.diffViewer", defaultValue: "Diff")
         case .revealCurrentDirectoryInFinder:
-            return String(localized: "surfaceTabBar.menu.revealInFinder", defaultValue: "Reveal in Finder")
+            return String(localized: "surfaceTabBar.menu.revealInFinder", defaultValue: "Reveal")
         case .customizeSurfaceTabBar:
             return String(localized: "surfaceTabBar.menu.customize", defaultValue: "Customize")
+        }
+    }
+
+    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
+        switch self {
+        case .rightSidebarFeed:
+            return RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults)
+        case .rightSidebarDock:
+            return RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote,
+             .splitRight, .splitDown, .more, .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
+             .filesPane, .findPane, .vaultPane, .diffViewer,
+             .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
+            return true
         }
     }
 

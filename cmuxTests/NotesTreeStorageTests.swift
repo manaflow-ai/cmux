@@ -9,7 +9,7 @@ import Testing
 
 /// Behavioral tests for the Notes tree on-disk layer. Each test runs against a
 /// fresh temp directory acting as a project root; no app launch required.
-@Suite struct NotesTreeStorageTests {
+@Suite(.serialized) struct NotesTreeStorageTests {
     let projectRoot: String
     private let fm = FileManager.default
 
@@ -55,10 +55,16 @@ import Testing
         try write("not a note", to: (root as NSString).appendingPathComponent("readme.txt"))
         try fm.createDirectory(atPath: (root as NSString).appendingPathComponent("research"), withIntermediateDirectories: true)
 
-        // A session folder is a directory carrying a _session.json marker.
-        NotesTreeStorage.syncSessionFolders(
-            inRoot: root,
-            descriptors: [NotesSessionDescriptor(agent: "claude", sessionId: "s-1", title: "Auth Work", cwd: "/work", modified: 1_700_000_000)]
+        // A user-filed session folder is a directory carrying a _session.json marker.
+        _ = NotesTreeStorage.createSessionFolder(
+            inFolder: root,
+            descriptor: NotesSessionDescriptor(
+                agent: "claude",
+                sessionId: "s-1",
+                title: "Auth Work",
+                cwd: "/work",
+                modified: 1_700_000_000
+            )
         )
 
         let entries = NotesTreeStorage.listEntries(inDirectory: root)
@@ -80,6 +86,71 @@ import Testing
             #expect(marker.sessionId == "s-1")
             #expect(marker.title == "Auth Work")
         }
+    }
+
+    @Test func listEntriesHidesEmptyAutoSessionFoldersButShowsContentfulLegacyOnes() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let autoDescriptor = NotesSessionDescriptor(
+            agent: "claude",
+            sessionId: "auto-empty",
+            title: "Auto empty",
+            cwd: "/work",
+            modified: 1_700_000_000
+        )
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: [autoDescriptor])
+        var entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(!entries.contains { $0.kind.sessionMarker?.sessionId == "auto-empty" })
+
+        let autoFolder = try #require((try? fm.contentsOfDirectory(atPath: root))?.compactMap { name -> String? in
+            let dir = (root as NSString).appendingPathComponent(name)
+            return NotesTreeStorage.sessionMarker(inDirectory: dir)?.sessionId == "auto-empty" ? dir : nil
+        }.first)
+        try write("kept", to: (autoFolder as NSString).appendingPathComponent("note.md"))
+        entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(entries.contains { $0.path == autoFolder })
+        #expect(fm.fileExists(atPath: (autoFolder as NSString).appendingPathComponent("note.md")))
+
+        let promotedDescriptor = NotesSessionDescriptor(
+            agent: "claude",
+            sessionId: "promoted-empty",
+            title: "Promoted empty",
+            cwd: "/work",
+            modified: 1_700_000_002
+        )
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: [promotedDescriptor])
+        let promotedAutoFolder = try #require((try? fm.contentsOfDirectory(atPath: root))?.compactMap { name -> String? in
+            let dir = (root as NSString).appendingPathComponent(name)
+            return NotesTreeStorage.sessionMarker(inDirectory: dir)?.sessionId == "promoted-empty" ? dir : nil
+        }.first)
+        entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(!entries.contains { $0.path == promotedAutoFolder })
+        let promotedUserFolder = try #require(NotesTreeStorage.createSessionFolder(
+            inFolder: root,
+            descriptor: promotedDescriptor
+        ))
+        #expect(promotedUserFolder == promotedAutoFolder)
+        entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(entries.contains { $0.path == promotedUserFolder })
+        #expect(NotesTreeStorage.sessionMarker(inDirectory: promotedUserFolder)?.userCreated == true)
+
+        let userFolder = try #require(NotesTreeStorage.createSessionFolder(
+            inFolder: root,
+            descriptor: NotesSessionDescriptor(
+                agent: "claude",
+                sessionId: "user-empty",
+                title: "User empty",
+                cwd: "/work",
+                modified: 1_700_000_001
+            )
+        ))
+        entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(entries.contains { $0.path == userFolder })
+        #expect(NotesTreeStorage.sessionMarker(inDirectory: userFolder)?.userCreated == true)
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: [])
+        entries = NotesTreeStorage.listEntries(inDirectory: root)
+        #expect(entries.contains { $0.path == userFolder })
     }
 
     @Test func moveRelocatesFileAndIsCollisionSafe() throws {
@@ -379,7 +450,12 @@ import Testing
         // Markers and the session-drag pasteboard are attacker-influenceable,
         // and resume commands splice the session id into shell input.
         let bad = NotesSessionMarker(
-            agent: "claude", sessionId: "abc; rm -rf ~", cwd: "/work", title: "x", modified: 1
+            agent: "claude",
+            sessionId: "abc; rm -rf ~",
+            cwd: "/work",
+            title: "x",
+            modified: 1,
+            userCreated: nil
         )
         #expect(bad.makeSessionEntry() == nil)
         let good = NotesSessionMarker(
@@ -387,7 +463,8 @@ import Testing
             sessionId: "0f3c2a1b-1234-4cde-9f00-aa11bb22cc33",
             cwd: "/work",
             title: "x",
-            modified: 1
+            modified: 1,
+            userCreated: nil
         )
         #expect(good.makeSessionEntry()?.sessionId == "0f3c2a1b-1234-4cde-9f00-aa11bb22cc33")
     }
@@ -455,6 +532,41 @@ import Testing
         // Deleting the folder removes the record with the body.
         store.delete(path: renamedFolder)
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
+    }
+
+    /// Moving an index-owned pane note out of a terminal row and into the
+    /// workspace tree must keep showing the record title, not the UUID body
+    /// filename that backs the flat note store.
+    @Test @MainActor func movedIndexedNoteKeepsRecordTitleInTree() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-display"
+        )
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-display"
+        )
+        let target = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "anchor-display",
+            surfaceAnchorId: "anchor-pane-display",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "pane-title",
+            title: "Pane Title",
+            projectRoot: projectRoot,
+            createIfMissing: true,
+            attachment: target
+        )
+        let moved = try #require(store.moveFlatNote(path: created.path, intoFolder: root))
+        #expect((moved as NSString).lastPathComponent != "Pane Title.md")
+        #expect(store.isIndexedNote(path: moved))
+        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "anchor-display")
+        let movedRecord = try #require(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "pane-title" })
+        #expect(movedRecord.attachments.contains { $0.matches(workspaceTarget) })
+        #expect(!movedRecord.attachments.contains { $0.matches(target) })
+
+        let node = try #require(store.rootNodes.first { $0.path == moved })
+        #expect(node.displayName == "Pane Title")
     }
 
     /// A failed trash must not desynchronize the index: the body is still on
@@ -527,11 +639,10 @@ import Testing
         }
     }
 
-    /// Every observed terminal becomes a virtual folder row; a pane-attached
-    /// flat note and the session record carrying the pane's anchor nest under
-    /// that terminal instead of floating at the root, so "the note attached
-    /// to this terminal" has a stable home with or without an agent running.
-    @Test @MainActor func terminalRowsNestAnchoredNotesAndSessions() throws {
+    /// Every observed terminal becomes a virtual folder row. Pane-attached
+    /// flat notes nest there immediately, while session records only appear
+    /// there when the latest pane observation still sees that session live.
+    @Test @MainActor func terminalRowsNestAnchoredNotesAndOnlyObservedSessions() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-term"
         )
@@ -588,20 +699,260 @@ import Testing
         #expect(terminalRows.map { $0.marker.title } == ["build shell", "scratch"])
         #expect(terminalRows.allSatisfy { $0.node.isVirtual })
 
-        // The anchored terminal owns the pane note and the session row …
+        // With no live session observation yet, the anchored pane note belongs
+        // to the historical session under Past rather than to the plain
+        // terminal row.
         let anchored = try #require(terminalRows.first { $0.marker.anchorId == "anchor-pane-1" })
         let children = anchored.node.children ?? []
-        #expect(children.contains { $0.displayName == "Pane note" })
-        #expect(children.contains { $0.kind.sessionMarker?.sessionId == "s-term" })
+        #expect(!children.contains { $0.displayName == "Pane note" })
+        #expect(!children.contains { $0.kind.sessionMarker?.sessionId == "s-term" })
+        let past = try #require(store.rootNodes.first { $0.kind == .pastFolder })
+        let pastSession = try #require((past.children ?? []).first { $0.kind.sessionMarker?.sessionId == "s-term" })
+        #expect((pastSession.children ?? []).contains { $0.displayName == "Pane note" })
 
-        // … and neither floats at the root anymore.
+        // … and neither the pane note nor the historical session floats at the root.
         #expect(!store.rootNodes.contains { $0.displayName == "Pane note" })
         #expect(!store.rootNodes.contains { $0.kind.sessionMarker?.sessionId == "s-term" })
 
+        store.applyObservedSessions([
+            NotesTreeObservedSession(
+                agent: "claude",
+                sessionId: "s-term",
+                surfaceAnchorId: "anchor-pane-1",
+                terminalPanelId: anchored.marker.panelId
+            )
+        ])
+        let refreshedTerminalRows = store.rootNodes.compactMap { node in
+            node.kind.terminalMarker.map { (node: node, marker: $0) }
+        }
+        let refreshedAnchored = try #require(refreshedTerminalRows.first { $0.marker.anchorId == "anchor-pane-1" })
+        #expect(refreshedAnchored.node.displayName == "Claude Code")
+        #expect(refreshedAnchored.marker.activeSession?.sessionId == "s-term")
+        #expect((refreshedAnchored.node.children ?? []).contains { $0.displayName == "Pane note" })
+        #expect(!(refreshedAnchored.node.children ?? []).contains { $0.kind.sessionMarker?.sessionId == "s-term" })
+        #expect(!store.rootNodes.contains { $0.kind == .pastFolder })
+
         // The anchorless terminal stays an empty pointer row.
-        let bare = try #require(terminalRows.first { $0.marker.anchorId == nil })
+        let bare = try #require(refreshedTerminalRows.first { $0.marker.anchorId == nil })
         #expect((bare.node.children ?? []).isEmpty)
         #expect(!bare.node.isExpandable)
+
+        // When the session exits, the terminal goes back to its shell title
+        // and the session plus its note return to Past.
+        store.applyObservedSessions([])
+        let endedTerminalRows = store.rootNodes.compactMap { node in
+            node.kind.terminalMarker.map { (node: node, marker: $0) }
+        }
+        let endedAnchored = try #require(endedTerminalRows.first { $0.marker.anchorId == "anchor-pane-1" })
+        #expect(endedAnchored.node.displayName == "build shell")
+        #expect(!(endedAnchored.node.children ?? []).contains { $0.displayName == "Pane note" })
+        let endedPast = try #require(store.rootNodes.first { $0.kind == .pastFolder })
+        let endedPastSession = try #require((endedPast.children ?? []).first { $0.kind.sessionMarker?.sessionId == "s-term" })
+        #expect((endedPastSession.children ?? []).contains { $0.displayName == "Pane note" })
+    }
+
+    @Test @MainActor func terminalRowsReflectActiveAgentSessionAndRevertWhenItEnds() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-active"
+        )
+        let panelId = UUID().uuidString
+        store.applyObservedTerminals([
+            NotesTreeObservedTerminal(panelId: panelId, anchorId: nil, title: "zsh")
+        ])
+        var row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
+        #expect(row.displayName == "zsh")
+        #expect(row.kind.terminalMarker?.activeSession == nil)
+
+        store.applyObservedSessions([
+            NotesTreeObservedSession(
+                agent: "claude",
+                sessionId: "s-active",
+                surfaceAnchorId: nil,
+                terminalPanelId: panelId
+            )
+        ])
+        row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
+        #expect(row.displayName == "Claude Code")
+        #expect(row.kind.terminalMarker?.activeSession?.sessionId == "s-active")
+
+        store.applyObservedSessions([])
+        row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
+        #expect(row.displayName == "zsh")
+        #expect(row.kind.terminalMarker?.activeSession == nil)
+    }
+
+    @Test @MainActor func observedTerminalTitleChangesRefreshRows() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-title"
+        )
+        let panelId = UUID().uuidString
+
+        store.applyObservedTerminals([
+            NotesTreeObservedTerminal(panelId: panelId, anchorId: "anchor-pane", title: "old title")
+        ])
+        #expect(store.rootNodes.compactMap(\.kind.terminalMarker).map(\.title) == ["old title"])
+
+        store.applyObservedTerminals([
+            NotesTreeObservedTerminal(panelId: panelId, anchorId: "anchor-pane", title: "new title")
+        ])
+        #expect(store.rootNodes.compactMap(\.kind.terminalMarker).map(\.title) == ["new title"])
+    }
+
+    @Test @MainActor func droppingTreeNoteOnTerminalFilesItUnderTerminalAnchor() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-drop"
+        )
+        let looseNote = try NotesTreeStorage.newNote(inFolder: root, preferredName: "Loose Note")
+        try write("# loose", to: looseNote)
+
+        let terminal = NotesTreeObservedTerminal(
+            panelId: UUID().uuidString,
+            anchorId: "anchor-pane-drop",
+            title: "target terminal"
+        )
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-drop"
+        )
+        store.applyObservedTerminals([terminal])
+
+        let target = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "anchor-drop",
+            surfaceAnchorId: "anchor-pane-drop",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let filedPath = try #require(store.attachNote(path: looseNote, toTerminal: terminal, target: target))
+        #expect(!fm.fileExists(atPath: looseNote))
+        #expect(fm.fileExists(atPath: filedPath))
+
+        let record = try #require(try CmuxNoteStore.list(projectRoot: projectRoot).first)
+        #expect(CmuxNoteStore.noteBodyPath(for: record, projectRoot: projectRoot) == filedPath)
+        #expect(record.attachments.contains { $0.matches(target) })
+
+        let terminalRow = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == terminal.panelId })
+        let children = terminalRow.children ?? []
+        #expect(children.contains { $0.path == filedPath && $0.displayName == record.title })
+        #expect(!store.rootNodes.contains { $0.path == filedPath })
+    }
+
+    @Test @MainActor func droppingIndexedNoteOnAnotherTerminalReplacesWorkspaceAttachment() throws {
+        _ = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-move"
+        )
+        let firstTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "anchor-move",
+            surfaceAnchorId: "anchor-pane-a",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let secondTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "anchor-move",
+            surfaceAnchorId: "anchor-pane-b",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "pane-note",
+            title: "Pane note",
+            projectRoot: projectRoot,
+            createIfMissing: true,
+            attachment: firstTarget
+        )
+        let first = NotesTreeObservedTerminal(
+            panelId: UUID().uuidString,
+            anchorId: "anchor-pane-a",
+            title: "first terminal"
+        )
+        let second = NotesTreeObservedTerminal(
+            panelId: UUID().uuidString,
+            anchorId: "anchor-pane-b",
+            title: "second terminal"
+        )
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-move"
+        )
+        store.applyObservedTerminals([first, second])
+
+        let filedPath = try #require(store.attachNote(path: created.path, toTerminal: second, target: secondTarget))
+        #expect(filedPath == created.path)
+        let record = try #require(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "pane-note" })
+        #expect(record.attachments.contains { $0.matches(secondTarget) })
+        #expect(!record.attachments.contains { $0.matches(firstTarget) })
+
+        let firstRow = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == first.panelId })
+        let secondRow = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == second.panelId })
+        #expect(!(firstRow.children ?? []).contains { $0.path == created.path })
+        #expect((secondRow.children ?? []).contains { $0.path == created.path })
+    }
+
+    @Test @MainActor func workspaceTerminalMetadataChangesPostNotesRefreshNotification() throws {
+        let defaults = UserDefaults.standard
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        defer {
+            if let previousNotes {
+                defaults.set(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            } else {
+                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            }
+        }
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        var observedPanelIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceNotesTreeTerminalMetadataDidChange,
+            object: workspace,
+            queue: nil
+        ) { notification in
+            if let panelId = notification.userInfo?["panelId"] as? UUID {
+                observedPanelIds.append(panelId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "runtime title"))
+        #expect(workspace.notesTreeObservedTerminals().first?.title == "runtime title")
+        workspace.setPanelCustomTitle(panelId: panelId, title: "custom title")
+        #expect(workspace.notesTreeObservedTerminals().first?.title == "custom title")
+        _ = workspace.noteAnchorId(forPanelId: panelId)
+        _ = workspace.recordAgentPID(key: "claude", pid: 12_345, panelId: panelId)
+        _ = workspace.clearAgentPID(key: "claude", panelId: panelId, clearStatus: true)
+
+        #expect(observedPanelIds == [panelId, panelId, panelId, panelId, panelId])
+    }
+
+    @Test @MainActor func workspaceTerminalMetadataNotificationsAreNotesBetaGated() throws {
+        let defaults = UserDefaults.standard
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        defer {
+            if let previousNotes {
+                defaults.set(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            } else {
+                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            }
+        }
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        var observedPanelIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceNotesTreeTerminalMetadataDidChange,
+            object: workspace,
+            queue: nil
+        ) { notification in
+            if let panelId = notification.userInfo?["panelId"] as? UUID {
+                observedPanelIds.append(panelId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "beta off title"))
+        _ = workspace.noteAnchorId(forPanelId: panelId)
+        _ = workspace.recordAgentPID(key: "claude", pid: 12_346, panelId: panelId)
+        _ = workspace.clearAgentPID(key: "claude", panelId: panelId, clearStatus: true)
+
+        #expect(observedPanelIds.isEmpty)
     }
 
     /// Note classification (which enables implicit autosave) must reject

@@ -304,7 +304,7 @@ private struct NoteTitleRenameField: View {
 
     @State private var draft: String = ""
     @State private var isHovering = false
-    @FocusState private var isFocused: Bool
+    @State private var isFocused = false
 
     private var placeholder: String {
         String(localized: "note.title.placeholder", defaultValue: "Untitled note")
@@ -314,50 +314,51 @@ private struct NoteTitleRenameField: View {
         .system(size: 12, weight: .semibold)
     }
 
+    private var titleNSFont: NSFont {
+        .systemFont(ofSize: 12, weight: .semibold)
+    }
+
     var body: some View {
-        // A bare TextField greedily fills its proposal, which would draw the
-        // hover outline across the whole header. Sizing against a hidden Text
-        // of the draft makes the field hug its content (and truncate with the
-        // header) the way an inline document title should.
-        Text(draft.isEmpty ? placeholder : draft)
-            .font(titleFont)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .opacity(0)
-            .accessibilityHidden(true)
-            .overlay(
-                TextField(placeholder, text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(titleFont)
-                    .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.88))
-                    .focused($isFocused)
-                    .onSubmit { isFocused = false }
-                    .onExitCommand {
-                        draft = title
-                        isFocused = false
-                    }
-            )
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(
-                        isFocused
-                            ? Color.accentColor.opacity(0.7)
-                            : (isHovering ? Color.secondary.opacity(0.35) : Color.clear),
-                        lineWidth: 1
+        HStack(spacing: 6) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.58))
+                .frame(width: 16, height: 20)
+
+            // Size the editable field from label text so the title behaves like
+            // the other compact panel headers while still accepting in-place edits.
+            Text(draft.isEmpty ? placeholder : draft)
+                .font(titleFont)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .overlay(alignment: .leading) {
+                    NoteTitleTextFieldRepresentable(
+                        placeholder: placeholder,
+                        text: $draft,
+                        isFocused: $isFocused,
+                        font: titleNSFont,
+                        foregroundColor: foregroundColor,
+                        onCommit: commit,
+                        onCancel: { draft = title }
                     )
-            )
-            .frame(minWidth: 40, alignment: .leading)
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(isFocused ? Color.accentColor.opacity(0.65) : Color(nsColor: foregroundColor).opacity(0.22))
+                        .frame(height: 1)
+                        .opacity(isFocused || isHovering ? 1 : 0)
+                }
+                .frame(minWidth: 40, minHeight: 20, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
             .onHover { isHovering = $0 }
             .onAppear { draft = title }
             .onChange(of: title) { _, newValue in
                 guard !isFocused else { return }
                 draft = newValue
-            }
-            .onChange(of: isFocused) { _, focused in
-                guard !focused else { return }
-                commit()
             }
             .help(filePath)
             .accessibilityLabel(String(localized: "note.title.accessibility", defaultValue: "Note title"))
@@ -370,6 +371,130 @@ private struct NoteTitleRenameField: View {
             return
         }
         onRename(trimmed)
+    }
+}
+
+private final class NoteTitleNativeTextField: NSTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+        usesSingleLineMode = true
+        lineBreakMode = .byTruncatingTail
+        cell?.wraps = false
+        cell?.truncatesLastVisibleLine = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+}
+
+private struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let font: NSFont
+    let foregroundColor: NSColor
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: NoteTitleTextFieldRepresentable
+        var isProgrammaticMutation = false
+        var skipCommitOnEndEditing = false
+
+        init(parent: NoteTitleTextFieldRepresentable) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard !isProgrammaticMutation else { return }
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            if !parent.isFocused {
+                parent.isFocused = true
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            if parent.isFocused {
+                parent.isFocused = false
+            }
+            if skipCommitOnEndEditing {
+                skipCommitOnEndEditing = false
+                return
+            }
+            parent.onCommit()
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                textView.window?.makeFirstResponder(nil)
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                skipCommitOnEndEditing = true
+                parent.onCancel()
+                textView.window?.makeFirstResponder(nil)
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NoteTitleNativeTextField {
+        let field = NoteTitleNativeTextField(frame: .zero)
+        field.delegate = context.coordinator
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        applyStyle(to: field)
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: NoteTitleNativeTextField, context: Context) {
+        context.coordinator.parent = self
+        applyStyle(to: field)
+        if field.currentEditor() == nil, field.stringValue != text {
+            context.coordinator.isProgrammaticMutation = true
+            field.stringValue = text
+            context.coordinator.isProgrammaticMutation = false
+        }
+    }
+
+    static func dismantleNSView(_ field: NoteTitleNativeTextField, coordinator: Coordinator) {
+        field.delegate = nil
+    }
+
+    private func applyStyle(to field: NoteTitleNativeTextField) {
+        field.font = font
+        field.textColor = foregroundColor.withAlphaComponent(0.88)
+        field.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font,
+                .foregroundColor: foregroundColor.withAlphaComponent(0.42)
+            ]
+        )
     }
 }
 
@@ -410,4 +535,3 @@ private struct MarkdownPanelToolbar: View {
         )
     }
 }
-

@@ -1481,6 +1481,7 @@ struct ContentView: View {
         static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
+        static let workspaceHasGitDiff = "workspace.hasGitDiff"
         static let workspaceHasSplits = "workspace.hasSplits"
         static let workspaceHasPeers = "workspace.hasPeers"
         static let workspaceHasAbove = "workspace.hasAbove"
@@ -1513,13 +1514,12 @@ struct ContentView: View {
         }
     }
 
-    /// Note surfaces are part of the Notes beta: the New Note palette
-    /// commands stay hidden until `rightSidebar.beta.notes.enabled` is on,
-    /// matching the gated tab-bar and configured-action entry points.
+    /// Note pane actions are independent of the Notes sidebar tab. The sidebar
+    /// tree can be hidden while explicit New Note commands remain available.
     nonisolated static func commandPaletteNewNoteCommandsVisible(
         _ context: CommandPaletteContextSnapshot
     ) -> Bool {
-        context.bool(CommandPaletteContextKeys.notesBetaEnabled)
+        context.bool(CommandPaletteContextKeys.hasWorkspace)
     }
 
     struct CommandPaletteCommandContribution {
@@ -2288,6 +2288,11 @@ struct ContentView: View {
                       workspace.panels[panelId] != nil else { return }
                 workspace.focusPanel(panelId)
             },
+            onResolveTerminalNoteTarget: { terminal in
+                guard let workspace = tabManager.selectedWorkspace,
+                      let panelId = UUID(uuidString: terminal.panelId) else { return nil }
+                return workspace.noteAttachmentTargetForPanel(panelId: panelId, requireTerminal: true)
+            },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
             },
@@ -2850,6 +2855,19 @@ struct ContentView: View {
         fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
     }
 
+    private func refreshNotesTerminalRowsForSelectedWorkspace() {
+        guard notesBetaEnabled,
+              let workspace = tabManager.selectedWorkspace else { return }
+        notesTreeStore.applyObservedTerminals(workspace.notesTreeObservedTerminals())
+        notesTreeStore.refreshSessions(force: true)
+    }
+
+    private func handleNotesTerminalMetadataDidChange(_ notification: Notification) {
+        guard let workspace = notification.object as? Workspace,
+              workspace.id == tabManager.selectedTabId else { return }
+        refreshNotesTerminalRowsForSelectedWorkspace()
+    }
+
     private var shouldSyncFileExplorerStore: Bool {
         FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
             isRightSidebarVisible: fileExplorerState.isVisible,
@@ -3051,6 +3069,14 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
         })
+
+        view = AnyView(
+            view.onReceive(
+                NotificationCenter.default.publisher(for: .workspaceNotesTreeTerminalMetadataDidChange)
+            ) { notification in
+                handleNotesTerminalMetadataDidChange(notification)
+            }
+        )
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
 #if DEBUG
@@ -6777,6 +6803,14 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
+            if let cwd = workspace.resolvedWorkingDirectory() {
+                snapshot.setBool(
+                    CommandPaletteContextKeys.workspaceHasGitDiff,
+                    CmuxGitDiffAvailability.hasDisplayableDiff(in: cwd)
+                )
+            } else {
+                snapshot.setBool(CommandPaletteContextKeys.workspaceHasGitDiff, false)
+            }
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
@@ -7562,7 +7596,8 @@ struct ContentView: View {
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
+                },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasGitDiff) }
             )
         )
         contributions.append(
@@ -8231,10 +8266,6 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newNoteForCurrentSurface") {
-            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
-                NSSound.beep()
-                return
-            }
             if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newNote.configID) {
                 return
             }
@@ -8260,10 +8291,6 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newNoteForWorkspace") {
-            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
-                NSSound.beep()
-                return
-            }
             guard let workspace = tabManager.selectedWorkspace,
                   let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
                 NSSound.beep()

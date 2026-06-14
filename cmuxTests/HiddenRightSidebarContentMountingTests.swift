@@ -73,6 +73,7 @@ struct HiddenRightSidebarContentMountingTests {
             onOpenNote: { _, _ in },
             onResumeNoteSession: { _ in },
             onFocusNoteTerminal: { _ in },
+            onResolveTerminalNoteTarget: { _ in nil },
             onOpenAsPane: { _ in },
             onClose: {}
         )

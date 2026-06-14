@@ -82,6 +82,7 @@ extension ShortcutAction {
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
+        case .newNote: return ShortcutStroke(key: "n", command: true, control: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)

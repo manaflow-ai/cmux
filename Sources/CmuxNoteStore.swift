@@ -213,6 +213,69 @@ enum CmuxNoteStore {
         }
     }
 
+    /// Attach an existing note body to a workspace or surface target. If the
+    /// body is not indexed yet (for example, a plain `.md` file from the Notes
+    /// tree), adopt it into `index.json` without moving the file.
+    @discardableResult
+    static func attachBodyPath(
+        _ rawPath: String,
+        projectRoot: String,
+        to target: CmuxNoteAttachmentTarget,
+        title rawTitle: String? = nil
+    ) throws -> CmuxNoteRecord {
+        try withStoreLock {
+            let path = ((rawPath as NSString).standardizingPath as NSString)
+                .resolvingSymlinksInPath
+            let notesRoot = ((NoteSupport.notesDirectory(forProjectRoot: projectRoot) as NSString)
+                .standardizingPath as NSString).resolvingSymlinksInPath
+            guard path.hasPrefix(notesRoot + "/") else {
+                throw CmuxNoteStoreError.noteNotFound(slug: (rawPath as NSString).lastPathComponent)
+            }
+            guard NoteSupport.noteFileExists(atPath: path) else {
+                throw NoteSupport.NoteError.notRegularFile
+            }
+
+            let workspaceAnchorId: String
+            switch target {
+            case .workspace(let anchorId), .surface(let anchorId, _, _):
+                workspaceAnchorId = anchorId
+            }
+
+            var index = try loadIndex(projectRoot: projectRoot)
+            let now = Date().timeIntervalSince1970
+            if let recordIndex = index.notes.firstIndex(where: {
+                noteBodyPath(for: $0, projectRoot: projectRoot) == path
+            }) {
+                var record = index.notes[recordIndex]
+                let existingTargetAttachment = record.attachments.first { $0.matches(target) }
+                let retained = record.attachments.filter { $0.workspaceAnchorId != workspaceAnchorId }
+                let updatedAttachments = retained + [existingTargetAttachment ?? target.attachment]
+                guard updatedAttachments != record.attachments else { return record }
+                record.attachments = updatedAttachments
+                record.updatedAt = now
+                index.notes[recordIndex] = record
+                try writeIndex(index, projectRoot: projectRoot)
+                return record
+            }
+
+            let fileName = (path as NSString).lastPathComponent
+            let displayTitle = (fileName as NSString).deletingPathExtension
+            let slug = uniqueSlug(preferredName: displayTitle, in: index.notes)
+            let record = CmuxNoteRecord(
+                id: UUID().uuidString.lowercased(),
+                slug: slug,
+                title: normalizedTitle(rawTitle, fallback: displayTitle.isEmpty ? slug : displayTitle),
+                bodyPath: relativeBodyPath(forAbsolutePath: path, projectRoot: projectRoot),
+                attachments: [target.attachment],
+                createdAt: now,
+                updatedAt: now
+            )
+            index.notes.append(record)
+            try writeIndex(index, projectRoot: projectRoot)
+            return record
+        }
+    }
+
     @discardableResult
     /// Move a note's body file into `directory` (confined to `.cmux/notes`)
     /// and update the index's `bodyPath` in the same locked transaction, so
@@ -604,6 +667,44 @@ enum CmuxNoteStore {
                 return slug
             }
         }
+    }
+
+    private static func uniqueSlug(preferredName: String, in notes: [CmuxNoteRecord]) -> String {
+        let used = Set(notes.map(\.slug))
+        if let preferred = slugCandidate(from: preferredName), !used.contains(preferred) {
+            return preferred
+        }
+        while true {
+            let slug = NoteSupport.autoSlug()
+            if !used.contains(slug) { return slug }
+        }
+    }
+
+    private static func slugCandidate(from name: String) -> String? {
+        var output = ""
+        var lastWasHyphen = false
+        for scalar in name.lowercased().unicodeScalars {
+            let value = scalar.value
+            let isAllowed = (65...90).contains(value) || (97...122).contains(value) || (48...57).contains(value)
+            if isAllowed {
+                output.unicodeScalars.append(scalar)
+                lastWasHyphen = false
+            } else if !lastWasHyphen {
+                output.append("-")
+                lastWasHyphen = true
+            }
+            if output.count >= NoteSupport.maxSlugLength { break }
+        }
+        let candidate = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return try? NoteSupport.validateSlug(candidate)
+    }
+
+    private static func relativeBodyPath(forAbsolutePath path: String, projectRoot: String) -> String {
+        let cmuxDir = ((projectRoot as NSString).appendingPathComponent(".cmux") as NSString)
+            .standardizingPath
+        let standardized = (path as NSString).standardizingPath
+        guard standardized.hasPrefix(cmuxDir + "/") else { return standardized }
+        return String(standardized.dropFirst(cmuxDir.count + 1))
     }
 
     private static func normalizedTitle(_ rawTitle: String?, fallback: String) -> String {

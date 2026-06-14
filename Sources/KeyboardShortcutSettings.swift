@@ -113,6 +113,7 @@ enum KeyboardShortcutSettings {
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
+        case newNote
         case toggleTerminalCopyMode
         case focusTextBoxInput
         case attachTextBoxFile
@@ -215,6 +216,7 @@ enum KeyboardShortcutSettings {
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .newNote: return String(localized: "shortcut.newNote.label", defaultValue: "New Note")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
@@ -407,6 +409,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .newNote:
+                return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput:

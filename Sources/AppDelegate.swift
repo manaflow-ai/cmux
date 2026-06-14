@@ -1002,6 +1002,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
+    /// Test seam: when set, the built-in `cmux.newNote` action invokes this
+    /// instead of creating a note file.
+    var debugNewNoteBuiltInActionHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -6054,6 +6057,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let cwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        guard CmuxGitDiffAvailability.hasDisplayableDiff(in: cwd) else {
+            return false
+        }
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
@@ -13206,6 +13212,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newNote) {
+            let didCreate = executeConfiguredCmuxActionShortcut(
+                CmuxResolvedConfigAction.builtIn(.newNote),
+                event: event,
+                context: configuredCmuxShortcutContext
+            )
+            if !didCreate {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
@@ -15209,9 +15227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newNote:
-                guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
-                    return false
+#if DEBUG
+                if let debugNewNoteBuiltInActionHandler {
+                    debugNewNoteBuiltInActionHandler()
+                    onExecuted?()
+                    return true
                 }
+#endif
                 guard let workspace = context.tabManager.selectedWorkspace,
                       let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
                     return false

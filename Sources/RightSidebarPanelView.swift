@@ -194,6 +194,7 @@ struct RightSidebarPanelView: View {
     let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     let onResumeNoteSession: (NotesSessionMarker) -> Void
     let onFocusNoteTerminal: (UUID) -> Void
+    let onResolveTerminalNoteTarget: (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
@@ -456,7 +457,8 @@ struct RightSidebarPanelView: View {
                     store: notesTreeStore,
                     onOpenNote: onOpenNote,
                     onResumeMarker: onResumeNoteSession,
-                    onFocusTerminalPanel: onFocusNoteTerminal
+                    onFocusTerminalPanel: onFocusNoteTerminal,
+                    onResolveTerminalNoteTarget: onResolveTerminalNoteTarget
                 )
                 .onAppear {
                     notesTreeStore.setVisible(true)

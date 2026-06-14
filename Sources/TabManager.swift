@@ -10012,6 +10012,9 @@ extension Notification.Name {
     /// a grouped anchor's displayed name from `group.name` and refresh on this.
     static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
+    static let workspaceNotesTreeTerminalMetadataDidChange = Notification.Name(
+        "cmux.workspaceNotesTreeTerminalMetadataDidChange"
+    )
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }
 

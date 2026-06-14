@@ -66,6 +66,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleFocusedWorkspaceGroupCollapsed
     case reopenClosedBrowserPanel
     case newSurface
+    case newNote
     case toggleTerminalCopyMode
     case focusTextBoxInput
     case attachTextBoxFile
@@ -159,7 +160,7 @@ extension ShortcutAction {
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
-             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .reopenClosedBrowserPanel, .newSurface, .newNote, .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -321,6 +322,7 @@ extension ShortcutAction {
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
+        case .newNote: return String(localized: "shortcut.newNote.label", defaultValue: "New Note")
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"

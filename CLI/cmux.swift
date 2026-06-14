@@ -2857,6 +2857,9 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    private static let rightSidebarNotesEnabledDefaultsKey = "rightSidebar.beta.notes.enabled"
+    private static let rightSidebarFeedEnabledDefaultsKey = "rightSidebar.beta.feed.enabled"
+    private static let rightSidebarDockEnabledDefaultsKey = "rightSidebar.beta.dock.enabled"
 
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
@@ -2866,6 +2869,98 @@ struct CMUXCLI {
         normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
         ?? containingAppBundleIdentifier()
         ?? defaultBrowserSettingsDomain
+    }
+
+    private static func appDefaultsCandidates(environment: [String: String] = ProcessInfo.processInfo.environment) -> [UserDefaults] {
+        var candidates: [UserDefaults] = []
+        if let bundleId = normalizedEnvValue(environment["CMUX_BUNDLE_ID"]),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        if let bundleId = containingAppBundleIdentifier(),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        candidates.append(.standard)
+        return candidates
+    }
+
+    private static func betaFeatureEnabled(
+        key: String,
+        defaultValue: Bool = false,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        for defaults in appDefaultsCandidates(environment: environment) {
+            if defaults.object(forKey: key) != nil {
+                return defaults.bool(forKey: key)
+            }
+        }
+        return defaultValue
+    }
+
+    private static func availableRightSidebarModeTokens(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        var tokens = ["files", "find", "vault", "sessions"]
+        if betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) {
+            tokens.append("notes")
+        }
+        if betaFeatureEnabled(key: rightSidebarFeedEnabledDefaultsKey, environment: environment) {
+            tokens.append("feed")
+        }
+        if betaFeatureEnabled(key: rightSidebarDockEnabledDefaultsKey, environment: environment) {
+            tokens.append("dock")
+        }
+        return tokens
+    }
+
+    private static func rightSidebarUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        let modes = availableRightSidebarModeTokens(environment: environment).joined(separator: "|")
+        let template = String(localized: "cli.rightSidebar.usage.template", defaultValue: """
+            Usage: cmux right-sidebar <command> [flags]
+
+            Control the right sidebar from the CLI.
+
+            Commands:
+              toggle                         Toggle right sidebar visibility
+              show                           Show the right sidebar
+              hide                           Hide the right sidebar
+              focus                          Focus the current right sidebar mode
+              set <%@>
+                                             Show, switch mode, and focus
+              mode                           Print {"visible":bool,"mode":string}
+              %@
+                                             Alias for show + set + focus
+
+            Flags:
+              --workspace <id|ref|index>     Target the window containing a workspace
+              --window <id|ref|index>        Target a window
+              --no-focus                     With set, switch mode without moving focus
+
+            Examples:
+              cmux right-sidebar toggle
+              cmux right-sidebar set find
+              cmux right-sidebar set vault --no-focus
+              cmux right-sidebar mode
+        """)
+        return String(format: template, modes, modes)
+    }
+
+    private static func noteGlobalUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        guard betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) else {
+            return ""
+        }
+        return String(localized: "cli.note.globalUsage", defaultValue: """
+          note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
+          note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
+          note list [--json]                                                     (list notes in the project)
+          note here [--json]                                                     (print the note resolved for the calling surface)
+          note path <slug>                                                       (print absolute path for a note slug)
+          note read <slug>                                                       (print note content)
+          note write <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
+          note append <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
+          note rm <slug>                                                         (delete a note file)
+          """)
     }
 
     // Presentation flags are global, but command option values can also look like flags.
@@ -15546,33 +15641,7 @@ struct CMUXCLI {
               cmux sidebar-state --workspace workspace:2
             """
         case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <files|notes|find|vault|sessions|feed|dock>
-                                             Show, switch mode, and focus
-              mode                           Print {"visible":bool,"mode":string}
-              files|notes|find|vault|sessions|feed|dock
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set find
-              cmux right-sidebar set vault --no-focus
-              cmux right-sidebar mode
-            """)
+            return Self.rightSidebarUsage()
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select> [name|--all] [--json]
@@ -33695,7 +33764,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|notes|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|\(Self.availableRightSidebarModeTokens().joined(separator: "|"))> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -33734,17 +33803,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
-          \(String(localized: "cli.note.globalUsage", defaultValue: """
-          note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
-          note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
-          note list [--json]                                                     (list notes in the project)
-          note here [--json]                                                     (print the note resolved for the calling surface)
-          note path <slug>                                                       (print absolute path for a note slug)
-          note read <slug>                                                       (print note content)
-          note write <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
-          note append <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
-          note rm <slug>                                                         (delete a note file)
-          """))
+          \(Self.noteGlobalUsage())
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

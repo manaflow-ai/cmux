@@ -52,8 +52,16 @@ final class NotesTreeStore: ObservableObject {
 
     /// The workspace's live terminal panes from the latest observation pass.
     /// Each becomes a virtual folder row pointing back at its panel, with the
-    /// pane's attached flat notes and observed sessions nested beneath it.
+    /// pane's attached flat notes nested beneath it.
     private(set) var observedTerminals: [NotesTreeObservedTerminal] = []
+    /// Agent sessions from the latest live pane observation. Workspace markers
+    /// keep historical records for hydration/restore, but virtual session rows
+    /// should only reflect sessions currently present in workspace panes.
+    private var observedSessionKeys: Set<String> = []
+    /// Full live pane-session observations from the latest pass. `observedSessionKeys`
+    /// is the persistence/display filter; this keeps the panel/anchor pointer
+    /// needed to render a terminal row as its currently running agent.
+    private var observedSessions: [NotesTreeObservedSession] = []
 
     private var watchers: [FileWatcher] = []
     private var watcherTasks: [Task<Void, Never>] = []
@@ -124,6 +132,8 @@ final class NotesTreeStore: ObservableObject {
         lastMarkerRefresh = nil
         emptyObservationRetries = 0
         observedTerminals = []
+        observedSessionKeys = []
+        self.observedSessions = []
         reload()
         refreshSessions()
     }
@@ -147,6 +157,8 @@ final class NotesTreeStore: ObservableObject {
         resolvedRootPath = nil
         notesDirPath = nil
         observedTerminals = []
+        observedSessionKeys = []
+        observedSessions = []
         rootNodes = []
         headerDisplayPath = ""
         contentRevision &+= 1
@@ -157,6 +169,14 @@ final class NotesTreeStore: ObservableObject {
     func applyObservedTerminals(_ terminals: [NotesTreeObservedTerminal]) {
         guard terminals != observedTerminals else { return }
         observedTerminals = terminals
+        reload()
+    }
+
+    /// Adopt the latest live pane-session observation; reloads when it changed.
+    /// Historical workspace records remain on disk, but are not presented as
+    /// current session rows unless the pane observation still sees them.
+    func applyObservedSessions(_ sessions: [NotesTreeObservedSession]) {
+        guard updateObservedSessionKeys(sessions: sessions) else { return }
         reload()
     }
 
@@ -205,10 +225,9 @@ final class NotesTreeStore: ObservableObject {
     /// Rebuild the full node tree and refresh file watchers. The top level is
     /// the union the Notes tab presents for THIS workspace: the workspace
     /// folder's own contents, the workspace's flat notes (index.json records
-    /// attached to its note anchor), and the sessions recorded as having run
-    /// in its panes — virtual rows unless a materialized folder exists. Flat
-    /// notes whose pane maps to a recorded session nest under that session's
-    /// row.
+    /// attached to its note anchor), live terminal panes, and sessions
+    /// currently observed in those panes. Historical session records remain on
+    /// disk for hydration/restore but do not create current rows by themselves.
     func reload() {
         // A symlinked `.cmux`/`.cmux/notes` re-roots every path below it;
         // refuse to render (or later mutate) such a tree at all.
@@ -222,16 +241,50 @@ final class NotesTreeStore: ObservableObject {
             contentRevision &+= 1
             return
         }
+        let indexedRefs = projectRoot.flatMap { projectRoot in
+            workspaceAnchorId.map { NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: $0) }
+        } ?? []
+        let indexedTitleByPath = Dictionary(
+            uniqueKeysWithValues: indexedRefs.map {
+                (($0.path as NSString).standardizingPath, $0.title)
+            }
+        )
         var budget = nodeBudget
-        var nodes = buildChildren(ofDirectory: root, depth: 0, budget: &budget)
+        var nodes = buildChildren(
+            ofDirectory: root,
+            depth: 0,
+            budget: &budget,
+            indexedTitleByPath: indexedTitleByPath
+        )
         let records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
-        nodes.append(contentsOf: sessionRowNodes(records: records, materializedInto: nodes))
+        nodes.append(contentsOf: sessionRowNodes(
+            records: records,
+            materializedInto: nodes,
+            visibleSessionKeys: observedSessionKeys
+        ))
+        let pastSessionRows = pastSessionRowNodes(
+            records: records,
+            materializedInto: nodes,
+            visibleSessionKeys: observedSessionKeys
+        )
+        let activeSessionByTerminal = terminalActiveSessions(
+            records: records,
+            observations: observedSessions
+        )
 
         // Terminal rows: every live terminal pane, in pane order, as a virtual
         // folder pointing back at its panel. Built before nesting so anchored
-        // notes and sessions can land beneath the terminal that owns them.
+        // notes and current sessions can land beneath the terminal that owns
+        // them.
         var terminalNodeByAnchor: [String: NotesTreeNode] = [:]
         let terminalNodes = observedTerminals.map { terminal in
+            var terminal = terminal
+            if let active = activeSessionByTerminal[terminal.panelId]
+                ?? terminal.anchorId.flatMap({ activeSessionByTerminal[$0] }) {
+                terminal.activeSession = active
+            } else {
+                terminal.activeSession = nil
+            }
             let node = NotesTreeNode(
                 name: terminal.title,
                 path: "cmux-virtual-terminal://\(terminal.panelId)",
@@ -243,9 +296,10 @@ final class NotesTreeStore: ObservableObject {
             return node
         }
 
-        // A VIRTUAL session row whose record anchors to a live terminal nests
-        // under that terminal — "claude running in this pane" sits beneath the
-        // pane. Materialized session folders keep their real disk position.
+        // A VIRTUAL session row from the latest live observation nests under
+        // that terminal — "claude running in this pane" sits beneath the pane.
+        // Materialized user-created session folders keep their real disk
+        // position.
         if !terminalNodeByAnchor.isEmpty {
             var anchorBySessionId: [String: String] = [:]
             for record in records {
@@ -256,11 +310,23 @@ final class NotesTreeStore: ObservableObject {
                       let marker = node.kind.sessionMarker,
                       let anchor = anchorBySessionId[marker.sessionId],
                       let terminalNode = terminalNodeByAnchor[anchor] else { return false }
+                if terminalNode.kind.terminalMarker?.activeSession?.sessionId == marker.sessionId {
+                    return true
+                }
                 terminalNode.children = (terminalNode.children ?? []) + [node]
                 return true
             }
         }
         nodes.append(contentsOf: terminalNodes)
+        if !pastSessionRows.isEmpty {
+            nodes.append(NotesTreeNode(
+                name: "past",
+                path: "cmux-virtual-past://\(workspaceAnchorId ?? root)",
+                kind: .pastFolder,
+                isVirtual: true,
+                children: pastSessionRows.sorted(by: nodeDisplayOrder)
+            ))
+        }
 
         // Session lookup for nesting (virtual rows + materialized folders),
         // including rows already moved under a terminal.
@@ -278,21 +344,27 @@ final class NotesTreeStore: ObservableObject {
         }
 
         // This workspace's flat notes: nested under their pane's live terminal
-        // when one matches, else under their pane's session, top-level last.
-        if let projectRoot, let anchorId = workspaceAnchorId {
-            for ref in NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: anchorId) {
+        // when one matches, else under the pane's currently observed session,
+        // top-level last.
+        if !indexedRefs.isEmpty {
+            for ref in indexedRefs {
                 // A flat note whose body was moved INSIDE the workspace folder
                 // is already listed as a real file; skip the index ref so the
                 // note doesn't appear twice.
                 guard !NotesTreeStorage.isWithin(child: ref.path, orEqualTo: root) else { continue }
                 let node = NotesTreeNode(name: ref.title, path: ref.path, kind: .note)
                 if let anchor = ref.surfaceAnchorId,
-                   let terminalNode = terminalNodeByAnchor[anchor] {
+                   let terminalNode = terminalNodeByAnchor[anchor],
+                   let activeSession = terminalNode.kind.terminalMarker?.activeSession,
+                   sessionIdBySurfaceAnchor[anchor] == activeSession.sessionId {
                     terminalNode.children = (terminalNode.children ?? []) + [node]
                 } else if let anchor = ref.surfaceAnchorId,
                           let sessionId = sessionIdBySurfaceAnchor[anchor],
                           let sessionNode = sessionNodeById[sessionId] {
                     sessionNode.children = (sessionNode.children ?? []) + [node]
+                } else if let anchor = ref.surfaceAnchorId,
+                          let terminalNode = terminalNodeByAnchor[anchor] {
+                    terminalNode.children = (terminalNode.children ?? []) + [node]
                 } else {
                     nodes.append(node)
                 }
@@ -329,11 +401,53 @@ final class NotesTreeStore: ObservableObject {
         )
     }
 
-    /// Rows for the workspace's recorded sessions that have no materialized
-    /// folder yet (those appear as their folder node instead).
+    /// Rows for currently observed workspace sessions that have no
+    /// user-created materialized folder yet.
     private func sessionRowNodes(
         records: [NotesWorkspaceSessionRecord],
-        materializedInto nodes: [NotesTreeNode]
+        materializedInto nodes: [NotesTreeNode],
+        visibleSessionKeys: Set<String>
+    ) -> [NotesTreeNode] {
+        guard !records.isEmpty, !visibleSessionKeys.isEmpty else { return [] }
+        var materializedIds = Set<String>()
+        func collect(_ nodes: [NotesTreeNode]) {
+            for node in nodes {
+                if let marker = node.kind.sessionMarker { materializedIds.insert(marker.sessionId) }
+                if let children = node.children { collect(children) }
+            }
+        }
+        collect(nodes)
+        return records
+            .filter { visibleSessionKeys.contains(Self.sessionKey(agent: $0.agent, sessionId: $0.sessionId)) }
+            .prefix(sessionRowLimit)
+            .compactMap { record in
+                guard !materializedIds.contains(record.sessionId) else { return nil }
+                let marker = NotesSessionMarker(
+                    agent: record.agent,
+                    sessionId: record.sessionId,
+                    cwd: record.cwd,
+                    title: record.title,
+                    modified: record.modified,
+                    userCreated: nil
+                )
+                let trimmedTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                return NotesTreeNode(
+                    name: trimmedTitle.isEmpty ? record.sessionId : record.title,
+                    path: "cmux-virtual-session://\(record.agent)/\(record.sessionId)",
+                    kind: .sessionFolder(marker),
+                    isVirtual: true,
+                    children: []
+                )
+            }
+    }
+
+    /// Rows for previously observed sessions. These are grouped under the
+    /// virtual Past folder after they are no longer present in a live terminal,
+    /// preserving the workspace's context without deleting or moving note files.
+    private func pastSessionRowNodes(
+        records: [NotesWorkspaceSessionRecord],
+        materializedInto nodes: [NotesTreeNode],
+        visibleSessionKeys: Set<String>
     ) -> [NotesTreeNode] {
         guard !records.isEmpty else { return [] }
         var materializedIds = Set<String>()
@@ -344,24 +458,28 @@ final class NotesTreeStore: ObservableObject {
             }
         }
         collect(nodes)
-        return records.prefix(sessionRowLimit).compactMap { record in
-            guard !materializedIds.contains(record.sessionId) else { return nil }
-            let marker = NotesSessionMarker(
-                agent: record.agent,
-                sessionId: record.sessionId,
-                cwd: record.cwd,
-                title: record.title,
-                modified: record.modified
-            )
-            let trimmedTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return NotesTreeNode(
-                name: trimmedTitle.isEmpty ? record.sessionId : record.title,
-                path: "cmux-virtual-session://\(record.agent)/\(record.sessionId)",
-                kind: .sessionFolder(marker),
-                isVirtual: true,
-                children: []
-            )
-        }
+        return records
+            .filter { !visibleSessionKeys.contains(Self.sessionKey(agent: $0.agent, sessionId: $0.sessionId)) }
+            .prefix(sessionRowLimit)
+            .compactMap { record in
+                guard !materializedIds.contains(record.sessionId) else { return nil }
+                let marker = NotesSessionMarker(
+                    agent: record.agent,
+                    sessionId: record.sessionId,
+                    cwd: record.cwd,
+                    title: record.title,
+                    modified: record.modified,
+                    userCreated: nil
+                )
+                let trimmedTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                return NotesTreeNode(
+                    name: trimmedTitle.isEmpty ? record.sessionId : record.title,
+                    path: "cmux-virtual-past-session://\(record.agent)/\(record.sessionId)",
+                    kind: .sessionFolder(marker),
+                    isVirtual: true,
+                    children: []
+                )
+            }
     }
 
     /// Coalesce a burst of file-watch events into a single reload, so many
@@ -378,7 +496,12 @@ final class NotesTreeStore: ObservableObject {
         }
     }
 
-    private func buildChildren(ofDirectory directory: String, depth: Int, budget: inout Int) -> [NotesTreeNode] {
+    private func buildChildren(
+        ofDirectory directory: String,
+        depth: Int,
+        budget: inout Int,
+        indexedTitleByPath: [String: String]
+    ) -> [NotesTreeNode] {
         guard depth < maxDepth, budget > 0 else { return [] }
         let entries = NotesTreeStorage.listEntries(inDirectory: directory)
         var nodes: [NotesTreeNode] = []
@@ -386,9 +509,19 @@ final class NotesTreeStore: ObservableObject {
             guard budget > 0 else { break }
             budget -= 1
             let children = entry.kind.isDirectory
-                ? buildChildren(ofDirectory: entry.path, depth: depth + 1, budget: &budget)
+                ? buildChildren(
+                    ofDirectory: entry.path,
+                    depth: depth + 1,
+                    budget: &budget,
+                    indexedTitleByPath: indexedTitleByPath
+                )
                 : nil
-            nodes.append(NotesTreeNode(name: entry.name, path: entry.path, kind: entry.kind, children: children))
+            let indexedTitle = indexedTitleByPath[(entry.path as NSString).standardizingPath]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (entry.kind == .note && indexedTitle?.isEmpty == false)
+                ? indexedTitle!
+                : entry.name
+            nodes.append(NotesTreeNode(name: name, path: entry.path, kind: entry.kind, children: children))
         }
         return nodes
     }
@@ -531,7 +664,10 @@ final class NotesTreeStore: ObservableObject {
                     }) {
                         taken.insert("\(match.agent)\n\(match.sessionId)")
                         resolvedAnonymous.append(NotesTreeObservedSession(
-                            agent: match.agent, sessionId: match.sessionId, surfaceAnchorId: nil
+                            agent: match.agent,
+                            sessionId: match.sessionId,
+                            surfaceAnchorId: anon.surfaceAnchorId,
+                            terminalPanelId: anon.terminalPanelId
                         ))
                     }
                 }
@@ -572,8 +708,9 @@ final class NotesTreeStore: ObservableObject {
                 ? observation.terminals
                 : lateObservation.terminals
             let terminalsChanged = terminals != self.observedTerminals
+            let observedSessionsChanged = self.updateObservedSessionKeys(sessions: allObserved)
             self.applyObservedTerminals(terminals)
-            if changed, !terminalsChanged { self.reload() }
+            if (changed || observedSessionsChanged), !terminalsChanged { self.reload() }
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
                 self.emptyObservationRetryTask?.cancel()
@@ -590,6 +727,49 @@ final class NotesTreeStore: ObservableObject {
     }
 
     // MARK: - Mutations
+
+    @discardableResult
+    private func updateObservedSessionKeys(sessions: [NotesTreeObservedSession]) -> Bool {
+        let next = Set(sessions.map { Self.sessionKey(agent: $0.agent, sessionId: $0.sessionId) })
+        guard next != observedSessionKeys || sessions != observedSessions else { return false }
+        observedSessionKeys = next
+        observedSessions = sessions
+        return true
+    }
+
+    private static func sessionKey(agent: String, sessionId: String) -> String {
+        "\(agent)\n\(sessionId)"
+    }
+
+    private func terminalActiveSessions(
+        records: [NotesWorkspaceSessionRecord],
+        observations: [NotesTreeObservedSession]
+    ) -> [String: NotesSessionMarker] {
+        var recordByKey: [String: NotesWorkspaceSessionRecord] = [:]
+        for record in records {
+            recordByKey[Self.sessionKey(agent: record.agent, sessionId: record.sessionId)] = record
+        }
+        var active: [String: NotesSessionMarker] = [:]
+        for observation in observations {
+            let key = Self.sessionKey(agent: observation.agent, sessionId: observation.sessionId)
+            let record = recordByKey[key]
+            let marker = NotesSessionMarker(
+                agent: record?.agent ?? observation.agent,
+                sessionId: record?.sessionId ?? observation.sessionId,
+                cwd: record?.cwd ?? "",
+                title: record?.title ?? "",
+                modified: record?.modified,
+                userCreated: nil
+            )
+            if let panelId = observation.terminalPanelId, active[panelId] == nil {
+                active[panelId] = marker
+            }
+            if let anchor = observation.surfaceAnchorId, active[anchor] == nil {
+                active[anchor] = marker
+            }
+        }
+        return active
+    }
 
     /// Create a new empty note in `folder` (or the workspace root if nil).
     @discardableResult
@@ -714,18 +894,74 @@ final class NotesTreeStore: ObservableObject {
         guard let projectRoot,
               let notesDir = notesDirPath,
               NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir),
-              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return nil }
-        let target = (path as NSString).standardizingPath
-        guard let record = records.first(where: {
-            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
-                .standardizingPath == target
-        }) else { return nil }
+              let record = indexedNoteRecord(path: path) else { return nil }
         let moved = try? CmuxNoteStore.relocateBody(
             slug: record.slug, projectRoot: projectRoot, toDirectory: destinationFolder
         )
-        if let moved { postRelocation(from: target, to: moved) }
+        if let moved {
+            if let workspaceAnchorId {
+                _ = try? CmuxNoteStore.attachBodyPath(
+                    moved,
+                    projectRoot: projectRoot,
+                    to: .workspace(workspaceAnchorId: workspaceAnchorId)
+                )
+            }
+            postRelocation(from: path, to: moved)
+        }
         reload()
         return moved
+    }
+
+    /// File a note under a terminal virtual row. Terminal rows are not real
+    /// directories, so the note becomes an indexed flat note attached to that
+    /// terminal's surface anchor; if the body currently lives inside the
+    /// workspace tree, move it back to the flat notes directory so it no
+    /// longer appears in its old filesystem location.
+    @discardableResult
+    func attachNote(
+        path: String,
+        toTerminal terminal: NotesTreeObservedTerminal,
+        target: CmuxNoteAttachmentTarget
+    ) -> String? {
+        guard let projectRoot,
+              let notesDir = notesDirPath,
+              let root = resolvedRootPath,
+              isMutablePath(path) else { return nil }
+        let surfaceAnchorId: String
+        switch target {
+        case .surface(let workspaceAnchorId, let anchorId, let surfaceKind)
+            where workspaceAnchorId == self.workspaceAnchorId && surfaceKind == PanelType.terminal.rawValue:
+            surfaceAnchorId = anchorId
+        default:
+            return nil
+        }
+
+        if let index = observedTerminals.firstIndex(where: { $0.panelId == terminal.panelId }),
+           observedTerminals[index].anchorId != surfaceAnchorId {
+            observedTerminals[index].anchorId = surfaceAnchorId
+        }
+
+        guard let attached = try? CmuxNoteStore.attachBodyPath(
+            path,
+            projectRoot: projectRoot,
+            to: target
+        ) else {
+            reload()
+            return nil
+        }
+
+        var bodyPath = CmuxNoteStore.noteBodyPath(for: attached, projectRoot: projectRoot)
+        if NotesTreeStorage.isWithin(child: bodyPath, orEqualTo: root),
+           let relocated = try? CmuxNoteStore.relocateBody(
+                slug: attached.slug,
+                projectRoot: projectRoot,
+                toDirectory: notesDir
+           ) {
+            postRelocation(from: bodyPath, to: relocated)
+            bodyPath = relocated
+        }
+        reload()
+        return bodyPath
     }
 
     /// Rename an index-owned flat note by retitling its index record — the
@@ -735,13 +971,9 @@ final class NotesTreeStore: ObservableObject {
     /// record. A whitespace-only title keeps the current one.
     @discardableResult
     func renameFlatNote(path: String, toTitle newTitle: String) -> String? {
-        guard let projectRoot,
-              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return nil }
+        guard let projectRoot else { return nil }
         let target = (path as NSString).standardizingPath
-        guard let record = records.first(where: {
-            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
-                .standardizingPath == target
-        }) else { return nil }
+        guard let record = indexedNoteRecord(path: path) else { return nil }
         guard let retitled = try? CmuxNoteStore.retitle(
             slug: record.slug, projectRoot: projectRoot, title: newTitle
         ) else {
@@ -764,16 +996,25 @@ final class NotesTreeStore: ObservableObject {
     /// its index record/attachments go together — trashing only the body file
     /// would leave `cmux note list` showing a note whose `read` fails.
     func deleteFlatNote(path: String) {
-        guard let projectRoot,
-              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return }
-        let target = (path as NSString).standardizingPath
-        if let record = records.first(where: {
-            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
-                .standardizingPath == target
-        }) {
+        guard let projectRoot else { return }
+        if let record = indexedNoteRecord(path: path) {
             _ = try? CmuxNoteStore.delete(slug: record.slug, projectRoot: projectRoot)
         }
         reload()
+    }
+
+    func isIndexedNote(path: String) -> Bool {
+        indexedNoteRecord(path: path) != nil
+    }
+
+    private func indexedNoteRecord(path: String) -> CmuxNoteRecord? {
+        guard let projectRoot,
+              let records = try? CmuxNoteStore.list(projectRoot: projectRoot) else { return nil }
+        let target = (path as NSString).standardizingPath
+        return records.first {
+            (CmuxNoteStore.noteBodyPath(for: $0, projectRoot: projectRoot) as NSString)
+                .standardizingPath == target
+        }
     }
 
     /// A path the tree may rename/delete: inside `.cmux/notes`, but never the

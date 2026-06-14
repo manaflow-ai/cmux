@@ -18,11 +18,14 @@ enum NotesTreeKind: Equatable, Sendable {
     /// that focuses its panel, with the pane's attached notes and observed
     /// agent sessions nested beneath it.
     case terminalFolder(NotesTreeObservedTerminal)
+    /// Historical workspace sessions that are no longer observed in a live
+    /// terminal. Purely virtual; it never creates or moves files.
+    case pastFolder
 
     /// Whether this kind is a directory (folder, session, or terminal folder).
     var isDirectory: Bool {
         switch self {
-        case .folder, .sessionFolder, .terminalFolder:
+        case .folder, .sessionFolder, .terminalFolder, .pastFolder:
             return true
         case .note:
             return false
@@ -93,6 +96,8 @@ final class NotesTreeNode: Identifiable {
             return true
         case .sessionFolder, .terminalFolder:
             return !(children?.isEmpty ?? true)
+        case .pastFolder:
+            return !(children?.isEmpty ?? true)
         case .note:
             return false
         }
@@ -103,12 +108,22 @@ final class NotesTreeNode: Identifiable {
     /// `.md` extension; plain folders use their basename.
     var displayName: String {
         switch kind {
+        case .pastFolder:
+            return String(localized: "notes.tree.past", defaultValue: "Past")
         case .sessionFolder(let marker):
             // Titles come from transcripts and can be multiline pastes, which
             // a single-line label renders as blank; collapse for display.
             let trimmed = NotesTreeStorage.sanitizedSessionTitle(marker.title)
             return trimmed.isEmpty ? name : trimmed
         case .terminalFolder(let marker):
+            if let activeSession = marker.activeSession {
+                let title = NotesTreeStorage.sanitizedSessionTitle(activeSession.title)
+                if !title.isEmpty { return title }
+                if let agent = SessionAgent(rawValue: activeSession.agent) {
+                    return agent.displayName
+                }
+                if !activeSession.agent.isEmpty { return activeSession.agent }
+            }
             let trimmed = NotesTreeStorage.sanitizedSessionTitle(marker.title)
             return trimmed.isEmpty
                 ? String(localized: "notes.tree.terminalRow.fallback", defaultValue: "Terminal")

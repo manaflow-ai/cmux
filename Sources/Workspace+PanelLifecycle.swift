@@ -98,11 +98,17 @@ extension Workspace {
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
+        let previousPID = agentPIDs[key]
+        let previousPanelId = agentPIDPanelIdsByKey[key]
         agentPIDs[key] = pid
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
             removeAgentPIDOwnership(key: key)
+        }
+        if let panelId,
+           previousPID != pid || previousPanelId != panelId || didClearOtherStructuredAgentRuntime {
+            postNotesTreeTerminalMetadataDidChange(panelId: panelId)
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
@@ -236,6 +242,9 @@ extension Workspace {
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didChange, let panelId = ownedPanelId ?? panelId {
+            postNotesTreeTerminalMetadataDidChange(panelId: panelId)
         }
         return didChange
     }

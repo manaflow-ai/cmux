@@ -8,7 +8,7 @@ Project-scoped action wiring can also live in `.cmux/cmux.json` inside a project
 
 Controls the buttons shown at the end of each pane tab bar. cmux appends the built-in More button unless `ui.surfaceTabBar.hideMoreButton` is `true`.
 
-The default More menu is pane-scoped: Vault pane, Files pane, Find pane, Diff Viewer, New Note, Reveal Current Directory in Finder, and Customize. Use the Customize item to open Settings and this documentation.
+The default More menu is pane-scoped: Diff Viewer, Files pane, Find pane, Vault pane, and New Note.
 
 ```json
 {
@@ -26,12 +26,11 @@ The default More menu is pane-scoped: Vault pane, Files pane, Find pane, Diff Vi
           "title": "More",
           "icon": { "type": "symbol", "name": "ellipsis.vertical" },
           "items": [
-            "cmux.vaultPane",
+            "cmux.diffViewer",
             "cmux.filesPane",
             "cmux.findPane",
-            "cmux.diffViewer",
-            "cmux.revealCurrentDirectoryInFinder",
-            "cmux.customizeSurfaceTabBar"
+            "cmux.vaultPane",
+            "cmux.newNote"
           ]
         }
       ]
@@ -47,12 +46,25 @@ Useful built-ins:
 - `cmux.splitRight`
 - `cmux.splitDown`
 - `cmux.more`
-- `cmux.vaultPane`
+- `cmux.diffViewer`
 - `cmux.filesPane`
 - `cmux.findPane`
-- `cmux.diffViewer`
-- `cmux.revealCurrentDirectoryInFinder`
-- `cmux.customizeSurfaceTabBar`
+- `cmux.vaultPane`
+- `cmux.newNote`
+
+## `shortcuts.bindings`
+
+Shortcut overrides are keyed by action id under `shortcuts.bindings`. `newNote` creates or focuses a note for the current surface.
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "newNote": "ctrl+cmd+n"
+    }
+  }
+}
+```
 
 ## `app.confirmQuit`
 

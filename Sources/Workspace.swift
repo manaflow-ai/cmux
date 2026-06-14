@@ -11669,8 +11669,9 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        let availableButtons = buttons
         let executableButtons = Dictionary(
-            uniqueKeysWithValues: buttons.compactMap { button in
+            uniqueKeysWithValues: availableButtons.compactMap { button in
                 makeSurfaceTabBarExecutableButton(
                     button,
                     terminalCommandSourcePaths: terminalCommandSourcePaths,
@@ -11683,7 +11684,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceTabBarButtonSourcePath = sourcePath
         surfaceTabBarButtonGlobalConfigPath = globalConfigPath
 
-        let bonsplitButtons = buttons.map { button in
+        let bonsplitButtons = availableButtons.map { button in
             let executable = executableButtons[button.id]
             let allowProjectLocalIcon = executable.map {
                 CmuxConfigExecutor.isTrustedSurfaceButton(
@@ -12180,6 +12181,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let next = CmuxNoteStore.newAnchorID()
         noteAnchorIdsByPanelId[panelId] = next
+        postNotesTreeTerminalMetadataDidChange(panelId: panelId)
         return next
     }
 
@@ -12200,24 +12202,22 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Agent sessions known to run in THIS workspace's panes, for the Notes
-    /// tree. Sources, in order: hibernated/restored snapshots; index entries
-    /// recorded under this run's workspace id (fresh launches); pid-tracked
-    /// agents (`agentPIDs`); and finally index entries whose live pid sits on
-    /// one of this workspace's pane TTYs. The TTY pass is what survives app
-    /// relaunches — reattached agents keep reporting their previous run's
-    /// workspace/surface UUIDs through hooks, so UUID matching alone misses
-    /// them, but the pane TTY and the live pid are current-run ground truth.
+    /// tree. Sources, in order: pid-tracked agents (`agentPIDs`) and index
+    /// entries whose live pid sits on one of this workspace's pane TTYs. The
+    /// TTY pass is what survives app relaunches — reattached agents keep
+    /// reporting their previous run's workspace/surface UUIDs through hooks,
+    /// so UUID matching alone is not treated as current-run ground truth.
     /// Each entry carries the pane's note anchor (when one was minted, never
     /// minting) so pane-attached flat notes can nest under their session.
     /// Every terminal pane in this workspace, in pane/tab order, as Notes-tree
     /// terminal rows: panel pointer + note anchor (when minted) + tab title.
-    private func notesTreeObservedTerminals() -> [NotesTreeObservedTerminal] {
+    func notesTreeObservedTerminals() -> [NotesTreeObservedTerminal] {
         var terminals: [NotesTreeObservedTerminal] = []
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id),
                       let terminal = panels[panelId] as? TerminalPanel else { continue }
-                let title = panelCustomTitles[panelId] ?? terminal.displayTitle
+                let title = panelTitle(panelId: panelId) ?? terminal.displayTitle
                 terminals.append(NotesTreeObservedTerminal(
                     panelId: panelId.uuidString,
                     anchorId: noteAnchorIdsByPanelId[panelId],
@@ -12228,12 +12228,25 @@ final class Workspace: Identifiable, ObservableObject {
         return terminals
     }
 
+    func postNotesTreeTerminalMetadataDidChange(panelId: UUID) {
+        guard RightSidebarBetaFeatureSettings.isNotesEnabled(),
+              panels[panelId] is TerminalPanel else { return }
+        NotificationCenter.default.post(
+            name: .workspaceNotesTreeTerminalMetadataDidChange,
+            object: self,
+            userInfo: ["workspaceId": id, "panelId": panelId]
+        )
+    }
+
     func notesTreeObservedAgentSessions() async -> NotesTreeObservation {
         SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
         let terminals = notesTreeObservedTerminals()
+        let currentTerminalPanelIds = Set(terminals.compactMap { UUID(uuidString: $0.panelId) })
         var seen = Set<String>()
         var observed: [NotesTreeObservedSession] = []
-        func add(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID?) {
+        func add(_ snapshot: SessionRestorableAgentSnapshot, panelId rawPanelId: UUID?) {
+            guard let panelId = rawPanelId,
+                  currentTerminalPanelIds.contains(panelId) else { return }
             let sessionId = snapshot.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sessionId.isEmpty else { return }
             let key = "\(snapshot.kind.rawValue)\n\(sessionId)"
@@ -12241,11 +12254,9 @@ final class Workspace: Identifiable, ObservableObject {
             observed.append(NotesTreeObservedSession(
                 agent: snapshot.kind.rawValue,
                 sessionId: sessionId,
-                surfaceAnchorId: panelId.flatMap { noteAnchorIdsByPanelId[$0] }
+                surfaceAnchorId: noteAnchorIdsByPanelId[panelId],
+                terminalPanelId: panelId.uuidString
             ))
-        }
-        for (panelId, snapshot) in restoredAgentSnapshotsByPanelId {
-            add(snapshot, panelId: panelId)
         }
         let entries = SharedLiveAgentIndex.shared.index?.allEntries() ?? []
         var pidOwner: [Int: UUID] = [:]
@@ -12254,10 +12265,9 @@ final class Workspace: Identifiable, ObservableObject {
                 if let pid = agentPIDs[key] { pidOwner[Int(pid)] = ownerId }
             }
         }
-        for (key, entry) in entries {
+        for (_, entry) in entries {
             let pidMatchedOwner = entry.processIDs.compactMap { pidOwner[$0] }.first
-            guard pidMatchedOwner != nil || key.workspaceId == id else { continue }
-            let ownerId = pidMatchedOwner ?? key.panelId
+            guard let ownerId = pidMatchedOwner else { continue }
             let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
             add(entry.snapshot, panelId: panelId)
         }
@@ -12301,9 +12311,13 @@ final class Workspace: Identifiable, ObservableObject {
             // arbitrary registered ids, which would match every shell on the
             // TTY.
             guard builtInAgentIds.contains(commandAgent) else { continue }
+            guard let ownerId = panelByTTY[process.tty],
+                  currentTerminalPanelIds.contains(ownerId) else { continue }
             anonymous.append(NotesTreeAnonymousAgentObservation(
                 agent: commandAgent,
-                startedAt: process.startedAt
+                startedAt: process.startedAt,
+                surfaceAnchorId: noteAnchorIdsByPanelId[ownerId],
+                terminalPanelId: ownerId.uuidString
             ))
         }
         #if DEBUG
@@ -12499,6 +12513,7 @@ final class Workspace: Identifiable, ObservableObject {
             guard previous != trimmed else { return }
             panelCustomTitles[panelId] = trimmed
         }
+        postNotesTreeTerminalMetadataDidChange(panelId: panelId)
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
@@ -13407,6 +13422,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 #endif
+        if didMutatePanelTitle {
+            postNotesTreeTerminalMetadataDidChange(panelId: panelId)
+        }
         return didMutate
     }
 
@@ -20327,14 +20345,6 @@ extension Workspace: BonsplitDelegate {
         to menu: NSMenu,
         target: SurfaceTabBarMenuTarget
     ) {
-        // New Note ships in the DEFAULT ⋯ menu, so while the Notes beta is
-        // off the item is dropped entirely — a permanently disabled entry
-        // would advertise a hidden feature to every fresh install. (Feed and
-        // Dock only appear in user-customized bars, where disabled is fine.)
-        if executable.builtInAction == .newNote,
-           !RightSidebarBetaFeatureSettings.isNotesEnabled() {
-            return
-        }
         let item = NSMenuItem(
             title: surfaceTabBarMenuTitle(for: executable),
             action: executable.menuItems.isEmpty ? #selector(SurfaceTabBarMenuTarget.performMenuItem(_:)) : nil,
@@ -20343,7 +20353,7 @@ extension Workspace: BonsplitDelegate {
         item.target = target
         item.representedObject = SurfaceTabBarMenuItemPayload(item: executable)
         item.image = surfaceTabBarMenuImage(for: executable)
-        item.isEnabled = surfaceTabBarMenuItemIsEnabled(executable)
+        item.isEnabled = surfaceTabBarMenuItemIsEnabled(executable, inPane: target.pane)
         if !executable.menuItems.isEmpty {
             let submenu = NSMenu(title: item.title)
             for child in executable.menuItems {
@@ -20356,15 +20366,25 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func surfaceTabBarMenuTitle(for executable: SurfaceTabBarExecutableButton) -> String {
+        if let builtInAction = executable.builtInAction {
+            // Action references inherit the longer command title during config
+            // resolution; the compact menu should only show explicit overrides.
+            let defaultActionTitle = CmuxResolvedConfigAction.builtIn(builtInAction).title
+            for candidate in [executable.button.title, executable.button.tooltip] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let trimmed, !trimmed.isEmpty, trimmed != defaultActionTitle {
+                    return trimmed
+                }
+            }
+            return builtInAction.menuTitle
+        }
+
         let button = executable.button
         for candidate in [button.title, button.tooltip] {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty {
                 return trimmed
             }
-        }
-        if let builtInAction = executable.builtInAction {
-            return builtInAction.menuTitle
         }
         if let workspaceCommand = executable.workspaceCommand {
             return workspaceCommand.command.name
@@ -20382,22 +20402,22 @@ extension Workspace: BonsplitDelegate {
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
-    private func surfaceTabBarMenuItemIsEnabled(_ executable: SurfaceTabBarExecutableButton) -> Bool {
+    private func surfaceTabBarMenuItemIsEnabled(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) -> Bool {
         guard let builtInAction = executable.builtInAction else { return true }
+        guard builtInAction.isAvailable() else { return false }
         switch builtInAction {
         case .rightSidebarFeed:
             return RightSidebarMode.feed.isAvailable()
         case .rightSidebarDock:
             return RightSidebarMode.dock.isAvailable()
-        case .newNote:
-            return RightSidebarBetaFeatureSettings.isNotesEnabled()
         case .more:
             return !executable.menuItems.isEmpty
         case .filesPane, .findPane, .vaultPane:
             return !bonsplitController.allPaneIds.isEmpty
         case .diffViewer:
             return owningTabManager != nil
-        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .splitRight, .splitDown,
+                && CmuxGitDiffAvailability.hasDisplayableDiff(in: surfaceTabBarBaseCwd(inPane: pane))
+        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote, .splitRight, .splitDown,
              .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
             return true
@@ -20425,10 +20445,6 @@ extension Workspace: BonsplitDelegate {
             bonsplitController.focusPane(pane)
             _ = newBrowserSurface(inPane: pane, focus: true)
         case .newNote:
-            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
-                NSSound.beep()
-                return
-            }
             bonsplitController.focusPane(pane)
             let selectedPanelId = bonsplitController.selectedTab(inPane: pane)
                 .flatMap { panelIdFromSurfaceId($0.id) }

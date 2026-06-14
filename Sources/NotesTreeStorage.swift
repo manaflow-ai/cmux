@@ -44,6 +44,11 @@ struct NotesTreeObservedSession: Equatable, Sendable {
     var agent: String
     var sessionId: String
     var surfaceAnchorId: String?
+    /// Terminal panel this live observation currently belongs to. Unlike
+    /// `surfaceAnchorId`, this is present even before a pane has minted a
+    /// notes anchor, so the tree can render the live terminal row as the
+    /// active agent session without creating notes metadata.
+    var terminalPanelId: String? = nil
 }
 
 /// An agent process seen running on one of the workspace's pane TTYs that has
@@ -54,6 +59,8 @@ struct NotesTreeObservedSession: Equatable, Sendable {
 struct NotesTreeAnonymousAgentObservation: Equatable, Sendable {
     var agent: String
     var startedAt: TimeInterval
+    var surfaceAnchorId: String? = nil
+    var terminalPanelId: String? = nil
 }
 
 /// A live terminal pane. Every terminal in the workspace appears in the Notes
@@ -70,6 +77,10 @@ struct NotesTreeObservedTerminal: Equatable, Sendable {
     var anchorId: String?
     /// The tab title at observation time.
     var title: String
+    /// The live agent session currently occupying this terminal, when the
+    /// latest observation sees one. This is display metadata only; the row
+    /// remains a terminal pointer.
+    var activeSession: NotesSessionMarker? = nil
 }
 
 /// Everything the app layer can tell the store about agents in this
@@ -178,6 +189,11 @@ struct NotesSessionMarker: Codable, Equatable, Sendable {
     /// timestamp and recency sort. Optional for backward-compatible decoding of
     /// markers written before this field existed.
     var modified: TimeInterval?
+    /// True for folders the user explicitly filed into the Notes tree (for
+    /// example by dragging a Vault/session row). Auto-discovered session
+    /// folders stay on disk but are hidden from the current workspace tree, so
+    /// historical panes do not read as current rows forever.
+    var userCreated: Bool? = nil
 }
 
 /// A Claude session discovered for a workspace, used to materialize/refresh
@@ -419,9 +435,11 @@ enum NotesTreeStorage {
     // MARK: Listing
 
     /// List the immediate children of `directory`, hiding dotfiles and marker
-    /// files. Directories containing a `_session.json` become session folders;
-    /// other directories are plain folders; `.md` files are notes; everything
-    /// else is omitted. Sorted directories-first, then case-insensitive by name.
+    /// files. User-created or contentful directories containing a `_session.json`
+    /// become session folders; empty auto-discovered session folders stay hidden
+    /// so historical sessions do not read as current workspace rows. Other
+    /// directories are plain folders; `.md` files are notes; everything else is
+    /// omitted. Sorted directories-first, then case-insensitive by name.
     static func listEntries(inDirectory directory: String) -> [NotesTreeEntry] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
@@ -441,6 +459,7 @@ enum NotesTreeStorage {
             guard fm.fileExists(atPath: full, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
                 if let marker = sessionMarker(inDirectory: full) {
+                    if marker.userCreated != true, isEmptySessionFolder(full) { continue }
                     entries.append(NotesTreeEntry(name: name, path: full, kind: .sessionFolder(marker)))
                 } else {
                     entries.append(NotesTreeEntry(name: name, path: full, kind: .folder))
@@ -473,6 +492,7 @@ enum NotesTreeStorage {
         case .note: return 1
         case .terminalFolder: return 2
         case .sessionFolder: return 3
+        case .pastFolder: return 4
         }
     }
 
@@ -598,7 +618,7 @@ enum NotesTreeStorage {
             for name in names where !name.hasPrefix(".") {
                 let dir = (root as NSString).appendingPathComponent(name)
                 guard let marker = sessionMarker(inDirectory: dir) else { continue }
-                if !recentIds.contains(marker.sessionId), isEmptySessionFolder(dir) {
+                if marker.userCreated != true, !recentIds.contains(marker.sessionId), isEmptySessionFolder(dir) {
                     try? fm.removeItem(atPath: dir)
                     continue
                 }
@@ -607,13 +627,6 @@ enum NotesTreeStorage {
         }
 
         for descriptor in sorted {
-            let marker = NotesSessionMarker(
-                agent: descriptor.agent,
-                sessionId: descriptor.sessionId,
-                cwd: descriptor.cwd,
-                title: descriptor.title,
-                modified: descriptor.modified
-            )
             let dir: String
             if let existing = folderForSession[descriptor.sessionId] {
                 dir = existing
@@ -625,6 +638,14 @@ enum NotesTreeStorage {
             } else {
                 continue  // Older session with no notes — don't materialize.
             }
+            let marker = NotesSessionMarker(
+                agent: descriptor.agent,
+                sessionId: descriptor.sessionId,
+                cwd: descriptor.cwd,
+                title: descriptor.title,
+                modified: descriptor.modified,
+                userCreated: sessionMarker(inDirectory: dir)?.userCreated
+            )
             // Only rewrite the marker when it actually changed; rewriting it on
             // every sync would bump the file's mtime and storm the per-folder
             // file watchers (the source of the Notes-tab lag).
@@ -661,6 +682,17 @@ enum NotesTreeStorage {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
         if let existing = existingSessionFolder(inFolder: folder, sessionId: descriptor.sessionId) {
+            let marker = NotesSessionMarker(
+                agent: descriptor.agent,
+                sessionId: descriptor.sessionId,
+                cwd: descriptor.cwd,
+                title: descriptor.title,
+                modified: descriptor.modified,
+                userCreated: true
+            )
+            if sessionMarker(inDirectory: existing) != marker {
+                try? writeJSON(marker, toPath: (existing as NSString).appendingPathComponent(sessionMarkerName))
+            }
             return existing
         }
         let name = sessionFolderName(descriptor: descriptor)
@@ -671,7 +703,8 @@ enum NotesTreeStorage {
             sessionId: descriptor.sessionId,
             cwd: descriptor.cwd,
             title: descriptor.title,
-            modified: descriptor.modified
+            modified: descriptor.modified,
+            userCreated: true
         )
         try? writeJSON(marker, toPath: (dir as NSString).appendingPathComponent(sessionMarkerName))
         return dir

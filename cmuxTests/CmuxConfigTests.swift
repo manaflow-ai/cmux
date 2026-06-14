@@ -31,6 +31,40 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    private func withSavedRightSidebarBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        defer {
+            restore(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        }
+        try body()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, "git \(arguments.joined(separator: " "))")
+    }
+
     // MARK: Simple commands
 
     func testDecodeSimpleCommand() throws {
@@ -301,38 +335,150 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     @MainActor
     func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let store = CmuxConfigStore(
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+                CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+                CmuxSurfaceTabBarBuiltInAction.more.configID,
+            ])
+
+            let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
+            XCTAssertEqual(moreButton.action, .builtIn(.more))
+            XCTAssertEqual(moreButton.menu?.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+            ])
+        }
+    }
+
+    @MainActor
+    func testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let store = CmuxConfigStore(
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
+            XCTAssertEqual(moreButton.menu?.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+            ])
+        }
+    }
+
+    @MainActor
+    func testSurfaceTabBarMenuFiltersUnavailableBetaBuiltIns() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let configURL = root.appendingPathComponent("cmux.json")
+            try """
+            {
+              "ui": {
+                "surfaceTabBar": {
+                  "buttons": [
+                    {
+                      "action": "more",
+                      "menu": ["diff", "note", "feed", "dock", "vaultPane"]
+                    }
+                  ]
+                }
+              }
+            }
+            """.write(to: configURL, atomically: true, encoding: .utf8)
+
+            let store = CmuxConfigStore(
+                globalConfigPath: configURL.path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [
+                .builtIn(.diffViewer),
+                .builtIn(.newNote),
+                .builtIn(.vaultPane),
+            ])
+        }
+    }
+
+    func testDiffViewerAvailabilityRequiresGitDiff() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
+            "cmux-diff-availability-\(UUID().uuidString)",
             isDirectory: true
         )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let plain = root.appendingPathComponent("plain", isDirectory: true)
+        let file = repo.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let store = CmuxConfigStore(
-            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
-            startFileWatchers: false
-        )
-        store.loadAll()
+        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: plain.path))
 
-        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), [
-            CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
-            CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
-            CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
-            CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
-            CmuxSurfaceTabBarBuiltInAction.more.configID,
-        ])
+        try runGit(["init"], in: repo)
+        try runGit(["checkout", "-b", "main"], in: repo)
+        try runGit(["config", "user.name", "cmux tests"], in: repo)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repo)
+        try "one\n".write(to: file, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repo)
+        try runGit(["commit", "-m", "initial"], in: repo)
+        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
 
-        let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
-        XCTAssertEqual(moreButton.action, .builtIn(.more))
-        XCTAssertEqual(moreButton.menu?.map(\.id), [
-            CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
-            CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
-            CmuxSurfaceTabBarBuiltInAction.findPane.configID,
-            CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
-            CmuxSurfaceTabBarBuiltInAction.newNote.configID,
-            CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID,
-            CmuxSurfaceTabBarBuiltInAction.customizeSurfaceTabBar.configID,
-        ])
+        try "one\ntwo\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
+
+        try runGit(["add", "story.txt"], in: repo)
+        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
     }
 
     @MainActor
@@ -369,7 +515,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
             .newBrowser,
             .more,
         ])
-        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.first?.action, .builtIn(.vaultPane))
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.first?.action, .builtIn(.diffViewer))
     }
 
     @MainActor

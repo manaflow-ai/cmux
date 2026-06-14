@@ -19,6 +19,8 @@ struct NotesTreePanelView: NSViewRepresentable {
     let onResumeMarker: (NotesSessionMarker) -> Void
     /// Focus the terminal panel a terminal row points at.
     let onFocusTerminalPanel: (UUID) -> Void
+    /// Resolve (and mint if needed) the note attachment target for a terminal row.
+    let onResolveTerminalNoteTarget: (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
 
     static let movePasteboardType = NSPasteboard.PasteboardType("com.cmux.notes-tree-move")
     /// Set on the drag pasteboard when the dragged item is a session folder, so
@@ -39,7 +41,8 @@ struct NotesTreePanelView: NSViewRepresentable {
             store: store,
             onOpenNote: onOpenNote,
             onResumeMarker: onResumeMarker,
-            onFocusTerminalPanel: onFocusTerminalPanel
+            onFocusTerminalPanel: onFocusTerminalPanel,
+            onResolveTerminalNoteTarget: onResolveTerminalNoteTarget
         )
     }
 
@@ -55,6 +58,7 @@ struct NotesTreePanelView: NSViewRepresentable {
         coordinator.onOpenNote = onOpenNote
         coordinator.onResumeMarker = onResumeMarker
         coordinator.onFocusTerminalPanel = onFocusTerminalPanel
+        coordinator.onResolveTerminalNoteTarget = onResolveTerminalNoteTarget
         // Defer reloads while an inline rename is typing (reloadData would tear
         // the field editor down mid-edit); the rename's end flushes the miss.
         if container.appliedRevision != store.contentRevision, !coordinator.isRenaming {
@@ -106,18 +110,21 @@ struct NotesTreePanelView: NSViewRepresentable {
         var onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
         var onResumeMarker: (NotesSessionMarker) -> Void
         var onFocusTerminalPanel: (UUID) -> Void
+        var onResolveTerminalNoteTarget: (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
         weak var container: NotesTreeContainerView?
 
         init(
             store: NotesTreeStore,
             onOpenNote: @escaping (NotesTreeNode, _ editImmediately: Bool) -> Void,
             onResumeMarker: @escaping (NotesSessionMarker) -> Void,
-            onFocusTerminalPanel: @escaping (UUID) -> Void
+            onFocusTerminalPanel: @escaping (UUID) -> Void,
+            onResolveTerminalNoteTarget: @escaping (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
         ) {
             self.store = store
             self.onOpenNote = onOpenNote
             self.onResumeMarker = onResumeMarker
             self.onFocusTerminalPanel = onFocusTerminalPanel
+            self.onResolveTerminalNoteTarget = onResolveTerminalNoteTarget
         }
 
         // MARK: Data source
@@ -221,6 +228,7 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         private func mutationFolder(forContext node: NotesTreeNode?) -> String? {
             guard let node else { return nil }
+            if case .pastFolder = node.kind { return nil }
             if node.isVirtual {
                 guard let marker = node.kind.sessionMarker else { return nil }
                 return store.materializeSession(marker)
@@ -240,7 +248,7 @@ struct NotesTreePanelView: NSViewRepresentable {
             case .note: onOpenNote(node, false)
             case .sessionFolder(let marker): onResumeMarker(marker)
             case .terminalFolder(let marker): focusTerminal(marker)
-            case .folder: break
+            case .folder, .pastFolder: break
             }
         }
 
@@ -258,7 +266,7 @@ struct NotesTreePanelView: NSViewRepresentable {
                 onResumeMarker(marker)
             case .terminalFolder(let marker) where !node.isExpandable:
                 focusTerminal(marker)
-            case .folder, .sessionFolder, .terminalFolder:
+            case .folder, .sessionFolder, .terminalFolder, .pastFolder:
                 if outlineView.isItemExpanded(node) {
                     outlineView.collapseItem(node)
                 } else {
@@ -283,7 +291,7 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func delete(_ node: NotesTreeNode) {
             guard !node.isVirtual else { return }
-            if case .note = node.kind, !isTreeOwned(node) {
+            if case .note = node.kind, store.isIndexedNote(path: node.path) {
                 // Index-owned flat note: delete through the flat store so the
                 // index record and attachments are removed with the body.
                 store.deleteFlatNote(path: node.path)
@@ -340,9 +348,9 @@ struct NotesTreePanelView: NSViewRepresentable {
                 initialText: node.displayName,
                 onCommit: { [weak self] newName, viaReturn in
                     guard let self else { return }
-                    let renamed = self.isTreeOwned(node)
-                        ? self.store.rename(path: node.path, toName: newName)
-                        : self.store.renameFlatNote(path: node.path, toTitle: newName)
+                    let renamed = self.store.isIndexedNote(path: node.path)
+                        ? self.store.renameFlatNote(path: node.path, toTitle: newName)
+                        : self.store.rename(path: node.path, toName: newName)
                     self.reloadNow()
                     let currentPath = renamed ?? node.path
                     self.selectRow(forPath: currentPath)
@@ -414,6 +422,7 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
+            if case .pastFolder = node.kind { return nil }
             // Terminal rows are pure pointers: nothing on disk to move and no
             // session payload to carry, so they don't drag.
             if case .terminalFolder = node.kind { return nil }
@@ -481,9 +490,13 @@ struct NotesTreePanelView: NSViewRepresentable {
         ) -> NSDragOperation {
             let pb = info.draggingPasteboard
             let destNode = dropDestination(for: item, in: outlineView)
-            // Terminal rows have no disk location to receive a drop; attach
-            // notes to a terminal through New Note / `cmux note` instead.
-            if let destNode, case .terminalFolder = destNode.kind { return [] }
+            if let destNode, case .pastFolder = destNode.kind { return [] }
+            if let destNode, case .terminalFolder = destNode.kind {
+                guard let source = pb.string(forType: NotesTreePanelView.movePasteboardType),
+                      source.lowercased().hasSuffix(".md") else { return [] }
+                outlineView.setDropItem(destNode, dropChildIndex: NSOutlineViewDropOnItemIndex)
+                return .move
+            }
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.
@@ -519,6 +532,16 @@ struct NotesTreePanelView: NSViewRepresentable {
         ) -> Bool {
             let pb = info.draggingPasteboard
             let destNode = dropDestination(for: item, in: outlineView)
+            if let destNode, case .pastFolder = destNode.kind { return false }
+            if let destNode, case .terminalFolder(let terminal) = destNode.kind {
+                guard let source = pb.string(forType: NotesTreePanelView.movePasteboardType),
+                      let target = onResolveTerminalNoteTarget(terminal),
+                      let attached = store.attachNote(path: source, toTerminal: terminal, target: target)
+                else { return false }
+                reloadNow()
+                selectRow(forPath: attached)
+                return true
+            }
             // Dropping into a virtual session row materializes its folder
             // first, so "file this note under that session" is one gesture.
             let resolvedDest: String?

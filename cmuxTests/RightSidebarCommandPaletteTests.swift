@@ -88,18 +88,29 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
-    func testNewNotePaletteCommandsGatedByNotesBeta() {
+    func testNewNotePaletteCommandsRequireWorkspaceButNotNotesSidebarBeta() {
         var context = ContentView.CommandPaletteContextSnapshot()
         XCTAssertFalse(
             ContentView.commandPaletteNewNoteCommandsVisible(context),
-            "New Note commands must stay hidden until the Notes beta context key is set"
+            "New Note commands need a workspace target"
         )
 
         context.setBool(ContentView.CommandPaletteContextKeys.notesBetaEnabled, false)
         XCTAssertFalse(ContentView.commandPaletteNewNoteCommandsVisible(context))
 
-        context.setBool(ContentView.CommandPaletteContextKeys.notesBetaEnabled, true)
+        context.setBool(ContentView.CommandPaletteContextKeys.hasWorkspace, true)
         XCTAssertTrue(ContentView.commandPaletteNewNoteCommandsVisible(context))
+    }
+
+    func testNewNoteBuiltInActionAvailabilityDoesNotFollowNotesSidebarBeta() {
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            XCTAssertTrue(CmuxSurfaceTabBarBuiltInAction.newNote.isAvailable(defaults: defaults))
+
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            XCTAssertTrue(CmuxSurfaceTabBarBuiltInAction.newNote.isAvailable(defaults: defaults))
+        }
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
