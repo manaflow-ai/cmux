@@ -4,7 +4,7 @@ import React from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { GuiModeApp } from "../src/gui-mode/GuiModeApp";
-import { submitGuiModePrompt } from "../src/gui-mode/bridge";
+import { submitGuiModePrompt, type GuiModeContext } from "../src/gui-mode/bridge";
 import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
 
 const expectedProviderIds = guiModeFallbackProviderIds;
@@ -110,6 +110,71 @@ test("GUI mode submit sends the selected provider to native", async () => {
   }
 });
 
+test("GUI mode task page renders every provider from native context", async () => {
+  for (const provider of guiModeFallbackProviders) {
+    const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+      url: "http://127.0.0.1/gui-mode.html#/gui-mode",
+    });
+    const restoreGlobals = installDomGlobals(dom);
+    const context: GuiModeContext = {
+      copy: {
+        errorMessage: "Could not create the GUI workspace.",
+        homeTitle: "GUI Mode",
+        promptPlaceholder: "What should cmux build?",
+        providerLabel: "Agent",
+        runtimeLabel: "Runtime",
+        submit: "Submit",
+        submitting: "Submitting",
+        taskPromptLabel: "Prompt",
+        taskTitle: "/task-worktree-pr",
+      },
+      page: "task-worktree-pr",
+      prompt: `Build with ${provider.displayName}`,
+      providers: guiModeFallbackProviders,
+      selectedProviderId: provider.id,
+    };
+    (dom.window as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: unknown) => {
+            expect((message as any).method).toBe("app.context");
+            return Promise.resolve({ ok: true, value: { guiMode: context } });
+          },
+        },
+      },
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+
+    try {
+      flushSync(() => {
+        root.render(<GuiModeApp />);
+      });
+      try {
+        await waitFor(() => dom.window.document.querySelector(".gui-mode-task") !== null);
+      } catch (error) {
+        throw new Error(`Timed out waiting for ${provider.id}: ${dom.window.document.body.textContent}`, {
+          cause: error,
+        });
+      }
+
+      expect(dom.window.location.hash).toBe("#/task-worktree-pr");
+      expect(dom.window.document.querySelector(".gui-mode-task-provider-name")?.textContent)
+        .toBe(provider.displayName);
+      expect(dom.window.document.querySelector(".gui-mode-task-command")?.textContent)
+        .toBe(provider.taskCommandPreview);
+      expect(dom.window.document.querySelector(".gui-mode-task-prompt")?.textContent)
+        .toBe(`Build with ${provider.displayName}`);
+      expect((dom.window.document.querySelector(".gui-mode-task") as HTMLElement)
+        .style.getPropertyValue("--gui-provider-accent")).toBe(provider.accentColor);
+    } finally {
+      flushSync(() => root.unmount());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      restoreGlobals();
+      dom.window.close();
+    }
+  }
+});
+
 function installDomGlobals(dom: JSDOM): () => void {
   const originalWindow = (globalThis as any).window;
   const originalDocument = (globalThis as any).document;
@@ -145,6 +210,17 @@ function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("scrollTo", originalScrollTo);
     restoreGlobal("webkit", originalWebkit);
   };
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    flushSync(() => {});
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Timed out waiting for GUI mode render.");
 }
 
 function restoreGlobal(name: string, value: unknown): void {
