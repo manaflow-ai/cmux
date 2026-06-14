@@ -1,7 +1,9 @@
 import Bonsplit
+import CmuxSettings
 import CmuxCore
 import Darwin
 import Foundation
+import CmuxSidebar
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
@@ -116,7 +118,7 @@ extension Workspace {
             return false
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
+        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
            terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
             return true
         }

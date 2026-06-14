@@ -1,6 +1,8 @@
 import XCTest
 import CmuxCore
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -12,6 +14,10 @@ import CmuxWorkspaces
 import CmuxSidebar
 import UserNotifications
 import Combine
+import CmuxTerminal
+import CmuxWorkspaceCore
+import struct CmuxSettings.IntegrationsCatalogSection
+import enum CmuxSettings.KiroNotificationLevel
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -258,6 +264,44 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(first.customColor, "#1565C0")
         XCTAssertEqual(second.customColor, "#C0392B")
         XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testMoveFocusRoutesSpatiallyInCanvasMode() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.orderedPanelIds.first)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let secondPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        workspace.setLayoutMode(.canvas)
+        // Pin deterministic canvas geometry: first pane left, second right.
+        workspace.canvasModel.restoreFrames([
+            (id: firstPanelId, frame: CGRect(x: 0, y: 0, width: 400, height: 300)),
+            (id: secondPanel.id, frame: CGRect(x: 500, y: 0, width: 400, height: 300)),
+        ])
+        workspace.focusPanel(firstPanelId)
+
+        workspace.moveFocus(direction: .right)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            secondPanel.id,
+            "Canvas mode routes moveFocus through spatial navigation"
+        )
+
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        // No pane further right: focus stays put instead of wrapping.
+        workspace.moveFocus(direction: .left)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
     }
 
     @MainActor
@@ -878,13 +922,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousValue = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousValue, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
             if let previousBackups {
                 defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
@@ -892,7 +936,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -917,22 +961,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey) as? Bool,
             false
         )
     }
 
     func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
         let defaults = UserDefaults.standard
-        let previousKiroLevel = defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey)
+        let previousKiroLevel = defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
         let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousKiroLevel {
-                defaults.set(previousKiroLevel, forKey: KiroIntegrationSettings.notificationLevelKey)
+                defaults.set(previousKiroLevel, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
             }
             if let previousPortBase {
                 defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
@@ -950,7 +994,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         defaults.removeObject(forKey: AutomationSettings.portBaseKey)
         defaults.removeObject(forKey: AutomationSettings.portRangeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
@@ -978,7 +1022,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey))
+        XCTAssertNil(defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey))
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
     }
@@ -3569,7 +3613,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.browser
+            SurfaceKind.browser
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -5648,7 +5692,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool
         )
     }
 

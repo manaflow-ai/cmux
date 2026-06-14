@@ -111,8 +111,11 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            guard let selectedWorkspaceID = path.last,
-                  store.selectedWorkspaceID != selectedWorkspaceID else {
+            guard let selectedWorkspaceID = path.last else {
+                return
+            }
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            guard store.selectedWorkspaceID != selectedWorkspaceID else {
                 return
             }
             store.selectedWorkspaceID = selectedWorkspaceID

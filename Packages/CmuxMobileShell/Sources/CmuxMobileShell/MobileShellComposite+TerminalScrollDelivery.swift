@@ -19,7 +19,17 @@ extension MobileShellComposite {
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
-        enqueueTerminalScroll(TerminalScrollDelivery(surfaceID: surfaceID, lines: lines, col: col, row: row))
+        var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
+            ?? TerminalScrollbackPrefetchState()
+        let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
+        terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
+        enqueueTerminalScroll(TerminalScrollDelivery(
+            surfaceID: surfaceID,
+            lines: lines,
+            col: col,
+            row: row,
+            maxScrollbackRows: maxScrollbackRows
+        ))
     }
 
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
@@ -58,18 +68,37 @@ extension MobileShellComposite {
             return
         }
         do {
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": delivery.surfaceID,
+                "client_id": clientID,
+                "delta_lines": delivery.lines,
+                "col": delivery.col,
+                "row": delivery.row,
+            ]
+            if let maxScrollbackRows = delivery.maxScrollbackRows {
+                params["max_scrollback_rows"] = maxScrollbackRows
+            }
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.scroll",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": delivery.surfaceID,
-                    "client_id": clientID,
-                    "delta_lines": delivery.lines,
-                    "col": delivery.col,
-                    "row": delivery.row,
-                ]
+                params: params
             )
-            _ = try await client.sendRequest(request)
+            let data = try await client.sendRequest(request)
+            guard let maxScrollbackRows = delivery.maxScrollbackRows,
+                  maxScrollbackRows > 0,
+                  remoteClient === client else {
+                return
+            }
+            guard let payload = try? MobileTerminalReplayResponse.decode(data),
+                  let renderGrid = payload.renderGrid,
+                  renderGrid.surfaceID == delivery.surfaceID else {
+                return
+            }
+            deliverAuthoritativeTerminalRenderGrid(
+                renderGrid,
+                expectedSurfaceID: delivery.surfaceID,
+                source: "scroll_prefetch"
+            )
         } catch {
             terminalScrollDeliveryLog.error("scroll forward failed surface=\(delivery.surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }

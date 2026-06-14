@@ -5,11 +5,13 @@ import WebKit
 import AppKit
 import Bonsplit
 import CmuxBrowserPanel
+import CmuxTerminalCore
 import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -3369,6 +3371,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
+    /// True while a canvas pane hosts this browser's webview inline (in the
+    /// pane's own hierarchy). Portal-side reconcilers must not rebind or
+    /// re-sync the webview into the window portal while this is set.
+    var canvasInlineHostingActive: Bool = false
+
     /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
         !shouldRenderWebView && preferredURLStringForOmnibar() == nil
@@ -5347,7 +5354,8 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
-            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
         )
     }
 
@@ -6533,6 +6541,12 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
+        // URL(string: "example.com:8443") parses "example.com" as the scheme.
+        // No real scheme contains a dot, so a dotted "scheme" followed by a
+        // numeric port is a bare host:port that must navigate, not search.
+        if browserDottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
+            return URL(string: "https://\(trimmed)")
+        }
         return nil
     }
 
@@ -6545,6 +6559,18 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     }
 
     return nil
+}
+
+private func browserDottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
+    guard schemeCandidate.contains(".") else { return false }
+    guard input.count > schemeCandidate.count else { return false }
+    let afterScheme = input.dropFirst(schemeCandidate.count)
+    guard afterScheme.first == ":" else { return false }
+    let portAndRest = afterScheme.dropFirst()
+    let port = portAndRest.prefix(while: { $0.isNumber })
+    guard !port.isEmpty, UInt16(port) != nil else { return false }
+    let rest = portAndRest.dropFirst(port.count)
+    return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
 }
 
 extension BrowserPanel {

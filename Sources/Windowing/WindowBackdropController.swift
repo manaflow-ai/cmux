@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum WindowBackdropHostingPhase: String, Equatable {
@@ -66,7 +67,7 @@ enum WindowBackdropController {
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = plan.windowIsOpaque
-            cmuxResetCompositorBackgroundBlur(on: window)
+            WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
         case .transparentRootBackdrop:
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
@@ -74,12 +75,12 @@ enum WindowBackdropController {
             if plan.shouldApplyGhosttyCompositorBlur {
                 GhosttyApp.shared.applyWindowBlurIfNeeded(window)
             } else {
-                cmuxResetCompositorBackgroundBlur(on: window)
+                WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
             }
         case .windowGlass:
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = false
-            cmuxResetCompositorBackgroundBlur(on: window)
+            WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
             if let glass = plan.glass {
                 didChangeGlassRoot = WindowGlassEffect.apply(
                     to: window,
@@ -153,7 +154,7 @@ extension WindowAppearanceSnapshot {
         if windowGlassSettings.shouldApply(glassEffectAvailable: glassEffectAvailable) {
             return WindowBackdropPlan(
                 hostingPhase: .windowGlass,
-                windowBackgroundColor: cmuxTransparentWindowBaseColor(),
+                windowBackgroundColor: WindowBackgroundComposition.policy.transparentWindowBaseColor,
                 windowIsOpaque: false,
                 rootPolicy: rootPolicy,
                 glass: WindowBackdropGlassPlan(
@@ -167,7 +168,7 @@ extension WindowAppearanceSnapshot {
         if terminalBackgroundOpacity < 0.999 {
             return WindowBackdropPlan(
                 hostingPhase: .transparentRootBackdrop,
-                windowBackgroundColor: cmuxTransparentWindowBaseColor(),
+                windowBackgroundColor: WindowBackgroundComposition.policy.transparentWindowBaseColor,
                 windowIsOpaque: false,
                 rootPolicy: rootPolicy,
                 glass: nil,
