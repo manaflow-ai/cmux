@@ -13717,7 +13717,7 @@ struct TabItemView: View, Equatable {
                 Text(workspaceSnapshot.title)
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
+                    .lineLimit(settings.wrapsWorkspaceTitles ? SidebarWorkspaceRowTextLimits.maxWrappedTitleLines : 1)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -15226,6 +15226,7 @@ private struct SidebarWorkspaceDescriptionText: View {
         .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
+        .lineLimit(SidebarWorkspaceRowTextLimits.maxDescriptionLines)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
@@ -15498,6 +15499,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         }
         .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
+        .lineLimit(SidebarWorkspaceRowTextLimits.maxMetadataBlockLines)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
@@ -15506,6 +15508,12 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary
     }
+}
+
+private enum SidebarWorkspaceRowTextLimits {
+    static let maxWrappedTitleLines = 8
+    static let maxDescriptionLines = 12
+    static let maxMetadataBlockLines = 12
 }
 
 /// Immutable, equatable snapshot of the group list a row's "Move to Group"
