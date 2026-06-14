@@ -52,9 +52,11 @@ private struct PairingChecklistRow: View {
 
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(stage.title)
         .accessibilityIdentifier("MobilePairingChecklistRow.\(stage.accessibilityIdentifierSuffix)")
         .accessibilityValue(status.accessibilityValue)
+        .accessibilityHint(accessibilityHint)
     }
 
     @ViewBuilder
@@ -63,10 +65,25 @@ private struct PairingChecklistRow: View {
         case .inProgress:
             ProgressView()
                 .controlSize(.small)
+                .accessibilityHidden(true)
         default:
             Image(systemName: status.symbolName)
                 .font(.title3)
                 .foregroundStyle(status.tintColor)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var accessibilityHint: String {
+        switch (status.failureMessage, status.failureGuidance) {
+        case let (message?, guidance?):
+            return "\(message) \(guidance)"
+        case let (message?, nil):
+            return message
+        case let (nil, guidance?):
+            return guidance
+        case (nil, nil):
+            return stage.detail
         }
     }
 }

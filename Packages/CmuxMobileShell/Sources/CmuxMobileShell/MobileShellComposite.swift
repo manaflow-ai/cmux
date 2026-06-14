@@ -140,10 +140,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// most recent pairing attempt, surfaced as individual check marks in
     /// ``PairingView`` so the user can see exactly which stage succeeded or failed
     /// (https://github.com/manaflow-ai/cmux/issues/6084). `nil` before any
-    /// attempt. Painted for every instrumented attempt (including background
-    /// reconnects); ``PairingView`` only renders it once the user starts a
-    /// foreground pairing attempt, so a background reconnect never shows a stale
-    /// checklist.
+    /// attempt. Only foreground Add Device attempts publish it; background
+    /// reconnects, host switches, and device-tree taps clear or skip it so they
+    /// cannot repaint the foreground sheet with stale checklist state.
     public private(set) var pairingChecklist: MobilePairingChecklist?
     /// A warning that must be accepted before pairing continues, currently used
     /// for Mac/iPhone app-version skew.
