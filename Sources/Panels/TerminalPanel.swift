@@ -1,7 +1,9 @@
 import Foundation
+import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTerminal
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -155,6 +157,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// Create a new terminal panel with a fresh surface
     convenience init(
+        id: UUID = UUID(),
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
@@ -168,6 +171,7 @@ final class TerminalPanel: Panel, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
         let surface = TerminalSurface(
+            id: id,
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
@@ -247,6 +251,7 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
+
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {

@@ -1,6 +1,9 @@
 import Bonsplit
+import CmuxSettings
+import CmuxCore
 import Darwin
 import Foundation
+import CmuxSidebar
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
@@ -115,7 +118,7 @@ extension Workspace {
             return false
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
+        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
            terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
             return true
         }
@@ -303,6 +306,7 @@ extension Workspace {
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })

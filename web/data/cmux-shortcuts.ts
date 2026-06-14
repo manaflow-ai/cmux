@@ -76,6 +76,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
+      {
+        id: "newBrowserWorkspace",
+        combos: [["⌥", "⌘", "N"]],
+        description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },
+        note: {
+          en: "like New Workspace, but the first surface is a browser pane with the address bar focused",
+          ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
+        },
+      },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
         id: "goToWorkspace",
@@ -166,6 +175,20 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+    ],
+  },
+  {
+    id: "canvas",
+    titleKey: "canvas",
+    blurbKey: "canvasBlurb",
+    shortcuts: [
+      { id: "toggleCanvasLayout", combos: [["⌃", "⌘", "C"]], description: { en: "Toggle canvas layout", ja: "キャンバスレイアウトを切り替え" } },
+      { id: "canvasRevealFocusedPane", combos: [["⌃", "⌘", "R"]], description: { en: "Reveal focused pane", ja: "フォーカス中のペインを表示" } },
+      { id: "canvasOverview", combos: [["⌃", "⌘", "O"]], description: { en: "Toggle overview zoom", ja: "全体表示を切り替え" } },
+      { id: "canvasZoomIn", combos: [["⌥", "⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
+      { id: "canvasZoomOut", combos: [["⌥", "⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
+      { id: "canvasZoomReset", combos: [["⌥", "⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      { id: "canvasTidy", combos: [["⌃", "⌘", "T"]], description: { en: "Tidy panes into a grid", ja: "ペインをグリッドに整列" } },
     ],
   },
   {

@@ -126,6 +126,21 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         )
     }
 
+    static var builtInOmp: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "omp",
+            name: "OMP",
+            detect: CmuxVaultAgentDetectRule(
+                processName: "omp",
+                alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
+            ),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.omp/agent/sessions"
+        )
+    }
+
     static var builtInAntigravity: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "antigravity",
@@ -156,18 +171,27 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var processName: String?
     var processNames: [String]
     var argvContains: [String]
+    var alternateArgvContains: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case processName, processNames, argvContains
+        case processName, processNames, argvContains, alternateArgvContains
     }
 
-    init(processName: String? = nil, processNames: [String] = [], argvContains: [String] = []) {
+    init(
+        processName: String? = nil,
+        processNames: [String] = [],
+        argvContains: [String] = [],
+        alternateArgvContains: [String] = []
+    ) {
         let name = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.processName = name?.isEmpty == true ? nil : name
         self.processNames = processNames
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         self.argvContains = argvContains
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.alternateArgvContains = alternateArgvContains
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -179,6 +203,7 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         processName = name?.isEmpty == true ? nil : name
         processNames = try Self.decodeOneOrManyStrings(forKey: .processNames, in: container)
         argvContains = try Self.decodeOneOrManyStrings(forKey: .argvContains, in: container)
+        alternateArgvContains = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContains, in: container)
     }
 
     private static func decodeOneOrManyStrings(
@@ -354,6 +379,7 @@ struct CmuxVaultAgentRegistry: Sendable {
     ) -> CmuxVaultAgentRegistry {
         var registrations = [
             CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
         ]
