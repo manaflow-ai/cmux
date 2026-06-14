@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import AppKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -10,6 +11,7 @@ import UserNotifications
 import Network
 import CmuxBrowserPanel
 import CmuxSettings
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -5246,32 +5248,53 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 }
 
 
-final class BrowserNavigableURLResolutionTests: XCTestCase {
-    func testResolvesFileSchemeAsNavigableURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
-        XCTAssertTrue(resolved.isFileURL)
-        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+@Suite struct BrowserNavigableURLResolutionTests {
+    @Test func resolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
-    func testResolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("api.localhost:3000"))
-        XCTAssertEqual(resolved.scheme, "http")
-        XCTAssertEqual(resolved.host, "api.localhost")
-        XCTAssertEqual(resolved.port, 3000)
+    @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
+        #expect(resolved.scheme == "http")
+        #expect(resolved.host == "api.localhost")
+        #expect(resolved.port == 3000)
 
-        let nested = try XCTUnwrap(resolveBrowserNavigableURL("deep.api.localhost/path"))
-        XCTAssertEqual(nested.scheme, "http")
-        XCTAssertEqual(nested.host, "deep.api.localhost")
-        XCTAssertEqual(nested.path, "/path")
+        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        #expect(nested.scheme == "http")
+        #expect(nested.host == "deep.api.localhost")
+        #expect(nested.path == "/path")
     }
 
-    func testRejectsNonWebNonFileScheme() {
-        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
-        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    @Test func rejectsNonWebNonFileScheme() {
+        #expect(resolveBrowserNavigableURL("mailto:test@example.com") == nil)
+        #expect(resolveBrowserNavigableURL("ftp://example.com/file.html") == nil)
     }
 
-    func testRejectsHostOnlyFileURL() {
-        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
+        // URL(string: "example.com:8443") parses "example.com" as a scheme, so
+        // the resolver must recover the bare host:port shape instead of
+        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
+        // the omnibar inline completion displays history hosts this way).
+        let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
+        #expect(resolved.scheme == "https")
+        #expect(resolved.host == "example.com")
+        #expect(resolved.port == 8443)
+
+        let withPath = try #require(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        #expect(withPath.scheme == "https")
+        #expect(withPath.port == 8443)
+        #expect(withPath.path == "/admin")
+    }
+
+    @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
+        #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
+        #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
+    }
+
+    @Test func rejectsHostOnlyFileURL() {
+        #expect(resolveBrowserNavigableURL("file://example.html") == nil)
     }
 }
 

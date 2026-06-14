@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxFeedback
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former

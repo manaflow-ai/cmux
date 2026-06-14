@@ -1,8 +1,10 @@
 import CMUXAgentLaunch
-import CmuxSession
 import CmuxCore
+import CmuxFoundation
+import CmuxSession
 import Darwin
 import XCTest
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

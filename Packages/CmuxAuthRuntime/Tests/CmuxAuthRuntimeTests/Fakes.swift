@@ -30,6 +30,7 @@ actor FakeAuthClient: AuthClient {
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
+    private(set) var lastMagicLinkCode: String?
     private(set) var signedInWithCredential: (email: String, password: String)?
     private(set) var oauthProviders: [String] = []
     private(set) var clearLocalSessionCount = 0
@@ -58,6 +59,7 @@ actor FakeAuthClient: AuthClient {
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
+    func setNonce(_ nonce: String) { self.nonce = nonce }
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
@@ -82,6 +84,7 @@ actor FakeAuthClient: AuthClient {
 
     func signInWithMagicLink(code: String) async throws {
         signedInWithMagicLink = true
+        lastMagicLinkCode = code
         access = "access"
     }
 

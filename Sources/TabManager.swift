@@ -1,4 +1,6 @@
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -18,6 +20,8 @@ import Combine
 import CoreServices
 import Darwin
 import OSLog
+import CmuxTerminal
+import CmuxWorkspaceCore
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -1183,7 +1187,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in
@@ -1933,7 +1937,7 @@ class TabManager: ObservableObject {
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
-        state: Workspace.PanelShellActivityState
+        state: PanelShellActivityState
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
@@ -4264,7 +4268,7 @@ class TabManager: ObservableObject {
                 }
             }
 
-            cancellable = tab.$panels
+            cancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in evaluate() }
 
@@ -4320,7 +4324,7 @@ class TabManager: ObservableObject {
                 }
             }
 
-            panelsCancellable = tab.$panels
+            panelsCancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in
@@ -5035,7 +5039,7 @@ class TabManager: ObservableObject {
                         cont.resume(returning: value)
                     }
 
-                    cancellable = tab.$panels
+                    cancellable = tab.panelsPublisher
                         .map { $0.count }
                         .removeDuplicates()
                         .sink { count in
@@ -5302,7 +5306,7 @@ class TabManager: ObservableObject {
                 self.uiTestCancellables.removeAll()
             }
 
-            tab.$panels
+            tab.panelsPublisher
                 .map { $0.count }
                 .removeDuplicates()
                 .sink { [weak self, weak tab] count in

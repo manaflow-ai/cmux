@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxTerminal
 
 // `RendererRealizationPlannerInput` and the pure `RendererRealizationPlanner`
 // policy live in RendererRealizationPlanner.swift.
