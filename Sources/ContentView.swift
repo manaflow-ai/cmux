@@ -9663,6 +9663,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let foregroundColorHex: String?
+    let mutedForegroundColorHex: String?
+    let selectionForegroundColorHex: String?
+    let borderColorHex: String?
+    let accentColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
 
@@ -9719,6 +9724,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        foregroundColorHex = defaults.string(forKey: SidebarThemeSettings.foregroundColorHexKey)
+        mutedForegroundColorHex = defaults.string(forKey: SidebarThemeSettings.mutedForegroundColorHexKey)
+        selectionForegroundColorHex = defaults.string(forKey: SidebarThemeSettings.selectionForegroundColorHexKey)
+        borderColorHex = defaults.string(forKey: SidebarThemeSettings.borderColorHexKey)
+        accentColorHex = defaults.string(forKey: SidebarThemeSettings.accentColorHexKey)
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
@@ -10161,11 +10171,12 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let isVisible: Bool
     let isFirstRow: Bool
     let rowSpacing: CGFloat
+    var accentColor: Color = cmuxAccentColor()
 
     var body: some View {
         if isVisible {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(accentColor)
                 .frame(height: 2)
                 .padding(.horizontal, 8)
                 .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
@@ -13354,6 +13365,31 @@ struct TabItemView: View, Equatable {
         settings.notificationBadgeColorHex
     }
 
+    private var configuredForegroundColor: Color? {
+        configuredColor(settings.foregroundColorHex)
+    }
+
+    private var configuredMutedForegroundColor: Color? {
+        configuredColor(settings.mutedForegroundColorHex)
+    }
+
+    private var configuredSelectionForegroundNSColor: NSColor? {
+        settings.selectionForegroundColorHex.flatMap(NSColor.init(hex:))
+    }
+
+    private var configuredBorderColor: Color? {
+        configuredColor(settings.borderColorHex)
+    }
+
+    private var configuredAccentColor: Color? {
+        configuredColor(settings.accentColorHex)
+    }
+
+    private func configuredColor(_ hex: String?) -> Color? {
+        guard let color = hex.flatMap(NSColor.init(hex:)) else { return nil }
+        return Color(nsColor: color)
+    }
+
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
@@ -13362,7 +13398,10 @@ struct TabItemView: View, Equatable {
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(
+        if let configuredSelectionForegroundNSColor {
+            return configuredSelectionForegroundNSColor.withAlphaComponent(max(0, min(opacity, 1)))
+        }
+        return sidebarSelectedWorkspaceForegroundNSColor(
             on: selectedWorkspaceBackgroundNSColor,
             opacity: opacity
         )
@@ -13407,7 +13446,7 @@ struct TabItemView: View, Equatable {
         case .leftRail:
             return .clear
         case .solidFill:
-            return Color.primary.opacity(0.5)
+            return configuredBorderColor ?? Color.primary.opacity(0.5)
         }
     }
 
@@ -13416,22 +13455,30 @@ struct TabItemView: View, Equatable {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
+        }
+        return configuredForegroundColor ?? .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+        }
+        if let configuredMutedForegroundColor {
+            return configuredMutedForegroundColor.opacity(opacity)
+        }
+        if let configuredForegroundColor {
+            return configuredForegroundColor.opacity(opacity)
+        }
+        return .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
         }
-        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
+        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : sidebarAccentColor
     }
 
     private var activeUnreadBadgeTextColor: Color {
@@ -13439,11 +13486,24 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeProgressTrackColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : Color.secondary.opacity(0.2)
+        if usesInvertedActiveForeground {
+            return activeSecondaryColor(0.15)
+        }
+        if let configuredMutedForegroundColor {
+            return configuredMutedForegroundColor.opacity(0.2)
+        }
+        if let configuredForegroundColor {
+            return configuredForegroundColor.opacity(0.2)
+        }
+        return Color.secondary.opacity(0.2)
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : sidebarAccentColor
+    }
+
+    private var sidebarAccentColor: Color {
+        configuredAccentColor ?? cmuxAccentColor()
     }
 
     private var shortcutHintEmphasis: Double {
@@ -13968,7 +14028,8 @@ struct TabItemView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                accentColor: sidebarAccentColor
             )
         }
         .onAppear {
@@ -14839,7 +14900,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? activeSecondaryColor(0.75) : .secondary
+        activeSecondaryColor(0.75)
     }
 
     private func openPullRequestLink(_ url: URL) {
@@ -14909,7 +14970,7 @@ struct TabItemView: View, Equatable {
             }
         }
         switch level {
-        case .info: return .secondary
+        case .info: return activeSecondaryColor(0.5)
         case .progress: return .blue
         case .success: return .green
         case .warning: return .orange
@@ -16371,6 +16432,7 @@ struct WindowChromeBorder: View {
 
     let orientation: Orientation
     var ignoresSafeArea = true
+    var colorOverride: NSColor? = nil
     @State private var separatorColor = WindowChromeSeparatorColor.current()
 
     var body: some View {
@@ -16383,7 +16445,7 @@ struct WindowChromeBorder: View {
 
     private var border: some View {
         Rectangle()
-            .fill(Color(nsColor: separatorColor))
+            .fill(Color(nsColor: colorOverride ?? separatorColor))
             .frame(
                 maxWidth: orientation == .horizontal ? .infinity : nil,
                 maxHeight: orientation == .vertical ? .infinity : nil
@@ -16393,18 +16455,32 @@ struct WindowChromeBorder: View {
                 height: orientation == .horizontal ? 1 : nil
             )
             .onAppear {
-                separatorColor = WindowChromeSeparatorColor.current()
+                refreshSeparatorColorIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                refreshSeparatorColorIfNeeded()
+            }
+            .onChange(of: colorOverride == nil) { _, usesSeparatorColor in
+                guard usesSeparatorColor else { return }
                 separatorColor = WindowChromeSeparatorColor.current()
             }
     }
+
+    private func refreshSeparatorColorIfNeeded() {
+        guard colorOverride == nil else { return }
+        separatorColor = WindowChromeSeparatorColor.current()
+    }
 }
 
-/// 1px trailing border on the sidebar, derived from the terminal chrome background.
+/// 1px trailing border on the sidebar, themeable with Ghostty config.
 private struct SidebarTrailingBorder: View {
+    @AppStorage(SidebarThemeSettings.borderColorHexKey) private var sidebarBorderColorHex: String?
+
     var body: some View {
-        WindowChromeBorder(orientation: .vertical)
+        WindowChromeBorder(
+            orientation: .vertical,
+            colorOverride: sidebarBorderColorHex.flatMap(NSColor.init(hex:))
+        )
     }
 }
 

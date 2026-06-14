@@ -25,6 +25,8 @@ public struct GhosttyConfig {
     /// Native fallback dark theme name used for fresh installs before the user
     /// has chosen terminal colors.
     public static let cmuxDefaultDarkThemeName = "Apple System Colors"
+    /// The defaults key that records sidebar appearance values managed from Ghostty config.
+    public static let sidebarAppearanceAppliedDefaultsKey = "cmux.ghosttyConfig.sidebarAppearance.appliedValues.v1"
 
     private static let loadCacheLock = NSLock()
     // Every read/write of this cache is serialized by `loadCacheLock` (see
@@ -129,6 +131,34 @@ public struct GhosttyConfig {
     public var sidebarBackgroundDark: NSColor?
     /// The sidebar tint opacity (0...1), or `nil` when unset.
     public var sidebarTintOpacity: Double?
+    /// The raw selected-sidebar-row background directive value before theme resolution.
+    public var rawSidebarSelectionBackground: String?
+    /// The raw sidebar foreground directive value before theme resolution.
+    public var rawSidebarForeground: String?
+    /// The raw sidebar muted-foreground directive value before theme resolution.
+    public var rawSidebarMutedForeground: String?
+    /// The raw selected-sidebar-row foreground directive value before theme resolution.
+    public var rawSidebarSelectionForeground: String?
+    /// The raw sidebar border directive value before theme resolution.
+    public var rawSidebarBorderColor: String?
+    /// The raw sidebar accent directive value before theme resolution.
+    public var rawSidebarAccentColor: String?
+    /// The raw sidebar notification badge background directive value before theme resolution.
+    public var rawSidebarNotificationBadgeBackground: String?
+    /// The resolved selected-sidebar-row background color.
+    public var sidebarSelectionBackground: NSColor?
+    /// The resolved sidebar foreground color.
+    public var sidebarForeground: NSColor?
+    /// The resolved sidebar muted-foreground color.
+    public var sidebarMutedForeground: NSColor?
+    /// The resolved selected-sidebar-row foreground color.
+    public var sidebarSelectionForeground: NSColor?
+    /// The resolved sidebar border color.
+    public var sidebarBorderColor: NSColor?
+    /// The resolved sidebar accent color.
+    public var sidebarAccentColor: NSColor?
+    /// The resolved sidebar notification badge background color.
+    public var sidebarNotificationBadgeBackground: NSColor?
 
     /// The 16-color ANSI palette, indexed 0...15.
     public var palette: [Int: NSColor] = [:]
@@ -240,35 +270,194 @@ public struct GhosttyConfig {
         }
     }
 
-    /// Writes the resolved sidebar appearance (tint colors and opacity) into
-    /// `UserDefaults.standard` so the SwiftUI sidebar can read them.
+    /// Resolves every sidebar appearance directive for `preferredColorScheme`.
+    public mutating func resolveSidebarAppearance(preferredColorScheme: ColorSchemePreference) {
+        resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
+        sidebarSelectionBackground = Self.resolveSidebarColor(
+            rawSidebarSelectionBackground,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarForeground = Self.resolveSidebarColor(
+            rawSidebarForeground,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarMutedForeground = Self.resolveSidebarColor(
+            rawSidebarMutedForeground,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarSelectionForeground = Self.resolveSidebarColor(
+            rawSidebarSelectionForeground,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarBorderColor = Self.resolveSidebarColor(
+            rawSidebarBorderColor,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarAccentColor = Self.resolveSidebarColor(
+            rawSidebarAccentColor,
+            preferredColorScheme: preferredColorScheme
+        )
+        sidebarNotificationBadgeBackground = Self.resolveSidebarColor(
+            rawSidebarNotificationBadgeBackground,
+            preferredColorScheme: preferredColorScheme
+        )
+    }
+
+    private static func resolveSidebarColor(
+        _ raw: String?,
+        preferredColorScheme: ColorSchemePreference
+    ) -> NSColor? {
+        guard let raw else { return nil }
+        let resolved = resolveThemeName(from: raw, preferredColorScheme: preferredColorScheme)
+        return NSColor(hex: resolved)
+    }
+
+    /// Writes the resolved sidebar appearance into `UserDefaults.standard`.
     public func applySidebarAppearanceToUserDefaults() {
-        guard rawSidebarBackground != nil else {
-            if let opacity = sidebarTintOpacity {
-                UserDefaults.standard.set(opacity, forKey: "sidebarTintOpacity")
-            }
+        let defaults = UserDefaults.standard
+        var appliedValues = Self.appliedSidebarAppearanceValues(defaults: defaults)
+
+        guard hasSidebarAppearanceDirective || sidebarTintOpacity != nil || !appliedValues.isEmpty else {
             return
         }
 
-        let defaults = UserDefaults.standard
+        if rawSidebarBackground != nil {
+            applySidebarColor(
+                sidebarBackgroundLight,
+                key: "sidebarTintHexLight",
+                appliedValues: &appliedValues
+            )
+            applySidebarColor(
+                sidebarBackgroundDark,
+                key: "sidebarTintHexDark",
+                appliedValues: &appliedValues
+            )
+            applySidebarColor(
+                sidebarBackground,
+                key: "sidebarTintHex",
+                appliedValues: &appliedValues
+            )
+        } else {
+            clearManagedSidebarAppearanceValue(key: "sidebarTintHexLight", appliedValues: &appliedValues)
+            clearManagedSidebarAppearanceValue(key: "sidebarTintHexDark", appliedValues: &appliedValues)
+            clearManagedSidebarAppearanceValue(key: "sidebarTintHex", appliedValues: &appliedValues)
+        }
 
-        if let light = sidebarBackgroundLight {
-            defaults.set(light.hexString(), forKey: "sidebarTintHexLight")
-        } else {
-            defaults.removeObject(forKey: "sidebarTintHexLight")
-        }
-        if let dark = sidebarBackgroundDark {
-            defaults.set(dark.hexString(), forKey: "sidebarTintHexDark")
-        } else {
-            defaults.removeObject(forKey: "sidebarTintHexDark")
-        }
-        if let color = sidebarBackground {
-            defaults.set(color.hexString(), forKey: "sidebarTintHex")
-        } else {
-            defaults.removeObject(forKey: "sidebarTintHex")
-        }
+        applySidebarColorIfConfigured(
+            rawSidebarSelectionBackground,
+            color: sidebarSelectionBackground,
+            key: "sidebarSelectionColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarForeground,
+            color: sidebarForeground,
+            key: "sidebarForegroundColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarMutedForeground,
+            color: sidebarMutedForeground,
+            key: "sidebarMutedForegroundColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarSelectionForeground,
+            color: sidebarSelectionForeground,
+            key: "sidebarSelectionForegroundColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarBorderColor,
+            color: sidebarBorderColor,
+            key: "sidebarBorderColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarAccentColor,
+            color: sidebarAccentColor,
+            key: "sidebarAccentColorHex",
+            appliedValues: &appliedValues
+        )
+        applySidebarColorIfConfigured(
+            rawSidebarNotificationBadgeBackground,
+            color: sidebarNotificationBadgeBackground,
+            key: "sidebarNotificationBadgeColorHex",
+            appliedValues: &appliedValues
+        )
+
         if let opacity = sidebarTintOpacity {
             defaults.set(opacity, forKey: "sidebarTintOpacity")
+            appliedValues["sidebarTintOpacity"] = String(opacity)
+        } else {
+            clearManagedSidebarAppearanceValue(key: "sidebarTintOpacity", appliedValues: &appliedValues)
+        }
+
+        if appliedValues.isEmpty {
+            defaults.removeObject(forKey: Self.sidebarAppearanceAppliedDefaultsKey)
+        } else {
+            defaults.set(appliedValues, forKey: Self.sidebarAppearanceAppliedDefaultsKey)
+        }
+    }
+
+    private var hasSidebarAppearanceDirective: Bool {
+        rawSidebarBackground != nil ||
+            rawSidebarSelectionBackground != nil ||
+            rawSidebarForeground != nil ||
+            rawSidebarMutedForeground != nil ||
+            rawSidebarSelectionForeground != nil ||
+            rawSidebarBorderColor != nil ||
+            rawSidebarAccentColor != nil ||
+            rawSidebarNotificationBadgeBackground != nil
+    }
+
+    private static func appliedSidebarAppearanceValues(defaults: UserDefaults) -> [String: String] {
+        defaults.dictionary(forKey: sidebarAppearanceAppliedDefaultsKey) as? [String: String] ?? [:]
+    }
+
+    private func applySidebarColorIfConfigured(
+        _ raw: String?,
+        color: NSColor?,
+        key: String,
+        appliedValues: inout [String: String]
+    ) {
+        guard raw != nil else {
+            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
+            return
+        }
+        applySidebarColor(color, key: key, appliedValues: &appliedValues)
+    }
+
+    private func applySidebarColor(
+        _ color: NSColor?,
+        key: String,
+        appliedValues: inout [String: String]
+    ) {
+        guard let color else {
+            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
+            return
+        }
+        let value = color.hexString()
+        UserDefaults.standard.set(value, forKey: key)
+        appliedValues[key] = value
+    }
+
+    private func clearManagedSidebarAppearanceValue(
+        key: String,
+        appliedValues: inout [String: String]
+    ) {
+        guard let appliedValue = appliedValues.removeValue(forKey: key) else { return }
+        if key == "sidebarTintOpacity" {
+            let current = UserDefaults.standard.object(forKey: key) as? NSNumber
+            if let current,
+               let appliedDouble = Double(appliedValue),
+               abs(current.doubleValue - appliedDouble) < 0.0001 {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            return
+        }
+        if UserDefaults.standard.string(forKey: key) == appliedValue {
+            UserDefaults.standard.removeObject(forKey: key)
         }
     }
 
@@ -343,7 +532,7 @@ public struct GhosttyConfig {
         }
         #endif
 
-        config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
+        config.resolveSidebarAppearance(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
 
         return config
@@ -619,6 +808,20 @@ public struct GhosttyConfig {
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }
+                case "sidebar-selection-background":
+                    rawSidebarSelectionBackground = value
+                case "sidebar-foreground":
+                    rawSidebarForeground = value
+                case "sidebar-muted-foreground":
+                    rawSidebarMutedForeground = value
+                case "sidebar-selection-foreground":
+                    rawSidebarSelectionForeground = value
+                case "sidebar-border-color":
+                    rawSidebarBorderColor = value
+                case "sidebar-accent-color":
+                    rawSidebarAccentColor = value
+                case "sidebar-notification-badge-background", "sidebar-notification-badge-color":
+                    rawSidebarNotificationBadgeBackground = value
                 default:
                     break
                 }

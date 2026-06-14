@@ -9,6 +9,14 @@ enum SidebarMatchTerminalBackgroundSettings {
     static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
 }
 
+enum SidebarThemeSettings {
+    static let foregroundColorHexKey = "sidebarForegroundColorHex"
+    static let mutedForegroundColorHexKey = "sidebarMutedForegroundColorHex"
+    static let selectionForegroundColorHexKey = "sidebarSelectionForegroundColorHex"
+    static let borderColorHexKey = "sidebarBorderColorHex"
+    static let accentColorHexKey = "sidebarAccentColorHex"
+}
+
 enum SidebarTabItemFontScale {
     static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
         GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
