@@ -63,9 +63,8 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func updateQuickSearch(query: String?) {
-        let normalizedQuery = query?.isEmpty == true ? nil : query
-        guard quickSearchQuery != normalizedQuery else { return }
-        quickSearchQuery = normalizedQuery
+        guard quickSearchQuery != query else { return }
+        quickSearchQuery = query
         applyHeaderState()
     }
 
@@ -75,7 +74,7 @@ final class FileExplorerHeaderView: NSView {
         if let quickSearchQuery {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
-            pathLabel.stringValue = "/" + quickSearchQuery
+            pathLabel.stringValue = quickSearchQuery.isEmpty ? "" : "/" + quickSearchQuery
             pathLabel.toolTip = pathLabel.stringValue
         } else {
             iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
