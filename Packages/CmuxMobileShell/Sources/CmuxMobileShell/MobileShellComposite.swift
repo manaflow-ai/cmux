@@ -1,3 +1,4 @@
+public import CmuxAgentChat
 public import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
@@ -182,6 +183,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var workspaces: [MobileWorkspacePreview] {
         didSet { workspaceTopologyVersion &+= 1 }
     }
+    /// Chat sessions discovered while loading the workspace list, keyed by
+    /// workspace id. This lets the detail view show the chat toggle from the
+    /// already-loaded list snapshot, before its live chat stream connects.
+    public private(set) var seededChatSessionsByWorkspaceID: [MobileWorkspacePreview.ID: [ChatSessionDescriptor]] = [:]
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
@@ -724,6 +729,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
+        seededChatSessionsByWorkspaceID = [:]
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
         // Selection resets above are done; allow draft saving again so a
@@ -2974,6 +2980,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
+        seededChatSessionsByWorkspaceID = [:]
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -4619,6 +4626,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false
     ) {
+        applySeededChatSessions(from: response, mergeExistingWorkspaces: mergeExistingWorkspaces)
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         if mergeExistingWorkspaces {
             var mergedWorkspaces = workspaces
@@ -4647,6 +4655,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
+    }
+
+    private func applySeededChatSessions(
+        from response: MobileSyncWorkspaceListResponse,
+        mergeExistingWorkspaces: Bool
+    ) {
+        var next = mergeExistingWorkspaces ? seededChatSessionsByWorkspaceID : [:]
+        for remoteWorkspace in response.workspaces {
+            let workspaceID = MobileWorkspacePreview.ID(rawValue: remoteWorkspace.id)
+            let sessions = ChatSessionDescriptor.openable(
+                remoteWorkspace.terminals.compactMap(\.chatSession)
+            )
+            if sessions.isEmpty {
+                next.removeValue(forKey: workspaceID)
+            } else {
+                next[workspaceID] = sessions
+            }
+        }
+        seededChatSessionsByWorkspaceID = next
     }
 
     private func remoteWorkspacesPreservingSnapshots(

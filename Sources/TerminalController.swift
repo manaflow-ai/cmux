@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxControlSocket
 import CmuxSettings
@@ -13917,11 +13918,17 @@ class TerminalController {
         isSelected: Bool,
         requestedTerminalID: UUID?
     ) -> [String: Any] {
+        let chatService = AgentChatTranscriptService.shared
+        var chatSessionsByTerminalID: [String: [ChatSessionDescriptor]] = [:]
+        for descriptor in chatService.sessionDescriptors(workspaceID: workspace.id.uuidString) {
+            guard let terminalID = descriptor.terminalID else { continue }
+            chatSessionsByTerminalID[terminalID, default: []].append(descriptor)
+        }
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
-            return [
+            var payload: [String: Any] = [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(
@@ -13932,6 +13939,13 @@ class TerminalController {
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
+            if let descriptor = ChatSessionDescriptor.openable(
+                chatSessionsByTerminalID[terminal.id.uuidString] ?? []
+            ).first,
+               let chatPayload = chatService.wirePayload(descriptor) {
+                payload["chat_session"] = chatPayload
+            }
+            return payload
         }
 
         return [

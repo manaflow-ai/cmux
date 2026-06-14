@@ -50,6 +50,10 @@ struct WorkspaceDetailView: View {
     @State private var chatSessions: [ChatSessionDescriptor] = []
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State private var chatDrafts: [String: String] = [:]
+    /// Once the live session RPC succeeds, it owns availability. Before that,
+    /// the workspace-list seed gives the toolbar a stable first paint.
+    @State private var hasLoadedLiveChatSessions = false
+    @State private var chatSessionsWorkspaceID: MobileWorkspacePreview.ID?
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -75,7 +79,7 @@ struct WorkspaceDetailView: View {
     /// the live terminal.
     private var sessionForSelectedTerminal: ChatSessionDescriptor? {
         guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
-        return chatSessions.first { $0.terminalID == terminalID }
+        return availableChatSessions.first { $0.terminalID == terminalID }
     }
 
     /// The session chat mode opens: the visible tab's session, or the pinned
@@ -87,9 +91,23 @@ struct WorkspaceDetailView: View {
         // would claim B while the conversation stays A). nil makes the body
         // fall back to the terminal and refreshChatSessions exit chat mode.
         if let pinnedChatSessionID {
-            return chatSessions.first { $0.id == pinnedChatSessionID }
+            return availableChatSessions.first { $0.id == pinnedChatSessionID }
         }
         return sessionForSelectedTerminal
+    }
+
+    /// Session descriptors currently usable for toolbar availability. The
+    /// workspace-list seed is only a first-paint fallback; the live chat session
+    /// list becomes authoritative after its first successful fetch.
+    private var availableChatSessions: [ChatSessionDescriptor] {
+        let liveSessionsAreCurrent = hasLoadedLiveChatSessions && chatSessionsWorkspaceID == workspace.id
+        let currentChatSessions = chatSessionsWorkspaceID == workspace.id ? chatSessions : []
+        return liveSessionsAreCurrent
+            ? chatSessions
+            : Self.mergedChatSessions(
+                primary: currentChatSessions,
+                fallback: store.seededChatSessions(workspaceID: workspace.id.rawValue)
+            )
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
@@ -194,8 +212,11 @@ struct WorkspaceDetailView: View {
     /// `.task(id: chatRefreshKey)` re-runs this on reconnect, and cancels it
     /// on workspace change or when the view goes away.
     private func refreshChatSessions() async {
+        prepareChatSessionsForCurrentWorkspace()
+        seedChatSessionsFromWorkspaceList()
         guard let source = store.makeChatEventSource() else {
             chatSessions = []
+            hasLoadedLiveChatSessions = false
             applyChatModeFallback()
             return
         }
@@ -205,13 +226,49 @@ struct WorkspaceDetailView: View {
         // when a session is found (the seed/first frame arriving over the
         // wire is the "appears real quickly but not smooth" moment).
         let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
-        withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
+        withAnimation(.snappy(duration: 0.25)) {
+            chatSessions = seeded
+            hasLoadedLiveChatSessions = true
+        }
         applyChatModeFallback()
         for await frame in stream {
             let next = reducer.applying(frame, to: chatSessions)
             withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
             applyChatModeFallback()
         }
+    }
+
+    private func prepareChatSessionsForCurrentWorkspace() {
+        guard chatSessionsWorkspaceID != workspace.id else { return }
+        chatSessionsWorkspaceID = workspace.id
+        chatSessions = []
+        hasLoadedLiveChatSessions = false
+        pinnedChatSessionID = nil
+        isChatMode = false
+    }
+
+    /// Prime the detail state from the workspace-list payload so the toolbar
+    /// does not wait for `mobile.chat.sessions` on first paint.
+    private func seedChatSessionsFromWorkspaceList() {
+        guard !hasLoadedLiveChatSessions else { return }
+        let seeded = store.seededChatSessions(workspaceID: workspace.id.rawValue)
+        guard !seeded.isEmpty else { return }
+        let next = Self.mergedChatSessions(primary: chatSessions, fallback: seeded)
+        guard next != chatSessions else { return }
+        withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
+    }
+
+    private static func mergedChatSessions(
+        primary: [ChatSessionDescriptor],
+        fallback: [ChatSessionDescriptor]
+    ) -> [ChatSessionDescriptor] {
+        guard !fallback.isEmpty else { return primary }
+        var seen = Set(primary.map(\.id))
+        var merged = primary
+        for session in fallback where seen.insert(session.id).inserted {
+            merged.append(session)
+        }
+        return ChatSessionDescriptor.openable(merged)
     }
 
     /// If the session backing chat mode disappeared, fall back to the

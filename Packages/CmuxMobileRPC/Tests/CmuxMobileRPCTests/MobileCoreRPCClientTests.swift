@@ -140,7 +140,21 @@ import Testing
                   "title": "Build",
                   "current_directory": "/Users/test/project",
                   "is_focused": true,
-                  "is_ready": true
+                  "is_ready": true,
+                  "chat_session": {
+                    "session_id": "claude-session",
+                    "agent_kind": "claude",
+                    "kind": "agent",
+                    "title": "Fix mobile polish",
+                    "workspace_id": "ws-1",
+                    "terminal_id": "t-1",
+                    "cwd": "/Users/test/project",
+                    "state": {
+                      "state": "working",
+                      "since": "2026-06-14T05:00:00Z"
+                    },
+                    "last_activity_at": "2026-06-14T05:01:00Z"
+                  }
                 }
               ]
             }
@@ -156,8 +170,11 @@ import Testing
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
         #expect(workspace.isSelected)
-        #expect(workspace.terminals.first?.isFocused == true)
-        #expect(workspace.terminals.first?.isReady == true)
+        let terminal = try #require(workspace.terminals.first)
+        #expect(terminal.isFocused == true)
+        #expect(terminal.isReady == true)
+        #expect(terminal.chatSession?.id == "claude-session")
+        #expect(terminal.chatSession?.terminalID == "t-1")
     }
 
     @Test func attachTicketInputDecodesAttachURL() throws {
