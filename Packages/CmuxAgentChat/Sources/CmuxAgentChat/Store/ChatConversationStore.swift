@@ -142,6 +142,15 @@ public final class ChatConversationStore {
             let streamStartedAt = now()
             for await event in stream {
                 apply(event)
+                // If the initial history fetch failed (e.g. the Mac couldn't
+                // read the transcript yet — a title-detected agent adopted
+                // before its jsonl was written), a live frame means it is
+                // readable now. Retry so the error banner clears and full
+                // context loads instead of parking on the failure. No-ops once
+                // loaded; only re-runs while the fetch still throws.
+                if !hasLoadedInitialHistory {
+                    await loadInitialHistoryIfNeeded()
+                }
                 // Flush queued sends inline once the agent goes idle —
                 // structured here in the async run loop rather than a
                 // detached Task spawned from the synchronous apply().
@@ -309,6 +318,9 @@ public final class ChatConversationStore {
 
     private func loadInitialHistoryIfNeeded() async {
         guard !hasLoadedInitialHistory else { return }
+        // A fresh newest-page load re-anchors paging; truncated-at-head is only
+        // re-discovered if a later loadOlder hits the Mac cache head.
+        historyTruncatedAtHead = false
         do {
             let page = try await source.history(
                 sessionID: descriptor.id,
@@ -360,6 +372,9 @@ public final class ChatConversationStore {
     /// After a stream drop, fetches the newest page and merges anything the
     /// window missed while disconnected.
     private func resyncTail() async {
+        // Re-deriving the window from the newest page resets paging; a later
+        // loadOlder re-discovers truncated-at-head if it still applies.
+        historyTruncatedAtHead = false
         do {
             let page = try await source.history(
                 sessionID: descriptor.id,
@@ -493,6 +508,11 @@ public final class ChatConversationStore {
             terminalBlockOrder = []
             pending.removeAll { $0.delivery == .delivered }
             hasMoreHistory = false
+            // The new transcript re-anchors paging from scratch; a stale
+            // truncated-at-head flag would render the "earlier history is on
+            // your Mac" cell above a fresh short conversation. resyncTail
+            // re-derives the real paging state.
+            historyTruncatedAtHead = false
             reproject()
             Task { await resyncTail() }
         case .unknown:
