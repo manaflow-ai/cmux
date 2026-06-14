@@ -35,3 +35,5 @@ cmux reorder-surface --surface surface:7 --before surface:3
 ```
 
 Surface identity is stable across move/reorder/split-off operations. Layout commands are focus-neutral by default; pass `--focus true` only when you want the moved or created surface selected.
+
+**Cross-workspace input:** `send`, `send-key`, and `read-screen` resolve `--workspace` from `$CMUX_WORKSPACE_ID`. When targeting a surface outside the caller's workspace, you must pass `--workspace` explicitly. Omitting it produces the misleading `Error: invalid_params: Surface is not a terminal`.
