@@ -13497,17 +13497,12 @@ struct TabItemView: View, Equatable {
     }
 
     private var remoteWorkspaceSidebarText: String? {
-        // Keep the SSH row visible while auto-reconnect is suspended even if
-        // every remote terminal session already died — it hosts the manual
-        // Reconnect affordance.
-        guard tab.hasActiveRemoteTerminalSessions || tab.remoteConnectionState == .suspended else {
-            return nil
-        }
+        guard tab.isRemoteWorkspace else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedTarget, !trimmedTarget.isEmpty {
             return trimmedTarget
         }
-        return String(localized: "sidebar.remote.subtitleFallback", defaultValue: "SSH workspace")
+        return String(localized: "sidebar.remote.subtitleFallback", defaultValue: "Remote workspace")
     }
 
     private var copyableSidebarSSHError: String? {
@@ -14613,7 +14608,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.connected",
-                    defaultValue: "SSH connected to %@"
+                    defaultValue: "Remote connected to %@"
                 ),
                 locale: .current,
                 target
@@ -14622,7 +14617,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.connecting",
-                    defaultValue: "SSH connecting to %@"
+                    defaultValue: "Remote connecting to %@"
                 ),
                 locale: .current,
                 target
@@ -14631,7 +14626,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.reconnecting",
-                    defaultValue: "SSH reconnecting to %@"
+                    defaultValue: "Remote reconnecting to %@"
                 ),
                 locale: .current,
                 target
@@ -14641,7 +14636,7 @@ struct TabItemView: View, Equatable {
                 return String(
                     format: String(
                         localized: "sidebar.remote.help.errorWithDetail",
-                        defaultValue: "SSH error for %@: %@"
+                        defaultValue: "Remote error for %@: %@"
                     ),
                     locale: .current,
                     target,
@@ -14651,7 +14646,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.error",
-                    defaultValue: "SSH error for %@"
+                    defaultValue: "Remote error for %@"
                 ),
                 locale: .current,
                 target
@@ -14660,7 +14655,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.disconnected",
-                    defaultValue: "SSH disconnected from %@"
+                    defaultValue: "Remote disconnected from %@"
                 ),
                 locale: .current,
                 target
@@ -14726,7 +14721,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended,
+            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
+                || tab.remoteConnectionState == .disconnected,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
