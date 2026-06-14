@@ -4408,6 +4408,30 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testRolledBackExplicitScrollIntentDoesNotConsumeLaterPassiveBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        let request = fixture.hostedView.noteExplicitScrollIntent()
+        fixture.hostedView.rollbackExplicitScrollIntent(
+            generation: request.generation,
+            to: request.previousIntent
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "A no-op explicit scroll must not let a later passive bottom packet leave scrollback review"
+        )
+    }
+
     func testResizeScrollbarUpdatePreservesManualScrollbackPosition() {
         guard let fixture = makeManualScrollbackFixture() else { return }
         defer { fixture.window.orderOut(nil) }

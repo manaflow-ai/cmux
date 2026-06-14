@@ -4955,8 +4955,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("copy_to_clipboard")
     }
 
-    private func noteExplicitScrollIntent(expectBottomPacket: Bool = false) {
+    private typealias ExplicitScrollIntentRequest = (
+        generation: Int,
+        previousIntent: TerminalScrollbackViewportIntent
+    )
+
+    private func noteExplicitScrollIntent(expectBottomPacket: Bool = false) -> ExplicitScrollIntentRequest? {
         terminalSurface?.hostedView.noteExplicitScrollIntent(expectBottomPacket: expectBottomPacket)
+    }
+
+    private func rollbackExplicitScrollIntent(_ request: ExplicitScrollIntentRequest?) {
+        guard let request else { return }
+        terminalSurface?.hostedView.rollbackExplicitScrollIntent(
+            generation: request.generation,
+            to: request.previousIntent
+        )
+    }
+
+    @discardableResult
+    private func performExplicitScrollBindingAction(
+        _ action: String,
+        expectBottomPacket: Bool = false
+    ) -> Bool {
+        _ = flushPendingScrollbarIfAvailable()
+        let request = noteExplicitScrollIntent(expectBottomPacket: expectBottomPacket)
+        let handled = performBindingAction(action)
+        if !flushPendingScrollbarIfAvailable() {
+            rollbackExplicitScrollIntent(request)
+        }
+        return handled
+    }
+
+    private func performExplicitScrollBindingAction(_ action: String, repeatCount: Int) {
+        _ = flushPendingScrollbarIfAvailable()
+        let request = noteExplicitScrollIntent()
+        performBindingAction(action, repeatCount: repeatCount)
+        if !flushPendingScrollbarIfAvailable() {
+            rollbackExplicitScrollIntent(request)
+        }
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -5008,31 +5044,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            noteExplicitScrollIntent()
             let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: lineDelta)
-            _ = performBindingAction("scroll_page_lines:\(lineDelta)")
+            _ = performExplicitScrollBindingAction("scroll_page_lines:\(lineDelta)")
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollPage(delta):
-            noteExplicitScrollIntent()
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * rows * clampedCount)
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
+            performExplicitScrollBindingAction(
+                delta > 0 ? "scroll_page_down" : "scroll_page_up",
+                repeatCount: clampedCount
+            )
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollHalfPage(delta):
-            noteExplicitScrollIntent()
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
             let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
             let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * linesPerScroll * clampedCount)
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
+            performExplicitScrollBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .scrollToTop:
-            noteExplicitScrollIntent()
             if var cursor = keyboardCopyModeCursor {
                 if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
                     _ = cursor.move(.home, count: 1, rows: metrics.rows, columns: metrics.columns)
@@ -5042,10 +5077,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 keyboardCopyModeCursor = cursor
             }
-            _ = performBindingAction("scroll_to_top")
+            _ = performExplicitScrollBindingAction("scroll_to_top")
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .scrollToBottom:
-            noteExplicitScrollIntent(expectBottomPacket: true)
             if var cursor = keyboardCopyModeCursor {
                 if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
                     _ = cursor.move(.end, count: 1, rows: metrics.rows, columns: metrics.columns)
@@ -5056,24 +5090,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 keyboardCopyModeCursor = cursor
             }
-            _ = performBindingAction("scroll_to_bottom")
+            _ = performExplicitScrollBindingAction("scroll_to_bottom", expectBottomPacket: true)
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
-            noteExplicitScrollIntent()
             beginKeyboardCopyModeViewportJumpCursorSync()
-            _ = performBindingAction("jump_to_prompt:\(delta * count)")
+            _ = performExplicitScrollBindingAction("jump_to_prompt:\(delta * count)")
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            noteExplicitScrollIntent()
             beginKeyboardCopyModeViewportJumpCursorSync()
-            performBindingAction("navigate_search:next", repeatCount: count)
+            performExplicitScrollBindingAction("navigate_search:next", repeatCount: count)
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .searchPrevious:
-            noteExplicitScrollIntent()
             beginKeyboardCopyModeViewportJumpCursorSync()
-            performBindingAction("navigate_search:previous", repeatCount: count)
+            performExplicitScrollBindingAction("navigate_search:previous", repeatCount: count)
             scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualActive {
@@ -8051,6 +8082,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followOutput
+    private var scrollbackExplicitScrollIntentGeneration = 0
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -11020,8 +11052,28 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    func noteExplicitScrollIntent(expectBottomPacket: Bool = false) {
+    @discardableResult
+    func noteExplicitScrollIntent(
+        expectBottomPacket: Bool = false
+    ) -> (generation: Int, previousIntent: TerminalScrollbackViewportIntent) {
+        scrollbackExplicitScrollIntentGeneration += 1
+        let request = (
+            generation: scrollbackExplicitScrollIntentGeneration,
+            previousIntent: scrollbackViewportIntent
+        )
         scrollbackViewportIntent = .awaitingExplicitScrollPacket(expectBottomPacket ? .bottom : .any)
+        return request
+    }
+
+    func rollbackExplicitScrollIntent(
+        generation: Int,
+        to previousIntent: TerminalScrollbackViewportIntent
+    ) {
+        guard generation == scrollbackExplicitScrollIntentGeneration,
+              scrollbackViewportIntent.isAwaitingExplicitScrollPacket else {
+            return
+        }
+        scrollbackViewportIntent = previousIntent
     }
 
     private func synchronizeScrollView(allowExplicitScrollbarSync: Bool = false) {
