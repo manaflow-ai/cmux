@@ -12,6 +12,14 @@ let package = Package(
             name: "CmuxTerminalCore",
             targets: ["CmuxTerminalCore"]
         ),
+        // Re-vends the GhosttyKit binaryTarget so sibling terminal packages
+        // (CmuxTerminalEngine, CmuxTerminalServices) can implement seam
+        // protocols whose signatures use ghostty C types, without declaring a
+        // duplicate binary target for the one xcframework.
+        .library(
+            name: "CmuxGhosttyKit",
+            targets: ["GhosttyKit"]
+        ),
     ],
     dependencies: [
         .package(path: "../CmuxTerminalCopyMode"),
