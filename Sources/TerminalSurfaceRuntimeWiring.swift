@@ -4,6 +4,7 @@ import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
 import CmuxSocketControl
+import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
@@ -83,16 +84,17 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
-        TerminalSurfaceSpawnPolicy(
-            claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-            customClaudePath: ClaudeCodeIntegrationSettings.customClaudePath(),
-            subagentNotificationEnvironmentKey: AgentSubagentNotificationSettings.environmentKey,
-            suppressSubagentNotifications: AgentSubagentNotificationSettings.suppressNotifications(),
-            cursorHooksEnabled: CursorIntegrationSettings.hooksEnabled(),
-            geminiHooksEnabled: GeminiIntegrationSettings.hooksEnabled(),
-            kiroHooksEnabled: KiroIntegrationSettings.hooksEnabled(),
-            kiroNotificationLevel: KiroIntegrationSettings.notificationLevel().rawValue,
-            ampHooksEnabled: AmpIntegrationSettings.hooksEnabled(),
+        let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        return TerminalSurfaceSpawnPolicy(
+            claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
+            customClaudePath: integrations.customClaudePath,
+            subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
+            suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
+            cursorHooksEnabled: integrations.cursorHooksEnabled,
+            geminiHooksEnabled: integrations.geminiHooksEnabled,
+            kiroHooksEnabled: integrations.kiroHooksEnabled,
+            kiroNotificationLevel: integrations.kiroNotificationLevel.rawValue,
+            ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
             showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
