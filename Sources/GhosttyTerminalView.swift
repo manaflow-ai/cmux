@@ -7813,14 +7813,14 @@ enum TerminalScrollbackViewportIntent: Equatable {
         return true
     }
 
-    func applyingLiveScroll(scrollOffset: CGFloat, bottomThreshold: CGFloat) -> Self {
+    func applyingLiveScroll(distanceFromBottom: CGFloat, bottomThreshold: CGFloat) -> Self {
         guard !isAwaitingExplicitScrollPacket else {
             return self
         }
-        if scrollOffset > bottomThreshold {
+        if distanceFromBottom > bottomThreshold {
             return .reviewingScrollback
         }
-        if scrollOffset <= 0 {
+        if distanceFromBottom <= bottomThreshold {
             return .followOutput
         }
         return self
@@ -11072,14 +11072,16 @@ final class GhosttySurfaceScrollView: NSView {
 
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        // Ghostty rows are top-based, but AppKit's non-flipped document origin
+        // is measured from the bottom; keep those two coordinate systems separate.
+        let topBasedScrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
 
         scrollbackViewportIntent = scrollbackViewportIntent.applyingLiveScroll(
-            scrollOffset: scrollOffset,
+            distanceFromBottom: visibleRect.origin.y,
             bottomThreshold: Self.scrollToBottomThreshold
         )
 
-        let row = Int(scrollOffset / cellHeight)
+        let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
         lastSentRow = row

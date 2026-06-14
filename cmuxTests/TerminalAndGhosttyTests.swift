@@ -1050,7 +1050,7 @@ final class TerminalScrollbackViewportIntentTests: XCTestCase {
         let pendingIntent = TerminalScrollbackViewportIntent.awaitingExplicitScrollPacket(.bottom)
 
         let nextIntent = pendingIntent.applyingLiveScroll(
-            scrollOffset: 80,
+            distanceFromBottom: 80,
             bottomThreshold: 5
         )
 
@@ -1060,14 +1060,14 @@ final class TerminalScrollbackViewportIntentTests: XCTestCase {
     func testLiveScrollTracksReviewAndFollowIntentWhenNoExplicitPacketIsPending() {
         XCTAssertEqual(
             TerminalScrollbackViewportIntent.followOutput.applyingLiveScroll(
-                scrollOffset: 6,
+                distanceFromBottom: 6,
                 bottomThreshold: 5
             ),
             .reviewingScrollback
         )
         XCTAssertEqual(
             TerminalScrollbackViewportIntent.reviewingScrollback.applyingLiveScroll(
-                scrollOffset: 0,
+                distanceFromBottom: 0,
                 bottomThreshold: 5
             ),
             .followOutput
@@ -4210,6 +4210,43 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             0,
             accuracy: 0.01,
             "A later bottom packet should still be honored when no user scroll moved the viewport into review mode"
+        )
+    }
+
+    func testBottomLiveScrollKeepsFollowModeForLaterBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture(scrollAwayFromBottom: false) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: fixture.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "A bottom live-scroll notification must not put the viewport into review mode"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A later bottom packet should still be honored after a live-scroll notification at bottom"
         )
     }
 
