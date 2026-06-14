@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 extension CMUXCLI {
     func runConfigCommand(

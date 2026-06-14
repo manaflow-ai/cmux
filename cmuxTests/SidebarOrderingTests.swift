@@ -5,8 +5,11 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxSettings
 import UserNotifications
 import Testing
+
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -58,7 +61,7 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 
     func testStoredPreferenceOverridesDefault() {
@@ -69,11 +72,11 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertFalse(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
 
-        defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 }
 
@@ -87,10 +90,10 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.removeObject(forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
     }
 
@@ -102,16 +105,16 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set(WorkspaceIndicatorStyle.leftRail.rawValue, forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set("rail", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("not-a-style", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.set("not-a-style", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
     }
 }
@@ -217,7 +220,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let second = UUID()
         let third = UUID()
 
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [first, second, third],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -237,7 +240,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchesUsesFallbackWhenNoPanelBranchesExist() {
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [],
             panelBranches: [:],
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: true)
@@ -256,7 +259,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let fourth = UUID()
         let fifth = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second, third, fourth, fifth],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -291,7 +294,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [:],
             panelDirectories: [
@@ -313,7 +316,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchDirectoryEntriesFallsBackWhenNoPanelsExist() {
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [],
             panelBranches: [:],
             panelDirectories: [:],
@@ -332,7 +335,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -365,7 +368,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let third = UUID()
         let fourth = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second, third, fourth],
             panelPullRequests: [
                 first: pullRequestState(
@@ -415,7 +418,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -445,7 +448,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -478,7 +481,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -538,7 +541,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             url: "https://github.com/manaflow-ai/cmux/pull/11",
             status: .open
         )
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [],
             panelPullRequests: [:],
             fallbackPullRequest: fallback

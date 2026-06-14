@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /
 /// `list_pane_surfaces` / `focus_pane` / `focus_surface_by_panel` /
@@ -242,7 +243,7 @@ extension TerminalController {
                 creationPolicy: .automationPreload
             )?.id
         } else {
-            newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
+            newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus, inheritWorkingDirectoryFallback: true)?.id
         }
 
         guard let id = newPanelId else {
