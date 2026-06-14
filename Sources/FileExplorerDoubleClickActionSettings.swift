@@ -13,7 +13,7 @@ enum FileExplorerDoubleClickAction: String, CaseIterable, Sendable {
     /// the file explorer context menu's "Open in <App>" action.
     case defaultEditor
     /// Open with the user's configured `app.preferredEditor` command, matching
-    /// the terminal Cmd-click path (``PreferredEditorSettings/open(_:)``). Falls
+    /// the terminal Cmd-click path (`PreferredEditorService.open(_:)`). Falls
     /// back to ``defaultEditor`` when no preferred editor command is configured.
     case preferredEditor
 }

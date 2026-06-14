@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFileOpen
+import CmuxSettings
 import SwiftUI
 
 #if DEBUG
@@ -81,12 +83,10 @@ private func addFileExplorerExternalOpenItems(
 /// the search results list's double-click / Return) so the behavior stays
 /// consistent across surfaces. Callers must guard for local providers and skip
 /// directories before calling this — only readable local files reach here.
-/// Kept nonisolated (callees are nonisolated and both call sites are
-/// synchronous nonisolated AppKit delegate methods, like the context-menu
-/// handlers); `@MainActor` here would make the call implicitly async.
+@MainActor
 private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
     let action = FileExplorerDoubleClickActionSettings.resolvedAction()
-    let hasPreferredEditor = PreferredEditorSettings.resolvedCommand() != nil
+    let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
     switch FileExplorerDoubleClickActionSettings.fileActivation(
         action: action,
         hasPreferredEditorCommand: hasPreferredEditor
@@ -96,7 +96,7 @@ private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (Strin
     case .defaultEditor:
         FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
     case .preferredEditor:
-        PreferredEditorSettings.open(URL(fileURLWithPath: path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
     }
 }
 
@@ -627,6 +627,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
         }
 
+        @MainActor
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
             guard row >= 0,
@@ -1535,6 +1536,7 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
