@@ -1786,11 +1786,11 @@ final class TerminalNotificationStore: ObservableObject {
                     terminalNotificationLogger.error(
                         "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                     )
-                    Task { @MainActor in
-                        NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
-                    }
+                    NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
                 } else if effects.command {
-                    nativeDeliveryHooks.runCommand(title: content.title, subtitle: content.subtitle, body: content.body)
+                    Task { @MainActor in
+                        nativeDeliveryHooks.runCommand(title: content.title, subtitle: content.subtitle, body: content.body)
+                    }
                 }
             }
         }
