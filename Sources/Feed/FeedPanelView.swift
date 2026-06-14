@@ -106,7 +106,7 @@ struct FeedPanelView: View {
                 items: viewModel.items,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
-                registersWithKeyboardFocusCoordinator: placement.registersWithKeyboardFocusCoordinator,
+                placement: placement,
                 onFocusHostChange: onFocusHostChange,
                 onLoadOlderItems: viewModel.loadOlderItems
             )
@@ -184,6 +184,10 @@ private struct FeedSecondaryFilterButton: View {
     }
 }
 
+private final class FeedFocusHostBox {
+    weak var view: FeedKeyboardFocusView?
+}
+
 /// Feed content surface. Isolated so the outer panel's `@State`
 /// changes don't invalidate rows unnecessarily. Receives items as a
 /// plain value so its body never touches the live store, the parent
@@ -193,7 +197,7 @@ private struct FeedListView: View {
     let items: [WorkstreamItem]
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
-    let registersWithKeyboardFocusCoordinator: Bool
+    let placement: FeedPanelView.Placement
     let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
     let onLoadOlderItems: () -> Void
 
@@ -201,6 +205,7 @@ private struct FeedListView: View {
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
+    @State private var focusHostBox = FeedFocusHostBox()
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
@@ -225,8 +230,11 @@ private struct FeedListView: View {
             }
             .background(
                 FeedKeyboardFocusBridge(
-                    registersWithKeyboardFocusCoordinator: registersWithKeyboardFocusCoordinator,
-                    onViewChange: onFocusHostChange,
+                    registersWithKeyboardFocusCoordinator: placement.registersWithKeyboardFocusCoordinator,
+                    onViewChange: { host in
+                        focusHostBox.view = host
+                        onFocusHostChange(host)
+                    },
                     onEscape: {
                         let window = activeFeedWindow()
                         if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
@@ -395,6 +403,7 @@ private struct FeedListView: View {
             onControlBlur: {
                 syncFeedFocusSnapshot()
             },
+            onFocusFeedHost: focusFeedHost,
             onActivate: {
                 selectRow(snapshot.id, focusFeed: true)
                 actions.jump(snapshot.workstreamId)
@@ -489,9 +498,12 @@ private struct FeedListView: View {
         }
         let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
         focusSnapshot = optimisticSnapshot
-        if let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
+        if usesRightSidebarFocusCoordinator,
+           let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
             _ = controller.selectFeedItem(id, focusFeed: focusFeed)
             focusSnapshot = controller.feedFocusSnapshot()
+        } else if focusFeed {
+            focusFeedHost()
         } else {
             focusSnapshot = optimisticSnapshot
         }
@@ -510,16 +522,9 @@ private struct FeedListView: View {
         guard let targetId = preferredFocusItemId(in: snapshots) else {
             let window = activeFeedWindow()
             if focusHost {
-                _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .feed,
-                    focusFirstItem: false,
-                    preferredWindow: window
-                )
+                focusFeedHost()
             } else {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
-                    mode: .feed,
-                    in: window
-                )
+                noteFeedKeyboardFocusIntent(in: window)
             }
             syncFeedFocusSnapshot(window: window)
             return
@@ -532,7 +537,8 @@ private struct FeedListView: View {
     private func preferredFocusItemId(in snapshots: [FeedItemSnapshot]) -> UUID? {
         let ids = snapshots.map(\.id)
         let window = activeFeedWindow()
-        if let controllerSelectedId = AppDelegate.shared?
+        if usesRightSidebarFocusCoordinator,
+           let controllerSelectedId = AppDelegate.shared?
             .keyboardFocusCoordinator(for: window)?
             .feedFocusSnapshot()
             .selectedItemId,
@@ -559,7 +565,8 @@ private struct FeedListView: View {
         }
         let targetId = ids[targetIndex]
         let window = activeFeedWindow()
-        if let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
+        if usesRightSidebarFocusCoordinator,
+           let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
             _ = controller.selectFeedItem(targetId, focusFeed: false)
             focusSnapshot = controller.feedFocusSnapshot()
         } else {
@@ -597,10 +604,61 @@ private struct FeedListView: View {
 
     private func syncFeedFocusSnapshot(window: NSWindow? = nil) {
         let targetWindow = window ?? activeFeedWindow()
+        guard usesRightSidebarFocusCoordinator else {
+            let responder = targetWindow?.firstResponder
+            let isKeyboardActive = responder.map { focusHostBox.view?.ownsKeyboardFocus($0) == true } ?? false
+            focusSnapshot = FeedFocusSnapshot(
+                selectedItemId: focusSnapshot.selectedItemId,
+                isKeyboardActive: isKeyboardActive
+            )
+            return
+        }
         guard let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: targetWindow) else {
             return
         }
         focusSnapshot = controller.feedFocusSnapshot()
+    }
+
+    private var usesRightSidebarFocusCoordinator: Bool {
+        switch placement {
+        case .rightSidebar:
+            return true
+        case .pane:
+            return false
+        }
+    }
+
+    private func focusFeedHost() {
+        guard !usesRightSidebarFocusCoordinator else {
+            let window = activeFeedWindow()
+            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: false,
+                preferredWindow: window
+            ) != true {
+                window?.makeFirstResponder(nil)
+            }
+            return
+        }
+        guard focusHostBox.view?.focusHostFromCoordinator() == true else {
+            activeFeedWindow()?.makeFirstResponder(nil)
+            return
+        }
+        syncFeedFocusSnapshot(window: focusHostBox.view?.window)
+    }
+
+    private func noteFeedKeyboardFocusIntent(in window: NSWindow?) {
+        guard usesRightSidebarFocusCoordinator else {
+            focusSnapshot = FeedFocusSnapshot(
+                selectedItemId: focusSnapshot.selectedItemId,
+                isKeyboardActive: true
+            )
+            return
+        }
+        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
+            mode: .feed,
+            in: window
+        )
     }
 
     private var rowSeparator: some View {
@@ -657,6 +715,7 @@ private struct FeedRowSurface: View {
     let onControlFocus: () -> Void
     let onControlAction: () -> Void
     let onControlBlur: () -> Void
+    let onFocusFeedHost: () -> Void
     let onActivate: () -> Void
 
     @State private var isHovered = false
@@ -672,6 +731,7 @@ private struct FeedRowSurface: View {
                 onControlFocus: onControlFocus,
                 onControlAction: onControlAction,
                 onControlBlur: onControlBlur,
+                onFocusFeedHost: onFocusFeedHost,
                 onActivate: onActivate,
                 stopDraft: $stopDraft,
                 stopDraftValue: stopDraft,
@@ -1071,6 +1131,7 @@ struct FeedItemRow: View, Equatable {
     let onControlFocus: () -> Void
     let onControlAction: () -> Void
     let onControlBlur: () -> Void
+    let onFocusFeedHost: () -> Void
     let onActivate: () -> Void
     @Binding var stopDraft: FeedStopDraft
     let stopDraftValue: FeedStopDraft
@@ -1333,6 +1394,7 @@ struct FeedItemRow: View, Equatable {
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
+                onFocusFeedHost: onFocusFeedHost,
                 context: displayContext,
                 onReply: { selections in
                     actions.replyQuestion(snapshot.id, selections)
@@ -1345,6 +1407,7 @@ struct FeedItemRow: View, Equatable {
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
+                onFocusFeedHost: onFocusFeedHost,
                 onSend: { text in actions.sendText(snapshot.workstreamId, text) }
             )
         default:
@@ -2710,6 +2773,7 @@ private struct QuestionActionArea: View {
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
+    let onFocusFeedHost: () -> Void
     let context: WorkstreamContext?
     let onReply: ([String]) -> Void
 
@@ -2886,7 +2950,8 @@ private struct QuestionActionArea: View {
                     onFocusRow()
                     selectCustomAnswer(questionId: questionId, multi: multi)
                 },
-                onBlur: onBlurRow
+                onBlur: onBlurRow,
+                onFocusFeedHost: onFocusFeedHost
             )
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 12, weight: .medium))
@@ -2979,7 +3044,8 @@ private struct QuestionActionArea: View {
                 onFocusRow()
                 selectCustomAnswer(questionId: questionId, multi: multi)
             },
-            onBlur: onBlurRow
+            onBlur: onBlurRow,
+            onFocusFeedHost: onFocusFeedHost
         )
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -3006,7 +3072,8 @@ private struct QuestionActionArea: View {
         focusRequest: Int?,
         font: NSFont,
         onFocus: @escaping () -> Void,
-        onBlur: @escaping () -> Void
+        onBlur: @escaping () -> Void,
+        onFocusFeedHost: @escaping () -> Void
     ) -> some View {
         FeedInlineTextField(
             text: text,
@@ -3017,6 +3084,7 @@ private struct QuestionActionArea: View {
             font: font,
             onFocus: onFocus,
             onBlur: onBlur,
+            onFocusFeedHost: onFocusFeedHost,
             onSubmit: nil
         )
         .frame(
@@ -3466,6 +3534,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
     let font: NSFont
     let onFocus: () -> Void
     let onBlur: () -> Void
+    let onFocusFeedHost: () -> Void
     let onSubmit: (() -> Void)?
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -3494,13 +3563,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
             dlog("feed.editor.blurField frBefore=\(feedDebugResponderSummary(window.firstResponder))")
 #endif
             Task { @MainActor in
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .feed,
-                    focusFirstItem: false,
-                    preferredWindow: window
-                ) != true {
-                    window.makeFirstResponder(nil)
-                }
+                parent.onFocusFeedHost()
             }
         }
 
@@ -3590,15 +3653,8 @@ private struct FeedInlineTextField: NSViewRepresentable {
         }
     }
 
-    private func moveFocusToFeedHost(in window: NSWindow) {
-        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-            mode: .feed,
-            focusFirstItem: false,
-            preferredWindow: window
-        ) == true {
-            return
-        }
-        window.makeFirstResponder(nil)
+    private func moveFocusToFeedHost(in _: NSWindow) {
+        onFocusFeedHost()
     }
 
     private func configure(_ view: FeedInlineTextEditorView) {
@@ -3732,6 +3788,7 @@ private struct StopActionArea: View {
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
+    let onFocusFeedHost: () -> Void
     let onSend: (String) -> Void
 
     private var trimmed: String {
@@ -3764,6 +3821,7 @@ private struct StopActionArea: View {
                 font: replyFont,
                 onFocus: onFocusRow,
                 onBlur: onBlurRow,
+                onFocusFeedHost: onFocusFeedHost,
                 onSubmit: sendReply
             )
             .frame(

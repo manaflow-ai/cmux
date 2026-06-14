@@ -101,6 +101,48 @@ struct RightSidebarCommandPaletteTests {
         #expect(!FeedPanelView.Placement.pane.registersWithKeyboardFocusCoordinator)
     }
 
+    @MainActor
+    @Test
+    func workspaceRightSidebarToolCreationHonorsFeedAvailability() throws {
+        try withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let disabledWorkspace = Workspace()
+            let disabledPaneId = try #require(disabledWorkspace.bonsplitController.focusedPaneId)
+            #expect(
+                disabledWorkspace.newRightSidebarToolSurface(
+                    inPane: disabledPaneId,
+                    mode: .feed,
+                    focus: false
+                ) == nil,
+                "Workspace restore/create paths must not recreate Feed pane surfaces while Feed is disabled"
+            )
+            #expect(
+                disabledWorkspace.openOrFocusRightSidebarToolSurface(
+                    inPane: disabledPaneId,
+                    mode: .feed,
+                    focus: false
+                ) == nil,
+                "Programmatic open/focus paths should share the same Feed availability gate"
+            )
+
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+
+            let enabledWorkspace = Workspace()
+            let enabledPaneId = try #require(enabledWorkspace.bonsplitController.focusedPaneId)
+            let enabledPanel = try #require(
+                enabledWorkspace.newRightSidebarToolSurface(
+                    inPane: enabledPaneId,
+                    mode: .feed,
+                    focus: false
+                )
+            )
+            #expect(enabledPanel.mode == .feed)
+        }
+    }
+
     @Test
     func commandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
