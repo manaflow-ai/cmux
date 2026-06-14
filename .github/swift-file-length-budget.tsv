@@ -11,7 +11,7 @@
 12020	Sources/Workspace.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7850	Sources/Panels/BrowserPanelView.swift
-7328	cmuxTests/WorkspaceUnitTests.swift
+7349	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6316	cmuxTests/SessionPersistenceTests.swift
 6296	cmuxTests/GhosttyConfigTests.swift

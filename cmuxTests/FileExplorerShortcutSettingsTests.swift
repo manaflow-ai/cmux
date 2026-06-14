@@ -52,9 +52,9 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
-            .findInDirectory,
         ]
 
         let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) ?? visibleActions.endIndex
@@ -68,9 +68,9 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         let expectedActions: [ShortcutAction] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
-            .findInDirectory,
         ]
 
         let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) ?? visibleActions.endIndex
