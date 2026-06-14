@@ -187,7 +187,7 @@
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
-698	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
+727	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 523	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift

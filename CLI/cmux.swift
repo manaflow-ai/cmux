@@ -1148,7 +1148,6 @@ private final class ClaudeHookSessionStore {
             return true
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
-            || !terminalPromptTurnSet(from: record).isEmpty
         guard hasCompletedTurnState,
               let incomingPID,
               let existingPID = record.pid else {
@@ -1162,7 +1161,6 @@ private final class ClaudeHookSessionStore {
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
         record.lastPromptTurnId = nil
-        record.terminalPromptTurnIds = nil
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {

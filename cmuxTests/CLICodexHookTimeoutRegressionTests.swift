@@ -261,6 +261,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CODEX_PID": "2",
             ],
             standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
@@ -366,7 +367,35 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "unknown")
         #expect(session["runtimeStatus"] as? String == "running")
         #expect(session["lastPromptTurnId"] == nil)
-        #expect(session["terminalPromptTurnIds"] == nil)
+        #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+
+        let commandCountAfterSessionStart = sentCommands.count
+        let latePrompt = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CODEX_PID": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
+            timeout: 5
+        )
+
+        #expect(!latePrompt.timedOut, Comment(rawValue: latePrompt.stderr))
+        #expect(latePrompt.status == 0, Comment(rawValue: latePrompt.stderr))
+        #expect(latePrompt.stdout == "{}\n")
+        let commandsAfterLatePrompt = Array(commands.snapshot().dropFirst(commandCountAfterSessionStart))
+        #expect(!commandsAfterLatePrompt.contains { $0.hasPrefix("set_status codex Running ") })
+        #expect(!commandsAfterLatePrompt.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(!commandsAfterLatePrompt.contains { jsonObject($0)?["method"] as? String == "feed.push" })
+        #expect(!commandsAfterLatePrompt.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
     }
 
     @Test func codexSessionStartDoesNotReviveCompletedTurnFromSamePID() throws {
