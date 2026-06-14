@@ -14,6 +14,11 @@ enum WorkspaceSurfaceIdentifierClipboardText {
     }
 
     @MainActor
+    static func copyWorkspaceLinks(_ ids: [UUID]) {
+        copy(makeWorkspaceLinks(ids))
+    }
+
+    @MainActor
     static func makeWorkspaceIds(_ ids: [UUID], includeRefs: Bool) -> String {
         let refs = includeRefs ? TerminalController.shared.v2WorkspaceRefs(for: ids) : [:]
         return make(workspaces: ids.map { (id: $0, ref: refs[$0]) })
@@ -35,6 +40,22 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         }
         lines.append("surface_id=\(surfaceId.uuidString)")
         return lines.joined(separator: "\n")
+    }
+
+    static func makeWorkspaceLink(workspaceId: UUID) -> String {
+        CmuxNavigationURLRequest.workspaceLink(workspaceId: workspaceId)
+    }
+
+    static func makeWorkspaceLinks(_ ids: [UUID]) -> String {
+        ids.map { makeWorkspaceLink(workspaceId: $0) }.joined(separator: "\n")
+    }
+
+    static func makePaneLink(workspaceId: UUID, paneId: UUID) -> String {
+        CmuxNavigationURLRequest.paneLink(workspaceId: workspaceId, paneId: paneId)
+    }
+
+    static func makeSurfaceLink(workspaceId: UUID, surfaceId: UUID) -> String {
+        CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
     @MainActor
