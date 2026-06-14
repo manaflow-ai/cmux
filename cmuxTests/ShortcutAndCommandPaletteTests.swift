@@ -16,6 +16,8 @@ import struct CmuxSettings.AppCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
+import struct CmuxSettings.SettingCatalog
+import struct CmuxSettings.UserDefaultsSettingsClient
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

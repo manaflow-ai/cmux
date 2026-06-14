@@ -11,7 +11,7 @@ import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
 import CmuxTerminal
-import struct CmuxSettings.AppCatalogSection
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
