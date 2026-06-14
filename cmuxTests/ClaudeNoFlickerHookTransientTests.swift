@@ -84,6 +84,123 @@ struct ClaudeNoFlickerHookTransientTests {
         #expect(!commands.contains { $0.hasPrefix("set_status claude_code ") || $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("\"method\":\"feed.push\"") }, "PID recovery miss must not fall back to the focused workspace, saw \(commands)")
     }
 
+    // Regression: a mapped Claude session whose stored workspace was closed must
+    // not bypass the recovered-target no-op and borrow the focused pane. The
+    // `mappedSession != nil` guard short-circuit let an ambient no-flicker
+    // prompt-submit (PID recovery missing) publish Running status and the PID
+    // gate onto whichever pane happened to be focused — the cross-pane routing
+    // class this PR fixes. https://github.com/manaflow-ai/cmux/issues/6048
+    @Test
+    func claudePromptSubmitNoOpsWhenMappedSessionWorkspaceIsClosed() throws {
+        let context = try support.makeHookContext(name: "claude-mapped-workspace-closed")
+        defer { context.cleanup() }
+
+        let sessionId = "mapped-closed-workspace-session"
+        let staleWorkspaceId = "99999999-9999-9999-9999-999999999999"
+        let staleSurfaceId = "88888888-8888-8888-8888-888888888888"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": staleWorkspaceId,
+                    "surfaceId": staleSurfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                staleWorkspaceId: [
+                    "sessionId": sessionId,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == staleWorkspaceId {
+                    return ClaudeHookRoutingTestSupport.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "workspace_not_found", "message": "workspace not found"]
+                    )
+                }
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [[
+                            "workspaces": [[
+                                "id": context.workspaceId,
+                                "panes": [["surfaces": [["id": context.surfaceId, "top_level_pids": []]]]],
+                            ]],
+                        ]],
+                    ]
+                )
+            case "workspace.current":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["workspace_id": context.workspaceId])
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = ""
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "6048"
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n", "Closed-workspace mapped session must no-op, saw stdout=\(result.stdout)")
+        let commands = context.state.snapshot()
+        #expect(
+            !commands.contains {
+                $0.hasPrefix("set_status claude_code ")
+                    || $0.hasPrefix("set_agent_pid claude_code ")
+            },
+            "A mapped session whose workspace was closed must not publish Claude status or the PID gate onto the focused pane, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                $0.contains("--tab=\(context.workspaceId)")
+                    && ($0.hasPrefix("set_status claude_code ") || $0.hasPrefix("set_agent_pid claude_code "))
+            },
+            "The focused workspace must not receive a stale mapped session's visible mutations, saw \(commands)"
+        )
+    }
+
     @Test
     func claudeSessionEndUsesStoredTargetWhenPIDRecoveryMisses() throws {
         let context = try support.makeHookContext(name: "claude-session-end-stored-target")
