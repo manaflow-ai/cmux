@@ -32,6 +32,8 @@ enum KeyboardShortcutSettings {
             .focusRightSidebar,
             .toggleRightSidebar,
             .findInDirectory,
+            .fileExplorerOpenSelection,
+            .fileExplorerOpenSelectionFinderAlias,
         ].filter(actions.contains)
         let actionSet = Set(colocatedSidebarActions)
         let baseActions = actions.filter { !actionSet.contains($0) }
@@ -147,6 +149,8 @@ enum KeyboardShortcutSettings {
 
         // File Explorer
         case toggleRightSidebar = "toggleFileExplorer"
+        case fileExplorerOpenSelection
+        case fileExplorerOpenSelectionFinderAlias
 
         // Panels
         case saveFilePreview
@@ -260,6 +264,8 @@ enum KeyboardShortcutSettings {
             case .canvasDistributeHorizontally: return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
             case .canvasDistributeVertically: return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
+            case .fileExplorerOpenSelection: return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
+            case .fileExplorerOpenSelectionFinderAlias: return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
@@ -476,6 +482,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+            case .fileExplorerOpenSelection:
+                return StoredShortcut(key: "\r", command: false, shift: false, option: false, control: false)
+            case .fileExplorerOpenSelectionFinderAlias:
+                return StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:
@@ -572,11 +582,17 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
+                 .diffViewerOpenFileSearch,
+                 .fileExplorerOpenSelection,
+                 .fileExplorerOpenSelectionFinderAlias:
                 return true
             default:
                 return false
             }
+        }
+
+        var allowsChordShortcut: Bool {
+            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
         }
 
         var isBrowserContentShortcut: Bool {
@@ -635,6 +651,9 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
+            if shortcut.hasChord && !allowsChordShortcut {
+                return .rejected(.reservedBySystem)
+            }
 
             if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
                 for: shortcut,
@@ -651,6 +670,9 @@ enum KeyboardShortcutSettings {
             // Keep this path free of conflict and hotkey checks that consult global shortcut state.
             if shortcut.isUnbound {
                 return .unbound
+            }
+            if shortcut.hasChord && !allowsChordShortcut {
+                return nil
             }
 
             if case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(
@@ -931,15 +953,17 @@ enum KeyboardShortcutSettings {
         _ shortcut: StoredShortcut,
         action: Action
     ) -> StoredShortcut? {
-        if shortcut.isUnbound {
-            return shortcut
-        }
+        if shortcut.isUnbound { return shortcut }
+        if shortcut.hasChord && !action.allowsChordShortcut { return nil }
 
         switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:
-            if action.usesNumberedDigitMatching || action == .showHideAllWindows || action == .globalSearch {
+            if action.usesNumberedDigitMatching ||
+                action == .showHideAllWindows ||
+                action == .globalSearch ||
+                !action.allowsChordShortcut {
                 return nil
             }
             return shortcut

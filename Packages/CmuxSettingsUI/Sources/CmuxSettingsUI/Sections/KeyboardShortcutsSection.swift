@@ -63,12 +63,8 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
-                // Filter out actions that live in their own section
-                // (Global Hotkey owns the system-wide chord), then
-                // re-order so the colocated right-sidebar/find actions
-                // sit next to the unread navigation actions — matches
-                // legacy `KeyboardShortcutSettings.settingsVisibleActions`
-                // / `orderedSettingsVisibleActions`.
+                // Filter out actions that live in their own section, then
+                // use the shared Settings ordering for sidebar/find actions.
                 // ~166 recorder rows, each AppKit-backed — the one heavy
                 // list in Settings. The detail stack is eager (so every
                 // search anchor stays scroll-addressable), which would
@@ -77,7 +73,7 @@ public struct KeyboardShortcutsSection: View {
                 // the enclosing card is), so a LazyVStack here defers them
                 // until the section scrolls into view without affecting any
                 // scroll/highlight target.
-                let actions = Self.settingsVisibleActions
+                let actions = ShortcutAction.settingsVisibleActions
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(actions.enumerated()), id: \.element) { index, action in
                         actionRow(action)
@@ -291,32 +287,6 @@ public struct KeyboardShortcutsSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-    }
-
-    /// Mirrors legacy `KeyboardShortcutSettings.settingsVisibleActions`:
-    /// filters out `.showHideAllWindows` (owned by Global Hotkey section)
-    /// then re-orders so `focusRightSidebar`, `toggleRightSidebar`, and
-    /// `findInDirectory` sit immediately after `markOldestUnreadAndJumpNext`
-    /// or `jumpToUnread` (the unread navigation cluster), so colocated
-    /// sidebar/find shortcuts appear together in the settings UI.
-    private static var settingsVisibleActions: [ShortcutAction] {
-        let base = ShortcutAction.allCases.filter { $0 != .showHideAllWindows }
-        let colocated: [ShortcutAction] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
-        ].filter(base.contains)
-        let colocatedSet = Set(colocated)
-        let remaining = base.filter { !colocatedSet.contains($0) }
-
-        guard let anchorIndex = remaining.firstIndex(of: .markOldestUnreadAndJumpNext)
-            ?? remaining.firstIndex(of: .jumpToUnread) else {
-            return colocated + remaining
-        }
-
-        var ordered = remaining
-        ordered.insert(contentsOf: colocated, at: anchorIndex + 1)
-        return ordered
     }
 
     // MARK: - Conflict helpers
@@ -547,6 +517,10 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        guard action.allowsChordShortcut else {
+            chordModeActions.remove(action.rawValue)
+            return
+        }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             numberedDigitRejections.insert(action.rawValue)
             chordModeActions.remove(action.rawValue)

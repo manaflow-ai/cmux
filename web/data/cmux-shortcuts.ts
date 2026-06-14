@@ -125,6 +125,18 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "ファイルでは H/L でフォルダを折りたたみ/展開します。検索は / で開始します。",
         },
       },
+      {
+        id: "fileExplorerOpenSelection",
+        combos: [["↩"]],
+        description: { en: "Open selected file or toggle folder", ja: "選択中のファイルを開く、またはフォルダを切り替え" },
+        note: { en: "focused file explorer", ja: "フォーカス中のファイルエクスプローラ" },
+      },
+      {
+        id: "fileExplorerOpenSelectionFinderAlias",
+        combos: [["⌘", "↓"]],
+        description: { en: "Open selected file or toggle folder", ja: "選択中のファイルを開く、またはフォルダを切り替え" },
+        note: { en: "Finder-style alias for the focused file explorer", ja: "フォーカス中のファイルエクスプローラ向けFinder風エイリアス" },
+      },
       { id: "closeWorkspace", combos: [["⌘", "⇧", "W"]], description: { en: "Close workspace", ja: "ワークスペースを閉じる" } },
     ],
   },
