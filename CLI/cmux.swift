@@ -348,13 +348,13 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-private enum AgentHookNotificationStatus: String, Codable {
+enum AgentHookNotificationStatus: String, Codable {
     case idle
     case needsInput
     case error
 }
 
-private enum AgentHookRuntimeStatus: String, Codable {
+enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
@@ -464,14 +464,14 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameMessageSequence: Int?
 }
 
-private struct ClaudeHookActiveSessionRecord: Codable {
+struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
     var updatedAt: TimeInterval
 }
 
-private struct AgentHookLaunchCommandRecord: Codable {
+struct AgentHookLaunchCommandRecord: Codable {
     var launcher: String?
     var executablePath: String?
     var arguments: [String]
