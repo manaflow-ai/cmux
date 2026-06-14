@@ -258,10 +258,10 @@ struct SessionIndexView: View {
 private struct AgentIconImage: View, Equatable {
     let agent: SessionAgent
     let size: CGFloat
-    @Environment(\.colorScheme) private var colorScheme
+    let colorScheme: ColorScheme
 
     static func == (lhs: AgentIconImage, rhs: AgentIconImage) -> Bool {
-        lhs.agent == rhs.agent && lhs.size == rhs.size
+        lhs.agent == rhs.agent && lhs.size == rhs.size && lhs.colorScheme == rhs.colorScheme
     }
 
     var body: some View {
@@ -480,7 +480,7 @@ private struct IndexSectionView: View, Equatable {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
+            AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -581,7 +581,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
@@ -609,7 +609,7 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
-                AgentIconImage(agent: entry.agent, size: 12)
+                AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -767,7 +767,7 @@ private struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            AgentIconImage(agent: entry.agent, size: 14)
+            AgentIconImage(agent: entry.agent, size: 14, colorScheme: colorScheme)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -831,7 +831,7 @@ private struct SessionTranscriptPreviewView: View {
                     text: String(localized: "sessionIndex.preview.empty", defaultValue: "No previewable messages")
                 )
             } else {
-                SessionTranscriptVirtualizedList(rows: turns)
+                SessionTranscriptVirtualizedList(rows: turns, colorScheme: colorScheme)
             }
         }
     }
@@ -941,10 +941,10 @@ private struct SessionTranscriptResizeHandle: View {
 
 private struct SessionTranscriptVirtualizedList: View, Equatable {
     let rows: [SessionTranscriptDisplayRow]
-    @Environment(\.colorScheme) private var colorScheme
+    let colorScheme: ColorScheme
 
     static func == (lhs: SessionTranscriptVirtualizedList, rhs: SessionTranscriptVirtualizedList) -> Bool {
-        lhs.rows == rhs.rows
+        lhs.rows == rhs.rows && lhs.colorScheme == rhs.colorScheme
     }
 
     var body: some View {
@@ -2476,7 +2476,7 @@ private struct SectionPopoverView: View {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
+            AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -2525,7 +2525,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
