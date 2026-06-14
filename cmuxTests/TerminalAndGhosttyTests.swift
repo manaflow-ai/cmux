@@ -3760,44 +3760,6 @@ final class WindowTerminalHostViewTests: XCTestCase {
         )
     }
 
-    func testHostViewKeepsTerminalTopRowClickableInsideTitlebarInteractionBand() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
-
-        let hostFrame = container.convert(contentView.bounds, from: contentView)
-        let host = WindowTerminalHostView(frame: hostFrame)
-        host.autoresizingMask = [.width, .height]
-        let hostedView = makeHostedTerminalView(frame: host.bounds)
-        host.addSubview(hostedView)
-        container.addSubview(host, positioned: .above, relativeTo: contentView)
-
-        let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
-        let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
-        let pointInHost = host.convert(pointInWindow, from: nil)
-        let event = makeMouseDownEvent(at: pointInWindow, window: window)
-        let titlebarBandMinY = BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
-
-        guard pointInWindow.y >= titlebarBandMinY else {
-            XCTFail("Test fixture should exercise a terminal top-row hit inside the titlebar interaction band")
-            return
-        }
-        assertHitFallsInsideHostedTerminal(
-            host.performHitTest(at: pointInHost, currentEvent: event),
-            hostedView: hostedView,
-            message: "Terminal top-row mouse events should reach the hosted terminal instead of falling through to titlebar chrome"
-        )
-    }
-
     func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
         let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
 

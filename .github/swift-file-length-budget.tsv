@@ -18,7 +18,7 @@
 6153	CLI/cmux_open.swift
 6074	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
-5963	cmuxTests/TerminalAndGhosttyTests.swift
+5925	cmuxTests/TerminalAndGhosttyTests.swift
 5522	cmuxTests/BrowserConfigTests.swift
 5113	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4921	Sources/cmuxApp.swift
