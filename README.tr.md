@@ -106,7 +106,6 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 

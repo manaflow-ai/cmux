@@ -106,7 +106,6 @@ Abra o `.dmg` e arraste o cmux para a pasta Aplicativos. O cmux se atualiza auto
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
