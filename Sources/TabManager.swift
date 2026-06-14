@@ -2747,7 +2747,7 @@ class TabManager: ObservableObject {
         let keepsPersistentRemoteSurfaceOpen =
             tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
         if !keepsPersistentRemoteSurfaceOpen,
-           tab.shouldMarkRemoteTerminalSessionEndedAfterChildExit(surfaceId: surfaceId) {
+           tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
             let relayPort: Int?
             if tab.remoteConfiguration?.transport == .ssh {
                 relayPort = tab.remoteConfiguration?.relayPort
