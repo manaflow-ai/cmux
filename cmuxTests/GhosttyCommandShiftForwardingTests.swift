@@ -174,6 +174,10 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
 
         XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
         XCTAssertNotNil(surfaceView.terminalSurface)
+        try XCTSkipUnless(
+            hostedTerminal.surface.hasLiveSurface,
+            "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable."
+        )
 
         var forwardedPressCount = 0
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
