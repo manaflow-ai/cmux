@@ -50,6 +50,33 @@ body {
   padding: 0; /* hljs class already pads */
   overflow: auto;
 }
+/* Line number gutter for fenced code blocks. */
+pre.cmux-code-with-lines {
+  display: flex;
+  flex-direction: row;
+}
+pre.cmux-code-with-lines code.hljs {
+  flex: 1;
+  min-width: 0;
+}
+.cmux-line-gutter {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 0;
+  padding-right: 12px;
+  padding-left: 12px;
+  border-right: 1px solid var(--borderColor-muted);
+  text-align: right;
+  -webkit-user-select: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+.cmux-line-num {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fgColor-muted);
+  opacity: 0.55;
+}
 .cmux-code-block {
   position: relative;
   margin: 0 0 16px 0;
@@ -225,6 +252,39 @@ body {
   margin: 0.6em 0;
   text-align: left;
 }
+/* GitHub-style callout/admonition blocks. */
+.cmux-callout {
+  padding: 12px 16px;
+  margin: 0 0 16px 0;
+  border-left: 4px solid;
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+}
+.cmux-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.cmux-callout-title svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.cmux-callout-body > :first-child { margin-top: 0; }
+.cmux-callout-body > :last-child { margin-bottom: 0; }
+.cmux-callout-note   { border-left-color: #539bf5; }
+.cmux-callout-tip    { border-left-color: #3fb950; }
+.cmux-callout-important { border-left-color: #a371f7; }
+.cmux-callout-warning { border-left-color: #d29922; }
+.cmux-callout-caution { border-left-color: #f85149; }
+.cmux-callout-note .cmux-callout-title   { color: #539bf5; }
+.cmux-callout-tip .cmux-callout-title    { color: #3fb950; }
+.cmux-callout-important .cmux-callout-title { color: #a371f7; }
+.cmux-callout-warning .cmux-callout-title { color: #d29922; }
+.cmux-callout-caution .cmux-callout-title { color: #f85149; }
 /* Custom selection color that reads on both themes. */
 ::selection { background: rgba(56, 139, 253, 0.4); }
 /* Smooth-anchor scroll for heading links. */
@@ -276,6 +336,22 @@ html { scroll-behavior: smooth; }
     });
     return value;
   }
+
+  // FNV-1a hash for fast content-change detection. Uses 32-bit arithmetic
+  // (safe in JS) to avoid the O(n) innerHTML string comparison on re-render.
+  function fnv1aHash(str) {
+    var hash = 0x811c9dc5;
+    for (var i = 0, len = str.length; i < len; i++) {
+      hash ^= str.charCodeAt(i);
+      // Math.imul gives C-like 32-bit integer multiply; plain `*` would lose
+      // precision once the product exceeds 2^53, corrupting the hash.
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash;
+  }
+  // Sentinel must not collide with any valid fnv1aHash() output. fnv1aHash
+  // ends with `>>> 0`, which produces 0..2^32-1; null sits outside that range.
+  var lastRenderedHash = null;
 
   function escapeHtml(s) {
     // Let WebKit's HTML serializer do escaping rather than trying
@@ -833,32 +909,74 @@ html { scroll-behavior: smooth; }
     }
   }
 
+  // Single source of truth for sanitization. Both the full TreeWalker
+  // sanitizer (sanitizeRenderedHTML) and the fast pre-check (needsSanitization)
+  // are derived from these lists, so the fast-path can never drift out of sync
+  // with what the sanitizer actually strips. Add a tag or attribute here once
+  // and both paths update together.
+  var SANITIZER_BLOCKED_TAGS = {
+    script: true, iframe: true, object: true, embed: true, link: true,
+    meta: true, base: true, style: true, audio: true, video: true,
+    picture: true, source: true, track: true, form: true, button: true,
+    textarea: true, select: true, option: true, svg: true, math: true
+  };
+  // Attributes the sanitizer strips outright. Any on* event handler is also
+  // stripped (handled by prefix, not listed here). `input` (checkbox-only) and
+  // remote <img> src are special-cased in both the sanitizer and the pattern.
+  var SANITIZER_BLOCKED_ATTRS = [
+    'style', 'background', 'srcset', 'srcdoc', 'autofocus', 'formaction', 'xlink:href'
+  ];
+  // Valueless-capable (boolean) attributes match on a word boundary in the
+  // fast-path regex rather than requiring `=` (e.g. bare `<button autofocus>`).
+  var SANITIZER_BOOLEAN_ATTRS = { autofocus: true };
+
+  function reEscapeForPattern(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Build the fast pre-check regex from the same lists the sanitizer uses.
+  // Most markdown produces HTML with nothing dangerous; when none of these
+  // alternations match we skip the TreeWalker walk entirely.
+  //   - tag list           mirrors SANITIZER_BLOCKED_TAGS
+  //   - <input ...checkbox  input is allowed only as a checkbox
+  //   - <img ...src=http(s) remote images must reach sanitizeRenderedHTML
+  //                         (which runs on an inert <template>) so the live src
+  //                         is stripped before the browser auto-fetches it —
+  //                         the "don't auto-load remote images" privacy gate.
+  //                         Local/relative images stay on the fast path.
+  //   - on* / blocked attrs mirror SANITIZER_BLOCKED_ATTRS
+  //   - javascript:/...     active-protocol href/src
+  //   - href/src ... &      any character reference (quoted or unquoted) in an
+  //                         href/src value, so entity-encoded payloads like
+  //                         `href=&#106;avascript:` can't skip the slow path.
+  function buildSanitizationPattern() {
+    var tags = Object.keys(SANITIZER_BLOCKED_TAGS).map(reEscapeForPattern).join('|');
+    var attrs = SANITIZER_BLOCKED_ATTRS.map(function(a) {
+      var esc = reEscapeForPattern(a);
+      return SANITIZER_BOOLEAN_ATTRS[a] ? '\\b' + esc + '\\b' : '\\b' + esc + '\\s*=';
+    }).join('|');
+    return new RegExp(
+      '<(?:' + tags + ')\\b' +
+      '|<input\\b(?![^>]*type\\s*=\\s*["\']?checkbox)' +
+      '|<img\\b[^>]*\\ssrc\\s*=\\s*["\']?\\s*https?:' +
+      '|(?:\\son[a-z]+\\s*=|' + attrs + ')' +
+      '|(?:href|src)\\s*=\\s*["\']?\\s*(?:javascript|vbscript|data):' +
+      '|(?:href|src)\\s*=\\s*(?:"[^"]*&|\'[^\']*&|[^"\'\\s>]*&)',
+      'i'
+    );
+  }
+  var sanitizationPattern = buildSanitizationPattern();
+  function needsSanitization(html) {
+    return sanitizationPattern.test(html || '');
+  }
+
   function sanitizeRenderedHTML(html) {
     var template = document.createElement('template');
     template.innerHTML = String(html || '');
 
-    var blockedTags = {
-      script: true,
-      iframe: true,
-      object: true,
-      embed: true,
-      link: true,
-      style: true,
-      meta: true,
-      base: true,
-      audio: true,
-      form: true,
-      button: true,
-      picture: true,
-      source: true,
-      textarea: true,
-      track: true,
-      video: true,
-      select: true,
-      option: true,
-      svg: true,
-      math: true
-    };
+    // Reuse the shared block list so the sanitizer and the fast-path regex
+    // (buildSanitizationPattern) can never disagree about which tags to strip.
+    var blockedTags = SANITIZER_BLOCKED_TAGS;
 
     var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
     var elements = [];
@@ -895,16 +1013,7 @@ html { scroll-behavior: smooth; }
           el.removeAttribute(attr.name);
           return;
         }
-        if (
-          name.indexOf('on') === 0 ||
-          name === 'style' ||
-          name === 'background' ||
-          name === 'srcset' ||
-          name === 'srcdoc' ||
-          name === 'autofocus' ||
-          name === 'formaction' ||
-          name === 'xlink:href'
-        ) {
+        if (name.indexOf('on') === 0 || SANITIZER_BLOCKED_ATTRS.indexOf(name) !== -1) {
           el.removeAttribute(attr.name);
           return;
         }
@@ -960,8 +1069,9 @@ html { scroll-behavior: smooth; }
     pedantic: false,
     renderer: {
       codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
+        // marked v13 passes code already HTML-escaped; don't double-escape.
+        // Markdown-file links are detected later in markMarkdownFileLinks().
+        return '<code>' + (code || '') + '</code>';
       },
       code(code, infostring, escaped) {
         var raw = code || '';
@@ -992,11 +1102,38 @@ html { scroll-behavior: smooth; }
           highlighted = escapeHtml(raw);
         }
         var langClass = langName ? ' language-' + langName : '';
-        return '<pre><code class="hljs' + langClass + '">' + highlighted + '</code></pre>\n';
+        // Strip exactly one trailing newline before counting lines so code
+        // blocks that end in "\n" (the common case from marked) don't render
+        // a phantom empty line number in the gutter.
+        var rawForLineCount = raw.replace(/\r?\n$/, '');
+        var lineCount = (rawForLineCount.match(/\n/g) || []).length + 1;
+        var gutter = '';
+        for (var ln = 1; ln <= lineCount; ln++) {
+          gutter += '<span class="cmux-line-num">' + ln + '</span>';
+        }
+        return '<pre class="cmux-code-with-lines"><span class="cmux-line-gutter" aria-hidden="true">' + gutter + '</span><code class="hljs' + langClass + '">' + highlighted + '</code></pre>\n';
       },
       heading(text, level, raw) {
         var slug = uniqueHeadingSlug(raw);
         return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+      },
+      blockquote(quote) {
+        var calloutMatch = (quote || '').match(/^<p>\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i);
+        if (!calloutMatch) {
+          return '<blockquote>\n' + quote + '</blockquote>\n';
+        }
+        var type = calloutMatch[1].toLowerCase();
+        var body = quote.replace(calloutMatch[0], '<p>').replace(/^<p>\s*(?:<br\s*\/?>)?\s*/, '<p>');
+        var title = type.charAt(0).toUpperCase() + type.slice(1);
+        // Emit a data-attribute placeholder; the icon <svg> is injected
+        // after sanitization by injectCalloutIcons() so the sanitizer
+        // (which strips all <svg> elements as a hardening measure) cannot
+        // remove our own trusted icons. `type` comes from the allow-listed
+        // capture group above, so the attribute value is safe.
+        return '<div class="cmux-callout cmux-callout-' + type + '">'
+          + '<div class="cmux-callout-title" data-cmux-callout-type="' + type + '">' + title + '</div>'
+          + '<div class="cmux-callout-body">' + body + '</div>'
+          + '</div>\n';
       }
     }
   });
@@ -1428,7 +1565,31 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  // Octicon SVGs for GitHub-style callouts. Kept out of the rendered HTML
+  // pipeline and injected post-sanitization so the sanitizer's blanket
+  // <svg> strip does not remove our own trusted icons. Markup is constant
+  // and never blended with user-supplied content.
+  var calloutIcons = {
+    note: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>',
+    tip: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863.5 8 .5s5.5 1.81 5.5 4.75c0 1.516-.701 2.5-1.328 3.259a10.8 10.8 0 0 0-.268.32c-.207.245-.383.453-.542.68-.207.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>',
+    important: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+    warning: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+    caution: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>'
+  };
+
+  function injectCalloutIcons() {
+    contentEl.querySelectorAll('.cmux-callout-title[data-cmux-callout-type]').forEach(function(titleEl) {
+      if (titleEl.querySelector('svg')) { return; }
+      var type = String(titleEl.getAttribute('data-cmux-callout-type') || '').toLowerCase();
+      var icon = calloutIcons[type];
+      if (icon) {
+        titleEl.insertAdjacentHTML('afterbegin', icon + ' ');
+      }
+    });
+  }
+
   function postProcessSpecialBlocks() {
+    injectCalloutIcons();
     if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
       loadLib('mermaid', renderMermaidBlocks);
     }
@@ -1592,15 +1753,22 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
-  window.__cmuxRenderMarkdown = function(md) {
+  // Debounce rapid re-renders (e.g. atomic write-rename fires watcher
+  // twice in quick succession). 80ms is fast enough to feel instant but
+  // collapses bursts from editors like vim, emacs, and VS Code.
+  var renderTimer = null;
+  function doRender(md) {
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
+      var parsed = marked.parse(documentParts.body || '');
       var html = renderFrontmatter(documentParts.frontmatter)
-        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
-      var didReplaceContent = contentEl.innerHTML !== html;
+        + (needsSanitization(parsed) ? sanitizeRenderedHTML(parsed) : parsed);
+      var hash = fnv1aHash(html);
+      var didReplaceContent = hash !== lastRenderedHash;
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
+        lastRenderedHash = hash;
         contentEl.innerHTML = html;
       }
       rewriteLocalImageSources();
@@ -1615,6 +1783,17 @@ html { scroll-behavior: smooth; }
         + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
         + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
     }
+  }
+  window.__cmuxRenderMarkdown = function(md) {
+    if (renderTimer) { clearTimeout(renderTimer); }
+    if (lastRenderedHash === null) {
+      doRender(md);
+      return;
+    }
+    renderTimer = setTimeout(function() {
+      renderTimer = null;
+      doRender(md);
+    }, 80);
   };
 
   function cleanRenderedContentClone(options) {
@@ -1623,6 +1802,11 @@ html { scroll-behavior: smooth; }
     var restoreImageSources = options.restoreImageSources !== false;
     var clone = contentEl.cloneNode(true);
     clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
+      el.remove();
+    });
+    // Line-number gutters are viewer chrome, not content — drop them so
+    // exported HTML and copied plain text don't carry "1 2 3 …" line numbers.
+    clone.querySelectorAll('.cmux-line-gutter').forEach(function(el) {
       el.remove();
     });
     clone.querySelectorAll('.cmux-remote-image-placeholder').forEach(function(el) {
@@ -1713,6 +1897,23 @@ html { scroll-behavior: smooth; }
     darkMql.addListener(window.__cmuxApplyTheme);
   }
   window.__cmuxApplyTheme();
+
+  // Fix Cmd+A / Ctrl+A to select the entire document content rather
+  // than just the focused paragraph (WebKit default behavior).
+  //
+  // Match on ev.code === 'KeyA' (physical key position) rather than
+  // ev.key === 'a' so the shortcut works regardless of keyboard layout
+  // and modifier-induced case changes.
+  document.addEventListener('keydown', function(ev) {
+    if ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey && ev.code === 'KeyA') {
+      ev.preventDefault();
+      var range = document.createRange();
+      range.selectNodeContents(contentEl);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
 })();
 </script>
 </body>
