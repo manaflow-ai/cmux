@@ -7808,6 +7808,16 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
+    /// Which client binary drives the connection. `.openssh` is the full cmux relay
+    /// pipeline (cmuxd-remote bootstrap, socket forwarding, ControlMaster multiplexing).
+    /// `.teleport` shells out to `tsh ssh` for a plain interactive session — Teleport's
+    /// client does not honor the OpenSSH options (`RemoteCommand`, `ControlMaster`,
+    /// `LocalCommand`, …) the relay depends on, so it is interactive-only.
+    enum SSHTransport: String {
+        case openssh
+        case teleport = "tsh"
+    }
+
     struct SSHCommandOptions {
         let destination: String
         let displayDestination: String
@@ -7824,6 +7834,7 @@ struct CMUXCLI {
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
+        let transport: SSHTransport
 
         init(
             destination: String,
@@ -7838,7 +7849,8 @@ struct CMUXCLI {
             agentSocketPath: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
-            skipDaemonBootstrap: Bool = false
+            skipDaemonBootstrap: Bool = false,
+            transport: SSHTransport = .openssh
         ) {
             self.destination = destination
             self.displayDestination = displayDestination ?? destination
@@ -7853,6 +7865,7 @@ struct CMUXCLI {
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
             self.skipDaemonBootstrap = skipDaemonBootstrap
+            self.transport = transport
         }
     }
 
@@ -7930,6 +7943,23 @@ struct CMUXCLI {
     ) throws {
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
+        // Parse once with no relay port so we can branch on the transport before
+        // allocating relay credentials the Teleport path never uses.
+        let probedOptions = try parseSSHCommandOptions(
+            commandArgs,
+            localSocketPath: localSocketPath,
+            remoteRelayPort: 0,
+            windowOverride: windowOverride
+        )
+        if probedOptions.transport == .teleport {
+            try runInteractiveTeleportSSH(
+                probedOptions,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+            return
+        }
         let remoteRelayPort = generateRemoteRelayPort()
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
@@ -7947,6 +7977,102 @@ struct CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
+    }
+
+    /// Build the `tsh ssh` argument vector for an interactive Teleport session.
+    ///
+    /// Teleport's client is intentionally NOT a full OpenSSH drop-in: it ignores
+    /// identity files (auth is via `tsh login` certificates), rejects most `-o`
+    /// options cmux injects for the relay (`ConnectTimeout`, `SetEnv`, `ControlMaster`,
+    /// `RemoteCommand`, `LocalCommand`, …), and allocates a PTY for interactive
+    /// sessions on its own, so we deliberately emit a minimal command: the binary,
+    /// an optional port, agent forwarding when requested, any caller-supplied `-o`
+    /// passthroughs, the destination, and any remote command after `--`.
+    func teleportSSHCommandArguments(_ options: SSHCommandOptions) -> [String] {
+        var parts: [String] = ["tsh", "ssh"]
+        if let port = options.port {
+            parts += ["-p", String(port)]
+        }
+        if sshForwardAgentValue(in: options.sshOptions)?.lowercased() == "yes" {
+            parts.append("-A")
+        }
+        for option in sshOptionsRemovingForwardAgent(options.sshOptions) {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            parts += ["-o", trimmed]
+        }
+        parts.append(options.destination)
+        parts.append(contentsOf: options.extraArguments)
+        return parts
+    }
+
+    func teleportSSHCommandText(_ options: SSHCommandOptions) -> String {
+        teleportSSHCommandArguments(options).map(shellQuote).joined(separator: " ")
+    }
+
+    /// Open a workspace whose terminal runs `tsh ssh <destination>` directly.
+    ///
+    /// Unlike the OpenSSH pipeline this does not configure a remote cmux daemon
+    /// (no relay, no cmuxd-remote, no `workspace.remote.configure`): Teleport's
+    /// client cannot host the relay, so the session is a plain interactive terminal.
+    private func runInteractiveTeleportSSH(
+        _ options: SSHCommandOptions,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let teleportCommand = teleportSSHCommandText(options)
+        // No relay wrapper: the terminal simply execs `tsh ssh`, so the workspace is a
+        // plain interactive session. `exec` replaces the shell so closing the remote
+        // session closes the terminal, matching a bare `tsh ssh` invocation.
+        let initialCommand = "exec \(teleportCommand)"
+
+        var workspaceCreateParams: [String: Any] = [
+            "initial_command": initialCommand,
+        ]
+        if let agentSocketPath = options.agentSocketPath {
+            workspaceCreateParams["initial_env"] = [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        }
+        try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: options.windowRaw)
+
+        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+
+        if let workspaceName = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceName.isEmpty {
+            _ = try client.sendV2(method: "workspace.rename", params: [
+                "workspace_id": workspaceId,
+                "title": workspaceName,
+            ])
+        }
+
+        let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // `cmux ssh` is an explicit "open this remote workspace now" action, so we
+        // select the new workspace unless --no-focus is passed.
+        if !options.noFocus {
+            var selectParams: [String: Any] = ["workspace_id": workspaceId]
+            if let workspaceWindowId, !workspaceWindowId.isEmpty {
+                selectParams["window_id"] = workspaceWindowId
+            }
+            _ = try client.sendV2(method: "workspace.select", params: selectParams)
+        }
+
+        var payload = workspaceCreate
+        let redactsDestination = options.destination != options.displayDestination
+        payload["ssh_command"] = redactsDestination ? "<redacted>" : teleportCommand
+        payload["ssh_startup_command"] = redactsDestination ? "<redacted>" : initialCommand
+        payload["transport"] = "tsh"
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
+            print("OK workspace=\(workspaceHandle) target=\(options.displayDestination) transport=tsh")
+        }
     }
 
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
@@ -8289,6 +8415,7 @@ struct CMUXCLI {
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
+        var transport: SSHTransport = .openssh
 
         var passthrough = false
         var index = 0
@@ -8340,6 +8467,20 @@ struct CMUXCLI {
             case "-a", "--no-forward-agent":
                 forwardAgentOverride = false
                 index += 1
+            case "--via":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --via requires a value (ssh or tsh)")
+                }
+                let raw = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                switch raw {
+                case "ssh", "openssh":
+                    transport = .openssh
+                case "tsh", "teleport":
+                    transport = .teleport
+                default:
+                    throw CLIError(message: "ssh: --via must be 'ssh' or 'tsh'")
+                }
+                index += 2
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -8385,7 +8526,8 @@ struct CMUXCLI {
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            transport: transport
         )
     }
 
@@ -14085,12 +14227,15 @@ struct CMUXCLI {
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
+              --via <ssh|tsh>         Client to connect with (default ssh). 'tsh' uses Teleport
+                                      for a plain interactive session (no cmux remote daemon).
 
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+              cmux ssh dev@teleport-node --via tsh
             """)
         case "ssh-session-list":
             return """
