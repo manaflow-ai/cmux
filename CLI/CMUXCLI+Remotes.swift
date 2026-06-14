@@ -215,19 +215,33 @@ extension CMUXCLI {
 
     private func printRemotesTable(_ remotes: [[String: Any]]) {
         for remote in remotes {
-            let name = (remote["displayName"] as? String) ?? "(unnamed)"
+            let name = Self.sanitizeForTerminal((remote["displayName"] as? String) ?? "(unnamed)")
             let deviceId = (remote["deviceId"] as? String) ?? "?"
             let shortId = String(deviceId.prefix(8))
             let routes = (remote["routes"] as? [[String: Any]]) ?? []
             let routeStrings = routes.compactMap { route -> String? in
                 guard let host = route["host"] as? String else { return nil }
                 let port = (route["port"] as? Int) ?? Int((route["port"] as? Double) ?? 0)
-                return "\(host):\(port)"
+                return "\(Self.sanitizeForTerminal(host)):\(port)"
             }
             let routeText = routeStrings.isEmpty ? "(no routes)" : routeStrings.joined(separator: ", ")
-            let tag = (remote["tag"] as? String).map { " tag=\($0)" } ?? ""
-            let lastSeen = (remote["lastSeen"] as? String).map { " lastSeen=\($0)" } ?? ""
+            let tag = (remote["tag"] as? String).map { " tag=\(Self.sanitizeForTerminal($0))" } ?? ""
+            let lastSeen = (remote["lastSeen"] as? String).map { " lastSeen=\(Self.sanitizeForTerminal($0))" } ?? ""
             print("\(name)  [\(shortId)]  \(routeText)\(tag)\(lastSeen)")
         }
+    }
+
+    /// Strip control characters (ANSI escapes, CR/LF, etc.) before printing a
+    /// registry string in the `remotes list` table. A `displayName` is set by a
+    /// team member via `remotes add`, so without this a member could embed
+    /// terminal escape sequences that render in another member's terminal when
+    /// they run `remotes list`. Replaces control chars with U+FFFD; `--json`
+    /// output is unaffected (it goes through the JSON encoder).
+    static func sanitizeForTerminal(_ value: String) -> String {
+        String(value.unicodeScalars.map { scalar in
+            (scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format)
+                ? Character("\u{FFFD}")
+                : Character(scalar)
+        })
     }
 }
