@@ -115,10 +115,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
 
     func testMetadataBlocksStayBoundedUnderUnboundedDistinctKeys() {
         let workspace = Workspace()
-        // Mirrors `Workspace.maxSidebarMetadataBlocks`; kept as a literal so this
-        // regression test compiles and fails on the assertion (not a missing
-        // symbol) in the pre-fix commit.
-        let cap = 200
+        let cap = Workspace.maxSidebarMetadataBlocks
 
         for index in 0..<(cap * 3) {
             workspace.metadataBlocks["key_\(index)"] = SidebarMetadataBlock(

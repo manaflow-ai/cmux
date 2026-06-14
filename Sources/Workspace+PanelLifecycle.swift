@@ -113,6 +113,13 @@ extension Workspace {
         return didClearOtherStructuredAgentRuntime
     }
 
+    /// Records a PID only when its status entry survived synchronous cap trimming.
+    @discardableResult
+    func recordAgentPIDForSurvivingStatusKey(_ key: String, pid: pid_t, panelId: UUID?) -> Bool {
+        guard statusEntries[key] != nil else { return false }
+        return recordAgentPID(key: key, pid: pid, panelId: panelId)
+    }
+
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
         guard let panelId else {
             return false
@@ -250,6 +257,41 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
+    /// Status keys backed by active agent runtime or lifecycle state.
+    func statusKeysWithCoupledAgentRuntime() -> Set<String> {
+        var keys = Set<String>()
+        for pidKey in agentPIDs.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        for pidKey in agentPIDPanelIdsByKey.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        for lifecycleStates in agentLifecycleStatesByPanelId.values {
+            keys.formUnion(lifecycleStates.keys)
+        }
+        return keys
+    }
+
+    /// Clears agent runtime state coupled to status keys evicted by the cap.
+    func purgeAgentRuntimeState(forEvictedStatusKeys evictedStatusKeys: Set<String>) {
+        guard !evictedStatusKeys.isEmpty else { return }
+        var didChange = false
+        let pidKeysToClear = Set(agentPIDs.keys)
+            .union(agentPIDPanelIdsByKey.keys)
+            .filter { evictedStatusKeys.contains(agentStatusKey(forAgentPIDKey: $0)) }
+        for pidKey in pidKeysToClear {
+            if clearAgentPID(key: pidKey, panelId: nil, clearStatus: false, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        for statusKey in evictedStatusKeys where clearAgentLifecycle(key: statusKey) {
+            didChange = true
+        }
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }
@@ -267,15 +309,25 @@ extension Workspace {
 
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
-        for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+        if !runtimeState.statusEntries.isEmpty {
+            var merged = statusEntries
+            for (statusKey, statusEntry) in runtimeState.statusEntries {
+                merged[statusKey] = statusEntry
+            }
+            statusEntries = merged
+        }
+        func adoptedStatusSurvived(forAgentPIDKey key: String) -> Bool {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard runtimeState.statusEntries[statusKey] != nil else { return true }
+            return statusEntries[statusKey] != nil
         }
         var didAdoptAgentPID = false
-        for (key, pid) in runtimeState.agentPIDs {
+        for (key, pid) in runtimeState.agentPIDs where adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
             didAdoptAgentPID = true
         }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
+        for key in runtimeState.agentPIDKeys
+        where runtimeState.agentPIDs[key] == nil && adoptedStatusSurvived(forAgentPIDKey: key) {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         if didAdoptAgentPID {

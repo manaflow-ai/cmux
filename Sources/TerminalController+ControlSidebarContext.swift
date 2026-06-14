@@ -45,7 +45,7 @@ extension TerminalController: ControlSidebarContext {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pid {
-                    tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                    tab.recordAgentPIDForSurvivingStatusKey(key, pid: pid, panelId: panelID)
                 }
                 return
             }
@@ -60,7 +60,7 @@ extension TerminalController: ControlSidebarContext {
                 timestamp: Date()
             )
             if let pid {
-                tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
+                tab.recordAgentPIDForSurvivingStatusKey(key, pid: pid, panelId: panelID)
             }
         }
     }

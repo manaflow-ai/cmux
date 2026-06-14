@@ -2748,6 +2748,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    /// cmux-owned status keys that carry application state and must never be
+    /// evicted by the status cap.
+    private static let reservedSidebarStatusKeys: Set<String> = [
+        remoteErrorStatusKey,
+        remotePortConflictStatusKey,
+    ]
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let sshControlMasterCleanupQueue = DispatchQueue(
         label: "com.cmux.remote-ssh.control-master-cleanup",
