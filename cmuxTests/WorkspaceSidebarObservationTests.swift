@@ -144,13 +144,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
     }
 
-    // Metadata blocks have no PID/lifecycle coupling, so priority is the sole
+    // Metadata blocks have no PID/lifecycle coupling, so priority is the primary
     // retention signal: a newer low-priority flood must not displace an existing
     // high-priority block at the cap (#5845 follow-up — the original change gave
     // metadata an unwarranted just-inserted grace tier).
     func testMetadataCapRetainsHighPriorityOverNewerLowPriorityFlood() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarMetadataBlocks
 
         workspace.metadataBlocks["important"] = SidebarMetadataBlock(
             key: "important",

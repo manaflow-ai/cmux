@@ -6516,8 +6516,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// retaining strictly by `sidebarMetadataBlocksInDisplayOrder()` priority then
     /// timestamp. Unlike status entries, metadata blocks have no follow-up
     /// PID/lifecycle coupling that must survive its own trim, so there is no
-    /// just-inserted grace tier here — priority is the sole retention signal and a
-    /// new low-priority block must not displace an existing high-priority one.
+    /// just-inserted grace tier here — priority is the primary retention signal,
+    /// with timestamp as the secondary criterion and dictionary key as the
+    /// tiebreaker. A new low-priority block must not displace an existing
+    /// high-priority one.
     /// Ranking and keep-set are keyed by the dictionary's storage key.
     private func trimSidebarMetadataBlocksIfNeeded() {
         guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
