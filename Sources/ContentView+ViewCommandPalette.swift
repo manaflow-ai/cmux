@@ -59,6 +59,7 @@ enum GuiModeWorkspaceCoordinator {
     @MainActor
     static func createTaskWorkspace(
         prompt: String,
+        providerID: GuiModeProviderID,
         sourcePanelId: UUID,
         preferredWorkspaceId: UUID
     ) throws -> Workspace {
@@ -85,12 +86,12 @@ enum GuiModeWorkspaceCoordinator {
         }) else {
             throw AgentSessionBridgeError.invalidRequest
         }
-        guiPanel.configureGuiModeTask(prompt: prompt)
+        guiPanel.configureGuiModeTask(prompt: prompt, providerID: providerID)
 
         guard let guiPaneId = workspace.paneId(forPanelId: guiPanel.id) else {
             throw AgentSessionBridgeError.invalidRequest
         }
-        let initialInput = "/task-worktree-pr \(shellQuoted(prompt))\n"
+        let initialInput = taskWorktreePRCommand(prompt: prompt, providerID: providerID)
         _ = workspace.splitPaneWithNewTerminal(
             targetPane: guiPaneId,
             orientation: .horizontal,
@@ -99,6 +100,10 @@ enum GuiModeWorkspaceCoordinator {
             initialInput: initialInput
         )
         return workspace
+    }
+
+    static func taskWorktreePRCommand(prompt: String, providerID: GuiModeProviderID) -> String {
+        "/task-worktree-pr --provider \(providerID.rawValue) \(shellQuoted(prompt))\n"
     }
 
     static func taskWorkspaceTitle(prompt: String) -> String {

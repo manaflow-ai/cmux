@@ -34,6 +34,47 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testGuiModeProviderCatalogMatchesHookedAgents() {
+        XCTAssertEqual(
+            GuiModeProviderID.allCases.map(\.rawValue),
+            [
+                "codex",
+                "claude",
+                "opencode",
+                "grok",
+                "pi",
+                "omp",
+                "amp",
+                "cursor",
+                "gemini",
+                "kiro",
+                "antigravity",
+                "rovodev",
+                "hermes-agent",
+                "copilot",
+                "codebuddy",
+                "factory",
+            ]
+        )
+
+        for provider in GuiModeProviderID.allCases {
+            XCTAssertFalse(provider.displayName.isEmpty)
+            XCTAssertFalse(provider.detail.isEmpty)
+        }
+    }
+
+    func testGuiModeTaskCommandIncludesProviderForEveryAgent() {
+        for provider in GuiModeProviderID.allCases {
+            XCTAssertEqual(
+                GuiModeWorkspaceCoordinator.taskWorktreePRCommand(
+                    prompt: "build Lawrence's thing",
+                    providerID: provider
+                ),
+                "/task-worktree-pr --provider \(provider.rawValue) 'build Lawrence'\\''s thing'\n"
+            )
+        }
+    }
+
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard

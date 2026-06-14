@@ -12,6 +12,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var workingDirectory: String?
     private var guiModePage: GuiModePanelPage = .home
     private var guiModePrompt: String?
+    private var guiModeProviderID: GuiModeProviderID = .codex
     private var theme: AgentSessionWebTheme = .resolve(
         appearance: .fromConfig(GhosttyConfig.load())
     )
@@ -40,6 +41,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         workingDirectory: String?,
         guiModePage: GuiModePanelPage,
         guiModePrompt: String?,
+        guiModeProviderID: GuiModeProviderID,
         theme: AgentSessionWebTheme,
         isFocused: Bool
     ) {
@@ -56,6 +58,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.workingDirectory = workingDirectory
         self.guiModePage = guiModePage
         self.guiModePrompt = guiModePrompt
+        self.guiModeProviderID = guiModeProviderID
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
         self.theme = theme
@@ -585,6 +588,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 context["guiMode"] = [
                     "page": guiModePage.rawValue,
                     "prompt": guiModePrompt ?? "",
+                    "selectedProviderId": guiModeProviderID.rawValue,
+                    "providers": GuiModeProviderID.allCases.map { provider in
+                        [
+                            "id": provider.rawValue,
+                            "displayName": provider.displayName,
+                            "detail": provider.detail,
+                            "runtimeMode": provider.runtimeMode
+                        ] as [String: Any]
+                    },
                     "copy": [
                         "homeTitle": String(localized: "guiMode.web.home.title", defaultValue: "GUI Mode"),
                         "taskTitle": String(localized: "guiMode.web.task.title", defaultValue: "/task-worktree-pr"),
@@ -595,6 +607,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                         "submit": String(localized: "guiMode.web.submit", defaultValue: "Submit"),
                         "submitting": String(localized: "guiMode.web.submitting", defaultValue: "Submitting"),
                         "taskPromptLabel": String(localized: "guiMode.web.taskPromptLabel", defaultValue: "Prompt"),
+                        "providerLabel": String(localized: "guiMode.web.providerLabel", defaultValue: "Agent"),
+                        "runtimeLabel": String(localized: "guiMode.web.runtimeLabel", defaultValue: "Runtime"),
                         "errorMessage": String(
                             localized: "guiMode.web.errorMessage",
                             defaultValue: "Could not create the GUI workspace."
@@ -611,8 +625,18 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guard !prompt.isEmpty else {
                 throw AgentSessionBridgeError.missingParameter("prompt")
             }
+            let providerID: GuiModeProviderID
+            if let rawProviderID = request.params["providerId"] as? String {
+                guard let parsedProviderID = GuiModeProviderID(rawValue: rawProviderID) else {
+                    throw AgentSessionBridgeError.invalidProvider(rawProviderID)
+                }
+                providerID = parsedProviderID
+            } else {
+                providerID = .codex
+            }
             let workspace = try GuiModeWorkspaceCoordinator.createTaskWorkspace(
                 prompt: prompt,
+                providerID: providerID,
                 sourcePanelId: panelId,
                 preferredWorkspaceId: workspaceId
             )

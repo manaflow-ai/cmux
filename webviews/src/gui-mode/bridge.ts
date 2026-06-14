@@ -4,16 +4,27 @@ export type GuiModeCopy = {
   errorMessage: string;
   homeTitle: string;
   promptPlaceholder: string;
+  providerLabel: string;
+  runtimeLabel: string;
   submit: string;
   submitting: string;
   taskPromptLabel: string;
   taskTitle: string;
 };
 
+export type GuiModeProvider = {
+  detail: string;
+  displayName: string;
+  id: string;
+  runtimeMode: string;
+};
+
 export type GuiModeContext = {
   copy: GuiModeCopy;
   page: "home" | "task-worktree-pr";
   prompt: string;
+  providers: GuiModeProvider[];
+  selectedProviderId: string;
 };
 
 export type GuiModeAppContext = {
@@ -28,8 +39,11 @@ export async function loadGuiModeContext(): Promise<GuiModeContext> {
   return context.guiMode;
 }
 
-export async function submitGuiModePrompt(prompt: string): Promise<{ workspaceId: string }> {
-  return callNativeWithTimeout<{ workspaceId: string }>("guiMode.submit", { prompt }, 12000);
+export async function submitGuiModePrompt(
+  prompt: string,
+  providerId: string,
+): Promise<{ workspaceId: string }> {
+  return callNativeWithTimeout<{ workspaceId: string }>("guiMode.submit", { prompt, providerId }, 12000);
 }
 
 function callNativeWithTimeout<T>(

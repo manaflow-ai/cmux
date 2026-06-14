@@ -14,7 +14,7 @@
 }
 
 .gui-mode-home > .agent-composer-stack {
-  width: min(760px, 100%);
+  width: min(820px, 100%);
 }
 
 .gui-mode-composer {
@@ -24,6 +24,82 @@
 
 .gui-mode-editor {
   padding: 14px 14px 4px;
+}
+
+.gui-mode-provider-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 8px;
+}
+
+.gui-mode-provider-label {
+  color: var(--agent-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.gui-mode-runtime-pill {
+  max-width: 100%;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  color: var(--agent-muted);
+  font-size: 11px;
+  line-height: 16px;
+  overflow: hidden;
+  padding: 2px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.gui-mode-provider-option {
+  display: grid;
+  gap: 2px;
+  min-height: 52px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-surface) 82%, transparent);
+  color: var(--agent-text);
+  cursor: pointer;
+  font: inherit;
+  min-width: 0;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.gui-mode-provider-option:hover,
+.gui-mode-provider-option[aria-selected="true"] {
+  border-color: var(--agent-accent);
+  background: color-mix(in srgb, var(--agent-accent) 12%, var(--agent-surface));
+}
+
+.gui-mode-provider-name,
+.gui-mode-task-provider-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 17px;
+}
+
+.gui-mode-provider-detail,
+.gui-mode-task-provider-detail {
+  color: var(--agent-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 15px;
 }
 
 .gui-mode-footer {
@@ -68,6 +144,13 @@
   border-radius: 8px;
   background: var(--agent-surface);
   padding: 16px;
+}
+
+.gui-mode-task-provider {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--agent-border);
+  padding-bottom: 12px;
 }
 
 .gui-mode-task-label {
