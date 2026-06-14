@@ -9,6 +9,7 @@ import Bonsplit
 import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
