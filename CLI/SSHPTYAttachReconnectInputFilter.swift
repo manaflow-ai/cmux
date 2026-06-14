@@ -21,7 +21,7 @@ final class SSHPTYAttachReconnectInputFilter {
         isFiltering = enabled
     }
 
-    private init(state: FilterState) {
+    private init(state: SSHPTYAttachReconnectInputFilterState) {
         isFiltering = state.isFiltering
         pending = state.pending
     }
@@ -33,19 +33,32 @@ final class SSHPTYAttachReconnectInputFilter {
         filterEnabled: Bool
     ) throws -> SSHPTYAttachReconnectInputFilterControl? {
         let filterState = filterEnabled ? try drainQueuedProbeReplies(inputFD: inputFD, fd: fd) : nil
-        let filterControl = filterState == nil ? nil : SSHPTYAttachReconnectInputFilterControl()
+        var stopSignalFDs = [Int32](repeating: -1, count: 2)
+        let filterControl: SSHPTYAttachReconnectInputFilterControl?
+        let stopSignalReadFD: Int32?
+        if filterState == nil {
+            filterControl = nil
+            stopSignalReadFD = nil
+        } else {
+            guard Darwin.pipe(&stopSignalFDs) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            filterControl = SSHPTYAttachReconnectInputFilterControl(stopSignalWriteFD: stopSignalFDs[1])
+            stopSignalReadFD = stopSignalFDs[0]
+        }
         DispatchQueue.global(qos: .userInteractive).async {
             pumpStdin(
                 inputFD: inputFD,
                 fd: fd,
                 reconnectInputFilterState: filterState,
-                filterControl: filterControl
+                retainedFilterControl: filterControl,
+                stopSignalFD: stopSignalReadFD
             )
         }
         return filterControl
     }
 
-    private static func drainQueuedProbeReplies(inputFD: Int32, fd: Int32) throws -> FilterState? {
+    private static func drainQueuedProbeReplies(inputFD: Int32, fd: Int32) throws -> SSHPTYAttachReconnectInputFilterState? {
         let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: true)
         var buffer = [UInt8](repeating: 0, count: 8192)
         while true {
@@ -80,11 +93,19 @@ final class SSHPTYAttachReconnectInputFilter {
     private static func pumpStdin(
         inputFD: Int32,
         fd: Int32,
-        reconnectInputFilterState: FilterState?,
-        filterControl: SSHPTYAttachReconnectInputFilterControl?
+        reconnectInputFilterState: SSHPTYAttachReconnectInputFilterState?,
+        retainedFilterControl: SSHPTYAttachReconnectInputFilterControl?,
+        stopSignalFD initialStopSignalFD: Int32?
     ) {
+        _ = retainedFilterControl
         var reconnectInputFilter = reconnectInputFilterState.map(SSHPTYAttachReconnectInputFilter.init(state:))
+        var stopSignalFD = initialStopSignalFD
         var buffer = [UInt8](repeating: 0, count: 8192)
+        defer {
+            if let stopSignalFD {
+                Darwin.close(stopSignalFD)
+            }
+        }
 
         func writeOrShutdown(_ input: Data) -> Bool {
             guard !input.isEmpty else {
@@ -99,41 +120,54 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
-        func stopReconnectFilteringIfRequested() -> Bool {
-            guard let filter = reconnectInputFilter,
-                  filterControl?.shouldFilterReconnectInput == false else {
+        func stopReconnectFiltering() -> Bool {
+            guard let filter = reconnectInputFilter else {
                 return true
             }
             guard writeOrShutdown(filter.stopFiltering()) else {
                 return false
             }
             reconnectInputFilter = nil
+            if let fd = stopSignalFD {
+                Darwin.close(fd)
+                stopSignalFD = nil
+            }
             return true
         }
 
         while true {
-            guard stopReconnectFilteringIfRequested() else {
+            let timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
+                ? pendingProbeContinuationTimeoutMilliseconds
+                : -1
+            guard let readiness = pollStdinPump(
+                inputFD: inputFD,
+                stopSignalFD: stopSignalFD,
+                timeoutMilliseconds: timeoutMilliseconds
+            ) else {
+                _ = shutdown(fd, SHUT_WR)
                 return
             }
-            if let filter = reconnectInputFilter {
-                if filter.hasPendingInput,
-                   !stdinHasReadyInput(
-                       inputFD: inputFD,
-                       timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
-                   ) {
-                    guard writeOrShutdown(filter.flushPendingInput()) else {
-                        return
-                    }
+
+            if readiness.stopRequested {
+                guard stopReconnectFiltering() else {
+                    return
                 }
+                if !readiness.inputReady {
+                    continue
+                }
+            }
+
+            if !readiness.inputReady {
+                if let filter = reconnectInputFilter,
+                   filter.hasPendingInput {
+                    guard writeOrShutdown(filter.flushPendingInput()) else { return }
+                }
+                continue
             }
 
             let count = Darwin.read(inputFD, &buffer, buffer.count)
             if count > 0 {
                 let rawInput = Data(buffer.prefix(count))
-                // Bridge output can stop filtering while read() is blocked.
-                guard stopReconnectFilteringIfRequested() else {
-                    return
-                }
                 let input = reconnectInputFilter?.filter(rawInput) ?? rawInput
                 guard writeOrShutdown(input) else {
                     return
@@ -221,11 +255,11 @@ final class SSHPTYAttachReconnectInputFilter {
         return data
     }
 
-    private func snapshotForPump() -> FilterState? {
+    private func snapshotForPump() -> SSHPTYAttachReconnectInputFilterState? {
         guard isFiltering else {
             return nil
         }
-        return FilterState(isFiltering: isFiltering, pending: pending)
+        return SSHPTYAttachReconnectInputFilterState(isFiltering: isFiltering, pending: pending)
     }
 
     private static func reconnectProbeReplySequence(
@@ -368,11 +402,6 @@ final class SSHPTYAttachReconnectInputFilter {
         }
     }
 
-    private struct FilterState: Sendable {
-        let isFiltering: Bool
-        let pending: [UInt8]
-    }
-
     private static func writeAll(fd: Int32, data: Data) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
@@ -391,22 +420,35 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
     }
-}
 
-// Shared between the bridge-output thread and the stdin pump; the flag is NSLock-guarded.
-final class SSHPTYAttachReconnectInputFilterControl: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stopped = false
+    private static func pollStdinPump(
+        inputFD: Int32,
+        stopSignalFD: Int32?,
+        timeoutMilliseconds: Int32
+    ) -> (inputReady: Bool, stopRequested: Bool)? {
+        let inputEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        let stopEvents = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        var pollFDs = [pollfd(fd: inputFD, events: Int16(POLLIN), revents: 0)]
+        if let stopSignalFD {
+            pollFDs.append(pollfd(fd: stopSignalFD, events: Int16(POLLIN), revents: 0))
+        }
 
-    var shouldFilterReconnectInput: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return !stopped
-    }
-
-    func stopFiltering() {
-        lock.lock()
-        stopped = true
-        lock.unlock()
+        while true {
+            let result = pollFDs.withUnsafeMutableBufferPointer { buffer in
+                Darwin.poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
+            }
+            if result > 0 {
+                let inputReady = (pollFDs[0].revents & inputEvents) != 0
+                let stopRequested = pollFDs.count > 1 && (pollFDs[1].revents & stopEvents) != 0
+                return (inputReady: inputReady, stopRequested: stopRequested)
+            }
+            if result == 0 {
+                return (inputReady: false, stopRequested: false)
+            }
+            if errno == EINTR {
+                continue
+            }
+            return nil
+        }
     }
 }
