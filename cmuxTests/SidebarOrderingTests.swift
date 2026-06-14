@@ -9,6 +9,8 @@ import CmuxSettings
 import UserNotifications
 import Testing
 
+import CmuxSidebar
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -218,7 +220,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let second = UUID()
         let third = UUID()
 
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [first, second, third],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -238,7 +240,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchesUsesFallbackWhenNoPanelBranchesExist() {
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [],
             panelBranches: [:],
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: true)
@@ -257,7 +259,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let fourth = UUID()
         let fifth = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second, third, fourth, fifth],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -292,7 +294,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [:],
             panelDirectories: [
@@ -314,7 +316,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchDirectoryEntriesFallsBackWhenNoPanelsExist() {
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [],
             panelBranches: [:],
             panelDirectories: [:],
@@ -333,7 +335,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -366,7 +368,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let third = UUID()
         let fourth = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second, third, fourth],
             panelPullRequests: [
                 first: pullRequestState(
@@ -416,7 +418,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -446,7 +448,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -479,7 +481,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -539,7 +541,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             url: "https://github.com/manaflow-ai/cmux/pull/11",
             status: .open
         )
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [],
             panelPullRequests: [:],
             fallbackPullRequest: fallback
