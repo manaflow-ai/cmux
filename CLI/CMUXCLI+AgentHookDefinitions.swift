@@ -41,9 +41,9 @@ extension CMUXCLI {
         let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// with a long timeout so the socket reply wait doesn't trip the
+        /// agent's hook timeout when the user takes time to approve/deny a
+        /// permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or

@@ -300,11 +300,21 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Copilot emits documented lowercase tool names in camelCase
+    /// `preToolUse` payloads. Keep these source-scoped so lowercase names from
+    /// other agents do not become approval prompts.
+    private static let copilotSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "create",
+        "edit",
+        "powershell",
+    ]
+
     /// Whether a tool mutates state and deserves an approval prompt. Exact
-    /// match against ``sideEffectingTools`` for every source; the `kiro`
-    /// source additionally matches its case-insensitive internal aliases.
-    /// Kept source-scoped so another agent's lowercase tool name is not
-    /// escalated into an approval.
+    /// match against ``sideEffectingTools`` for every source; sources with
+    /// lowercase native tool names additionally match their case-insensitive
+    /// aliases. Kept source-scoped so another agent's lowercase tool name is
+    /// not escalated into an approval.
     static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
@@ -312,6 +322,9 @@ struct FeedEventClassifier {
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
+        }
+        if source == "copilot" {
+            return copilotSideEffectingToolAliases.contains(toolName.lowercased())
         }
         return false
     }

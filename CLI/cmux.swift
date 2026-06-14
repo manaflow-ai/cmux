@@ -26636,10 +26636,9 @@ struct CMUXCLI {
         Self.hookCommandString(for: def, event: event)
     }
 
-    /// Shell command the agent runs for a Feed bridge event. 120s timeout
-    /// inside the shell is applied via the agent's `timeout` field in the
-    /// nested hook config (see `buildHooksDict`); the shell command
-    /// itself just dispatches.
+    /// Shell command the agent runs for a Feed bridge event. The timeout is
+    /// applied via the agent's hook config (see `buildHooksDict`); the shell
+    /// command itself just dispatches.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
@@ -26749,6 +26748,9 @@ struct CMUXCLI {
     private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent _: String) -> Int {
         if def.name == "codex" {
             return 5_000
+        }
+        if def.name == "copilot" {
+            return 130_000
         }
         return 120_000
     }
@@ -32756,9 +32758,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
+        // Wait is capped at 120s and each wrapper's hook timeout
+        // includes response headroom so the socket can return before
+        // the agent kills the hook subprocess itself.
         let waitTimeout: Double = isActionable ? 120 : 0
         let params: [String: Any] = [
             "event": eventDict,

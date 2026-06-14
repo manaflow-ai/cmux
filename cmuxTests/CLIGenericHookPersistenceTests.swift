@@ -1130,7 +1130,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_COPILOT_PID": "626262",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"event":"preToolUse","sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"Bash","toolArgs":{"command":"rm -rf /tmp/cmux-copilot-test"}}"#,
+            standardInput: #"{"event":"preToolUse","sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"rm -rf /tmp/cmux-copilot-test"}}"#,
             timeout: 5
         )
         wait(for: [serverHandled], timeout: 5)
@@ -3346,7 +3346,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
         let preToolUseCommand = try XCTUnwrap(preToolUse.first?["bash"] as? String)
         XCTAssertTrue(preToolUseCommand.contains("hooks feed --source copilot --event preToolUse"), preToolUseCommand)
-        XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 120)
+        XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 130)
 
         try ("// Copilot hook file comment\n" + String(contentsOf: hookURL, encoding: .utf8))
             .write(to: hookURL, atomically: true, encoding: .utf8)
