@@ -26951,9 +26951,7 @@ function promptBody(props) {
     props.prompt,
     props.question,
     props.reason,
-    props.title,
-    props.error && props.error.message,
-    typeof props.error === "string" ? props.error : null
+    props.title
   );
 }
 
