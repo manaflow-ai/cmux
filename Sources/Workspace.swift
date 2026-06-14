@@ -10,6 +10,7 @@ import AppKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI
 import CmuxPanes
@@ -3203,7 +3204,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
-            allowCloseTabs: !CloseTabWarningSettings.hidesTabCloseButton(),
+            allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
             allowCloseLastPane: false,
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
@@ -3394,7 +3395,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func refreshTabCloseButtonVisibility() {
-        let allowCloseTabs = !CloseTabWarningSettings.hidesTabCloseButton()
+        let allowCloseTabs = !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton
         var configuration = bonsplitController.configuration
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
@@ -11106,8 +11107,8 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        if CloseTabConfirmationPolicy.shouldConfirm(
+        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
         ) {
@@ -11446,7 +11447,7 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabConfirmationPolicy.shouldConfirm(
+               CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
                    source: .shortcut
                ) {

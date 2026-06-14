@@ -1203,8 +1203,8 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.removeObject(forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
     }
 
     func testClaudeCodeIntegrationRespectsStoredPreference() {
@@ -1217,11 +1217,11 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.set(true, forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
 
-        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.set(false, forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
     }
 
     func testKiroIntegrationDefaultsToEnabledWithStandardNotificationsWhenUnset() {
@@ -1234,10 +1234,10 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: KiroIntegrationSettings.hooksEnabledKey)
-        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertTrue(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
     func testKiroIntegrationRespectsStoredPreferenceAndNotificationLevel() {
@@ -1250,13 +1250,13 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(false, forKey: KiroIntegrationSettings.hooksEnabledKey)
-        defaults.set(KiroIntegrationSettings.NotificationLevel.verbose.rawValue, forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertFalse(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .verbose)
+        defaults.set(false, forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
+        defaults.set(KiroNotificationLevel.verbose.rawValue, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .verbose)
 
-        defaults.set("unsupported", forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
+        defaults.set("unsupported", forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
     func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {
@@ -1269,8 +1269,8 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
     }
 
     func testSubagentNotificationSuppressionRespectsStoredPreference() {
@@ -1283,11 +1283,11 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
 
-        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.set(false, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
     }
 
     func testTelemetryDefaultsToEnabledWhenUnset() {
@@ -1300,8 +1300,9 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+        let telemetry = AppCatalogSection().sendAnonymousTelemetry
+        defaults.removeObject(forKey: telemetry.userDefaultsKey)
+        XCTAssertTrue(telemetry.value(in: defaults))
     }
 
     func testTelemetryRespectsStoredPreference() {
@@ -1314,11 +1315,12 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+        let telemetry = AppCatalogSection().sendAnonymousTelemetry
+        defaults.set(true, forKey: telemetry.userDefaultsKey)
+        XCTAssertTrue(telemetry.value(in: defaults))
 
-        defaults.set(false, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: telemetry.userDefaultsKey)
+        XCTAssertFalse(telemetry.value(in: defaults))
     }
 
     private func rgb255(_ color: NSColor) -> RGB {
