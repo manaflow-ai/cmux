@@ -1461,20 +1461,35 @@ enum BrowserPaneDropRouting {
 @MainActor
 enum BrowserWebInspectorCompanionDetector {
     static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        let primaryFrame = host.convert(primaryWebView.bounds, from: primaryWebView)
         var stack = host.subviews.filter { $0 !== primaryWebView }
         while let current = stack.popLast() {
             guard !current.isDescendant(of: primaryWebView), !current.isHidden, current.alphaValue > 0 else {
                 continue
             }
-            let width = max(current.frame.width, current.bounds.width)
-            let height = max(current.frame.height, current.bounds.height)
-            guard width > 1, height > 1 else { continue }
-            if cmuxIsWebInspectorObject(current) {
+            let currentFrame = host.convert(current.bounds, from: current)
+            guard currentFrame.width > 1, currentFrame.height > 1 else { continue }
+            if cmuxIsWebInspectorObject(current) ||
+                isSideDockedInspectorWebView(current, currentFrame: currentFrame, primaryFrame: primaryFrame) {
                 return true
             }
             stack.append(contentsOf: current.subviews)
         }
         return false
+    }
+
+    private static func isSideDockedInspectorWebView(
+        _ view: NSView,
+        currentFrame: NSRect,
+        primaryFrame: NSRect
+    ) -> Bool {
+        guard view is WKWebView else { return false }
+        guard verticalOverlap(between: primaryFrame, and: currentFrame) > 8 else { return false }
+        return HostedInspectorDockSide.resolve(pageFrame: primaryFrame, inspectorFrame: currentFrame) != nil
+    }
+
+    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
     }
 }
 

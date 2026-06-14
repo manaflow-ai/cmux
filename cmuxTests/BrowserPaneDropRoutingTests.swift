@@ -387,6 +387,27 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(webView.frame, slot.bounds)
     }
 
+    func testPinningPreservesSideDockedPlainWebKitInspectorSibling() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
+        let webView = CmuxWebView(
+            frame: NSRect(x: 0, y: 0, width: 132, height: 160),
+            configuration: WKWebViewConfiguration()
+        )
+        let inspectorView = WKWebView(
+            frame: NSRect(x: 132, y: 0, width: 108, height: 160),
+            configuration: WKWebViewConfiguration()
+        )
+        slot.addSubview(webView)
+        slot.addSubview(inspectorView)
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.autoresizingMask = []
+        slot.pinHostedWebView(webView)
+
+        XCTAssertEqual(webView.frame.maxX, inspectorView.frame.minX, accuracy: 0.5)
+        XCTAssertLessThan(webView.frame.width, slot.bounds.width)
+    }
+
     func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {
         let paneId = PaneID(id: UUID())
         let target = BrowserPaneDropContext(
