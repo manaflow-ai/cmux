@@ -576,10 +576,25 @@ extension SessionIndexStore {
                 }
                 return false
             }
+            if sessionIDsInReverseHistoryOrder.count >= target,
+               stableTargetMetadataCount >= target {
+                break
+            }
         }
 
-        let entries = sessionIDsInReverseHistoryOrder
-            .compactMap { latestBySessionID[$0] }
+        let reverseOrderIndexBySessionID = Dictionary(
+            uniqueKeysWithValues: sessionIDsInReverseHistoryOrder
+                .enumerated()
+                .map { ($0.element, $0.offset) }
+        )
+        let entries = latestBySessionID.values
+            .sorted { lhs, rhs in
+                if lhs.modified != rhs.modified {
+                    return lhs.modified > rhs.modified
+                }
+                return (reverseOrderIndexBySessionID[lhs.sessionId] ?? Int.max)
+                    < (reverseOrderIndexBySessionID[rhs.sessionId] ?? Int.max)
+            }
             .map { metadata in
                 SessionEntry(
                     id: "\(registration.id):\(metadata.sessionId)",

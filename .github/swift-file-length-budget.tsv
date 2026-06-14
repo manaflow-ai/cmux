@@ -83,8 +83,8 @@
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1048	Packages/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
+1035	Sources/SessionIndexRegisteredAgents.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
-1020	Sources/SessionIndexRegisteredAgents.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
