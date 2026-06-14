@@ -187,6 +187,20 @@ import Testing
         }
     }
 
+    @Test func legacyPairURLDecodesCompatibilityAsUnknown() throws {
+        let payload = try MobileSyncPairingPayload(
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            host: "100.64.0.5",
+            port: 8443,
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            transport: .tailscale
+        )
+        let decoded = try CmxAttachTicketInput.decode(payload.encodedURL().absoluteString)
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
+    }
+
     @Test func legacyLoopbackPayloadStillDecodesForDevInjection() throws {
         // The simulator/dev auto-pair path (CMUX_DOGFOOD_ATTACH_URL) builds a
         // legacy full-key payload with a loopback route; it must keep working.

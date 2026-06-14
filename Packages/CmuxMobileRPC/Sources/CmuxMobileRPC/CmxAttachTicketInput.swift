@@ -68,6 +68,7 @@ public struct CmxAttachTicketInput {
             terminalID: nil,
             macDeviceID: payload.macDeviceID,
             macDisplayName: payload.macDisplayName,
+            macPairingCompatibilityVersion: 0,
             routes: [route],
             expiresAt: payload.expiresAt
         )
