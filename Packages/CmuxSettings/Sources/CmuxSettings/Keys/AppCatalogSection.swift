@@ -20,6 +20,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appIconMode"
     )
 
+    /// Optional macOS window title template. Empty preserves the default
+    /// active-workspace title behavior.
+    public let windowTitleTemplate = DefaultsKey<String>(
+        id: "app.windowTitleTemplate",
+        defaultValue: "",
+        userDefaultsKey: "windowTitleTemplate"
+    )
+
     public let menuBarOnly = DefaultsKey<Bool>(
         id: "app.menuBarOnly",
         defaultValue: false,
