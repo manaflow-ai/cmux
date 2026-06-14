@@ -99,6 +99,88 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
     }
 
+    func testNativeGlassStyleFollowsRegularAndClearWindowGlassStyles() throws {
+        guard WindowGlassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+        defer { window.close() }
+
+        WindowGlassEffect.apply(to: window, tintColor: .black, style: .regular)
+
+        guard let regularGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+            XCTFail("Expected native NSGlassEffectView")
+            return
+        }
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(regularGlassView), 0)
+
+        WindowGlassEffect.apply(to: window, tintColor: .black, style: .clear)
+
+        guard let clearGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+            XCTFail("Expected native NSGlassEffectView after style update")
+            return
+        }
+        XCTAssertTrue(clearGlassView === regularGlassView)
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(clearGlassView), 1)
+    }
+
+    func testWindowBackdropControllerAppliesRegularGlassAtWindowRoot() throws {
+        guard WindowGlassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+        defer { window.close() }
+
+        let plan = WindowBackdropPlan(
+            hostingPhase: .windowGlass,
+            windowBackgroundColor: cmuxTransparentWindowBaseColor(),
+            windowIsOpaque: false,
+            rootPolicy: .clear,
+            glass: WindowBackdropGlassPlan(
+                tintColor: NSColor.black.withAlphaComponent(0.25),
+                style: .regular
+            ),
+            shouldApplyGhosttyCompositorBlur: false
+        )
+
+        let result = WindowBackdropController.apply(plan: plan, to: window)
+
+        XCTAssertTrue(result.didChangeGlassRoot)
+        XCTAssertTrue(result.usesWindowGlass)
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(
+            window.backgroundColor?.alphaComponent ?? -1,
+            cmuxTransparentWindowBaseColor().alphaComponent,
+            accuracy: 0.0001
+        )
+        XCTAssertFalse(window.contentView === originalContentView)
+        XCTAssertTrue(WindowGlassEffect.originalContentView(for: window) === originalContentView)
+        XCTAssertTrue(originalContentView.superview === WindowGlassEffect.foregroundContainer(for: window))
+        guard let nativeGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+            XCTFail("Expected native NSGlassEffectView")
+            return
+        }
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(nativeGlassView), 0)
+    }
+
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
         guard let contentView = window.contentView else { return false }
         let root = contentView.superview ?? contentView
@@ -111,6 +193,26 @@ final class WindowGlassEffectTests: XCTestCase {
             return view
         }
         return view.subviews.lazy.compactMap(glassBackgroundView(in:)).first
+    }
+
+    private static func nativeGlassEffectView(in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if view.className == "NSGlassEffectView" {
+            return view
+        }
+        return view.subviews.lazy.compactMap(nativeGlassEffectView(in:)).first
+    }
+
+    private static func nativeGlassStyleRawValue(_ view: NSView) -> Int? {
+        let selector = NSSelectorFromString("style")
+        guard view.responds(to: selector),
+              let implementation = view.method(for: selector) else {
+            return nil
+        }
+
+        typealias StyleGetter = @convention(c) (AnyObject, Selector) -> Int
+        let getter = unsafeBitCast(implementation, to: StyleGetter.self)
+        return getter(view, selector)
     }
 }
 
