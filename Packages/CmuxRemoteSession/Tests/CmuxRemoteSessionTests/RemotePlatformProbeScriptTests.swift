@@ -195,20 +195,22 @@ struct RemotePlatformProbeScriptTests {
     }
 
     private static func runProcess(executablePath: String, arguments: [String]) throws -> ProcessResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        try RemoteProcessPipeTestGate.shared.run {
+            let process = Process()
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
 
-        try process.run()
-        process.waitUntilExit()
+            try process.run()
+            process.waitUntilExit()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+        }
     }
 }

@@ -27,10 +27,12 @@ struct RemoteSessionProcessRunnerTests {
             didCloseReadHandles.signal()
         })
 
-        let result = try runner.run(
-            RemoteProcessRequest(executable: "/usr/bin/true", arguments: [], timeout: 2),
-            operation: nil
-        )
+        let result = try RemoteProcessPipeTestGate.shared.run {
+            try runner.run(
+                RemoteProcessRequest(executable: "/usr/bin/true", arguments: [], timeout: 2),
+                operation: nil
+            )
+        }
 
         #expect(didCloseReadHandles.wait(timeout: .now() + 2) == .success)
         #expect(result.status == 0)
@@ -41,14 +43,16 @@ struct RemoteSessionProcessRunnerTests {
     @Test("Captures stdout, stderr, and the exit status")
     func capturesOutputAndStatus() throws {
         let runner = RemoteSessionProcessRunner()
-        let result = try runner.run(
-            RemoteProcessRequest(
-                executable: "/bin/sh",
-                arguments: ["-c", "printf out; printf err 1>&2; exit 3"],
-                timeout: 5
-            ),
-            operation: nil
-        )
+        let result = try RemoteProcessPipeTestGate.shared.run {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sh",
+                    arguments: ["-c", "printf out; printf err 1>&2; exit 3"],
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        }
         #expect(result.status == 3)
         #expect(result.stdout == "out")
         #expect(result.stderr == "err")
@@ -57,15 +61,17 @@ struct RemoteSessionProcessRunnerTests {
     @Test("Delivers stdin and closes the write end")
     func deliversStdin() throws {
         let runner = RemoteSessionProcessRunner()
-        let result = try runner.run(
-            RemoteProcessRequest(
-                executable: "/bin/cat",
-                arguments: [],
-                stdin: Data("hello-stdin".utf8),
-                timeout: 5
-            ),
-            operation: nil
-        )
+        let result = try RemoteProcessPipeTestGate.shared.run {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/cat",
+                    arguments: [],
+                    stdin: Data("hello-stdin".utf8),
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        }
         #expect(result.status == 0)
         #expect(result.stdout == "hello-stdin")
     }
@@ -74,14 +80,16 @@ struct RemoteSessionProcessRunnerTests {
     func launchFailurePinsErrorCode() {
         let runner = RemoteSessionProcessRunner()
         #expect {
-            try runner.run(
-                RemoteProcessRequest(
-                    executable: "/nonexistent/cmux-no-such-binary",
-                    arguments: [],
-                    timeout: 2
-                ),
-                operation: nil
-            )
+            try RemoteProcessPipeTestGate.shared.run {
+                try runner.run(
+                    RemoteProcessRequest(
+                        executable: "/nonexistent/cmux-no-such-binary",
+                        arguments: [],
+                        timeout: 2
+                    ),
+                    operation: nil
+                )
+            }
         } throws: { error in
             let nsError = error as NSError
             return nsError.domain == "cmux.remote.process"
@@ -94,14 +102,16 @@ struct RemoteSessionProcessRunnerTests {
     func timeoutPinsErrorCode() {
         let runner = RemoteSessionProcessRunner()
         #expect {
-            try runner.run(
-                RemoteProcessRequest(
-                    executable: "/bin/sh",
-                    arguments: ["-c", "sleep 30"],
-                    timeout: 1
-                ),
-                operation: nil
-            )
+            try RemoteProcessPipeTestGate.shared.run {
+                try runner.run(
+                    RemoteProcessRequest(
+                        executable: "/bin/sh",
+                        arguments: ["-c", "sleep 30"],
+                        timeout: 1
+                    ),
+                    operation: nil
+                )
+            }
         } throws: { error in
             let nsError = error as NSError
             return nsError.domain == "cmux.remote.process"

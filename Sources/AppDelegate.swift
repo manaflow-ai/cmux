@@ -7271,10 +7271,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWorkspaceId = targetWorkspace.id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        Task { @MainActor in
+        Task { @MainActor [weak targetTabManager] in
             let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
                 vscodeApplicationURL: vscodeApplicationURL
             )
+            guard !Task.isCancelled, let targetTabManager else { return }
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
@@ -7293,7 +7294,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
         }
-
         return true
     }
 
@@ -7350,10 +7350,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        Task { @MainActor in
+        Task { @MainActor [weak targetTabManager] in
             let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
                 vscodeApplicationURL: vscodeApplicationURL
             )
+            guard !Task.isCancelled, let targetTabManager else { return }
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
@@ -7376,7 +7377,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )?
                 .navigate(to: openFolderURL)
         }
-
         return panelId
     }
 
