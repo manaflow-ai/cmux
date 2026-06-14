@@ -74,7 +74,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             )
 
             XCTAssertTrue(descriptor.isAvailable(defaults))
-            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+            MenuBarOnlySettings.setEnabled(true, defaults: defaults)
             XCTAssertFalse(descriptor.isAvailable(defaults))
         }
     }

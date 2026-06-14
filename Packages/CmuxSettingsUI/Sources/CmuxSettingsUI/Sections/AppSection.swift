@@ -437,7 +437,10 @@ public struct AppSection: View {
                 String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
                 subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
             ) {
-                Toggle("", isOn: Binding(get: { menuBarOnly.current }, set: { menuBarOnly.set($0) }))
+                Toggle("", isOn: Binding(get: { menuBarOnly.current }, set: { enabled in
+                    hostActions.setMenuBarOnly(enabled)
+                    menuBarOnly.set(enabled)
+                }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsMenuBarOnlyToggle")

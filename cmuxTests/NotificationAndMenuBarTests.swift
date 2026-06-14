@@ -805,12 +805,12 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
 
-        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        MenuBarOnlySettings.setEnabled(true, defaults: defaults)
         XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
         XCTAssertTrue(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
 
-        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        MenuBarOnlySettings.setEnabled(false, defaults: defaults)
         XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
@@ -831,6 +831,11 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+
+        MenuBarOnlySettings.repairUnconfirmedStoredPreference(defaults: defaults)
+
+        XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool, false)
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
     }
 
     func testMenuBarOnlyForcesMenuBarExtraVisible() {
@@ -846,10 +851,10 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
         XCTAssertFalse(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
 
-        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        MenuBarOnlySettings.setEnabled(true, defaults: defaults)
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
 
-        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        MenuBarOnlySettings.setEnabled(false, defaults: defaults)
         defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
     }

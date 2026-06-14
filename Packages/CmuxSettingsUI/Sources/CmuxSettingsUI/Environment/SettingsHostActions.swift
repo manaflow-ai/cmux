@@ -53,6 +53,12 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Persists an explicit menu-bar-only preference change in the host app.
+    ///
+    /// The host pairs the visible `app.menuBarOnly` setting with any hidden
+    /// safety marker it needs before changing the process activation policy.
+    func setMenuBarOnly(_ enabled: Bool)
+
     /// Opens the iOS pairing window, which shows a scannable QR code for
     /// pairing an iPhone with this Mac. The host owns the window so the
     /// package can't open it directly.
@@ -141,6 +147,8 @@ public protocol SettingsHostActions: AnyObject {
 
 public extension SettingsHostActions {
     func openMobilePairingWindow() {}
+
+    func setMenuBarOnly(_ enabled: Bool) {}
 
     func browserHistoryEntryCount() -> Int? { nil }
 

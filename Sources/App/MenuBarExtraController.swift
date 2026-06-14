@@ -519,13 +519,28 @@ enum MenuBarExtraSettings {
 
 enum MenuBarOnlySettings {
     static let menuBarOnlyKey = "menuBarOnly"
+    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"
     static let defaultMenuBarOnly = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: menuBarOnlyKey) == nil {
+        guard defaults.object(forKey: menuBarOnlyKey) != nil else {
             return defaultMenuBarOnly
         }
-        return defaults.bool(forKey: menuBarOnlyKey)
+        guard defaults.bool(forKey: menuBarOnlyKey) else { return false }
+        return defaults.bool(forKey: explicitEnableKey)
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: menuBarOnlyKey)
+        defaults.set(enabled, forKey: explicitEnableKey)
+    }
+
+    static func repairUnconfirmedStoredPreference(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: menuBarOnlyKey) as? Bool == true,
+              !defaults.bool(forKey: explicitEnableKey) else {
+            return
+        }
+        defaults.set(false, forKey: menuBarOnlyKey)
     }
 
     static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {

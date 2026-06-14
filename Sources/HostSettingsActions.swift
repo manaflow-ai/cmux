@@ -140,6 +140,10 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func setMenuBarOnly(_ enabled: Bool) {
+        MenuBarOnlySettings.setEnabled(enabled)
+    }
+
     func openMobilePairingWindow() {
         MobilePairingWindowController.shared.show()
     }

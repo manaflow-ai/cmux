@@ -269,17 +269,6 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "menuBarOnly",
-                settingsKey: "app.menuBarOnly",
-                title: {
-                    String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
-                },
-                sectionTitle: app,
-                keywords: ["app.menuBarOnly", "menu", "bar", "dock", "cmd-tab", "app", "switcher"],
-                defaultValue: MenuBarOnlySettings.defaultMenuBarOnly,
-                defaultsKey: MenuBarOnlySettings.menuBarOnlyKey
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showInMenuBar",
                 settingsKey: "notifications.showInMenuBar",
                 title: {
