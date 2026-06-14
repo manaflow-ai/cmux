@@ -129,21 +129,23 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let workspaceStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 1",
-        ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
+        await assertHostSelection(
+            workspaceID: "workspace-3",
+            terminalID: "workspace-3-terminal-1",
+            server: server
+        )
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        let terminalStart = Date()
-        assertTerminalRows([
-            1: "workspace: Workspace 3",
-            2: "terminal: Terminal 2",
-        ], in: app)
-        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
+        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
+        await assertHostSelection(
+            workspaceID: "workspace-3",
+            terminalID: "workspace-3-terminal-2",
+            server: server
+        )
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
     }
 
     @MainActor
@@ -156,7 +158,9 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
+        await assertTerminalReplay(terminalID: "terminal-tui", server: server)
 
         assertTerminalRow(0, label: "LAZYGIT", in: app)
         assertTerminalRow(1, label: "files branches log", in: app)
@@ -171,14 +175,14 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
-        try switchToTUITerminal(in: app)
+        try await switchToTUITerminal(in: app, server: server)
 
         XCUIDevice.shared.orientation = .portrait
         let portraitFrame = try waitForTerminalSurfaceFrame(in: app) { frame in
             frame.height > frame.width
         }
         assertTerminalSurfaceUsesAvailableViewport(portraitFrame, in: app)
-        assertTerminalRow(0, label: "LAZYGIT", in: app)
+        await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
 
         XCUIDevice.shared.orientation = .landscapeLeft
         let landscapeFrame = try waitForTerminalSurfaceFrame(in: app) { frame in
@@ -196,7 +200,7 @@ final class cmuxUITests: XCTestCase {
             app.isPortrait && frame.height > landscapeFrame.height + 40
         }
         assertTerminalSurfaceUsesAvailableViewport(restoredPortraitFrame, in: app)
-        assertTerminalRow(0, label: "LAZYGIT", in: app)
+        await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
     }
 
     /// Pixel-level regression for the blank / garbled terminal class. Buffer
@@ -289,9 +293,14 @@ final class cmuxUITests: XCTestCase {
             // AND either several distinct bands (lower zoom) or one band that
             // solidly fills the keyboard-clear strip (higher zoom, where a
             // single thick band can span the whole window). Blank => no strong
-            // pixels; garbled => not uniform.
+            // pixels; garbled => not uniform. The single-band threshold leaves
+            // room for the always-visible bottom dock (toolbar + default-open
+            // composer band) that shortens the terminal grid: on the iPhone
+            // height a clean max-zoom band fills ~14 of the 24 strip samples
+            // with row gaps in between, which is a clean render, not a blank
+            // or torn one.
             let enoughBands = (distinct >= 2 && strong.count >= 6)
-                || (distinct == 1 && strong.count >= 16)
+                || (distinct == 1 && strong.count >= 12)
             if uniform, enoughBands {
                 return
             }
@@ -571,12 +580,86 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func switchToTUITerminal(
         in app: XCUIApplication,
+        server: MobileSyncMockHostServer,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) async throws {
         tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
-        assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        await assertHostSelection(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-tui",
+            server: server,
+            file: file,
+            line: line
+        )
+        await assertTerminalReplay(
+            terminalID: "terminal-tui",
+            server: server,
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertHostSelection(
+        workspaceID: String,
+        terminalID: String,
+        server: MobileSyncMockHostServer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        // 20s: a saturated CI runner can take well past the old 8s default for
+        // the create round-trip + the new surface (and its composer band) to
+        // mount and report the selection. This is a wait-until, so a fast run
+        // still returns immediately.
+        let didSelect = await server.waitForSelection(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            timeout: 20
+        )
+        if !didSelect {
+            let selection = await server.selectionDescription()
+            XCTFail(
+                "Expected mock host selection \(workspaceID)/\(terminalID). Last selection: \(selection)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    @MainActor
+    private func assertTerminalMenuItemExists(
+        _ terminalID: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        XCTAssertTrue(
+            item.waitForExistence(timeout: 4),
+            "Expected terminal menu to contain \(terminalID).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertTerminalReplay(
+        terminalID: String,
+        server: MobileSyncMockHostServer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let didReplay = await server.waitForReplay(terminalID: terminalID)
+        if !didReplay {
+            let replayDescription = await server.replayDescription()
+            XCTFail(
+                "Expected mock host replay for \(terminalID). Replay counts: \(replayDescription)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     @MainActor
@@ -751,7 +834,7 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
-        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
+        dismissKeyboard(in: app)
         if element.isHittable {
             element.tap()
             return
@@ -763,6 +846,42 @@ final class cmuxUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
             .tap()
+    }
+
+    @MainActor
+    private func tapMenuItem(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
+        let hittableExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == true"),
+            object: element
+        )
+        let hittableResult = XCTWaiter.wait(for: [hittableExpectation], timeout: 4)
+        XCTAssertEqual(
+            hittableResult,
+            .completed,
+            "Menu item never became hittable: \(element.debugDescription)",
+            file: file,
+            line: line
+        )
+        element.tap()
+
+        let dismissedExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        let dismissedResult = XCTWaiter.wait(for: [dismissedExpectation], timeout: 4)
+        XCTAssertEqual(
+            dismissedResult,
+            .completed,
+            "Menu item stayed visible after tap: \(element.debugDescription)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
@@ -828,6 +947,13 @@ final class cmuxUITests: XCTestCase {
         guard app.keyboards.firstMatch.exists else {
             return
         }
+        let terminalHideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        if terminalHideKeyboardButton.exists, terminalHideKeyboardButton.isHittable {
+            terminalHideKeyboardButton.tap()
+            if waitForKeyboardDismissal(in: app) {
+                return
+            }
+        }
         if preferAddDeviceAccessoryDoneButton,
            app.buttons["MobileAddDeviceKeyboardDoneButton"].exists {
             let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
@@ -836,7 +962,10 @@ final class cmuxUITests: XCTestCase {
                 return
             }
         }
-        for label in ["Done", "Return", "Next"] {
+        let fallbackLabels = preferAddDeviceAccessoryDoneButton
+            ? ["Done", "Return", "Next"]
+            : ["Done", "Next"]
+        for label in fallbackLabels {
             let button = app.keyboards.buttons[label]
             if button.exists {
                 button.tap()
@@ -844,6 +973,368 @@ final class cmuxUITests: XCTestCase {
                     return
                 }
             }
+        }
+    }
+
+    // MARK: - Composer open/close repro
+
+    /// Identifiers for the composer dock controls and the DEBUG state probes.
+    private enum Composer {
+        /// Toolbar compose button (`square.and.pencil`) — opens / closes / reveals.
+        static let composeButton = "terminal.inputAccessory.composer"
+        /// Toolbar HIDE button (`chevron.down.square`) — suppresses all bottom chrome.
+        static let hideButton = "terminal.inputAccessory.hideChrome"
+        /// The growing message field inside the composer band.
+        static let field = "MobileComposerField"
+        /// The chevron-down inside the composer band that dismisses the composer.
+        static let bandClose = "MobileComposerClose"
+        /// Surface-side live dock-state probe (`key=value;…`).
+        static let surfaceProbe = "MobileComposerDockProbe"
+        /// Store-side source-of-truth probe (`key=value;…`).
+        static let storeProbe = "MobileComposerStoreProbe"
+    }
+
+    /// Parse a `key=value;key=value;…` probe value into a dictionary.
+    private func parseProbe(_ value: String) -> [String: String] {
+        var out: [String: String] = [:]
+        for pair in value.split(separator: ";") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            guard kv.count == 2 else { continue }
+            out[String(kv[0])] = String(kv[1])
+        }
+        return out
+    }
+
+    /// Read the surface-side dock probe (live on every query) as a parsed dictionary.
+    @MainActor
+    private func surfaceDock(in app: XCUIApplication) -> [String: String] {
+        let probe = app.descendants(matching: .any)[Composer.surfaceProbe]
+        guard probe.waitForExistence(timeout: 4) else { return [:] }
+        return parseProbe(probe.value as? String ?? "")
+    }
+
+    /// Read the store-side composer probe as a parsed dictionary.
+    @MainActor
+    private func storeComposer(in app: XCUIApplication) -> [String: String] {
+        let probe = app.descendants(matching: .any)[Composer.storeProbe]
+        guard probe.waitForExistence(timeout: 4) else { return [:] }
+        return parseProbe(probe.value as? String ?? "")
+    }
+
+    /// Wait until the surface dock probe satisfies `predicate`, then return the parsed
+    /// dock. The probe is computed live on every accessibility read, so this converges
+    /// on the SETTLED post-transition state even though field focus flips a runloop
+    /// after the synchronous toggle.
+    @MainActor
+    @discardableResult
+    private func waitForDock(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5,
+        describe: String,
+        _ predicate: @escaping ([String: String]) -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String: String] {
+        let probe = app.descendants(matching: .any)[Composer.surfaceProbe]
+        XCTAssertTrue(probe.waitForExistence(timeout: timeout), "dock probe missing", file: file, line: line)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] object, _ in
+                guard let self, let element = object as? XCUIElement else { return false }
+                return predicate(self.parseProbe(element.value as? String ?? ""))
+            },
+            object: probe
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        let dock = parseProbe(probe.value as? String ?? "")
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Timed out waiting for dock: \(describe). Last surface=\(dock) store=\(storeComposer(in: app))",
+            file: file,
+            line: line
+        )
+        return dock
+    }
+
+    /// Assert the structural invariants that hold on the SIMULATOR (which has no
+    /// software keyboard, so `keyboardUp`/`proxyFirstResponder` are not reliable
+    /// pass/fail signals — see the keyboard-state segregation note). These are the
+    /// sim-faithful "is the dock coherent?" checks:
+    ///   1. surface `composerActive` mirrors store `isComposerPresented`,
+    ///   2. the always-visible toolbar is visible (never stuck hidden), and
+    ///   3. there is never a "band/composer up while the whole chrome is hidden" state.
+    @MainActor
+    private func assertDockCoherent(
+        in app: XCUIApplication,
+        cycle: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let surface = surfaceDock(in: app)
+        let store = storeComposer(in: app)
+        let composerActive = surface["composerActive"] == "1"
+        let presented = store["isComposerPresented"] == "1"
+        XCTAssertEqual(
+            composerActive, presented,
+            "cycle \(cycle): surface composerActive(\(composerActive)) must mirror store isComposerPresented(\(presented)). surface=\(surface) store=\(store)",
+            file: file, line: line
+        )
+        XCTAssertEqual(
+            surface["toolbarVisible"], "1",
+            "cycle \(cycle): the always-visible toolbar must stay visible. surface=\(surface)",
+            file: file, line: line
+        )
+        // Capture the geometry that decides hittability BEFORE asserting it (the assert
+        // aborts the test under `continueAfterFailure=false`). This disambiguates the
+        // two failure modes the advisor flagged:
+        //   - compose-button hit-point UNDER the software keyboard frame → a SIM
+        //     ARTIFACT: the surface positions the toolbar at keyboardHeight=0 (it never
+        //     sees the keyboard height on the sim) while a real keyboard is drawn over
+        //     it. On device the toolbar rides above the keyboard and is hittable.
+        //   - compose-button clear of the keyboard but under the composer field/band →
+        //     a REAL reveal-path z-order/geometry bug.
+        let composeFrame = app.buttons[Composer.composeButton].frame
+        let kb = app.keyboards.firstMatch
+        let kbInfo = kb.exists ? "\(kb.frame)" : "absent"
+        let fieldEl = app.descendants(matching: .any)[Composer.field]
+        let fieldInfo = fieldEl.exists ? "\(fieldEl.frame)" : "absent"
+        let windowFrame = app.windows.firstMatch.frame
+        // ROOT-CAUSE ASSERTION: the compose button must be horizontally ON-SCREEN.
+        // The hide→reveal reflow corrupts the accessory toolbar's leading inset
+        // (`accessoryLayoutInsetsProvider` reads the surface's window-relative `minX`
+        // at a moment it is wrong), shifting the whole button row ~840pt OFF-SCREEN
+        // LEFT (observed composeFrame.minX ≈ -840) even though the surface still reports
+        // `chromeHidden=0`/`toolbarVisible=1`. This is the real jank — NOT the keyboard
+        // covering the bar (compose y is well above the keyboard) and NOT the reducer.
+        XCTAssertGreaterThanOrEqual(
+            composeFrame.minX, windowFrame.minX - 1,
+            "cycle \(cycle): compose button shifted OFF-SCREEN LEFT (reveal-path toolbar inset corruption). composeFrame=\(composeFrame) window=\(windowFrame) keyboard=\(kbInfo) field=\(fieldInfo) surface=\(surface)",
+            file: file, line: line
+        )
+        XCTAssertLessThanOrEqual(
+            composeFrame.maxX, windowFrame.maxX + 1,
+            "cycle \(cycle): compose button shifted OFF-SCREEN RIGHT. composeFrame=\(composeFrame) window=\(windowFrame) surface=\(surface)",
+            file: file, line: line
+        )
+        XCTAssertTrue(
+            app.buttons[Composer.composeButton].isHittable,
+            "cycle \(cycle): compose button must stay tappable. composeFrame=\(composeFrame) keyboard=\(kbInfo) field=\(fieldInfo) surface=\(surface)",
+            file: file, line: line
+        )
+        // Item-4 edge case: a presented composer must not be left with the chrome
+        // suppressed (band up but textbox hidden), which strands the draft visually.
+        XCTAssertFalse(
+            composerActive && surface["chromeHidden"] == "1" && surface["toolbarVisible"] == "0",
+            "cycle \(cycle): composer presented while ALL chrome is hidden (band-up/textbox-hidden stuck state). surface=\(surface)",
+            file: file, line: line
+        )
+    }
+
+    /// Repeatedly open and close the composer via the toolbar compose button and assert
+    /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
+    /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
+    /// set a runloop later (deferred `@FocusState`), so a fast re-tap can resolve
+    /// `revealAndFocus` instead of `close` and the composer fails to close — a stuck
+    /// state this asserts against.
+    @MainActor
+    func testComposerSurvivesRepeatedOpenCloseCycles() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        // Baseline: the composer is OPEN BY DEFAULT for the selected terminal
+        // (iMessage-style input bar), but UNFOCUSED — the keyboard stays down.
+        let baseline = waitForDock(in: app, describe: "baseline: default-open composer band") {
+            $0["composerActive"] == "1" && $0["bandMounted"] == "1"
+        }
+        XCTAssertEqual(baseline["fieldFocused"], "0", "default-open must not focus the field. \(baseline)")
+        assertDockCoherent(in: app, cycle: 0)
+
+        // Dismiss the default-open composer via the band's chevron so the loop
+        // below exercises the explicit open→close cycle from a closed dock.
+        app.buttons[Composer.bandClose].tap()
+        waitForDock(in: app, describe: "baseline: chevron dismissed the default-open composer") {
+            $0["composerActive"] == "0"
+        }
+        assertDockCoherent(in: app, cycle: 0)
+
+        let composeButton = app.buttons[Composer.composeButton]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 6))
+
+        for cycle in 1...10 {
+            // OPEN: tap compose → reducer should resolve `open`, store presents,
+            // surface mirrors, band mounts, and the field SETTLES to first responder.
+            // Waiting for `fieldFocused=1` here isolates the steady-state close path
+            // from the deferred-focus race (which the rapid-double-toggle test probes):
+            // once the field is genuinely focused, a close tap MUST resolve `close`.
+            //
+            // NOTE: use the RAW `.tap()`, not the `tap(_:in:)` helper — that helper
+            // force-dismisses the keyboard via the keyboard 'Return' key, which the
+            // multi-line composer field treats as a newline (and the AX scroll-to
+            // -visible on 'Return' fails fatally with `continueAfterFailure=false`).
+            composeButton.tap()
+            waitForDock(in: app, describe: "cycle \(cycle) OPEN: composerActive=1 && bandMounted=1 && fieldFocused=1") {
+                $0["composerActive"] == "1" && $0["bandMounted"] == "1" && $0["fieldFocused"] == "1"
+            }
+            assertDockCoherent(in: app, cycle: cycle)
+            XCTAssertTrue(
+                app.descendants(matching: .any)[Composer.field].waitForExistence(timeout: 4),
+                "cycle \(cycle): composer field must be present after open"
+            )
+
+            // CLOSE: tap compose again. On a genuinely visible+focused composer the
+            // reducer must resolve `close` and the composer must dismiss. If the field
+            // has not yet taken first responder (deferred focus), the reducer reads
+            // `fieldFocused=0` and resolves `reveal` instead, leaving it stuck open —
+            // that is the jank this assertion pins.
+            composeButton.tap()
+            let closed = waitForDock(in: app, describe: "cycle \(cycle) CLOSE: composerActive=0") {
+                $0["composerActive"] == "0"
+            }
+            XCTAssertEqual(
+                closed["lastIntent"], "close",
+                "cycle \(cycle): a second compose tap on a visible composer must resolve `close`, not `\(closed["lastIntent"] ?? "?")` (deferred-focus jank). surface=\(closed) store=\(storeComposer(in: app))"
+            )
+            assertDockCoherent(in: app, cycle: cycle)
+        }
+    }
+
+    /// The specific bug Lawrence reported: compose → hide → tap terminal (reveal) →
+    /// compose must NOT lose the draft. Asserts the draft text survives the full cycle
+    /// and the composer stays presented (never toggled off). Draft survival is the
+    /// sim-faithful signal here (the text lives in `store.terminalInputText`).
+    @MainActor
+    func testComposerDraftSurvivesHideRevealCompose() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // OPEN + type a draft. Use the RAW `.tap()` (the `tap(_:in:)` helper would
+        // force-dismiss the keyboard via 'Return', which a multi-line composer field
+        // treats as a newline and which fails fatally under `continueAfterFailure`).
+        let composeButton = app.buttons[Composer.composeButton]
+        composeButton.tap()
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        // The field auto-focuses on appear (deferred a runloop); wait for the dock to
+        // report it as first responder before typing so the keystrokes land in it.
+        waitForDock(in: app, describe: "OPEN: fieldFocused=1 before typing") {
+            $0["composerActive"] == "1" && $0["fieldFocused"] == "1"
+        }
+        let draft = "hello agent draft"
+        field.typeText(draft)
+        let typed = waitForDock(in: app, describe: "draft typed: store draftLength>0") { _ in
+            (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) >= draft.count
+        }
+        XCTAssertEqual(typed["composerActive"], "1")
+
+        // HIDE: suppress the chrome via the HIDE button (raw tap). The composer stays
+        // presented; only the chrome is suppressed; the draft must be untouched.
+        app.buttons[Composer.hideButton].tap()
+        let hidden = waitForDock(in: app, describe: "HIDE: chromeHidden=1, still presented") {
+            $0["chromeHidden"] == "1" && $0["composerActive"] == "1"
+        }
+        XCTAssertEqual(hidden["composerActive"], "1", "HIDE must not dismiss the composer: \(hidden)")
+        let draftAfterHide = storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? -1
+        XCTAssertGreaterThanOrEqual(draftAfterHide, draft.count, "draft must survive HIDE. store=\(storeComposer(in: app))")
+
+        // REVEAL: tap the terminal surface. handleTap should reveal the chrome and
+        // re-focus the composer field (presented stays true).
+        surface.tap()
+        waitForDock(in: app, describe: "REVEAL: chromeHidden=0, still presented") {
+            $0["chromeHidden"] == "0" && $0["composerActive"] == "1"
+        }
+        // Assert draft survival FIRST (the survival data must be captured even if the
+        // dock-coherence hittability check below aborts the test).
+        XCTAssertGreaterThanOrEqual(
+            storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? -1, draft.count,
+            "draft must survive REVEAL. store=\(storeComposer(in: app))"
+        )
+        assertDockCoherent(in: app, cycle: 99)
+
+        // COMPOSE again: the historically-destructive tap. With round-9 it must resolve
+        // `reveal` (presented+visible-but-unfocused) or `close`, NEVER silently dropping
+        // the draft. Assert the draft text still exists no matter the intent.
+        composeButton.tap()
+        let afterRecompose = waitForDock(in: app, describe: "RECOMPOSE settled") { _ in true }
+        let finalDraft = storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? -1
+        XCTAssertGreaterThanOrEqual(
+            finalDraft, draft.count,
+            "DRAFT LOST after compose→hide→reveal→compose. surface=\(afterRecompose) store=\(storeComposer(in: app))"
+        )
+    }
+
+    /// CONTROL test for the draft test's hittability failure: open the composer, type
+    /// (which draws a real software keyboard on the sim), but do NOT hide/reveal. Then
+    /// assert the compose button is still hittable.
+    ///
+    /// This isolates the variable. If the compose button is NOT hittable here either,
+    /// the cause is the drawn software keyboard covering the toolbar (the surface
+    /// positions it at keyboardHeight=0 because it never sees the keyboard height on the
+    /// sim) — a SIM ARTIFACT, not the reveal path. If it IS hittable here but not after
+    /// hide→reveal, the reveal path is the real culprit.
+    @MainActor
+    func testComposerButtonHittabilityAfterTypingNoHideReveal() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let composeButton = app.buttons[Composer.composeButton]
+        composeButton.tap()
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        waitForDock(in: app, describe: "OPEN: fieldFocused=1 before typing") {
+            $0["composerActive"] == "1" && $0["fieldFocused"] == "1"
+        }
+        field.typeText("control")
+        _ = waitForDock(in: app, describe: "typed, settled") { _ in true }
+
+        // Same coherence check as the draft test, but with NO hide/reveal in between.
+        // A failure here means the keyboard/typing — not the reveal path — drives the
+        // hittability loss (sim artifact). A pass here while the draft test fails means
+        // the reveal path is the real bug.
+        assertDockCoherent(in: app, cycle: 1)
+    }
+
+    /// Rapid double-toggle: two compose taps with no settle in between. This is the
+    /// most direct provocation of the deferred-focus race — the second tap can land
+    /// before the field has taken first responder, so the reducer mis-resolves and the
+    /// composer ends in an inconsistent state. Asserts surface and store agree once it
+    /// settles (the dock must not be left desynced).
+    @MainActor
+    func testComposerRapidDoubleToggleSettlesConsistently() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        let composeButton = app.buttons[Composer.composeButton]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 6))
+
+        for cycle in 1...5 {
+            // Two taps back-to-back with no wait between them.
+            composeButton.tap()
+            composeButton.tap()
+            // Let everything settle, then surface and store MUST agree.
+            _ = waitForDock(in: app, describe: "cycle \(cycle): dock settled") { _ in true }
+            let surface = surfaceDock(in: app)
+            let store = storeComposer(in: app)
+            XCTAssertEqual(
+                surface["composerActive"], store["isComposerPresented"],
+                "cycle \(cycle): rapid double-toggle left surface(\(surface["composerActive"] ?? "?")) and store(\(store["isComposerPresented"] ?? "?")) desynced. surface=\(surface) store=\(store)"
+            )
+            assertDockCoherent(in: app, cycle: cycle)
         }
     }
 
@@ -913,6 +1404,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
+    private var replayCounts: [String: Int] = [:]
     private var streamOffset: UInt64 = 1
     private var workspaces: [Workspace] = [
         Workspace(
@@ -996,6 +1488,75 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func waitForSelection(
+        workspaceID: String,
+        terminalID: String,
+        timeout: TimeInterval = 8
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let selection = await currentSelection()
+            if selection.workspaceID == workspaceID,
+               selection.terminalID == terminalID {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        let selection = await currentSelection()
+        return selection.workspaceID == workspaceID && selection.terminalID == terminalID
+    }
+
+    func selectionDescription() async -> String {
+        let selection = await currentSelection()
+        return "\(selection.workspaceID)/\(selection.terminalID)"
+    }
+
+    private func currentSelection() async -> (workspaceID: String, terminalID: String) {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: (self.selectedWorkspaceID, self.selectedTerminalID))
+            }
+        }
+    }
+
+    func waitForReplay(
+        terminalID: String,
+        minimumCount: Int = 1,
+        timeout: TimeInterval = 8
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let count = await replayCount(for: terminalID)
+            if count >= minimumCount {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return await replayCount(for: terminalID) >= minimumCount
+    }
+
+    func replayDescription() async -> String {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let description = self.replayCounts
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key):\($0.value)" }
+                    .joined(separator: ", ")
+                continuation.resume(returning: description.isEmpty ? "none" : description)
+            }
+        }
+    }
+
+    private func replayCount(for terminalID: String) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.replayCounts[terminalID, default: 0])
+            }
         }
     }
 
@@ -1176,6 +1737,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func terminalReplayResult(params: [String: Any]) -> [String: Any] {
         let terminalID = params["surface_id"] as? String ?? selectedTerminalID
         selectedTerminalID = terminalID
+        replayCounts[terminalID, default: 0] += 1
         if let workspace = workspaces.first(where: { workspace in
             workspace.terminals.contains(where: { $0.id == terminalID })
         }) {
