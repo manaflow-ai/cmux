@@ -13,6 +13,7 @@ final class RovoDevHookConfigTests: XCTestCase {
         let currentCommand = CMUXCLI.feedHookCommandString(for: def, agentEvent: "BeforeTool")
         let legacyCommand = CMUXCLI.feedHookCommandString(for: def, agentEvent: "PreToolUse")
 
+        XCTAssertTrue(def.feedHookEvents.contains("BeforeTool"))
         XCTAssertTrue(currentCommand.contains("--event BeforeTool"))
         XCTAssertTrue(CMUXCLI.isCmuxOwnedHookCommand(currentCommand, for: def))
         XCTAssertTrue(CMUXCLI.isCmuxOwnedHookCommand(legacyCommand, for: def))
