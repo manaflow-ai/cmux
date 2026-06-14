@@ -24,6 +24,11 @@ import Foundation
 /// The iOS app's registered scheme comes from `CMUX_IOS_URL_SCHEME` in
 /// `ios/Config/Shared.xcconfig` (dev) and `ios/Config/Release.xcconfig`
 /// (release); keep those values in sync with these constants.
+///
+/// lint:allow namespace-type — the build channel's URL scheme is a pure
+/// compile-time constant set with no per-instance state to inject; these
+/// scheme strings and the stateless pairing-scheme predicates are a genuine
+/// namespace, like the sanctioned FFI/seam holders.
 public struct CmxPairingURLScheme {
     private init() {}
 
