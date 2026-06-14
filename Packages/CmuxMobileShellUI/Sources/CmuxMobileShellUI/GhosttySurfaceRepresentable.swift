@@ -245,6 +245,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         // MARK: - GhosttySurfaceViewDelegate
 
+        @MainActor
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             // Bytes the iPhone wants to send TO the PTY (typing, paste,
             // mouse reports). Forward to the Mac sync server which
