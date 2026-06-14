@@ -142,6 +142,7 @@ public final class HostBrowserSignInFlow {
             }
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
+            cancelSlowSignInHint()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
             resumeActiveSessionContinuation(
                 returning: nil,

@@ -59,7 +59,7 @@ struct AccountIdentityCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(String(
                 localized: "settings.account.signIn.slowHint",
-                defaultValue: "The sign-in window opens in Safari and may hang. If nothing happens, open sign-in in your default browser instead."
+                defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
             ))
             .font(.system(size: 11))
             .foregroundColor(.secondary)
