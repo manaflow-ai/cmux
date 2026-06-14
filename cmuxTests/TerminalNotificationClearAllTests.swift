@@ -337,6 +337,52 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
+    func testSidebarStatusFallsBackToPanelOwnedStructuredAgentRuntimeWithoutStatusEntry() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let pidKey = "codex.codex-session-fallback"
+        workspace.recordAgentPID(key: pidKey, pid: getpid(), panelId: panelId, refreshPorts: false)
+
+        var fallbackEntry = try XCTUnwrap(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "codex" }
+        )
+        XCTAssertEqual(
+            fallbackEntry.value,
+            String(localized: "agent.generic.status.running", defaultValue: "Running")
+        )
+        XCTAssertEqual(fallbackEntry.icon, "play.fill")
+        XCTAssertEqual(fallbackEntry.color, "#34C759")
+        XCTAssertNil(workspace.statusEntries["codex"])
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+
+        fallbackEntry = try XCTUnwrap(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "codex" }
+        )
+        XCTAssertEqual(
+            fallbackEntry.value,
+            String.localizedStringWithFormat(
+                String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                "Codex"
+            )
+        )
+        XCTAssertEqual(fallbackEntry.icon, "exclamationmark.circle.fill")
+        XCTAssertEqual(fallbackEntry.color, "#FF9F0A")
+        XCTAssertNil(workspace.statusEntries["codex"])
+    }
+
     func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
