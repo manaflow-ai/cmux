@@ -18,6 +18,31 @@ import Testing
         )
     }
 
+    @Test func routeIsLoopbackOnlyForLoopbackHostPortEndpoints() throws {
+        let loopbackIP = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+        let localhost = try hostPortRoute(kind: .debugLoopback, host: "localhost", port: CmxMobileDefaults.defaultHostPort)
+        let ipv6Loopback = try hostPortRoute(kind: .debugLoopback, host: "::1", port: CmxMobileDefaults.defaultHostPort)
+        // Host decides, not the declared kind: a loopback host on a network
+        // kind is still loopback, and a public host on the loopback kind is not.
+        let loopbackOnNetworkKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+        let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let irohPeer = try CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 0
+        )
+
+        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackIP))
+        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(localhost))
+        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(ipv6Loopback))
+        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackOnNetworkKind))
+        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
+    }
+
     @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
@@ -53,5 +78,34 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
+    }
+
+    @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
+        // The v2 QR decoder rejects loopback itself; this policy is what stops
+        // the LEGACY payload grammars from being a bypass on a physical phone,
+        // where a loopback route dials the phone itself and loopback's
+        // Stack-auth trust would hand the bearer token to a local listener.
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56577)
+        let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577)
+        let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577)
+
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopback], isPhysicalDevice: true
+        ))
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopbackUnderTailscaleKind], isPhysicalDevice: true
+        ))
+        // One loopback route poisons the ticket even when a real route rides along.
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [tailscale, loopback], isPhysicalDevice: true
+        ))
+        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [tailscale], isPhysicalDevice: true
+        ))
+        // The simulator flow legitimately pairs over loopback (127.0.0.1 IS
+        // the host Mac there), so the policy never fires off-device.
+        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopback], isPhysicalDevice: false
+        ))
     }
 }

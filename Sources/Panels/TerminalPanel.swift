@@ -1,7 +1,9 @@
 import Foundation
+import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTerminal
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -249,6 +251,7 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
+
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
