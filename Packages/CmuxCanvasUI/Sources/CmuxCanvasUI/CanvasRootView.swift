@@ -20,6 +20,7 @@ public final class CanvasRootView: NSView {
     let scrollView: CanvasScrollView
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
+    let minimapView = CanvasMinimapView()
 
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
@@ -92,6 +93,18 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
+        minimapView.translatesAutoresizingMaskIntoConstraints = false
+        minimapView.onCenterRequested = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil)
+        }
+        minimapView.isHidden = true
+        addSubview(minimapView, positioned: .above, relativeTo: scrollView)
+        NSLayoutConstraint.activate([
+            minimapView.widthAnchor.constraint(equalToConstant: 168),
+            minimapView.heightAnchor.constraint(equalToConstant: 112),
+            minimapView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            minimapView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
+        ])
 
         // Platform seam: clip-view bounds changes are how AppKit reports
         // scrolling; this drives the explicit pane lifecycle.
@@ -183,6 +196,7 @@ public final class CanvasRootView: NSView {
         zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
+        minimapView.onCenterRequested = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
@@ -215,6 +229,7 @@ public final class CanvasRootView: NSView {
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
+        updateMinimap()
 
         if !hasPlacedInitialViewport, !model.layout.isEmpty {
             hasPlacedInitialViewport = true
@@ -378,6 +393,7 @@ public final class CanvasRootView: NSView {
 
     private func viewportDidScroll() {
         updateLifecycle()
+        updateMinimap()
         saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
     }
@@ -428,6 +444,7 @@ public final class CanvasRootView: NSView {
         // layout has given the scroll view real bounds.
         applyPendingViewportRestoreIfPossible()
         updateLifecycle()
+        updateMinimap()
         callbacks.onViewportGeometryChanged(window)
     }
 
@@ -475,5 +492,25 @@ public final class CanvasRootView: NSView {
             scrollView.contentView.setBoundsOrigin(origin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+    }
+
+    func updateMinimap() {
+        let visible = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
+        let focusedPaneID = model.layout.panes.first { pane in
+            pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
+        }?.id
+        let panes = model.layout.panes.map { pane in
+            let frame = paneViews[pane.id]
+                .map { canvasRect(fromDocument: $0.frame) }
+                ?? pane.frame.cgRect
+            return CanvasMinimapPaneSnapshot(id: pane.id, frame: frame)
+        }
+        let snapshot = CanvasMinimapSnapshot(
+            panes: panes,
+            visibleRect: visible,
+            focusedPaneID: focusedPaneID
+        )
+        minimapView.snapshot = snapshot
+        minimapView.isHidden = !snapshot.shouldShow
     }
 }

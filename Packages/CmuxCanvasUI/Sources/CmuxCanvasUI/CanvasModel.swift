@@ -56,6 +56,7 @@ public final class CanvasModel {
 
         var added: [UUID] = []
         let placer = CanvasPlacer(metrics: metrics)
+        var occupiedFrames = layout.panes.map(\.frame)
         for panelId in panelIds where layout.pane(containing: CanvasPanelID(rawValue: panelId)) == nil {
             let anchor = focusedPanelId
                 .flatMap { layout.pane(containing: CanvasPanelID(rawValue: $0)) }
@@ -64,9 +65,11 @@ public final class CanvasModel {
             let frame = placer.frameForNewPane(
                 size: Self.defaultPaneSize,
                 near: anchor,
-                avoiding: layout.panes.map(\.frame)
+                avoiding: occupiedFrames
             )
-            layout.add(CanvasPane(id: CanvasPaneID(rawValue: panelId), frame: frame))
+            let pane = CanvasPane(id: CanvasPaneID(rawValue: panelId), frame: frame)
+            layout.add(pane)
+            occupiedFrames.append(pane.frame)
             added.append(panelId)
             changed = true
         }

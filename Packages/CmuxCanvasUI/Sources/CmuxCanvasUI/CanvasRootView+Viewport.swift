@@ -25,6 +25,7 @@ extension CanvasRootView: CanvasViewportControlling {
             applyAllPaneFrames()
         }
         updateLifecycle()
+        updateMinimap()
         callbacks.onLayoutChanged()
         callbacks.onViewportGeometryChanged(window)
     }
@@ -98,6 +99,7 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.magnification = targetMagnification
         scrollView.contentView.setBoundsOrigin(targetOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateMinimap()
         callbacks.onViewportGeometryChanged(window)
         callbacks.onViewportSettled(window)
     }
