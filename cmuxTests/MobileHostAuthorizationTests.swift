@@ -668,6 +668,23 @@ struct MobileHostAuthorizationTests {
         #expect(error == nil)
     }
 
+    @Test func testWorkspaceScopedAttachTicketRejectsWorkspaceCloseOutsideWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "other-workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
     @Test func testTerminalScopedAttachTicketRejectsWorkspaceCloseWithoutTerminal() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
@@ -723,6 +740,26 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
+    }
+
+    @Test func testTerminalScopedAttachTicketRejectsSurfaceCloseForOtherTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "other-terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
     }
 
     @Test func testWorkspaceScopedAttachTicketRejectsSurfaceCloseOutsideWorkspace() throws {
