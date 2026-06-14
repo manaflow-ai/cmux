@@ -1824,6 +1824,17 @@ extension Workspace {
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
+            // The bonsplit tab was created with the default "Terminal" title in
+            // newTerminalSurface(); sync the restored title to the visible pane
+            // header so it does not stay generic until a command runs and emits
+            // an OSC title update.
+            if let tabId = surfaceIdFromPanelId(panelId), let panel = panels[panelId] {
+                bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                    hasCustomTitle: panelCustomTitles[panelId] != nil
+                )
+            }
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)

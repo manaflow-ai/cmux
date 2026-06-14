@@ -63,6 +63,32 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        // Simulate a terminal whose title was applied at runtime (e.g. an OSC
+        // title carrying the working directory).
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: panelId, title: "~/projects/cmux"))
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredTabId = try XCTUnwrap(restoredWorkspace.surfaceIdFromPanelId(restoredPanelId))
+
+        // The pane header (bonsplit tab) must show the restored title, not the
+        // default "Terminal", before any command runs in the restored surface.
+        XCTAssertEqual(
+            restoredWorkspace.bonsplitController.tab(restoredTabId)?.title,
+            "~/projects/cmux"
+        )
+    }
+
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
