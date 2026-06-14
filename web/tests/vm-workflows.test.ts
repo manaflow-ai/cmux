@@ -140,7 +140,7 @@ describe("VM Effect workflows", () => {
     };
 
     await runForImage("sh-17agfasevrc18c8f15nn");
-    await runForImage("sh-7y4v9uc5mobaihbqd4ld");
+    await runForImage("sh-6a3egjzxg8nfo52t21vs");
 
     expect(seen).toEqual([
       {
@@ -149,7 +149,7 @@ describe("VM Effect workflows", () => {
         webSocketReadinessVerified: false,
       },
       {
-        imageId: "sh-7y4v9uc5mobaihbqd4ld",
+        imageId: "sh-6a3egjzxg8nfo52t21vs",
         signedWebSocketAuth: true,
         webSocketReadinessVerified: true,
       },

@@ -11,8 +11,8 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-7y4v9uc5mobaihbqd4ld",
-      imageVersion: "freestyle-signedauth-20260614c",
+      image: "sh-6a3egjzxg8nfo52t21vs",
+      imageVersion: "freestyle-signedauth-20260614d",
       manifestEntry: {
         features: {
           signedWebSocketAuth: true,
