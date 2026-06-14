@@ -4,9 +4,18 @@ import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
+
+// Line ~253 compares CmuxSettings.ShortcutAction.defaultStroke, so the
+// package stroke is the intended type here (unlike StoredShortcut above).
+private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
 final class KeyboardShortcutContextTests: XCTestCase {
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
@@ -234,6 +243,17 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 configuredShortcut: sidebarFiles
             )
         )
+    }
+
+    func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
+        guard let settingsAction = ShortcutAction(
+            rawValue: KeyboardShortcutSettings.Action.newBrowserWorkspace.rawValue
+        ) else {
+            XCTFail("Expected CmuxSettings.ShortcutAction for newBrowserWorkspace")
+            return
+        }
+        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "n", command: true, option: true))
+        XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {

@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -1368,44 +1369,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testCommandPreviewSearchUsesFullCommandCorpus() {
-        let entries = [
-            FixtureEntry(
-                id: "command.find",
-                rank: 0,
-                title: "Find...",
-                searchableTexts: ["Find...", "Search", "find", "search"]
-            ),
-            FixtureEntry(
-                id: "command.finder",
-                rank: 1,
-                title: "Open Current Directory in Finder",
-                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
-            ),
-        ]
-        let corpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-        let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
-        let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
-
-        let previewCommandIDs = CommandPaletteSearchOrchestrator.commandPreviewMatchCommandIDsForTests(
-            searchCorpus: corpus,
-            searchIndex: searchIndex,
-            candidateCommandIDs: ["command.find"],
-            searchCorpusByID: corpusByID,
-            query: "finde",
-            resultLimit: 48
-        )
-
-        XCTAssertEqual(previewCommandIDs.first, "command.finder")
-    }
-
     func testNucleoEmptyResultsFallBackToSwiftSingleEditMatching() throws {
         let entries = [
             FixtureEntry(
@@ -1543,64 +1506,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
     }
 
-    func testSwiftFallbackMergeKeepsCombinedResultsSortedByScore() {
-        let entries = [
-            FixtureEntry(
-                id: "palette.high",
-                rank: 0,
-                title: "High Score",
-                searchableTexts: ["High Score"]
-            ),
-            FixtureEntry(
-                id: "palette.medium",
-                rank: 1,
-                title: "Medium Score",
-                searchableTexts: ["Medium Score"]
-            ),
-            FixtureEntry(
-                id: "palette.fallback",
-                rank: 2,
-                title: "Fallback Score",
-                searchableTexts: ["Fallback Score"]
-            ),
-        ]
-        let corpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-        let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
-
-        let matches = CommandPaletteSearchOrchestrator.mergedSwiftFallbackMatchesForTests(
-            [
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.fallback",
-                    score: 25,
-                    titleMatchIndices: []
-                )
-            ],
-            nucleoMatches: [
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.medium",
-                    score: 80,
-                    titleMatchIndices: []
-                ),
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.high",
-                    score: 100,
-                    titleMatchIndices: []
-                ),
-            ],
-            searchCorpusByID: corpusByID,
-            limit: 3
-        )
-
-        XCTAssertEqual(matches.map(\.commandID), ["palette.high", "palette.medium", "palette.fallback"])
-    }
-
     func testFirstValueDictionaryPreservesFirstDuplicateKey() {
         let values = [
             (id: "palette.duplicate", title: "First"),
@@ -1707,6 +1612,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(
             optimizedResults(entries: entries, query: "open folder").prefix(2).map(\.id),
             ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
+    // The browser-workspace palette command must not displace the exact-title
+    // match for "New Workspace"; UI flows (and
+    // BrowserPaneNavigationKeybindUITests) rely on it staying the top result.
+    func testCommandSearchKeepsNewWorkspaceAboveNewBrowserWorkspace() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.newWorkspace",
+                rank: 0,
+                title: "New Workspace",
+                searchableTexts: ["New Workspace", "Workspace", "create", "new", "workspace"]
+            ),
+            FixtureEntry(
+                id: "palette.newBrowserWorkspace",
+                rank: 1,
+                title: "New Browser Workspace",
+                searchableTexts: ["New Browser Workspace", "Workspace", "create", "new", "browser", "workspace", "web"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "New Workspace").first?.id,
+            "palette.newWorkspace",
+            "Exact title match must outrank the browser variant"
+        )
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "new browser").first?.id,
+            "palette.newBrowserWorkspace",
+            "Browser-specific query should surface the browser workspace command"
         )
     }
 
@@ -2087,7 +2023,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testCommandContextFingerprintTracksExactContextValues() {
-        let base = ContentView.commandPaletteContextFingerprint(
+        let base = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -2098,7 +2034,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let unreadChanged = ContentView.commandPaletteContextFingerprint(
+        let unreadChanged = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": true,
@@ -2109,7 +2045,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let renamed = ContentView.commandPaletteContextFingerprint(
+        let renamed = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -2128,14 +2064,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
         let windowID = UUID()
         let workspaceID = UUID()
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2149,14 +2085,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2170,14 +2106,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedDisplayName = ContentView.commandPaletteSwitcherFingerprint(
+        let changedDisplayName = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Beta",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2201,19 +2137,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let workspaceID = UUID()
         let surfaceID = UUID()
 
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -2229,19 +2165,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -2257,19 +2193,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceKind = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Browser",

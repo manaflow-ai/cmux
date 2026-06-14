@@ -13,6 +13,11 @@ enum HeaderChromeIconStyle {
         HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)
     }
 
+    static func symbol(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .cmuxSymbolRasterSize(RightSidebarChromeMetrics.headerIconSize, weight: weight)
+    }
+
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return disabledOpacity }
         if isPressed {
@@ -164,7 +169,6 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
     var body: some View {
         configuration.label
             .symbolRenderingMode(.monochrome)
-            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
             .frame(
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize

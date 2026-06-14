@@ -1,13 +1,17 @@
 import Foundation
+import CmuxCore
 import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import CmuxBrowserPanel
+import CmuxTerminalCore
 import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -53,18 +57,6 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
             .subtracting([.numericPad, .function, .capsLock])
             .rawValue
     }
-}
-
-struct BrowserProxyEndpoint: Equatable {
-    let host: String
-    let port: Int
-}
-
-struct BrowserRemoteWorkspaceStatus: Equatable {
-    let target: String
-    let connectionState: WorkspaceRemoteConnectionState
-    let heartbeatCount: Int
-    let lastHeartbeatAt: Date?
 }
 
 enum GhosttyBackgroundTheme {
@@ -1024,37 +1016,10 @@ enum BrowserInsecureHTTPSettings {
         defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
     }
 
+    // Single source of truth: the host normalizer moved to CmuxCore with the
+    // loopback alias lift; this forwards so allowlist semantics stay identical.
     static func normalizeHost(_ rawHost: String) -> String? {
-        var value = rawHost
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !value.isEmpty else { return nil }
-
-        if let parsed = URL(string: value)?.host {
-            return trimHost(parsed)
-        }
-
-        if let schemeRange = value.range(of: "://") {
-            value = String(value[schemeRange.upperBound...])
-        }
-
-        if let slash = value.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
-            value = String(value[..<slash])
-        }
-
-        if value.hasPrefix("[") {
-            if let closing = value.firstIndex(of: "]") {
-                value = String(value[value.index(after: value.startIndex)..<closing])
-            } else {
-                value.removeFirst()
-            }
-        } else if let colon = value.lastIndex(of: ":"),
-                  value[value.index(after: colon)...].allSatisfy(\.isNumber),
-                  value.filter({ $0 == ":" }).count == 1 {
-            value = String(value[..<colon])
-        }
-
-        return trimHost(value)
+        RemoteLoopbackProxyAlias.normalizeHost(rawHost)
     }
 
     private static func parsePatterns(from rawValue: String) -> [String] {
@@ -1092,18 +1057,6 @@ enum BrowserInsecureHTTPSettings {
         return host == pattern
     }
 
-    private static func trimHost(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard !trimmed.isEmpty else { return nil }
-
-        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
-        // so user-entered allowlist patterns compare against URL.host consistently.
-        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
-            return canonicalized
-        }
-
-        return trimmed
-    }
 }
 
 func browserShouldBlockInsecureHTTPURL(
@@ -2639,6 +2592,20 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         lock.unlock()
     }
 
+    /// Whether the token currently has a registered (or manifest-restorable)
+    /// session. Used to trust-gate native bridge calls from diff viewer pages.
+    func hasActiveSession(token: String, now: Date = Date()) -> Bool {
+        guard Self.isValidToken(token) else { return false }
+        lock.lock()
+        pruneExpiredSessionsLocked(now: now)
+        let isRegistered = sessions[token] != nil
+        lock.unlock()
+        if isRegistered {
+            return true
+        }
+        return registerFromManifest(token: token, now: now)
+    }
+
     func registeredFile(for url: URL, now: Date = Date()) -> RegisteredFile? {
         guard url.scheme == Self.scheme,
               let token = url.host,
@@ -3404,6 +3371,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
+    /// True while a canvas pane hosts this browser's webview inline (in the
+    /// pane's own hierarchy). Portal-side reconcilers must not rebind or
+    /// re-sync the webview into the window portal while this is set.
+    var canvasInlineHostingActive: Bool = false
+
     /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
         !shouldRenderWebView && preferredURLStringForOmnibar() == nil
@@ -3872,7 +3844,7 @@ final class BrowserPanel: Panel, ObservableObject {
         lockedPortalHost = nil
 
         bindWebView(replacement)
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
         restoreSessionNavigationHistory(
             backHistoryURLStrings: history.backHistoryURLStrings,
@@ -4128,6 +4100,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
             )
         }
+        // Review-comment persistence + TextBox attach for diff viewer pages.
+        // The handler itself rejects every frame that is not a registered diff
+        // viewer session, so installing it on all browser webviews is safe.
+        DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -4198,6 +4174,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }
@@ -4424,7 +4401,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
@@ -4731,7 +4708,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -4740,12 +4717,15 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWorkspaceStatus = status
     }
 
-    private func applyRemoteProxyConfigurationIfAvailable() {
+    private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
-            store.proxyConfigurations = []
+            // Local panes mirror an active system proxy with loopback excluded
+            // (#5888); remote panes keep [] while their endpoint is pending/lost.
+            store.proxyConfigurations = usesRemoteWorkspaceProxy
+                ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
             return
         }
 
@@ -4821,7 +4801,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "workspace_reattach"
             )
         }
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -4890,6 +4870,7 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
 
         bindWebView(replacement)
+        applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
@@ -5280,6 +5261,12 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             .store(in: &webViewCancellables)
 
+        // Keep the local-workspace system-proxy mirror fresh when the user
+        // toggles a global proxy or switches network locations mid-session.
+        NotificationCenter.default.publisher(for: .browserSystemProxySettingsDidChange)
+            .sink { [weak self] _ in self?.applyProxyConfigurationIfAvailable() }
+            .store(in: &webViewCancellables)
+
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
@@ -5367,7 +5354,8 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
-            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
         )
     }
 
@@ -6100,7 +6088,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
-        guard remoteProxyEndpoint != nil,
+        // Resume on endpoint arrival, or directly once the pane turned local
+        // (a stranded queue pins the hidden pane as non-discardable forever).
+        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
               let navigation = pendingRemoteNavigation else {
             return
         }
@@ -6551,6 +6541,12 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
+        // URL(string: "example.com:8443") parses "example.com" as the scheme.
+        // No real scheme contains a dot, so a dotted "scheme" followed by a
+        // numeric port is a bare host:port that must navigate, not search.
+        if browserDottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
+            return URL(string: "https://\(trimmed)")
+        }
         return nil
     }
 
@@ -6563,6 +6559,18 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     }
 
     return nil
+}
+
+private func browserDottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
+    guard schemeCandidate.contains(".") else { return false }
+    guard input.count > schemeCandidate.count else { return false }
+    let afterScheme = input.dropFirst(schemeCandidate.count)
+    guard afterScheme.first == ":" else { return false }
+    let portAndRest = afterScheme.dropFirst()
+    let port = portAndRest.prefix(while: { $0.isNumber })
+    guard !port.isEmpty, UInt16(port) != nil else { return false }
+    let rest = portAndRest.dropFirst(port.count)
+    return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
 }
 
 extension BrowserPanel {
@@ -7345,7 +7353,7 @@ extension BrowserPanel {
         // WebKit inspector show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
-        cmuxWithWindowFirstResponderBypass {
+        AppDelegate.shared?.browserFirstResponderBypass.withBypass {
             _ = revealDeveloperTools(inspector)
         }
         setPreferredDeveloperToolsVisible(true)
@@ -8789,9 +8797,10 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then showing NSSavePanel after the download finishes.
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
-    private struct DownloadState {
+    private struct DownloadState: Sendable {
         let tempURL: URL
         let suggestedFilename: String
+        let sourceURL: URL
     }
 
     /// Tracks active downloads keyed by WKDownload identity.
@@ -8806,16 +8815,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
-
-    private static func sanitizedFilename(_ raw: String, fallbackURL: URL?) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let candidate = (trimmed as NSString).lastPathComponent
-        let fromURL = fallbackURL?.lastPathComponent ?? ""
-        let base = candidate.isEmpty ? fromURL : candidate
-        let replaced = base.replacingOccurrences(of: ":", with: "-")
-        let safe = replaced.trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "download" : safe
-    }
 
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
@@ -8845,18 +8844,23 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         completionHandler: @escaping (URL?) -> Void
     ) {
         // Save to a temp file — return synchronously so WebKit is never blocked.
-        let safeFilename = Self.sanitizedFilename(suggestedFilename, fallbackURL: response.url)
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        if case .reject = filenameResolver.httpStatusDecision(for: response) {
+            completionHandler(nil)
+            return
+        }
+        let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
+        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename), for: download)
+        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
         #endif
-        NSLog("BrowserPanel download: temp path=%@", destURL.path)
         completionHandler(destURL)
     }
 
@@ -8870,27 +8874,29 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #if DEBUG
         cmuxDebugLog("download.finished file=\(info.suggestedFilename)")
         #endif
-        NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
-
-        // Show NSSavePanel on the next runloop iteration (safe context).
-        DispatchQueue.main.async {
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        Task { @MainActor in
+            let imageType = await Task.detached(priority: .utility) {
+                filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
+            }.value
             self.onDownloadReadyToSave?()
+            let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
             let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = info.suggestedFilename
+            savePanel.nameFieldStringValue = suggestedFilename
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
             savePanel.begin { result in
                 guard result == .OK, let destURL = savePanel.url else {
                     try? FileManager.default.removeItem(at: info.tempURL)
                     return
                 }
                 do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: info.tempURL)
+                    } else {
+                        try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                    }
                 } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }

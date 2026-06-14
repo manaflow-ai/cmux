@@ -64,6 +64,57 @@ import Testing
         #expect(didMagicLink)
     }
 
+    @Test func sendCodeThenVerifySubmitsLowercaseDisplayedOtpWithNonce() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setNonce("nonce-abc")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        try await coordinator.sendCode(to: "a@b.com")
+        try await coordinator.verifyCode("Z13R81")
+
+        #expect(await client.lastMagicLinkCode == "z13r81nonce-abc")
+    }
+
+    @Test func foregroundRevalidationWhileWaitingForCodeKeepsPendingNonce() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setNonce("nonce-abc")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        try await coordinator.sendCode(to: "a@b.com")
+
+        // Reading the email backgrounds the iOS app. Returning to cmux triggers
+        // foreground revalidation while no Stack session exists yet; that must
+        // not discard the pending OTP nonce needed to verify the emailed prefix.
+        await coordinator.revalidateSession()
+
+        try await coordinator.verifyCode("Z13R81")
+
+        #expect(await client.lastMagicLinkCode == "z13r81nonce-abc")
+        #expect(coordinator.isAuthenticated)
+    }
+
+    @Test func staleSessionCleanupWhileWaitingForCodeKeepsPendingNonce() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setNonce("nonce-abc")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        try await coordinator.sendCode(to: "a@b.com")
+
+        await coordinator.clearStaleSessionState(
+            generation: coordinator.sessionGeneration,
+            storeWriteHighWater: coordinator.tokenStoreWriteHighWater,
+            expectedRefreshToken: nil
+        )
+
+        try await coordinator.verifyCode("Z13R81")
+
+        #expect(await client.lastMagicLinkCode == "z13r81nonce-abc")
+        #expect(coordinator.isAuthenticated)
+    }
+
     @Test func offlineFailsFast() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient(), isOnline: { false })
         await #expect(throws: AuthError.offline) {
@@ -90,31 +141,87 @@ import Testing
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         let ranHook = HookFlag()
-        await coordinator.signOut(onSignedOut: { await ranHook.fire() })
+        await coordinator.signOut(onSignedOut: { _, _ in await ranHook.fire() })
 
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.currentUser == nil)
         #expect(store.bool(forKey: "has_tokens") == false)
+        #expect(await client.clearLocalSessionCount == 1)
         #expect(await ranHook.fired)
     }
 
-    @Test func signOutRunsHookWhileTokensStillValid() async throws {
-        // The push-token DELETE runs as the onSignedOut hook and needs a valid
-        // access token. Regression: the hook used to run after client.signOut()
-        // revoked the session, so the DELETE was silently skipped.
+    @Test func signOutHandsCapturedTokensToHookAndRevocation() async throws {
+        // The push-token DELETE runs as the onSignedOut hook and must
+        // authenticate as the signing-out account. Sign-out is local-first, so
+        // the live token store is already empty by the time the hook runs: the
+        // coordinator captures the tokens before clearing and hands the same
+        // pair to the hook and then to the server-side revocation. Regression:
+        // the hook used to read tokens back through the coordinator, which
+        // would now see the cleared store and silently skip the DELETE.
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         let probe = TokenProbe()
-        await coordinator.signOut(onSignedOut: {
-            let token = try? await coordinator.accessToken()
-            await probe.set(token)
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
         })
 
-        #expect(await probe.value != nil)  // hook saw a valid token (ran before revoke)
-        #expect(coordinator.isAuthenticated == false)  // session revoked afterward
+        #expect(await probe.value == "access")  // captured before the local clear
+        #expect(await client.revokeCount == 1)
+        #expect(await client.lastRevokedAccessToken == "access")
+        #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {
+        // The SDK can hold a refresh token with no access token (refresh-only
+        // starts; expired access tokens get dropped). The capture is a raw
+        // stored read, so it sees nil access, and the cmux API authenticates
+        // the push-token DELETE with the Bearer + refresh header pair: without
+        // a usable access token the DELETE is silently skipped and the APNs
+        // token stays registered for the signed-out account. The teardown must
+        // mint an access token from the captured refresh token (through an
+        // ephemeral store, never the cleared live one) and hand it to the hook
+        // and the revocation.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: nil, refresh: "refresh", user: user)
+        await client.setMintedAccessToken("minted")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
+        })
+
+        #expect(await probe.value == "minted")
+        #expect(await client.lastMintedRefreshToken == "refresh")
+        #expect(await client.lastRevokedAccessToken == "minted")
+        #expect(await client.lastRevokedRefreshToken == "refresh")
+        #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func staleAccessAtSignOutGetsFreshTeardownToken() async throws {
+        // The capture is a raw stored read, so the access token it sees can
+        // be expired (the SDK leaves stale access tokens in the store while a
+        // valid refresh token survives; common after returning from
+        // background). The teardown must run the captured pair through the
+        // refresh-aware ephemeral credential path, not hand the stale bearer
+        // straight to the push-token DELETE (which would 401 and leave the
+        // device registered for the signed-out account).
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "stale-access", refresh: "refresh", user: user)
+        await client.setMintedAccessToken("fresh-access")
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        let probe = TokenProbe()
+        await coordinator.signOut(onSignedOut: { accessToken, _ in
+            await probe.set(accessToken)
+        })
+
+        #expect(await probe.value == "fresh-access")
+        #expect(await client.lastRevokedAccessToken == "fresh-access")
+        #expect(coordinator.isAuthenticated == false)
     }
 
     @Test func signOutJoinsAndCancelsSlowTeardownAtDeadline() async throws {
@@ -132,7 +239,7 @@ import Testing
 
         let outcome = TeardownOutcomeProbe()
         await coordinator.signOut(
-            onSignedOut: {
+            onSignedOut: { _, _ in
                 await outcome.markStarted()
                 do {
                     // Cancellation-aware slow work, like the URLSession DELETE.
