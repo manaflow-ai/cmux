@@ -135,7 +135,16 @@ body {
   overflow-x: auto;
   text-align: center;
 }
-.cmux-mermaid svg, .cmux-vega canvas, .cmux-vega svg {
+.cmux-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.cmux-mermaid svg[data-cmux-mermaid-scaled="1"] {
+  display: block;
+  margin-inline: auto;
+  max-width: none;
+}
+.cmux-vega canvas, .cmux-vega svg {
   max-width: 100%;
   height: auto;
 }
@@ -1114,6 +1123,171 @@ html { scroll-behavior: smooth; }
   }
 
   var mermaidInitialized = false;
+  var cmuxMarkdownZoom = 1;
+  var mermaidResizeObserver = null;
+  var mermaidObservedWidth = 0;
+
+  function normalizedMarkdownZoom(value) {
+    var zoom = Number(value);
+    if (!Number.isFinite(zoom) || zoom <= 0) { return 1; }
+    return Math.max(0.1, Math.min(zoom, 10));
+  }
+
+  function mermaidNumericLength(value) {
+    var raw = String(value || '').trim();
+    if (!raw || raw.charAt(raw.length - 1) === '%') { return NaN; }
+    var match = raw.match(/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i);
+    return match ? Number(match[1]) : NaN;
+  }
+
+  function mermaidViewBoxSize(svg) {
+    var raw = String(svg.getAttribute('viewBox') || '').trim();
+    if (!raw) { return null; }
+    var parts = raw.split(/[\s,]+/).map(Number);
+    if (
+      parts.length !== 4 ||
+      !parts.every(Number.isFinite) ||
+      parts[2] <= 0 ||
+      parts[3] <= 0
+    ) {
+      return null;
+    }
+    return { width: parts[2], height: parts[3] };
+  }
+
+  function mermaidRememberOriginalSizing(svg) {
+    if (svg.hasAttribute('data-cmux-mermaid-original-max-width')) { return; }
+    svg.setAttribute('data-cmux-mermaid-original-max-width', svg.style.maxWidth || '');
+    svg.setAttribute('data-cmux-mermaid-original-width', svg.style.width || '');
+    svg.setAttribute('data-cmux-mermaid-original-height', svg.style.height || '');
+  }
+
+  function mermaidRestoreOriginalSizing(svg) {
+    mermaidRememberOriginalSizing(svg);
+    svg.removeAttribute('data-cmux-mermaid-scaled');
+    svg.style.maxWidth = svg.getAttribute('data-cmux-mermaid-original-max-width') || '';
+    svg.style.width = svg.getAttribute('data-cmux-mermaid-original-width') || '';
+    svg.style.height = svg.getAttribute('data-cmux-mermaid-original-height') || '';
+  }
+
+  function mermaidIntrinsicSize(svg) {
+    mermaidRememberOriginalSizing(svg);
+    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-natural-width'));
+    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-natural-height'));
+    if (
+      Number.isFinite(cachedWidth) &&
+      cachedWidth > 0 &&
+      Number.isFinite(cachedHeight) &&
+      cachedHeight > 0
+    ) {
+      return { width: cachedWidth, height: cachedHeight };
+    }
+
+    var viewBox = mermaidViewBoxSize(svg);
+    var width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-max-width'));
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-width'));
+    }
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('width'));
+    }
+    if ((!Number.isFinite(width) || width <= 0) && viewBox) {
+      width = viewBox.width;
+    }
+
+    var height = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-height'));
+    if (!Number.isFinite(height) || height <= 0) {
+      height = mermaidNumericLength(svg.getAttribute('height'));
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
+      height = width * (viewBox.height / viewBox.width);
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox) {
+      height = viewBox.height;
+    }
+
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+      return null;
+    }
+
+    svg.setAttribute('data-cmux-mermaid-natural-width', String(width));
+    svg.setAttribute('data-cmux-mermaid-natural-height', String(height));
+    return { width: width, height: height };
+  }
+
+  function mermaidCurrentBaseSize(svg, natural) {
+    var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
+    var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+    var containerWidth = rect ? rect.width : NaN;
+    if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+      containerWidth = container ? container.clientWidth : NaN;
+    }
+    var width = natural.width;
+    if (Number.isFinite(containerWidth) && containerWidth > 0) {
+      width = Math.min(containerWidth, natural.width);
+    }
+    return { width: width, height: width * (natural.height / natural.width) };
+  }
+
+  function mermaidContentWidth(entry) {
+    return Math.round(
+      (entry && entry.contentRect && entry.contentRect.width) ||
+      contentEl.getBoundingClientRect().width ||
+      contentEl.clientWidth ||
+      0
+    );
+  }
+
+  function ensureMermaidResizeObserver() {
+    if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
+    mermaidObservedWidth = mermaidContentWidth(null);
+    mermaidResizeObserver = new ResizeObserver(function(entries) {
+      var width = mermaidContentWidth(entries && entries[0]);
+      if (width <= 0) { return; }
+      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+        mermaidObservedWidth = width;
+        return;
+      }
+      if (width === mermaidObservedWidth) { return; }
+      mermaidObservedWidth = width;
+      applyMermaidZoom(contentEl);
+    });
+    mermaidResizeObserver.observe(contentEl);
+  }
+
+  function applyMermaidZoomToSVG(svg) {
+    if (!svg) { return; }
+    var natural = mermaidIntrinsicSize(svg);
+    if (!natural) { return; }
+    if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+      mermaidRestoreOriginalSizing(svg);
+      svg.setAttribute('data-cmux-mermaid-zoom', '1');
+      return;
+    }
+    var base = mermaidCurrentBaseSize(svg, natural);
+    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
+    var width = Math.max(1, base.width * cmuxMarkdownZoom);
+    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    svg.style.maxWidth = '';
+    svg.setAttribute('data-cmux-mermaid-scaled', '1');
+    svg.style.width = width + 'px';
+    svg.style.height = height + 'px';
+    svg.setAttribute('data-cmux-mermaid-zoom', String(cmuxMarkdownZoom));
+  }
+
+  function applyMermaidZoom(root) {
+    ensureMermaidResizeObserver();
+    var scope = root || contentEl;
+    if (!scope || !scope.querySelectorAll) { return; }
+    Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom) {
+    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    mermaidObservedWidth = mermaidContentWidth(null);
+    applyMermaidZoom(contentEl);
+  };
+
   function renderMermaidBlocks() {
     if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
     try {
@@ -1137,6 +1311,7 @@ html { scroll-behavior: smooth; }
       try {
         mermaid.render(id, src).then(function(res) {
           el.innerHTML = res.svg;
+          applyMermaidZoom(el);
           if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Mermaid: '
@@ -1477,6 +1652,9 @@ html { scroll-behavior: smooth; }
         el.removeAttribute('srcset');
       });
     }
+    clone.querySelectorAll('.cmux-mermaid svg[data-cmux-mermaid-original-max-width]').forEach(function(el) {
+      mermaidRestoreOriginalSizing(el);
+    });
     clone.querySelectorAll('*').forEach(function(el) {
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();

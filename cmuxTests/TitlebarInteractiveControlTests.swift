@@ -85,13 +85,13 @@ struct TitlebarInteractiveControlTests {
 
         let insideControl = NSPoint(x: region.frame.midX, y: region.frame.midY)
         #expect(
-            isMinimalModeTitlebarControlHit(window: window, locationInWindow: insideControl),
+            minimalModeTitlebarDoubleClickShouldDefer(window: window, locationInWindow: insideControl),
             "A double-click on a titlebarInteractiveControl must register as a control hit so the synthetic titlebar double-click (zoom/minimize) is suppressed."
         )
 
         let emptyTitlebar = NSPoint(x: 220, y: 24)
         #expect(
-            !isMinimalModeTitlebarControlHit(window: window, locationInWindow: emptyTitlebar),
+            !minimalModeTitlebarDoubleClickShouldDefer(window: window, locationInWindow: emptyTitlebar),
             "Empty titlebar chrome away from any interactive control must still trigger the standard titlebar double-click action."
         )
     }

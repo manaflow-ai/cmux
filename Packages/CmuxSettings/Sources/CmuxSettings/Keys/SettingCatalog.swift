@@ -28,10 +28,14 @@ public struct SettingCatalog: SettingCatalogSection {
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
+    /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
+    public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()
+    /// Settings for the freeform canvas workspace layout (the `canvas.*` keys).
+    public let canvas = CanvasCatalogSection()
     /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).
     public let fileEditor = FileEditorCatalogSection()
     /// Settings for Mobile pairing and sync.

@@ -486,11 +486,18 @@ private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
+    // The pane-scoped active boundary. The workspace slot only remembers ONE
+    // active session, so once another pane promotes (e.g. a forked conversation
+    // in a split), it can no longer prove that a late hook from a superseded
+    // session in this pane is stale. Keyed by surface id.
+    // https://github.com/manaflow-ai/cmux/issues/5908
+    var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
         case sessions
         case activeSessionsByWorkspace
+        case activeSessionsBySurface
     }
 
     init() {}
@@ -502,6 +509,10 @@ private struct ClaudeHookSessionStoreFile: Codable {
         activeSessionsByWorkspace = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsByWorkspace
+        ) ?? [:]
+        activeSessionsBySurface = try container.decodeIfPresent(
+            [String: ClaudeHookActiveSessionRecord].self,
+            forKey: .activeSessionsBySurface
         ) ?? [:]
     }
 }
@@ -871,13 +882,19 @@ private final class ClaudeHookSessionStore {
                 now: now
             )
             state.sessions[normalized] = record
-            if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
-                state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
+            if markActive {
+                let activeRecord = ClaudeHookActiveSessionRecord(
                     sessionId: normalized,
                     turnId: normalizeOptional(turnId),
                     allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
                     updatedAt: now
                 )
+                if let normalizedWorkspace = normalizeOptional(workspaceId) {
+                    state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
+                }
+                if let normalizedSurface = normalizeOptional(surfaceId) {
+                    state.activeSessionsBySurface[normalizedSurface] = activeRecord
+                }
             }
         }
     }
@@ -1197,6 +1214,7 @@ private final class ClaudeHookSessionStore {
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
+        surfaceId: String? = nil,
         turnId: String? = nil
     ) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
@@ -1204,11 +1222,40 @@ private final class ClaudeHookSessionStore {
             return true
         }
         return try withLockedState { state in
+            // The pane's own active boundary decides first: a hook is stale when a
+            // DIFFERENT session was promoted in the SAME surface (post-/clear or
+            // replaced-session races in one pane). This stays true even after a
+            // sibling pane — e.g. a forked conversation in a split — later takes
+            // the single workspace-active slot.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            if let normalizedSurfaceId = normalizeOptional(surfaceId),
+               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
+                guard surfaceActive.sessionId == normalizedSessionId else {
+                    return false
+                }
+                guard let activeTurnId = normalizeOptional(surfaceActive.turnId),
+                      let normalizedTurnId = normalizeOptional(turnId) else {
+                    return true
+                }
+                return activeTurnId == normalizedTurnId
+            }
             guard let active = state.activeSessionsByWorkspace[normalizedWorkspace] else {
                 return true
             }
             guard active.sessionId == normalizedSessionId else {
-                return false
+                // Legacy fallback for stores written before per-surface tracking:
+                // a different active session only makes this hook stale when that
+                // session lives in the SAME surface; concurrent sessions in
+                // sibling panes stay current for their own surface.
+                guard let normalizedSurfaceId = normalizeOptional(surfaceId),
+                      let activeRecord = state.sessions[active.sessionId],
+                      let activeSurfaceId = normalizeOptional(activeRecord.surfaceId) else {
+                    // Cross-surface protection needs both surfaces; when the caller
+                    // omits surfaceId or the active session's record is gone/surface-
+                    // less, fall back to the stricter workspace-scoped staleness.
+                    return false
+                }
+                return activeSurfaceId != normalizedSurfaceId
             }
             guard let activeTurnId = normalizeOptional(active.turnId),
                   let normalizedTurnId = normalizeOptional(turnId) else {
@@ -1218,12 +1265,27 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func canReplaceActiveSession(sessionId: String?, workspaceId: String) throws -> Bool {
+    func canReplaceActiveSession(
+        sessionId: String?,
+        workspaceId: String,
+        surfaceId: String? = nil
+    ) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
         return try withLockedState { state in
+            // Replacement is pane-scoped like staleness: a stopped session in
+            // THIS surface allows its own pane to start a new session even when
+            // another pane currently holds the workspace-active slot.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            if let normalizedSurfaceId = normalizeOptional(surfaceId),
+               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
+                guard surfaceActive.sessionId != normalizedSessionId else {
+                    return false
+                }
+                return surfaceActive.allowsNewSessionReplacement == true
+            }
             guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
                   active.sessionId != normalizedSessionId else {
                 return false
@@ -1273,14 +1335,30 @@ private final class ClaudeHookSessionStore {
         record: ClaudeHookSessionRecord,
         turnId: String?
     ) -> Bool {
-        guard let workspaceId = normalizeOptional(record.workspaceId),
-              let active = state.activeSessionsByWorkspace[workspaceId],
-              active.sessionId == record.sessionId,
-              let activeTurnId = normalizeOptional(active.turnId),
-              let incomingTurnId = normalizeOptional(turnId) else {
+        guard let incomingTurnId = normalizeOptional(turnId) else {
             return false
         }
-        return activeTurnId != incomingTurnId
+        // Consult the pane-scoped slot alongside the workspace slot: once a
+        // sibling pane takes the single workspace-active slot, only the
+        // surface slot still proves that this session is mid-turn in its own
+        // pane and a stale SessionEnd from an older turn must not consume it.
+        // https://github.com/manaflow-ai/cmux/issues/5908
+        var activeRecords: [ClaudeHookActiveSessionRecord] = []
+        if let workspaceId = normalizeOptional(record.workspaceId),
+           let active = state.activeSessionsByWorkspace[workspaceId] {
+            activeRecords.append(active)
+        }
+        if let surfaceId = normalizeOptional(record.surfaceId),
+           let active = state.activeSessionsBySurface[surfaceId] {
+            activeRecords.append(active)
+        }
+        return activeRecords.contains { active in
+            guard active.sessionId == record.sessionId,
+                  let activeTurnId = normalizeOptional(active.turnId) else {
+                return false
+            }
+            return activeTurnId != incomingTurnId
+        }
     }
 
     private func clearActiveSessionIfMatching(
@@ -1288,17 +1366,24 @@ private final class ClaudeHookSessionStore {
         removed: ClaudeHookSessionRecord,
         turnId: String?
     ) {
-        guard let workspaceId = normalizeOptional(removed.workspaceId),
-              let active = state.activeSessionsByWorkspace[workspaceId],
-              active.sessionId == removed.sessionId else {
-            return
+        let incomingTurnId = normalizeOptional(turnId)
+        func matches(_ active: ClaudeHookActiveSessionRecord) -> Bool {
+            guard active.sessionId == removed.sessionId else { return false }
+            if let activeTurnId = normalizeOptional(active.turnId),
+               let incomingTurnId,
+               activeTurnId != incomingTurnId {
+                return false
+            }
+            return true
         }
-        if let activeTurnId = normalizeOptional(active.turnId),
-           let incomingTurnId = normalizeOptional(turnId),
-           activeTurnId != incomingTurnId {
-            return
+        if let workspaceId = normalizeOptional(removed.workspaceId),
+           let active = state.activeSessionsByWorkspace[workspaceId],
+           matches(active) {
+            state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
         }
-        state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
+        for (surfaceId, active) in state.activeSessionsBySurface where matches(active) {
+            state.activeSessionsBySurface.removeValue(forKey: surfaceId)
+        }
     }
 
     private func fallbackRecord(
@@ -1344,10 +1429,27 @@ private final class ClaudeHookSessionStore {
             return ClaudeHookSessionStoreFile()
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              let decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
+              var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
             return ClaudeHookSessionStoreFile()
         }
+        backfillSurfaceActiveSlots(&decoded)
         return decoded
+    }
+
+    /// Stores written before per-surface tracking (or rewritten by an older
+    /// CLI, which drops the unknown key) carry only workspace-active slots.
+    /// Rebuild the pane boundary from each workspace-active session's recorded
+    /// surface so pre-upgrade panes keep suppressing stale hooks after a
+    /// sibling pane takes the workspace slot.
+    /// https://github.com/manaflow-ai/cmux/issues/5908
+    private func backfillSurfaceActiveSlots(_ state: inout ClaudeHookSessionStoreFile) {
+        guard state.activeSessionsBySurface.isEmpty else { return }
+        for active in state.activeSessionsByWorkspace.values {
+            guard let surfaceId = normalizeOptional(state.sessions[active.sessionId]?.surfaceId) else {
+                continue
+            }
+            state.activeSessionsBySurface[surfaceId] = active
+        }
     }
 
     private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
@@ -1365,6 +1467,9 @@ private final class ClaudeHookSessionStore {
             record.updatedAt >= cutoff
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { _, active in
+            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        }
+        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { _, active in
             active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
         }
     }
@@ -3829,6 +3934,14 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "canvas":
+            try runCanvasNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
             )
 
         case "workspace":
@@ -7227,6 +7340,134 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unknown window subcommand: \(sub). Try: display, displays")
         }
+    }
+
+    /// `cmux canvas <info|mode|set-frame|align|reveal|overview|set-viewport|new-pane|…>`
+    /// — workspace canvas-layout control over the v2 `canvas.*` methods.
+    private func runCanvasNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        // Split flags ("--name value") from bare positionals so a flag's
+        // value is never mistaken for a positional argument.
+        var positionals: [String] = []
+        var index = 0
+        while index < rest.count {
+            let arg = rest[index]
+            if arg.hasPrefix("--") {
+                index += 2
+            } else {
+                positionals.append(arg)
+                index += 1
+            }
+        }
+
+        var params: [String: Any] = [:]
+        if let workspaceRaw = optionValue(rest, name: "--workspace"),
+           let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+            params["workspace_id"] = wsId
+        }
+
+        func surfaceParam(positional: String?, required: Bool) throws {
+            let raw = optionValue(rest, name: "--surface") ?? positional
+            if let raw, let surfaceId = try normalizeSurfaceHandle(raw, client: client) {
+                params["surface_id"] = surfaceId
+            } else if required {
+                throw CLIError(message: "canvas \(sub) requires a surface (positional or --surface <id|ref>)")
+            }
+        }
+
+        let method: String
+        switch sub {
+        case "info":
+            method = "canvas.info"
+        case "mode":
+            guard let mode = positionals.first?.lowercased(),
+                  ["canvas", "splits", "toggle"].contains(mode) else {
+                throw CLIError(message: "Usage: cmux canvas mode <canvas|splits|toggle>")
+            }
+            params["mode"] = mode
+            method = "canvas.set_mode"
+        case "set-frame":
+            try surfaceParam(positional: positionals.first, required: true)
+            for key in ["x", "y", "width", "height"] {
+                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-frame requires numeric --x --y --width --height")
+                }
+                params[key] = value
+            }
+            method = "canvas.set_frame"
+        case "align":
+            guard let command = positionals.first?.lowercased() else {
+                throw CLIError(message: "Usage: cmux canvas align <tidy|align-left|align-right|align-top|align-bottom|equalize-widths|equalize-heights|distribute-horizontally|distribute-vertically>")
+            }
+            params["command"] = command
+            method = "canvas.align"
+        case "reveal":
+            try surfaceParam(positional: positionals.first, required: false)
+            method = "canvas.reveal"
+        case "overview":
+            method = "canvas.overview"
+        case "zoom":
+            guard let direction = positionals.first?.lowercased(),
+                  ["in", "out", "reset"].contains(direction) else {
+                throw CLIError(message: "Usage: cmux canvas zoom <in|out|reset>")
+            }
+            params["direction"] = direction
+            method = "canvas.zoom"
+        case "join":
+            try surfaceParam(positional: positionals.first, required: true)
+            guard let targetRaw = positionals.dropFirst().first ?? optionValue(rest, name: "--target"),
+                  let targetId = try normalizeSurfaceHandle(targetRaw, client: client) else {
+                throw CLIError(message: "Usage: cmux canvas join <surface> <target-surface>")
+            }
+            params["target_surface_id"] = targetId
+            method = "canvas.join"
+        case "break":
+            try surfaceParam(positional: positionals.first, required: true)
+            method = "canvas.break"
+        case "select-tab":
+            try surfaceParam(positional: positionals.first, required: true)
+            method = "canvas.select_tab"
+        case "set-viewport":
+            for key in ["x", "y"] {
+                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-viewport requires numeric --x --y")
+                }
+                params[key] = value
+            }
+            if let raw = optionValue(rest, name: "--zoom") {
+                guard let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-viewport --zoom must be numeric")
+                }
+                params["zoom"] = value
+            }
+            method = "canvas.set_viewport"
+        case "new-pane":
+            if let type = optionValue(rest, name: "--type")?.lowercased() {
+                guard ["terminal", "browser"].contains(type) else {
+                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser]")
+                }
+                params["type"] = type
+            }
+            method = "canvas.new_pane"
+        default:
+            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom, join, break, select-tab, set-viewport, new-pane")
+        }
+
+        let payload = try client.sendV2(method: method, params: params)
+        printV2Payload(
+            payload,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"])
+        )
     }
 
     /// `cmux window displays` — list connected displays (name + index).
@@ -11018,7 +11259,7 @@ struct CMUXCLI {
         // cross-identity reach into the app's Application Support data triggers the
         // macOS Sequoia "access data from other apps" prompt
         // (https://github.com/manaflow-ai/cmux/issues/5146). The app's
-        // Workspace.remoteDaemonCachedBinaryURL resolves the same path. The CLI is
+        // RemoteDaemonManifestRepository.cachedBinaryURL resolves the same path. The CLI is
         // a composition root, so it names the concrete `FileManager.default` here.
         return CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("remote-daemons", isDirectory: true)
@@ -13221,6 +13462,39 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "canvas":
+            return """
+            Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
+
+            Control a workspace's freeform canvas layout.
+
+            Subcommands:
+              info                          Print layout mode and pane frames (z-order)
+              mode <canvas|splits|toggle>   Switch layout mode
+              set-frame <surface> --x <n> --y <n> --width <n> --height <n>
+                                            Place one pane at an explicit frame
+              align <command>               tidy, align-left, align-right, align-top,
+                                            align-bottom, equalize-widths, equalize-heights,
+                                            distribute-horizontally, distribute-vertically
+              reveal [<surface>]            Scroll a pane into view (default: focused)
+              overview                      Toggle fit-all overview zoom
+              zoom <in|out|reset>           Step viewport magnification
+              set-viewport --x <n> --y <n> [--zoom <n>]
+                                            Center the viewport on a canvas point
+                                            (optionally set magnification)
+              new-pane [--type terminal|browser]
+                                            Create a new free-floating canvas pane
+              join <surface> <target>       Move a surface into the pane hosting target (tab)
+              break <surface>               Tear a surface out of its multi-tab pane
+              select-tab <surface>          Select a surface as its pane's visible tab
+
+            Example:
+              cmux canvas mode canvas
+              cmux canvas set-frame surface:1 --x 0 --y 0 --width 800 --height 520
+              cmux canvas set-viewport --x 400 --y 260 --zoom 1.0
+              cmux canvas new-pane --type terminal
+              cmux canvas align tidy
             """
         case "events":
             return """
@@ -19692,7 +19966,7 @@ struct CMUXCLI {
         let outputBox = CodexTeamsAsyncBox<Data>()
         let outputReadSemaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            outputBox.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: output.fileHandleForReading))
+            outputBox.set(output.fileHandleForReading.readDataToEndOfFileOrEmpty())
             outputReadSemaphore.signal()
         }
 
@@ -21498,8 +21772,8 @@ struct CMUXCLI {
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
 
-        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
-        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
@@ -22013,12 +22287,13 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
             )
+            let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -22031,15 +22306,27 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
+            // `claude --resume <parent> --fork-session` fires SessionStart with the
+            // PARENT session id — the forked session id is only minted at the first
+            // UserPromptSubmit. Upserting here would steal the parent record's
+            // surface/pid/launch command from the pane that still owns that
+            // conversation, so fork launches leave the store untouched; the forked
+            // session is recorded once its own id appears on prompt-submit.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            let isForkSessionLaunch = isClaudeForkSessionLaunch(
+                env: ProcessInfo.processInfo.environment,
+                fallbackPID: claudePid
+            )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = isClearSessionStart || canReplaceStoppedSession
-            if let sessionId = parsedInput.sessionId {
+            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
@@ -22073,14 +22360,22 @@ struct CMUXCLI {
             // Startup/resume SessionStart remains non-visible; /clear is a
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
-            let shouldRegisterPID =
-                shouldPromoteActiveSession ||
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    telemetry: telemetry
-                )
+            // Fork launches register their PID only with an authoritative
+            // surface: the hook reports the PARENT session id (which is often
+            // the workspace-active session), and the pre-prompt fork SessionEnd
+            // cleanup clears only authoritative targets, so a fallback-pane
+            // registration would leave a stale agent PID on a pane the fork
+            // never owned.
+            let shouldRegisterPID = isForkSessionLaunch
+                ? resolvedSurface.isAuthoritative
+                : shouldPromoteActiveSession ||
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        telemetry: telemetry
+                    )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -22119,12 +22414,13 @@ struct CMUXCLI {
                     fallback: workspaceArg,
                     client: client
                 )
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
                     workspaceId: workspaceId,
                     client: client
                 )
+                let surfaceId = resolvedSurface.surfaceId
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
@@ -22136,6 +22432,7 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
@@ -22221,12 +22518,13 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
             )
+            let surfaceId = resolvedSurface.surfaceId
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -22238,12 +22536,14 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                     telemetry: telemetry
                 ) ||
                 shouldReplaceStoppedClaudeSession(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                     telemetry: telemetry
                 )
             guard shouldApplyPromptSubmit else {
@@ -22257,12 +22557,28 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
+                // A forked session's first hook is this prompt-submit — its
+                // SessionStart fired under the parent session id — so capture the
+                // pane's pid and launch command here the way session-start does for
+                // normal launches. Only on first sighting, so an established
+                // record's richer capture is never overwritten.
+                // https://github.com/manaflow-ai/cmux/issues/5908
+                let firstSightingLaunchCommand = mappedSession == nil
+                    ? agentLaunchCommandFromEnvironment(
+                        ProcessInfo.processInfo.environment,
+                        fallbackPID: claudePid,
+                        fallbackKind: "claude",
+                        cwd: parsedInput.cwd
+                    )
+                    : nil
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    pid: mappedSession == nil ? claudePid : nil,
+                    launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
                     markActive: true,
@@ -22276,7 +22592,7 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand
+                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -22313,10 +22629,18 @@ struct CMUXCLI {
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            let surfaceId = resolvedSurface.surfaceId
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
@@ -22333,13 +22657,6 @@ struct CMUXCLI {
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
-
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
 
             let title = String(
                 localized: "cli.claude-hook.notification.title",
@@ -22380,6 +22697,51 @@ struct CMUXCLI {
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
+            // A fork launch that exits before its first prompt fires SessionEnd
+            // with the PARENT session id (the forked id is only minted at the
+            // first UserPromptSubmit). Consuming it would delete the parent
+            // pane's restore record and clear its resume binding even though
+            // that pane still owns the conversation. Post-prompt fork exits
+            // report the forked id and consume normally.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !reportedSessionId.isEmpty,
+               let forkParentSessionId = claudeForkSessionParentId(
+                   env: ProcessInfo.processInfo.environment,
+                   fallbackPID: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+               ),
+               reportedSessionId == forkParentSessionId {
+                telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
+                // The fork pane's claude still exited: clear the agent PID/status
+                // that the fork SessionStart registered for this pane, but leave
+                // the parent record, its resume binding, and the workspace's
+                // notifications alone.
+                let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: forkClaudePid,
+                    env: ProcessInfo.processInfo.environment
+                )
+                if !suppressForkVisibleMutations,
+                   let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
+                       preferred: nil,
+                       fallback: workspaceArg,
+                       client: client
+                   ),
+                   let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
+                       preferred: nil,
+                       fallback: surfaceArg,
+                       workspaceId: forkWorkspaceId,
+                       client: client
+                   ),
+                   forkSurface.isAuthoritative {
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkWorkspaceId)\(socketPanelOption(forkSurface.surfaceId)) --clear-status",
+                        client: client
+                    )
+                }
+                print("OK")
+                return
+            }
             // Final cleanup when Claude process exits.
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
@@ -22422,6 +22784,7 @@ struct CMUXCLI {
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
                     workspaceId: workspaceId,
+                    surfaceId: consumedSession.surfaceId,
                     telemetry: telemetry
                 )
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -22463,12 +22826,13 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
             )
+            let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -22479,6 +22843,7 @@ struct CMUXCLI {
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
@@ -22680,6 +23045,7 @@ struct CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
+        surfaceId: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         shouldApplyClaudeHookVisibleMutation(
@@ -22687,6 +23053,7 @@ struct CMUXCLI {
             sessionId: parsedInput.sessionId,
             turnId: parsedInput.turnId,
             workspaceId: workspaceId,
+            surfaceId: surfaceId,
             telemetry: telemetry
         )
     }
@@ -22696,12 +23063,14 @@ struct CMUXCLI {
         sessionId: String?,
         turnId: String?,
         workspaceId: String,
+        surfaceId: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         do {
             return try sessionStore.isCurrent(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 turnId: turnId
             )
         } catch {
@@ -22722,12 +23091,14 @@ struct CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
+        surfaceId: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         do {
             return try sessionStore.canReplaceActiveSession(
                 sessionId: parsedInput.sessionId,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
             )
         } catch {
             telemetry.breadcrumb(
@@ -22778,13 +23149,34 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
+        try resolvePreferredSurfaceForClaudeHookDetailed(
+            preferred: preferred,
+            fallback: fallback,
+            workspaceId: workspaceId,
+            client: client
+        ).surfaceId
+    }
+
+    /// Like `resolvePreferredSurfaceIdForClaudeHook`, but also reports whether the
+    /// surface came from the hook's own identity (the session record's surface,
+    /// the --surface/CMUX_SURFACE_ID value, or the calling process's tty binding)
+    /// or from the focused/first-surface fallback. Only an identity-derived
+    /// surface may participate in cross-surface staleness decisions — a borrowed
+    /// fallback surface must not let a stale hook masquerade as another pane's.
+    /// https://github.com/manaflow-ai/cmux/issues/5908
+    private func resolvePreferredSurfaceForClaudeHookDetailed(
+        preferred: String?,
+        fallback: String?,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> ClaudeHookResolvedSurface {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceIdForClaudeHook(preferred, workspaceId: workspaceId, client: client)
+            return try resolveSurfaceAllowingFallbackDetailed(preferred, workspaceId: workspaceId, client: client)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceIdForClaudeHook(fallback, workspaceId: workspaceId, client: client)
+            return try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
         }
-        return try resolveSurfaceIdForClaudeHook(nil, workspaceId: workspaceId, client: client)
+        return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -22930,32 +23322,55 @@ struct CMUXCLI {
         return try resolveWorkspaceId(nil, client: client)
     }
 
+    private struct ClaudeHookResolvedSurface {
+        let surfaceId: String
+        /// Resolved from the hook's own identity (the supplied surface value or
+        /// the calling process's tty binding) rather than the focused/first-
+        /// surface fallback.
+        let isAuthoritative: Bool
+    }
+
     private func resolveSurfaceIdAllowingFallback(
         _ raw: String?,
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
+        try resolveSurfaceAllowingFallbackDetailed(raw, workspaceId: workspaceId, client: client).surfaceId
+    }
+
+    private func resolveSurfaceAllowingFallbackDetailed(
+        _ raw: String?,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> ClaudeHookResolvedSurface {
         if let raw,
            !raw.isEmpty,
            let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            if items.contains(where: {
-                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
-            }) {
-                return candidate
-            }
+           claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) {
+            return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
         }
         if let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client),
-           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            if items.contains(where: {
-                ($0["id"] as? String) == callerSurfaceId || ($0["ref"] as? String) == callerSurfaceId
-            }) {
-                return callerSurfaceId
-            }
+           claudeHookSurfaceIsListed(callerSurfaceId, workspaceId: workspaceId, client: client) {
+            return ClaudeHookResolvedSurface(surfaceId: callerSurfaceId, isAuthoritative: true)
         }
-        return try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+        return ClaudeHookResolvedSurface(
+            surfaceId: try resolveSurfaceId(nil, workspaceId: workspaceId, client: client),
+            isAuthoritative: false
+        )
+    }
+
+    private func claudeHookSurfaceIsListed(
+        _ candidate: String,
+        workspaceId: String,
+        client: SocketClient
+    ) -> Bool {
+        guard let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+            return false
+        }
+        let items = listed["surfaces"] as? [[String: Any]] ?? []
+        return items.contains(where: {
+            ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
+        })
     }
 
     private struct CallerTerminalBinding {
@@ -25509,7 +25924,7 @@ struct CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
+        let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
@@ -25572,17 +25987,89 @@ struct CMUXCLI {
         return arguments.isEmpty ? nil : arguments
     }
 
+    /// Whether the Claude process this hook fired from was launched with
+    /// `--fork-session`. Such launches report the PARENT session id in
+    /// SessionStart (the forked id is only minted at the first UserPromptSubmit),
+    /// so hook state keyed by the reported id must not be rebound to the fork
+    /// pane. Reads the raw launch argv — the sanitized launch-command record
+    /// strips `--fork-session`. https://github.com/manaflow-ai/cmux/issues/5908
+    private func isClaudeForkSessionLaunch(env: [String: String], fallbackPID: Int?) -> Bool {
+        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        return claudeLaunchArgumentsContainForkSession(arguments)
+    }
+
+    /// Accept the same flag forms the launch sanitizer strips: bare
+    /// `--fork-session` and `--fork-session=<value>` (unless explicitly false).
+    private func claudeLaunchArgumentsContainForkSession(_ arguments: [String]) -> Bool {
+        arguments.contains { argument in
+            if argument == "--fork-session" { return true }
+            guard argument.hasPrefix("--fork-session=") else { return false }
+            let value = argument.dropFirst("--fork-session=".count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return !["false", "0", "no", "off"].contains(value)
+        }
+    }
+
+    /// The parent session id a `--resume <parent> --fork-session` launch was
+    /// forked from, or nil when this hook's process is not a fork launch. Hook
+    /// payloads carrying this id (SessionStart before the forked id is minted,
+    /// and SessionEnd when the fork exits before its first prompt) describe a
+    /// conversation another pane still owns and must not mutate or consume its
+    /// record. https://github.com/manaflow-ai/cmux/issues/5908
+    private func claudeForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
+        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID),
+              claudeLaunchArgumentsContainForkSession(arguments) else {
+            return nil
+        }
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--resume" || argument == "-r" {
+                guard index + 1 < arguments.count else { return nil }
+                return normalizedHookValue(arguments[index + 1])
+            }
+            if argument.hasPrefix("--resume=") {
+                return normalizedHookValue(String(argument.dropFirst("--resume=".count)))
+            }
+        }
+        return nil
+    }
+
+    private func claudeRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
+        decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+    }
+
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
         fallbackPID: Int?,
         fallbackKind: String,
         cwd: String?
     ) -> AgentHookLaunchCommandRecord? {
-        let envArguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
-        let processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        // `CMUX_AGENT_LAUNCH_*` leaks to every descendant of an agent process, so an
+        // agent started from inside another agent's session inherits the ANCESTOR's
+        // launch capture (codex under claude carries claude's argv). Trust the env
+        // capture only when its launcher describes this hook's agent kind; otherwise
+        // fall back to the agent's own process argv and kind.
+        let envLauncher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"])
+        let envCaptureIsTrusted = AgentLaunchCaptureTrust.launcherDescribesKind(
+            envLauncher,
+            kind: fallbackKind
+        )
+        let envArguments = envCaptureIsTrusted
+            ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            : nil
+        var processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        if let candidate = processArguments,
+           AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
+            // The PID fallback resolved to a shell dispatcher (e.g. the hook's own
+            // `sh -c …` wrapper), not the agent. That argv is not a launch.
+            processArguments = nil
+        }
         let arguments = envArguments ?? processArguments
-        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
-        let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+        let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
@@ -25614,7 +26101,8 @@ struct CMUXCLI {
             return environmentOnlyRecord()
         }
 
-        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
+        let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)
+            ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
             launcher: launcher,
@@ -30516,12 +31004,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let drainGroup = DispatchGroup()
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle)
+            stdoutData = stdoutHandle.readDataToEndOfFileOrEmpty()
             drainGroup.leave()
         }
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle)
+            stderrData = stderrHandle.readDataToEndOfFileOrEmpty()
             drainGroup.leave()
         }
 
@@ -32577,7 +33065,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
+        let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8) else {
             return nil
         }

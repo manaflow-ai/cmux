@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxSettingsUI
+import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
@@ -138,6 +139,11 @@ final class HostSettingsActions: SettingsHostActions {
         configWindow = window
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    func setMenuBarOnly(_ enabled: Bool) -> Bool {
+        MenuBarOnlySettings.setEnabled(enabled)
+        return true
     }
 
     func openMobilePairingWindow() {
