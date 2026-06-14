@@ -13855,6 +13855,7 @@ struct CMUXCLI {
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
               ~/.config/amp/plugins/cmux-session.ts
+              ~/.copilot/hooks/cmux.json
               ~/.kiro/agents/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
 
@@ -26635,10 +26636,9 @@ struct CMUXCLI {
         Self.hookCommandString(for: def, event: event)
     }
 
-    /// Shell command the agent runs for a Feed bridge event. 120s timeout
-    /// inside the shell is applied via the agent's `timeout` field in the
-    /// nested hook config (see `buildHooksDict`); the shell command
-    /// itself just dispatches.
+    /// Shell command the agent runs for a Feed bridge event. The timeout is
+    /// applied via the agent's hook config (see `buildHooksDict`); the shell
+    /// command itself just dispatches.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
@@ -26666,6 +26666,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .copilot(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "bash": cmd,
+                    "timeoutSec": timeoutSeconds,
+                ])
+                result[event.agentEvent] = entries
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -26704,6 +26712,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .copilot:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "bash": feedCmd,
+                    "timeoutSec": max((feedTimeoutMs - 1) / 1000 + 1, 1),
+                ])
+                result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -26732,6 +26748,9 @@ struct CMUXCLI {
     private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent _: String) -> Int {
         if def.name == "codex" {
             return 5_000
+        }
+        if def.name == "copilot" {
+            return 130_000
         }
         return 120_000
     }
@@ -27427,7 +27446,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
-            print("Removed 0 cmux hook(s) from \(filePath)")
+            print(Self.localizedHookRemovalMessage(count: 0, path: filePath))
             return
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
@@ -27703,7 +27722,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         var existing: [String: Any] = [:]
         if let data = fm.contents(atPath: filePath) {
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = Self.jsonObjectForHookConfig(from: data, def: def) else {
                 throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
             }
             existing = json
@@ -27723,11 +27742,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var cmuxInsertionIndexes: [String: [Int]] = [:]
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilot:
                 guard let entries = value as? [[String: Any]] else { continue }
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
-                    if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                    if isCmuxOwnedCommand(Self.hookCommandValue(in: entry) ?? "") {
                         Self.appendCmuxHookInsertionIndex(
                             rewrittenEntries.count,
                             for: event,
@@ -27780,7 +27799,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Add new cmux entries
         for (event, value) in newHooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilot:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
@@ -27806,7 +27825,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 }
+        if Self.hookFormatUsesTopLevelVersion(def.format) { existing["version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -27836,14 +27855,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
-        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(
+            newData,
+            originalData: fm.contents(atPath: filePath),
+            def: def
+        )
+        let newString = String(data: dataToWrite, encoding: .utf8) ?? "{}"
         let oldString: String = {
             if let data = fm.contents(atPath: filePath),
-               let json = try? JSONSerialization.jsonObject(with: data),
+               let json = Self.jsonObjectForHookConfig(from: data, def: def),
                let pretty = try? JSONSerialization.data(
                     withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
                ),
-               let s = String(data: pretty, encoding: .utf8)
+               let s = String(data: Self.hookConfigDataPreservingLeadingComments(pretty, originalData: data, def: def), encoding: .utf8)
             {
                 return s
             }
@@ -27867,7 +27891,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return
                 }
             }
-            try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+            try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
             print("\(def.displayName) hooks installed at \(filePath)")
         }
 
@@ -27876,6 +27900,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        printCopilotHookStorageNoteIfNeeded(def: def, filePath: filePath)
 
         // Post-install actions
         if let action = def.postInstallAction {
@@ -27986,7 +28012,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             json.removeValue(forKey: "hooks")
             if json.isEmpty {
                 try FileManager.default.removeItem(at: legacyURL)
-                print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
+                print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
                 return
             }
         } else {
@@ -27994,7 +28020,60 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
+        print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
+    }
+
+    private func pruneLegacyCopilotConfigHooksIfNeeded(
+        def: AgentHookDef,
+        configDir: String,
+        primaryFilePath: String
+    ) {
+        do {
+            try pruneLegacyCopilotConfigHooks(def: def, configDir: configDir, primaryFilePath: primaryFilePath)
+        } catch {
+            // Copilot owns config.json and may rewrite or lock it. Stable hook
+            // file install/uninstall must not depend on this legacy cleanup.
+        }
+    }
+
+    private func pruneLegacyCopilotConfigHooks(
+        def: AgentHookDef,
+        configDir: String,
+        primaryFilePath: String
+    ) throws {
+        guard def.name == "copilot" else { return }
+        let configRootURL = URL(fileURLWithPath: configDir, isDirectory: true).deletingLastPathComponent()
+        let legacyURL = configRootURL.appendingPathComponent("config.json", isDirectory: false)
+        guard legacyURL.path != primaryFilePath,
+              FileManager.default.fileExists(atPath: legacyURL.path),
+              let data = FileManager.default.contents(atPath: legacyURL.path),
+              var json = Self.jsonObjectAllowingLineComments(from: data),
+              var hooks = json["hooks"] as? [String: Any] else {
+            return
+        }
+
+        let removed = Self.removeCmuxOwnedFlatOrNestedHooks(from: &hooks, for: def)
+        guard removed > 0 else { return }
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        var newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        if let original = String(data: data, encoding: .utf8),
+           let serialized = String(data: newData, encoding: .utf8) {
+            let prefix = Self.leadingJSONLineCommentPrefix(from: original)
+            if !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) {
+                newData = prefixedData
+            }
+        }
+        try newData.write(to: legacyURL, options: .atomic)
+        print(Self.localizedLegacyHookRemovalMessage(displayName: def.displayName, path: legacyURL.path))
+    }
+
+    private func printCopilotHookStorageNoteIfNeeded(def: AgentHookDef, filePath: String) {
+        guard def.name == "copilot" else { return }
+        print(String(format: String(localized: "cli.hooks.copilot.storageNote", defaultValue: "Copilot hooks stored in %@; Copilot manages its own settings and may rewrite them on launch."), filePath))
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
@@ -28032,8 +28111,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let filePath = "\(configDir)/\(def.configFile)"
 
         guard let data = fm.contents(atPath: filePath),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              var json = Self.jsonObjectForHookConfig(from: data, def: def) else {
             print("No \(def.configFile) found at \(filePath)")
+            pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
             return
         }
 
@@ -28060,10 +28140,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilot:
                 guard var entries = value as? [[String: Any]] else { continue }
                 let before = entries.count
-                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                entries.removeAll { isCmuxOwnedCommand(Self.hookCommandValue(in: $0) ?? "") }
                 removed += before - entries.count
                 if entries.isEmpty {
                     hooks.removeValue(forKey: event)
@@ -28095,10 +28175,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
 
-        json["hooks"] = hooks
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        if def.name == "copilot" {
+            let remainingKeys = Set(json.keys).subtracting(["version"])
+            if remainingKeys.isEmpty {
+                try fm.removeItem(atPath: filePath)
+                print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
+                pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+                return
+            }
+        }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-        print("Removed \(removed) cmux hook(s) from \(filePath)")
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(newData, originalData: data, def: def)
+        try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
+        pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
         // Post-uninstall actions
         if let action = def.postInstallAction {
@@ -28133,6 +28228,186 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) {
         if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
+    }
+
+    private static func localizedLegacyHookRemovalMessage(displayName: String, path: String) -> String {
+        String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), displayName, path)
+    }
+
+    private static func localizedHookRemovalMessage(count: Int, path: String) -> String {
+        if count == 0 {
+            return String(format: String(localized: "cli.hooks.removedNone", defaultValue: "No cmux hooks found at %@"), path)
+        }
+        return String(format: String(localized: "cli.hooks.removedFile", defaultValue: "Removed cmux hooks at %@"), path)
+    }
+
+    private static func hookCommandValue(in entry: [String: Any]) -> String? {
+        if let command = entry["command"] as? String {
+            return command
+        }
+        if let command = entry["command"] as? [Any] {
+            let tokens = command.map { String(describing: $0) }
+            if tokens.count >= 3,
+               Self.isShellCommandToken(tokens[0]),
+               Self.isShellCommandFlag(tokens[1]) {
+                return tokens[2]
+            }
+            return tokens.joined(separator: " ")
+        }
+        return entry["bash"] as? String
+    }
+
+    private static func isShellCommandToken(_ token: String) -> Bool {
+        switch URL(fileURLWithPath: token).lastPathComponent {
+        case "sh", "bash", "zsh", "dash":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isShellCommandFlag(_ token: String) -> Bool {
+        token.hasPrefix("-") && token.contains("c")
+    }
+
+    private static func hookFormatUsesTopLevelVersion(_ format: AgentHookDef.HookFormat) -> Bool {
+        switch format {
+        case .flat, .copilot:
+            return true
+        case .nested, .kiroAgentJSON, .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            return false
+        }
+    }
+
+    private static func jsonObjectForHookConfig(from data: Data, def: AgentHookDef) -> [String: Any]? {
+        if def.name == "copilot" {
+            return jsonObjectAllowingLineComments(from: data)
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func hookConfigDataPreservingLeadingComments(
+        _ data: Data,
+        originalData: Data?,
+        def: AgentHookDef
+    ) -> Data {
+        guard def.name == "copilot",
+              let originalData,
+              let original = String(data: originalData, encoding: .utf8),
+              let serialized = String(data: data, encoding: .utf8) else {
+            return data
+        }
+        let prefix = leadingJSONLineCommentPrefix(from: original)
+        guard !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) else {
+            return data
+        }
+        return prefixedData
+    }
+
+    private static func jsonObjectAllowingLineComments(from data: Data) -> [String: Any]? {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
+        }
+        guard let string = String(data: data, encoding: .utf8) else { return nil }
+        let uncommented = jsonStringRemovingLineComments(from: string)
+        guard let uncommentedData = uncommented.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: uncommentedData) as? [String: Any]
+    }
+
+    private static func jsonStringRemovingLineComments(from string: String) -> String {
+        var result = ""
+        var index = string.startIndex
+        var inString = false
+        var escaping = false
+
+        while index < string.endIndex {
+            let character = string[index]
+            if inString {
+                result.append(character)
+                if escaping {
+                    escaping = false
+                } else if character == "\\" {
+                    escaping = true
+                } else if character == "\"" {
+                    inString = false
+                }
+                index = string.index(after: index)
+                continue
+            }
+
+            if character == "\"" {
+                inString = true
+                result.append(character)
+                index = string.index(after: index)
+                continue
+            }
+
+            let nextIndex = string.index(after: index)
+            if character == "/", nextIndex < string.endIndex, string[nextIndex] == "/" {
+                index = string.index(after: nextIndex)
+                while index < string.endIndex, string[index] != "\n", string[index] != "\r" {
+                    index = string.index(after: index)
+                }
+                continue
+            }
+
+            result.append(character)
+            index = nextIndex
+        }
+
+        return result
+    }
+
+    private static func leadingJSONLineCommentPrefix(from string: String) -> String {
+        var prefix = ""
+        var index = string.startIndex
+        while index < string.endIndex {
+            let lineEnd = string[index...].firstIndex(of: "\n") ?? string.endIndex
+            let nextIndex = lineEnd < string.endIndex ? string.index(after: lineEnd) : lineEnd
+            let line = String(string[index..<lineEnd])
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.isEmpty || trimmed.hasPrefix("//") else { break }
+            prefix += String(string[index..<nextIndex])
+            index = nextIndex
+        }
+        return prefix
+    }
+
+    private static func removeCmuxOwnedFlatOrNestedHooks(
+        from hooks: inout [String: Any],
+        for def: AgentHookDef
+    ) -> Int {
+        let isCmuxOwnedCommand: (String) -> Bool = { command in
+            Self.isCmuxOwnedHookCommand(command, for: def)
+        }
+        var removed = 0
+        for (event, value) in hooks {
+            guard let entries = value as? [[String: Any]] else { continue }
+            var rewrittenEntries: [[String: Any]] = []
+            for var entry in entries {
+                if var hookList = entry["hooks"] as? [[String: Any]] {
+                    let before = hookList.count
+                    hookList.removeAll { isCmuxOwnedCommand(Self.hookCommandValue(in: $0) ?? "") }
+                    removed += before - hookList.count
+                    guard !hookList.isEmpty else { continue }
+                    entry["hooks"] = hookList
+                    rewrittenEntries.append(entry)
+                    continue
+                }
+
+                if isCmuxOwnedCommand(Self.hookCommandValue(in: entry) ?? "") {
+                    removed += 1
+                    continue
+                }
+                rewrittenEntries.append(entry)
+            }
+            if rewrittenEntries.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = rewrittenEntries
+            }
+        }
+        return removed
     }
 
     private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
@@ -32445,7 +32720,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? stdinObj["toolArgs"] ?? toolCall?["args"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
@@ -32483,9 +32758,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
+        // Wait is capped at 120s and each wrapper's hook timeout
+        // includes response headroom so the socket can return before
+        // the agent kills the hook subprocess itself.
         let waitTimeout: Double = isActionable ? 120 : 0
         let params: [String: Any] = [
             "event": eventDict,
@@ -32718,6 +32993,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return out
         }
 
+        func copilotPreToolDecision(
+            permission: String,
+            reason: String?,
+            additionalContext: String? = nil,
+            modifiedArgs: [String: Any]? = nil
+        ) -> String {
+            var out: [String: Any] = ["permissionDecision": permission]
+            if let reason, !reason.isEmpty {
+                out["permissionDecisionReason"] = reason
+            }
+            if let additionalContext, !additionalContext.isEmpty {
+                out["additionalContext"] = additionalContext
+            }
+            if let modifiedArgs, !modifiedArgs.isEmpty {
+                out["modifiedArgs"] = modifiedArgs
+            }
+            return encode(out)
+        }
+
+        func copilotDeny(_ reason: String, additionalContext: String? = nil) -> String {
+            copilotPreToolDecision(
+                permission: "deny",
+                reason: reason,
+                additionalContext: additionalContext
+            )
+        }
+
         func hermesAgentBlock(_ message: String) -> String {
             encode(["action": "block", "message": message])
         }
@@ -32755,6 +33057,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return hermesAgentBlock("User denied permission via cmux Feed.")
                 }
                 return "{}"
+            }
+            if source == "copilot" {
+                if mode == "deny" {
+                    return copilotDeny("User denied permission via cmux Feed.")
+                }
+                let additionalContext: String? = (mode == "always" || mode == "all" || mode == "bypass")
+                    ? "User granted \(mode) permission via cmux Feed. Reduce subsequent approval prompts for similar calls."
+                    : nil
+                return copilotPreToolDecision(
+                    permission: "allow",
+                    reason: nil,
+                    additionalContext: additionalContext
+                )
             }
             if source == "antigravity" {
                 let reason = mode == "deny"
@@ -32828,6 +33143,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
+                if source == "copilot" {
+                    return copilotDeny(reason, additionalContext: reason)
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: reason,
@@ -32835,6 +33153,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ))
             }
             if mode == "deny" {
+                if source == "copilot" {
+                    return copilotDeny("User rejected the plan via cmux Feed.")
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: "User rejected the plan via cmux Feed."
@@ -32842,6 +33163,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if mode == "ultraplan" {
                 let reason = "User chose Ultraplan via cmux Feed. Refine this plan with Ultraplan if available."
+                if source == "copilot" {
+                    return copilotDeny(reason, additionalContext: reason)
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: reason,
@@ -32858,6 +33182,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 modeText = "manual-approval mode (approve each edit)"
             }
             let ctx = "User accepted this plan via cmux Feed with \(modeText). Exit plan mode now and proceed to implement without re-entering ExitPlanMode. Do not ask again."
+            if source == "copilot" {
+                return copilotDeny(ctx, additionalContext: ctx)
+            }
             return encode(nonClaudePreToolDecision(
                 permission: "deny",
                 reason: ctx,
@@ -32873,6 +33200,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         behavior: "deny",
                         message: message
                     ))
+                }
+                if source == "copilot" {
+                    return copilotDeny(message, additionalContext: message)
                 }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
@@ -32914,6 +33244,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 body = "The user answered:\n\(lines)"
             }
             let ctx = "[cmux Feed] \(body). Treat these as the user's response to your AskUserQuestion prompt; do not call AskUserQuestion again for the same question."
+            if source == "copilot" {
+                return copilotDeny(ctx, additionalContext: ctx)
+            }
             return encode(nonClaudePreToolDecision(
                 permission: "deny",
                 reason: ctx,

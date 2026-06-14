@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33857	CLI/cmux.swift
+34190	CLI/cmux.swift
 17914	Sources/AppDelegate.swift
 16709	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
@@ -25,10 +25,10 @@
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
+3980	cmuxTests/CLIGenericHookPersistenceTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3903	cmuxTests/WindowAndDragTests.swift
 3765	cmuxTests/TabManagerUnitTests.swift
-3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3664	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
@@ -122,8 +122,8 @@
 716	Sources/TaskManagerSnapshot.swift
 715	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 715	Sources/AppleScriptSupport.swift
+710	CLI/CMUXCLI+AgentHookDefinitions.swift
 710	Sources/TerminalSSHSessionDetector.swift
-707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
 699	Sources/RightSidebarPanelView.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift

@@ -1079,6 +1079,87 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
+    func testCopilotFeedDenyUsesCopilotPreToolUseSchema() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("copilot-feed-deny")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-feed-deny-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": [
+                        "kind": "permission",
+                        "mode": "deny",
+                    ],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "copilot", "--event", "preToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_COPILOT_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"event":"preToolUse","sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"rm -rf /tmp/cmux-copilot-test"}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stdoutJSON = try XCTUnwrap(jsonObject(result.stdout))
+        XCTAssertEqual(stdoutJSON["permissionDecision"] as? String, "deny")
+        XCTAssertEqual(stdoutJSON["permissionDecisionReason"] as? String, "User denied permission via cmux Feed.")
+        XCTAssertNil(stdoutJSON["hookSpecificOutput"])
+        XCTAssertNil(stdoutJSON["decision"])
+
+        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        XCTAssertEqual(feedEvents.count, 1, "Expected one Copilot Feed event, saw \(state.commands)")
+        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(feedEvents.first?["_source"] as? String, "copilot")
+        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 626262)
+        let toolInput = try XCTUnwrap(feedEvents.first?["tool_input"] as? [String: Any])
+        XCTAssertEqual(toolInput["command"] as? String, "rm -rf /tmp/cmux-copilot-test")
+    }
+
     /// The Feed permission modes that allow a tool (`once` / `always` / `all`
     /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
     /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
@@ -3176,6 +3257,206 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var isDirectory: ObjCBool = true
         XCTAssertTrue(FileManager.default.fileExists(atPath: hooksPath.path, isDirectory: &isDirectory))
         XCTAssertFalse(isDirectory.boolValue)
+    }
+
+    func testCopilotHookInstallUsesStableHookFileWhenConfigJSONIsJSONC() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-hook-file-\(UUID().uuidString)", isDirectory: true)
+        let copilotHome = root.appendingPathComponent("copilot-home", isDirectory: true)
+        let configURL = copilotHome.appendingPathComponent("config.json", isDirectory: false)
+        let hooksDirURL = copilotHome.appendingPathComponent("hooks", isDirectory: true)
+        let hookURL = hooksDirURL
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: copilotHome, withIntermediateDirectories: true)
+        try """
+        // Copilot CLI 1.0.49 writes comments at the top of config.json.
+        {
+          "editor": "vim",
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "cmux hooks copilot session-start",
+                    "timeout": 5000
+                  }
+                ]
+              }
+            ],
+            "SessionEnd": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": ["/bin/sh", "-lc", "cmux hooks copilot session-end"],
+                    "timeout": 5000
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        defer {
+            _ = Darwin.chmod(copilotHome.path, 0o700)
+            _ = Darwin.chmod(hooksDirURL.path, 0o700)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("Copilot hooks installed at \(hookURL.path)")
+                || result.stdout.contains("Copilot hooks already up to date at \(hookURL.path)"),
+            result.stdout
+        )
+        XCTAssertTrue(
+            result.stdout.contains("Copilot hooks stored in \(hookURL.path)"),
+            result.stdout
+        )
+
+        let hookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertEqual(hookJSON["version"] as? Int, 1)
+        let hooks = try XCTUnwrap(hookJSON["hooks"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(hooks["sessionStart"] as? [[String: Any]])
+        let sessionStartCommand = try XCTUnwrap(sessionStart.first?["bash"] as? String)
+        XCTAssertEqual(sessionStart.first?["type"] as? String, "command")
+        XCTAssertEqual(sessionStart.first?["timeoutSec"] as? Int, 5)
+        XCTAssertTrue(sessionStartCommand.contains("hooks copilot session-start"), sessionStartCommand)
+        let stop = try XCTUnwrap(hooks["agentStop"] as? [[String: Any]])
+        let stopCommand = try XCTUnwrap(stop.first?["bash"] as? String)
+        XCTAssertTrue(stopCommand.contains("hooks copilot stop"), stopCommand)
+        let notification = try XCTUnwrap(hooks["notification"] as? [[String: Any]])
+        let notificationCommand = try XCTUnwrap(notification.first?["bash"] as? String)
+        XCTAssertTrue(notificationCommand.contains("hooks copilot notification"), notificationCommand)
+        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
+        let preToolUseCommand = try XCTUnwrap(preToolUse.first?["bash"] as? String)
+        XCTAssertTrue(preToolUseCommand.contains("hooks feed --source copilot --event preToolUse"), preToolUseCommand)
+        XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 130)
+
+        try ("// Copilot hook file comment\n" + String(contentsOf: hookURL, encoding: .utf8))
+            .write(to: hookURL, atomically: true, encoding: .utf8)
+        let reinstallResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(reinstallResult.timedOut, reinstallResult.stderr)
+        XCTAssertEqual(reinstallResult.status, 0, reinstallResult.stderr)
+        let reinstalledHookString = try String(contentsOf: hookURL, encoding: .utf8)
+        XCTAssertTrue(reinstalledHookString.hasPrefix("// Copilot hook file comment\n"), reinstalledHookString)
+
+        var configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(
+            configJSONC.hasPrefix("// Copilot CLI 1.0.49 writes comments at the top of config.json."),
+            configJSONC
+        )
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        try """
+        // Copilot CLI 1.0.49 regenerated legacy cmux hooks in config.json.
+        {
+          "editor": "vim",
+          "hooks": {
+            "SessionStart": [
+              {
+                "type": "command",
+                "command": "cmux hooks copilot session-start",
+                "timeout": 5000
+              }
+            ]
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try #"{"version":1,"hooks":{}}"#.write(to: hookURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: copilotHome.path)
+        let bestEffortPruneResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: copilotHome.path)
+        XCTAssertFalse(bestEffortPruneResult.timedOut, bestEffortPruneResult.stderr)
+        XCTAssertEqual(bestEffortPruneResult.status, 0, bestEffortPruneResult.stderr)
+        let repairedHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertNotNil((repairedHookJSON["hooks"] as? [String: Any])?["sessionStart"])
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(configJSONC.contains(#""hooks""#), configJSONC)
+
+        let writablePruneResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(writablePruneResult.timedOut, writablePruneResult.stderr)
+        XCTAssertEqual(writablePruneResult.status, 0, writablePruneResult.stderr)
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        try """
+        // Copilot CLI 1.0.49 regenerated config.json on launch.
+        {
+          "editor": "vim",
+          "firstLaunchAt": "2026-05-19T00:00:00Z"
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let uncommentedHookFile = try String(contentsOf: hookURL, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !String($0).trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let stableHookJSONData = try XCTUnwrap(uncommentedHookFile.data(using: .utf8))
+        let stableHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: stableHookJSONData) as? [String: Any])
+        XCTAssertNotNil((stableHookJSON["hooks"] as? [String: Any])?["sessionStart"])
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        let uninstallResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "uninstall"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(uninstallResult.timedOut, uninstallResult.stderr)
+        XCTAssertEqual(uninstallResult.status, 0, uninstallResult.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hookURL.path), uninstallResult.stdout)
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {

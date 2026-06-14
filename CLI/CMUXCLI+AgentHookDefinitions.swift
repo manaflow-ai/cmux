@@ -41,9 +41,9 @@ extension CMUXCLI {
         let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// with a long timeout so the socket reply wait doesn't trip the
+        /// agent's hook timeout when the user takes time to approve/deny a
+        /// permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or
@@ -54,6 +54,7 @@ extension CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
+            case copilot(timeoutSeconds: Int) // Copilot user hook file: flat bash entries with timeoutSec
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
@@ -311,16 +312,18 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
+            configDir: ".copilot/hooks", configFile: "cmux.json",
+            configDirEnvOverride: "COPILOT_HOME", configDirEnvOverrideSubpath: "hooks",
+            createConfigDirIfMissing: true,
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks copilot", format: .copilot(timeoutSeconds: 5),
             events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["preToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",

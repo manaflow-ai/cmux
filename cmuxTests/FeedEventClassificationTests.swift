@@ -155,4 +155,19 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+
+    /// Copilot user hook files use lower-camel event names. Its pre-tool
+    /// event is still the approval bridge because Copilot has no separate
+    /// approval event for cmux to subscribe to.
+    @Test func copilotCamelCaseEventsClassifyCorrectly() {
+        #expect(classify("copilot", "preToolUse", tool: "bash").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "create").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "edit").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "powershell").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "view").name == "PreToolUse")
+        #expect(classify("copilot", "preToolUse", tool: "view").actionable == false)
+        #expect(classify("copilot", "sessionStart").name == "SessionStart")
+        #expect(classify("copilot", "sessionEnd").name == "SessionEnd")
+        #expect(classify("copilot", "agentStop").name == "Stop")
+    }
 }
