@@ -107,7 +107,6 @@ extension WorkspaceDetailView {
     /// active, without polling.
     func refreshChatSessions() async {
         prepareChatSessionsForCurrentWorkspace()
-        seedChatSessionsFromWorkspaceList()
         guard let source = store.makeChatEventSource() else {
             chatSessions = []
             hasLoadedLiveChatSessions = false
@@ -123,7 +122,10 @@ extension WorkspaceDetailView {
                 hasLoadedLiveChatSessions = true
             }
         } catch {
-            seedChatSessionsFromWorkspaceList()
+            // The workspace-list seed is read directly from the store by
+            // `availableChatSessions`; do not keep old live/session state as a
+            // primary source when the authoritative fetch fails.
+            withAnimation(.snappy(duration: 0.25)) { chatSessions = [] }
             hasLoadedLiveChatSessions = false
         }
         applyChatModeFallback()
@@ -141,17 +143,6 @@ extension WorkspaceDetailView {
         hasLoadedLiveChatSessions = false
         pinnedChatSessionID = nil
         isChatMode = false
-    }
-
-    /// Prime the detail state from the workspace-list payload so the toolbar
-    /// does not wait for `mobile.chat.sessions` on first paint.
-    func seedChatSessionsFromWorkspaceList() {
-        guard !hasLoadedLiveChatSessions else { return }
-        let seeded = store.seededChatSessions(workspaceID: workspace.id.rawValue)
-        guard !seeded.isEmpty else { return }
-        let next = Self.mergedChatSessions(primary: chatSessions, fallback: seeded)
-        guard next != chatSessions else { return }
-        withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
     }
 
     static func mergedChatSessions(
