@@ -38,7 +38,90 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Same desktop path gate as ci.yml: skip the expensive macOS activation perf
+  # job on PRs that only touch pure-iOS, web, or docs files. This workflow has no
+  # branch-protection required checks, so gating its only job cannot deadlock a
+  # PR. Fail-safe: non-PR events and any diff failure run the perf job.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.detect.outputs.desktop }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Detect desktop-affecting changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Non-PR event (${{ github.event_name }}); running perf job."
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ]; then
+            echo "Missing base/head SHA; running perf job."
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+            echo "Could not compute merge-base; running perf job."
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          echo "Changed files:"
+          cat /tmp/changed-files.txt
+          if [ ! -s /tmp/changed-files.txt ]; then
+            echo "No changed files; skipping perf job."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Keep this skip set identical to ci.yml's desktop gate.
+          SKIP_RE='^(ios/'
+          SKIP_RE+='|scripts/(lint-ios-package-conventions\.sh|mobile-attach-qr-server\.sh|mobile-attach-qr\.sh|mobile-dev-launch\.sh|mobile-snapshot-diff\.py|mobile-stability-soak(\.sh)?|mobile-terminal-cursor-snapshot-check\.sh)$'
+          SKIP_RE+='|Packages/CmuxMobileAnalytics/'
+          SKIP_RE+='|Packages/CmuxMobileCamera/'
+          SKIP_RE+='|Packages/CmuxMobileDiagnostics/'
+          SKIP_RE+='|Packages/CmuxMobilePairedMac/'
+          SKIP_RE+='|Packages/CmuxMobileRPC/'
+          SKIP_RE+='|Packages/CmuxMobileShell/'
+          SKIP_RE+='|Packages/CmuxMobileShellModel/'
+          SKIP_RE+='|Packages/CmuxMobileShellUI/'
+          SKIP_RE+='|Packages/CmuxMobileSupport/'
+          SKIP_RE+='|Packages/CmuxMobileTerminal/'
+          SKIP_RE+='|Packages/CmuxMobileTerminalKit/'
+          SKIP_RE+='|Packages/CmuxMobileTransport/'
+          SKIP_RE+='|Packages/CmuxMobileWorkspace/'
+          SKIP_RE+='|web/'
+          SKIP_RE+='|docs/'
+          SKIP_RE+='|.github/workflows/(test-ios|ios-testflight)\.yml$'
+          SKIP_RE+='|[^/]*\.md$'
+          SKIP_RE+='|.*/[^/]*\.md$'
+          SKIP_RE+=')'
+
+          if grep -Ev "$SKIP_RE" /tmp/changed-files.txt > /tmp/desktop-files.txt; then
+            echo "Desktop-affecting files changed; running perf job:"
+            cat /tmp/desktop-files.txt
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only iOS-only / web / docs files changed; skipping perf job."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+
   activation-session:
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
     timeout-minutes: 45
     env:
