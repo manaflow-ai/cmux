@@ -705,10 +705,10 @@ func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
 }
 
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
-/// Cmd+F is excluded because cmux chooses terminal, browser, or right-sidebar
-/// find from the current focus owner. Diff viewer pages are the narrow exception:
-/// their first Cmd+F opens the in-page file search, and an unhandled repeat falls
-/// through to WebKit find so the user can search the whole rendered UI.
+/// Cmd+F is excluded because cmux chooses terminal, browser, right-sidebar, or
+/// diff-viewer layered find from the current focus owner. Diff viewer Cmd+F
+/// must stay app-owned so WebKit cannot consume one press before the layered
+/// file-search/browser-find cycle runs.
 func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil,
@@ -720,11 +720,7 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     }
 
     if case .find = shortcut {
-        let effectiveURL = pageURL ?? owningWebView?.url
-        guard cmuxIsDiffViewerURL(effectiveURL) else {
-            return false
-        }
-        return true
+        return false
     }
 
     if case .findInDirectory = shortcut {

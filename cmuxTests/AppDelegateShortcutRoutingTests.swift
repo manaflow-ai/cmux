@@ -5930,7 +5930,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserFirstFindShortcutRoutingLetsDiffViewerOwnCmdF() throws {
+    func testBrowserFirstFindShortcutRoutingKeepsDiffViewerCmdFAppOwned() throws {
         let event = makeKeyEvent(
             modifierFlags: [.command],
             characters: "f",
@@ -5942,17 +5942,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let slashFragmentLoopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#/cmux-diff-viewer"))
         let ordinaryBrowserURL = try XCTUnwrap(URL(string: "https://example.com/diff.html"))
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: diffViewerURL),
-            "Diff viewer Cmd+F should reach the page first so the built-in file search can open"
+            "Diff viewer Cmd+F must stay app-owned so the layered file-search/browser-find cycle can run"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: loopbackDiffViewerURL),
-            "HTTP-served diff viewer Cmd+F should also reach the page first"
+            "HTTP-served diff viewer Cmd+F must stay app-owned"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: slashFragmentLoopbackDiffViewerURL),
-            "HTTP-served diff viewer Cmd+F should recognize the live slash-prefixed fragment"
+            "HTTP-served diff viewer Cmd+F must stay app-owned even with the live slash-prefixed fragment"
         )
         XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: ordinaryBrowserURL),
