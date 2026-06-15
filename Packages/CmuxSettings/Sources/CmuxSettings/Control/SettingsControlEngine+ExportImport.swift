@@ -91,10 +91,15 @@ extension SettingsControlEngine {
                 try await entry.descriptor.applyNormalized(entry.value, in: stores)
                 applied.append((entry.descriptor, previousValue, wasOverridden))
             } catch {
-                await rollBack(applied)
-                throw SettingsControlError.importFailed(errors: [
-                    "failed to apply '\(entry.descriptor.id)': \(error.localizedDescription) — rolled back \(applied.count) earlier change(s)",
-                ])
+                let restored = await rollBack(applied)
+                var message = "failed to apply '\(entry.descriptor.id)': \(error.localizedDescription)"
+                if !applied.isEmpty {
+                    message += "; rolled back \(restored) of \(applied.count) earlier change(s)"
+                    if restored < applied.count {
+                        message += " (the rest could not be restored — check ~/.config/cmux/cmux.json)"
+                    }
+                }
+                throw SettingsControlError.importFailed(errors: [message])
             }
         }
     }
@@ -102,16 +107,25 @@ extension SettingsControlEngine {
     /// Best-effort restore of already-applied entries in reverse order: a setting
     /// that was overridden is restored to its prior value; one that was at its
     /// default is cleared. Secret-backed entries are skipped (their plaintext was
-    /// never read).
+    /// never read). Returns the number of entries actually restored so the caller
+    /// never overclaims a full rollback when a restore itself fails (likely under
+    /// the same unwritable-`cmux.json` condition that triggered the rollback).
     private func rollBack(
         _ applied: [(descriptor: CatalogSettingDescriptor, previousValue: SettingJSONValue, wasOverridden: Bool)]
-    ) async {
+    ) async -> Int {
+        var restored = 0
         for entry in applied.reversed() where !entry.descriptor.isSecret {
-            if entry.wasOverridden {
-                try? await entry.descriptor.applyNormalized(entry.previousValue, in: stores)
-            } else {
-                try? await entry.descriptor.reset(in: stores)
+            do {
+                if entry.wasOverridden {
+                    try await entry.descriptor.applyNormalized(entry.previousValue, in: stores)
+                } else {
+                    try await entry.descriptor.reset(in: stores)
+                }
+                restored += 1
+            } catch {
+                // Best-effort: a failed restore is reflected in the returned count.
             }
         }
+        return restored
     }
 }
