@@ -21414,10 +21414,7 @@ struct CMUXCLI {
 
         var config: [String: Any]
         if let data = try? Data(contentsOf: userJsonURL) {
-            guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
-            }
-            config = existing
+            config = try Self.parseOpenCodeConfig(data: data, sourcePath: userJsonURL.path)
         } else {
             config = [:]
         }
@@ -27503,6 +27500,26 @@ export default CMUXSessionRestore;
         try Self.openCodeSessionPluginSource.write(to: pluginURL, atomically: true, encoding: .utf8)
     }
 
+    /// Parses an opencode `opencode.json` config file's bytes into a dictionary.
+    ///
+    /// opencode treats `opencode.json` as JSONC (it tolerates `//` and `/* */`
+    /// comments and trailing commas), so cmux must decode it the same way before
+    /// layering plugins on top. Every cmux code path that reads the user's
+    /// `opencode.json` routes through this single helper so the JSONC handling and
+    /// the user-facing parse-error message stay consistent.
+    ///
+    /// - Parameters:
+    ///   - data: The raw bytes of the config file.
+    ///   - sourcePath: Filesystem path used in the thrown error message.
+    /// - Returns: The decoded top-level JSON object.
+    /// - Throws: ``CLIError`` when the bytes are not a valid JSON/JSONC object.
+    static func parseOpenCodeConfig(data: Data, sourcePath: String) throws -> [String: Any] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CLIError(message: "Failed to parse \(sourcePath). Fix the JSON syntax and retry.")
+        }
+        return object
+    }
+
     private static func openCodePluginListContains(
         _ plugins: [Any],
         spec: String,
@@ -27643,8 +27660,7 @@ export default CMUXSessionRestore;
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
         if let data = existingData {
-            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
-            config = decoded
+            config = try Self.parseOpenCodeConfig(data: data, sourcePath: configURL.path)
         } else {
             config = [:]
         }
