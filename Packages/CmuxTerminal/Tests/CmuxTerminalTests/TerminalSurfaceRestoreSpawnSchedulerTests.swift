@@ -109,11 +109,47 @@ import CmuxTerminalCore
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
+        surface.claudeCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
 
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
         #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func restorePacedTerminalSurfaceWaitsForClaudeShimBeforeEnteringSpawnQueue() async throws {
+        _ = try #require(Bundle.main.resourceURL)
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let shimInstaller = ManualClaudeCommandShimInstaller()
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installClaudeCommandShim: {
+                await shimInstaller.install(wrapperURL: $0, surfaceId: $1, temporaryDirectory: $2)
+            },
+            isExecutableFile: { _ in false }
+        )
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem
+        )
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-shim-gate")
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.createSurface(for: nativeView)
+        await shimInstaller.waitForInstallStart()
+
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+
+        await shimInstaller.complete()
+        await waitForSpawnCount(1, spawned: { scheduler.scheduledSurfaceIds.count })
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
     }
 
     @Test func scheduledRestoreCreationCanRequeueWhenTheViewIsNotReady() {
@@ -125,6 +161,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
+        surface.claudeCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
         scheduler.runScheduledOperation()
@@ -144,6 +181,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
+        surface.claudeCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
 
@@ -170,7 +208,7 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
-    @Test func postShimScheduledRestoreRequeuesReadyViewBeforeNativeCreation() {
+    @Test func postShimScheduledRestoreDoesNotTailAppendReadyViewToRestoreQueue() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
@@ -190,12 +228,12 @@ import CmuxTerminalCore
             source: .scheduledRestore
         )
 
-        #expect(scheduler.scheduledSurfaceIds == [surface.id])
-        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
-    @Test func postShimScheduledRestoreReentersRestoreQueueWhenViewIsNotReady() {
+    @Test func postShimScheduledRestoreWithoutReadyViewDoesNotTailAppendToRestoreQueue() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
@@ -204,13 +242,14 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
+        surface.claudeCommandShimInstallCompleted = true
 
         surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
             view: nativeView,
             source: .scheduledRestore
         )
 
-        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
         #expect(surface.runtimeSurfacePointer == nil)
     }
@@ -290,7 +329,12 @@ import CmuxTerminalCore
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .pacedSessionRestore,
         scheduler: RecordingRestoreSpawnScheduler,
         nativeView: FakeTerminalSurfaceNativeView,
-        paneHost: FakeTerminalSurfacePaneHost
+        paneHost: FakeTerminalSurfacePaneHost,
+        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installClaudeCommandShim: { _, _, _ in nil },
+            isExecutableFile: { _ in false }
+        )
     ) -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
@@ -307,11 +351,7 @@ import CmuxTerminalCore
                 hibernationRecorder: FakeHibernationRecorder(),
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: scheduler,
-                runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-                    installClaudeCommandShim: { _, _, _ in nil },
-                    isExecutableFile: { _ in false }
-                ),
+                runtimeFilesystem: runtimeFilesystem,
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"

@@ -8,7 +8,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
 
     /// Installs a per-surface Claude command shim when the bundled wrapper is available.
     public let installClaudeCommandShim:
-        @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) -> TerminalSurfaceClaudeCommandShim?
+        @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceClaudeCommandShim?
 
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
@@ -17,7 +17,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     public init(
         claudeCommandShimTemporaryDirectory: URL,
         installClaudeCommandShim:
-            @escaping @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) -> TerminalSurfaceClaudeCommandShim?,
+            @escaping @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceClaudeCommandShim?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.claudeCommandShimTemporaryDirectory = claudeCommandShimTemporaryDirectory

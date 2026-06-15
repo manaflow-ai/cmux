@@ -468,12 +468,12 @@ extension TerminalSurface {
 #endif
             return
         }
+        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
+        guard claudeShimState.isReady else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
-        guard claudeShimState.isReady else { return }
         let claudeShim = claudeShimState.shim
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1

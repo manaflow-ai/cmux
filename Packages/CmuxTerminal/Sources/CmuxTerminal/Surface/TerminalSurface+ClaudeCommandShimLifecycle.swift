@@ -28,12 +28,12 @@ extension TerminalSurface {
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> ClaudeCommandShim? = {
                 [wrapperURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
+                await runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
             }
             #else
             let installOperation: @Sendable () async -> ClaudeCommandShim? = {
                 [wrapperURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
+                await runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
             }
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
@@ -70,15 +70,6 @@ extension TerminalSurface {
         source: RuntimeSurfaceCreationSource
     ) {
         guard allowsRuntimeSurfaceCreation(), surface == nil else { return }
-
-        if source == .scheduledRestore {
-            if let view {
-                createSurface(for: view, source: .normal)
-            } else if let attachedView {
-                createSurface(for: attachedView, source: .normal)
-            }
-            return
-        }
 
         if let view, view.window != nil {
             createSurface(for: view, source: source)
