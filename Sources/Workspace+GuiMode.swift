@@ -17,7 +17,7 @@ extension Workspace {
         guard let tabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: SurfaceKind.browser.rawValue,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
@@ -53,7 +53,7 @@ extension Workspace {
         guard let tabId = bonsplitController.createTab(
             title: guiPanel.displayTitle,
             icon: guiPanel.displayIcon,
-            kind: SurfaceKind.agentSession,
+            kind: SurfaceKind.agentSession.rawValue,
             isDirty: guiPanel.isDirty,
             isLoading: false,
             isPinned: false
