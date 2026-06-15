@@ -2227,7 +2227,7 @@ class TerminalController {
         methods.append(contentsOf: [
             "debug.shortcut.set",
             "debug.shortcut.simulate",
-            "debug.type",
+            "debug.type", "debug.gui_mode.open",
             "debug.textbox.inline_fixture",
             "debug.textbox.interact",
             "debug.app.activate",

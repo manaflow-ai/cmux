@@ -14358,6 +14358,7 @@ struct CMUXCLI {
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks agents [--json]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
@@ -14372,6 +14373,7 @@ struct CMUXCLI {
             Hook targets:
               setup              Install hooks for all supported agents on PATH
               uninstall          Remove hooks for all supported agents
+              agents             List hook-backed agents supported by this cmux build
               <agent> install    Install one agent integration
               <agent> uninstall  Remove one agent integration
               <agent> <event>    Internal hook entrypoint used by generated configs
@@ -33345,6 +33347,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             return true
 
+        case "agents", "list-agents":
+            printHooksAgentList(arguments: Array(commandArgs.dropFirst()))
+            return true
+
         default:
             guard let def = Self.agentDef(named: first) else {
                 if first == "feed" || first == "claude" {
@@ -33372,17 +33378,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return false
             }
         }
-    }
-
-    private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
-        guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "feed" || first == "claude" { return true }
-        guard let def = Self.agentDef(named: first) else { return false }
-        let action = commandArgs.dropFirst().first?.lowercased()
-        if def.name == "grok" {
-            return false
-        }
-        return action != "install" && action != "uninstall"
     }
 
     private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -33465,31 +33460,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 throw error
             }
         }
-    }
-
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
-        var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            switch arg {
-            case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
-                continue
-            default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
-                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
-                    }
-                    positionalAgent = arg
-                }
-            }
-        }
-        return positionalAgent
     }
 
     private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {

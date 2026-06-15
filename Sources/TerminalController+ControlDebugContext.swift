@@ -61,6 +61,45 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugOpenGuiModeWorkspace() -> UUID? {
+        guard let tabManager else { return nil }
+        let workspace = GuiModeWorkspaceCoordinator.createHomeWorkspace(in: tabManager)
+        return workspace.id
+    }
+
+    func controlDebugSubmitGuiModeTask(
+        prompt: String,
+        providerID rawProviderID: String?
+    ) -> ControlDebugGuiModeSubmitResolution {
+        guard let tabManager else { return .unavailable }
+        let providerID: GuiModeProviderID
+        if let rawProviderID {
+            guard let parsedProviderID = GuiModeProviderID(rawValue: rawProviderID) else {
+                return .invalidProvider(rawProviderID)
+            }
+            providerID = parsedProviderID
+        } else {
+            providerID = .codex
+        }
+        guard let sourceWorkspace = tabManager.selectedWorkspace,
+              let sourcePanel = sourceWorkspace.panels.values.compactMap({ $0 as? AgentSessionPanel }).first(where: {
+                  $0.rendererKind == .guiMode && $0.guiModePage == .home
+              }) else {
+            return .sourceNotFound
+        }
+        do {
+            let workspace = try GuiModeWorkspaceCoordinator.createTaskWorkspace(
+                prompt: prompt,
+                providerID: providerID,
+                sourcePanelId: sourcePanel.id,
+                preferredWorkspaceId: sourceWorkspace.id
+            )
+            return .created(workspaceID: workspace.id)
+        } catch {
+            return .sourceNotFound
+        }
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

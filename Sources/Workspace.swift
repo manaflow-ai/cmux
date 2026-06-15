@@ -3209,6 +3209,7 @@ final class Workspace: Identifiable, ObservableObject {
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialGuiModeState: GuiModePanelInitialState = .home,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -3283,9 +3284,6 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
         } else if initialSurface == .browser {
-            // Create the initial browser panel in its default new-tab state.
-            // Mirrors the minimal terminal branch below plus the browser panel
-            // wiring `attachDetachedSurface` performs for reattached panels.
             let browserPanel = BrowserPanel(
                 workspaceId: id,
                 profileID: resolvedNewBrowserProfileID()
@@ -3311,8 +3309,9 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .guiMode {
+            initialTabId = installInitialGuiModePanel(initialDirectory: initialDirectory, workingDirectory: initialDirectory, guiModeInitialState: initialGuiModeState)
         } else {
-            // Create initial terminal panel
             let terminalPanel = TerminalPanel(
                 workspaceId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
@@ -3721,7 +3720,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+    func configureBrowserPanel(_ browserPanel: BrowserPanel) {
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3741,7 +3740,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxWorkspaceFlashToken &+= 1
     }
 
-    private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+    func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
@@ -3797,7 +3796,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredBrowserProfileID = profileID
     }
 
-    private func resolvedNewBrowserProfileID(
+    func resolvedNewBrowserProfileID(
         preferredProfileID: UUID? = nil,
         sourcePanelId: UUID? = nil
     ) -> UUID {
@@ -3883,7 +3882,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 
-    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
+    func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
         agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
             guard let self,
                   let agentPanel,
