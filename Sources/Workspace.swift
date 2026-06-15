@@ -11784,18 +11784,32 @@ extension Workspace: BonsplitDelegate {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    var inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+                    let effectiveStartupEnvironment = terminalStartupEnvironment(
+                        base: startupEnvironmentMergingWorkspaceEnvironment([:]),
+                        remoteStartupCommand: remoteTerminalStartupCommand
+                    )
+                    if remoteTerminalStartupCommand != nil {
+                        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+                        template.waitAfterCommand = true
+                        inheritedConfig = template
+                    }
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
                         portOrdinal: portOrdinal,
-                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+                        initialCommand: remoteTerminalStartupCommand,
+                        additionalEnvironment: effectiveStartupEnvironment
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
+                    if remoteTerminalStartupCommand != nil {
+                        trackRemoteTerminalSurface(replacementPanel.id)
+                    }
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
 
@@ -11850,21 +11864,35 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
 
-        let inheritedConfig = inheritedTerminalConfig(
+        var inheritedConfig = inheritedTerminalConfig(
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: startupEnvironmentMergingWorkspaceEnvironment([:]),
+            remoteStartupCommand: remoteTerminalStartupCommand
+        )
+        if remoteTerminalStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            initialCommand: remoteTerminalStartupCommand,
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if remoteTerminalStartupCommand != nil {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         guard let newTabId = bonsplitController.createTab(
@@ -11877,6 +11905,11 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
+            if remoteTerminalStartupCommand != nil {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return
         }
