@@ -1,5 +1,4 @@
 import React, { useCallback, useRef, useState } from "react";
-import { Icon } from "../icons";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -92,13 +91,11 @@ export function GuiModeApp() {
 
 function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const [prompt, setPrompt] = useState("");
-  const [providerQuery, setProviderQuery] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState(context.selectedProviderId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const selectedProvider = providerForId(context.providers, selectedProviderId);
-  const filteredProviders = filterGuiModeProviders(context.providers, providerQuery);
   const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
@@ -113,41 +110,25 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
       .finally(() => setIsSubmitting(false));
   }, [canSubmit, context.copy.errorMessage, selectedProvider.id, trimmedPrompt]);
 
-  return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle },
-    h("div", { className: "gui-mode-shell" },
-      h("div", { className: "gui-mode-topline", style: accentStyle },
+  return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle, style: accentStyle },
+    h("div", { className: "gui-mode-chat-shell" },
+      h("div", { className: "gui-mode-topline" },
         h("div", { className: "gui-mode-title" }, context.copy.homeTitle),
         h("div", { className: "gui-mode-runtime-pill" }, selectedProvider.supportLabel),
+      ),
+      h("div", { className: "gui-mode-chat-thread", role: "log", "aria-live": "polite" },
+        h(AssistantChatTurn, {
+          provider: selectedProvider,
+          text: context.copy.promptPlaceholder,
+        }),
+        trimmedPrompt.length > 0
+          ? h(UserChatTurn, { text: prompt })
+          : null,
       ),
       h("div", { className: `${CODEX_COMPOSER_STACK} gui-mode-center-stack` },
         h("div", { className: CODEX_COMPOSER_FRAME },
           h("div", { className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer` },
             h("div", { className: CODEX_COMPOSER_INNER },
-              h("div", { className: "gui-mode-provider-header" },
-                h("div", { className: "gui-mode-provider-label" }, context.copy.providerLabel),
-                h("div", { className: "gui-mode-provider-selected" },
-                  h("span", { className: "gui-mode-provider-count" }, `${filteredProviders.length}/${context.providers.length}`),
-                  h("span", { className: "gui-mode-provider-selected-name" }, selectedProvider.displayName),
-                ),
-              ),
-              h("label", { className: "gui-mode-provider-search" },
-                h("span", { className: "gui-mode-search-icon" }, h(Icon, { name: "search" })),
-                h("input", {
-                  "aria-label": context.copy.providerSearchPlaceholder,
-                  className: "gui-mode-provider-search-input",
-                  onInput: (event: React.FormEvent<HTMLInputElement>) => setProviderQuery(event.currentTarget.value),
-                  placeholder: context.copy.providerSearchPlaceholder,
-                  spellCheck: false,
-                  type: "search",
-                  value: providerQuery,
-                }),
-              ),
-              h(ProviderPicker, {
-                noProvidersFound: context.copy.noProvidersFound,
-                providers: filteredProviders,
-                selectedProviderId: selectedProvider.id,
-                onSelectProvider: setSelectedProviderId,
-              }),
               h(PromptEditor, {
                 ref: editorRef,
                 ariaLabel: context.copy.promptPlaceholder,
@@ -159,7 +140,18 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
                 value: prompt,
               }),
               h("div", { className: "gui-mode-footer" },
-                h("div", { className: "gui-mode-error", role: "alert" }, error),
+                h("div", { className: "gui-mode-footer-left" },
+                  h(ProviderSelect, {
+                    label: context.copy.providerLabel,
+                    providers: context.providers,
+                    selectedProviderId: selectedProvider.id,
+                    onSelectProvider: setSelectedProviderId,
+                  }),
+                  h("div", { className: "gui-mode-command-hint" },
+                    h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
+                    h("code", { className: "gui-mode-command-code" }, selectedProvider.taskCommandPreview),
+                  ),
+                ),
                 h("button", {
                   className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} gui-mode-submit`,
                   disabled: !canSubmit,
@@ -167,15 +159,11 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
                   type: "button",
                 }, isSubmitting ? context.copy.submitting : context.copy.submit),
               ),
+              h("div", { className: "gui-mode-error", role: "alert" }, error),
             ),
           ),
         ),
       ),
-      h(ProviderSummary, {
-        provider: selectedProvider,
-        setupCommandLabel: context.copy.setupCommandLabel,
-        taskCommandLabel: context.copy.taskCommandLabel,
-      }),
     ),
   );
 }
@@ -184,98 +172,103 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
   const provider = providerForId(context.providers, context.selectedProviderId);
   return h("section", {
     "aria-label": context.copy.taskTitle,
-    className: "gui-mode-task",
+    className: "gui-mode-task gui-mode-task-chat",
     style: providerAccentStyle(provider),
   },
-    h("div", { className: "gui-mode-task-panel" },
-      h("div", { className: "gui-mode-task-provider" },
-        h("div", { className: "gui-mode-task-provider-heading" },
-          h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
-          h("div", { className: "gui-mode-task-provider-name" }, provider.displayName),
-          h("div", { className: "gui-mode-task-support" }, provider.supportLabel),
-        ),
-        h("div", { className: "gui-mode-task-provider-detail" }, provider.detail),
-        h("div", { className: "gui-mode-task-chips" },
-          provider.capabilities.map((capability) => h("span", {
-            className: "gui-mode-task-chip",
-            key: capability,
-          }, capability)),
-        ),
-        h("div", { className: "gui-mode-command-row gui-mode-task-command-row" },
-          h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
-          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, provider.taskCommandPreview),
-        ),
+    h("div", { className: "gui-mode-chat-shell gui-mode-task-shell" },
+      h("div", { className: "gui-mode-topline" },
+        h("div", { className: "gui-mode-title" }, context.copy.taskTitle),
+        h("div", { className: "gui-mode-runtime-pill" }, provider.displayName),
       ),
-      h("div", { className: "gui-mode-task-label" }, context.copy.taskPromptLabel),
-      h("div", { className: "gui-mode-task-prompt" }, context.prompt),
+      h("div", { className: "gui-mode-chat-thread gui-mode-task-thread", role: "log" },
+        h(UserChatTurn, { label: context.copy.taskPromptLabel, text: context.prompt }),
+        h(AssistantChatTurn, {
+          provider,
+          text: provider.detail,
+          commandLabel: context.copy.taskCommandLabel,
+          command: provider.taskCommandPreview,
+          capabilities: provider.capabilities,
+        }),
+      ),
     ),
   );
 }
 
-function ProviderPicker({
+function ProviderSelect({
+  label,
   onSelectProvider,
-  noProvidersFound,
   providers,
   selectedProviderId,
 }: {
+  label: string;
   onSelectProvider: (providerId: string) => void;
-  noProvidersFound: string;
   providers: GuiModeProvider[];
   selectedProviderId: string;
 }) {
-  return h("div", { className: "gui-mode-provider-grid", role: "listbox" },
-    providers.length === 0
-      ? h("div", { className: "gui-mode-provider-empty", role: "status" }, noProvidersFound)
-      : null,
-    providers.map((provider) => h("button", {
-      "aria-selected": provider.id === selectedProviderId,
-      className: "gui-mode-provider-option",
-      "data-provider-id": provider.id,
-      key: provider.id,
-      onClick: () => onSelectProvider(provider.id),
-      role: "option",
-      style: providerAccentStyle(provider),
-      type: "button",
+  const selectedProvider = providerForId(providers, selectedProviderId);
+  return h("label", { className: "gui-mode-agent-select-shell", style: providerAccentStyle(selectedProvider) },
+    h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
+    h("span", { className: "gui-mode-agent-select-label" }, label),
+    h("select", {
+      "aria-label": label,
+      className: "gui-mode-agent-select",
+      onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onSelectProvider(event.currentTarget.value),
+      value: selectedProvider.id,
     },
-      h("span", { className: "gui-mode-provider-option-top" },
-        h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
-        h("span", { className: "gui-mode-provider-name" }, provider.displayName),
-        h("span", { className: "gui-mode-provider-support" }, provider.supportLabel),
-      ),
-      h("span", { className: "gui-mode-provider-detail" }, provider.detail),
-    )),
+      providers.map((provider) => h("option", {
+        key: provider.id,
+        value: provider.id,
+      }, provider.displayName)),
+    ),
   );
 }
 
-function ProviderSummary({
+function AssistantChatTurn({
+  capabilities = [],
+  command,
+  commandLabel,
   provider,
-  setupCommandLabel,
-  taskCommandLabel,
+  text,
 }: {
+  capabilities?: string[];
+  command?: string;
+  commandLabel?: string;
   provider: GuiModeProvider;
-  setupCommandLabel: string;
-  taskCommandLabel: string;
+  text: string;
 }) {
-  return h("aside", { className: "gui-mode-provider-summary", style: providerAccentStyle(provider) },
-    h("div", { className: "gui-mode-summary-main" },
-      h("div", { className: "gui-mode-summary-name" }, provider.displayName),
-      h("div", { className: "gui-mode-summary-detail" }, provider.detail),
+  return h("div", { className: "gui-mode-chat-turn gui-mode-chat-turn-assistant" },
+    h("div", { className: "gui-mode-chat-avatar", style: providerAccentStyle(provider), "aria-hidden": "true" },
+      h("span", { className: "gui-mode-provider-mark" }),
     ),
-    h("div", { className: "gui-mode-summary-chips" },
-      provider.capabilities.map((capability) => h("span", {
-        className: "gui-mode-summary-chip",
-        key: capability,
-      }, capability)),
+    h("div", { className: "gui-mode-chat-message gui-mode-assistant-message" },
+      h("div", { className: "gui-mode-chat-message-head" },
+        h("span", { className: "gui-mode-chat-agent-name" }, provider.displayName),
+        h("span", { className: "gui-mode-chat-agent-support" }, provider.supportLabel),
+      ),
+      h("div", { className: "gui-mode-chat-message-text" }, text),
+      capabilities.length > 0
+        ? h("div", { className: "gui-mode-task-chips" },
+          capabilities.map((capability) => h("span", {
+            className: "gui-mode-task-chip",
+            key: capability,
+          }, capability)),
+        )
+        : null,
+      command && commandLabel
+        ? h("div", { className: "gui-mode-command-row gui-mode-task-command-row" },
+          h("span", { className: "gui-mode-command-label" }, commandLabel),
+          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, command),
+        )
+        : null,
     ),
-    h("div", { className: "gui-mode-command-grid" },
-      h("div", { className: "gui-mode-command-row" },
-        h("span", { className: "gui-mode-command-label" }, setupCommandLabel),
-        h("code", { className: "gui-mode-command-code" }, provider.setupCommand),
-      ),
-      h("div", { className: "gui-mode-command-row" },
-        h("span", { className: "gui-mode-command-label" }, taskCommandLabel),
-        h("code", { className: "gui-mode-command-code" }, provider.taskCommandPreview),
-      ),
+  );
+}
+
+function UserChatTurn({ label, text }: { label?: string; text: string }) {
+  return h("div", { className: "gui-mode-chat-turn gui-mode-chat-turn-user" },
+    h("div", { className: "gui-mode-chat-message gui-mode-user-message" },
+      label ? h("div", { className: "gui-mode-chat-user-label" }, label) : null,
+      h("div", { className: "gui-mode-chat-message-text" }, text),
     ),
   );
 }

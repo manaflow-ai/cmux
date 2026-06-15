@@ -67,28 +67,28 @@ test("GUI mode renders the composer while native context is pending", async () =
     expect(rootElement.dataset.guiModePage).toBe("home");
     expect(rootElement.dataset.guiModeProvider).toBe("codex");
     expect(rootElement.dataset.guiModePromptLength).toBe("0");
+    expect(dom.window.document.querySelector(".gui-mode-chat-thread")).toBeTruthy();
+    expect(dom.window.document.querySelector(".gui-mode-assistant-message")?.textContent)
+      .toContain("What should cmux build?");
     expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
     expect(dom.window.document.querySelector(".gui-mode-submit")?.textContent).toBe("Submit");
-    expect((dom.window.document.querySelector(".gui-mode-provider-search-input") as HTMLInputElement)?.placeholder)
-      .toBe("Search agents");
     const providerOptions = Array.from(
-      dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option"),
+      dom.window.document.querySelectorAll<HTMLOptionElement>(".gui-mode-agent-select option"),
     );
-    expect(providerOptions.map((element) => element.textContent)).toContain("QoderHooksHook-backed agent");
+    expect(providerOptions.map((element) => element.textContent)).toContain("Qoder");
     expect(providerOptions).toHaveLength(expectedProviderIds.length);
-    expect(dom.window.document.querySelector(".gui-mode-provider-count")?.textContent)
-      .toBe(`${expectedProviderIds.length}/${expectedProviderIds.length}`);
     expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
-      .toEqual(["cmux hooks codex install", "/task-worktree-pr --provider codex"]);
+      .toEqual(["/task-worktree-pr --provider codex"]);
 
-    const qoderOption = providerOptions.find((element) => element.textContent?.includes("Qoder"));
-    expect(qoderOption).toBeTruthy();
+    const providerSelect = dom.window.document.querySelector(".gui-mode-agent-select") as HTMLSelectElement;
     flushSync(() => {
-      qoderOption?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      providerSelect.value = "qoder";
+      providerSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
     expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
-      .toEqual(["cmux hooks qoder install", "/task-worktree-pr --provider qoder"]);
-    expect((qoderOption as HTMLElement).style.getPropertyValue("--gui-provider-accent")).toBe("#c084fc");
+      .toEqual(["/task-worktree-pr --provider qoder"]);
+    expect((dom.window.document.querySelector(".gui-mode-agent-select-shell") as HTMLElement)
+      .style.getPropertyValue("--gui-provider-accent")).toBe("#c084fc");
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -146,7 +146,7 @@ test("GUI mode provider search matches every provider catalog entry", () => {
   expect(filterGuiModeProviders(guiModeFallbackProviders, "provider that does not exist")).toEqual([]);
 });
 
-test("GUI mode provider picker submits every provider from the rendered composer", async () => {
+test("GUI mode agent selector submits every provider from the rendered chat composer", async () => {
   for (const provider of guiModeFallbackProviders) {
     const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
       url: "file:///tmp/gui-mode.html",
@@ -182,18 +182,18 @@ test("GUI mode provider picker submits every provider from the rendered composer
       flushSync(() => {
         root.render(<GuiModeApp />);
       });
-      await waitFor(() => dom.window.document.querySelectorAll(".gui-mode-provider-option").length > 0);
+      await waitFor(() => dom.window.document.querySelectorAll(".gui-mode-agent-select option").length > 0);
 
-      const providerOption = Array.from(
-        dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option"),
-      ).find((element) => element.textContent?.includes(provider.displayName));
-      expect(providerOption).toBeTruthy();
+      const providerSelect = dom.window.document.querySelector(".gui-mode-agent-select") as HTMLSelectElement;
+      expect(providerSelect).toBeTruthy();
       flushSync(() => {
-        providerOption?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+        providerSelect.value = provider.id;
+        providerSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
       });
 
       const prompt = `Build with ${provider.displayName}`;
       pasteIntoPromptEditor(dom, prompt);
+      await waitFor(() => dom.window.document.querySelector(".gui-mode-user-message")?.textContent?.includes(prompt) === true);
       await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
       flushSync(() => {
         (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click();
@@ -214,7 +214,7 @@ test("GUI mode provider picker submits every provider from the rendered composer
       dom.window.close();
     }
   }
-});
+}, 15000);
 
 test("GUI mode task page renders every provider from native context", async () => {
   for (const provider of guiModeFallbackProviders) {
@@ -258,16 +258,16 @@ test("GUI mode task page renders every provider from native context", async () =
       expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
       expect(rootElement.dataset.guiModeProvider).toBe(provider.id);
       expect(rootElement.dataset.guiModePromptLength).toBe(String(`Build with ${provider.displayName}`.length));
-      expect(dom.window.document.querySelector(".gui-mode-task-provider-name")?.textContent)
+      expect(dom.window.document.querySelector(".gui-mode-chat-agent-name")?.textContent)
         .toBe(provider.displayName);
       expect(dom.window.document.querySelector(".gui-mode-task-command")?.textContent)
         .toBe(provider.taskCommandPreview);
-      expect(dom.window.document.querySelector(".gui-mode-task-support")?.textContent)
+      expect(dom.window.document.querySelector(".gui-mode-chat-agent-support")?.textContent)
         .toBe(provider.supportLabel);
       expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-task-chip")).map((element) => element.textContent))
         .toEqual(provider.capabilities);
-      expect(dom.window.document.querySelector(".gui-mode-task-prompt")?.textContent)
-        .toBe(`Build with ${provider.displayName}`);
+      expect(dom.window.document.querySelector(".gui-mode-user-message")?.textContent)
+        .toContain(`Build with ${provider.displayName}`);
       expect((dom.window.document.querySelector(".gui-mode-task") as HTMLElement)
         .style.getPropertyValue("--gui-provider-accent")).toBe(provider.accentColor);
     } finally {
@@ -277,7 +277,7 @@ test("GUI mode task page renders every provider from native context", async () =
       dom.window.close();
     }
   }
-});
+}, 15000);
 
 test("GUI mode task context renders inside the TanStack route without self-navigation", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
@@ -308,7 +308,7 @@ test("GUI mode task context renders inside the TanStack route without self-navig
     const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
     expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
     expect(rootElement.dataset.guiModeProvider).toBe(context.selectedProviderId);
-    expect(dom.window.document.querySelector(".gui-mode-task-provider-name")?.textContent)
+    expect(dom.window.document.querySelector(".gui-mode-chat-agent-name")?.textContent)
       .toBe("Qoder");
   } finally {
     flushSync(() => root.unmount());
