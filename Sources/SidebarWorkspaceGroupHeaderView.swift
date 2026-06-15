@@ -361,7 +361,7 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
         if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
             return true
         }
-        return SidebarDropPlanner.indicator(
+        return SidebarDropPlanner().indicator(
             draggedTabId: draggedWorkspaceId,
             targetTabId: targetAnchorWorkspaceId,
             tabIds: tabIds,

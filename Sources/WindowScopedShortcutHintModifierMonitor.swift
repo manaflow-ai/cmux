@@ -98,7 +98,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     }
 
     private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
+        ShortcutHintModifierPolicy().isCurrentWindow(
             hostWindowNumber: hostWindow?.windowNumber,
             hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
             eventWindowNumber: eventWindow?.windowNumber,

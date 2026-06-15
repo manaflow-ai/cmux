@@ -39,7 +39,7 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             )
 
             #expect(defaults.object(forKey: key) as? Bool == false)
-            #expect(!ShortcutHintDebugSettings.modifierHoldHintsEnabled(defaults: defaults))
+            #expect(!ShortcutHintDebugSettings(defaults: defaults).modifierHoldHintsEnabled)
             #expect(store.override(for: .openBrowser) == StoredShortcut(key: "3", command: true, shift: false, option: false, control: false))
         }
     }

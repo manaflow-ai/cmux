@@ -826,7 +826,7 @@ struct TitlebarControlsView: View {
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     private struct TitlebarHintLayoutItem: Identifiable {

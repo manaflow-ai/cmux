@@ -33,12 +33,13 @@ struct ShortcutHintModifierHoldPolicyTests {
     func modifierHoldHintsSettingSuppressesCommandAndControlHintActivation() throws {
         try withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showModifierHoldHintsKey)
+            let policy = ShortcutHintModifierPolicy(defaults: defaults)
 
-            #expect(!ShortcutHintDebugSettings.modifierHoldHintsEnabled(defaults: defaults))
-            #expect(!ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            #expect(!ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
-            #expect(!ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
-            #expect(!ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
+            #expect(!ShortcutHintDebugSettings(defaults: defaults).modifierHoldHintsEnabled)
+            #expect(!policy.shouldShowHints(for: [.command]))
+            #expect(!policy.shouldShowHints(for: [.control]))
+            #expect(!policy.shouldShowCommandHints(for: [.command]))
+            #expect(!policy.shouldShowControlHints(for: [.control]))
         }
     }
 

@@ -803,7 +803,7 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
-            (ShortcutHintDebugSettings.alwaysShowHints() || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
+            (ShortcutHintDebugSettings().alwaysShowHints || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
     }
 
     private func startFocusModeShortcutHintMonitorIfNeeded() {
