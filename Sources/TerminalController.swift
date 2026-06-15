@@ -6163,7 +6163,7 @@ class TerminalController {
                 // diff-viewer-registration paths act on the original URL; only scheme-less,
                 // non-navigable input should fall through to a search query.
                 url = parsed
-            } else if let search = BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr) {
+            } else if let search = BrowserSearchSettingsStore().currentConfiguration.searchURL(query: urlStr) {
                 url = search
             } else {
                 return .err(
