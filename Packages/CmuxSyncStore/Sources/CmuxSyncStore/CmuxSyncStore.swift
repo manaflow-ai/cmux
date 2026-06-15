@@ -7,18 +7,21 @@ private let syncStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "Cmux
 /// Local-first sync store: one raw-SQLite3 database backing the generic sync
 /// substrate (DESIGN.md §4). This is a deliberate clone of
 /// ``MobilePairedMacStore``'s pattern — an `actor` serializing a
-/// `SQLITE_OPEN_FULLMUTEX` connection, `PRAGMA user_version` lazy migrations, a
-/// `BindValue` binder — extended to one generic `sync_records` table keyed by
+/// `SQLITE_OPEN_FULLMUTEX` connection (owned by ``SyncDatabase``, which keeps the
+/// raw handle private and provides the binder), with `PRAGMA user_version` lazy
+/// migrations — extended to one generic `sync_records` table keyed by
 /// `(team_id, collection, record_id)` plus a `sync_cursors` table. Typed facades
 /// (e.g. ``DeviceSyncFacade``) read/write through it; the store stays generic.
 public actor CmuxSyncStore: CmuxSyncStoring {
     public static let currentSchemaVersion: Int32 = 1
 
     private let dbPath: String
-    // `nonisolated(unsafe)` only so the nonisolated `deinit` can close the
-    // handle; every other access is actor-isolated and the connection is
-    // FULLMUTEX, matching MobilePairedMacStore.
-    nonisolated(unsafe) private var db: OpaquePointer?
+    // The raw `sqlite3` handle lives PRIVATELY inside `SyncDatabase` (see
+    // SyncDatabase.swift), so it is never module-visible and the actor-isolation
+    // invariant on the connection cannot be broken by other module files. This
+    // actor owns the only reference; `nonisolated` so the nonisolated `deinit` can
+    // close it (the type is Sendable, so no `unsafe` is needed).
+    nonisolated private let db: SyncDatabase
 
     /// The default on-disk location, `cmux-sync.sqlite3` next to the paired-Mac
     /// db under Application Support/cmux.
@@ -38,7 +41,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
 
     public init(databaseURL: URL) throws {
         self.dbPath = databaseURL.path
-        self.db = try Self.openConnection(path: databaseURL.path)
+        self.db = try SyncDatabase(path: databaseURL.path)
     }
 
     public init() throws {
@@ -46,28 +49,10 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     }
 
     deinit {
-        if let db { sqlite3_close_v2(db) }
+        db.close()
     }
 
     // MARK: - Open + migrate
-
-    private nonisolated static func openConnection(path: String) throws -> OpaquePointer {
-        var handle: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
-        let rc = sqlite3_open_v2(path, &handle, flags, nil)
-        guard rc == SQLITE_OK, let handle else {
-            if let handle { sqlite3_close_v2(handle) }
-            throw CmuxSyncStoreError.openFailed(rc)
-        }
-        for pragma in ["PRAGMA foreign_keys = ON;", "PRAGMA journal_mode = WAL;"] {
-            let prc = sqlite3_exec(handle, pragma, nil, nil, nil)
-            guard prc == SQLITE_OK else {
-                sqlite3_close_v2(handle)
-                throw CmuxSyncStoreError.stepFailed(prc, "")
-            }
-        }
-        return handle
-    }
 
     private var didMigrate = false
 
@@ -78,11 +63,11 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     }
 
     private func runMigrations() throws {
-        let version = try userVersion()
+        let version = try db.userVersion()
         switch version {
         case 0:
             try migrateToV1()
-            try setUserVersion(1)
+            try db.setUserVersion(1)
             fallthrough
         case 1:
             break
@@ -93,7 +78,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
 
     private func migrateToV1() throws {
         // One row per synced record across all collections; payload opaque JSON.
-        try exec("""
+        try db.exec("""
             CREATE TABLE IF NOT EXISTS sync_records (
                 team_id     TEXT    NOT NULL,
                 collection  TEXT    NOT NULL,
@@ -107,13 +92,13 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             );
         """)
         // Drives the launch query: live records of a collection in render order.
-        try exec("""
+        try db.exec("""
             CREATE INDEX IF NOT EXISTS idx_sync_records_render
               ON sync_records (team_id, collection, deleted, sort_key);
         """)
         // One row per (team, collection): the durable cursor watermark plus the
         // history generation (epoch) the cursor belongs to.
-        try exec("""
+        try db.exec("""
             CREATE TABLE IF NOT EXISTS sync_cursors (
                 team_id     TEXT    NOT NULL,
                 collection  TEXT    NOT NULL,
@@ -124,7 +109,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             );
         """)
         // Idempotency markers for the one-time transparent migration per account.
-        try exec("""
+        try db.exec("""
             CREATE TABLE IF NOT EXISTS sync_meta (
                 key   TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL
@@ -144,11 +129,8 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             WHERE team_id = ? AND collection = ? AND deleted = 0
             ORDER BY sort_key DESC;
         """
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
-        }
-        try bind(statement: statement, parameters: [.text(teamID), .text(collection)])
+        statement = try db.prepare(sql)
+        try db.bind(statement: statement, parameters: [.text(teamID), .text(collection)])
         var out: [StoredSyncRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             out.append(readRecord(statement, teamID: teamID, collection: collection))
@@ -161,11 +143,8 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = "SELECT cursor_rev FROM sync_cursors WHERE team_id = ? AND collection = ?;"
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
-        }
-        try bind(statement: statement, parameters: [.text(teamID), .text(collection)])
+        statement = try db.prepare(sql)
+        try db.bind(statement: statement, parameters: [.text(teamID), .text(collection)])
         if sqlite3_step(statement) == SQLITE_ROW {
             return Int(sqlite3_column_int64(statement, 0))
         }
@@ -177,11 +156,8 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = "SELECT epoch FROM sync_cursors WHERE team_id = ? AND collection = ?;"
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
-        }
-        try bind(statement: statement, parameters: [.text(teamID), .text(collection)])
+        statement = try db.prepare(sql)
+        try db.bind(statement: statement, parameters: [.text(teamID), .text(collection)])
         if sqlite3_step(statement) == SQLITE_ROW {
             return Int(sqlite3_column_int64(statement, 0))
         }
@@ -199,7 +175,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         now: Date
     ) throws {
         try ensureReady()
-        try transaction {
+        try db.transaction {
             for record in records {
                 try applyOneRecord(teamID: teamID, collection: collection, record: record, sortKey: sortKeyFor(record))
             }
@@ -219,7 +195,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         now: Date
     ) throws {
         try ensureReady()
-        try transaction {
+        try db.transaction {
             // Reset detection. The DO history was reset/rolled back when either:
             //   (a) our local cursor is AHEAD of this snapshot's rev (the worker
             //       forced this snapshot because cursor > head), OR
@@ -293,7 +269,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     /// from an obsolete history.
     private func forceApplyRecord(teamID: String, collection: String, record: SyncWireRecord, sortKey: Double) throws {
         let updatedAtSeconds = record.updatedAt / 1000.0
-        try exec("""
+        try db.exec("""
             INSERT INTO sync_records (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection, record_id) DO UPDATE SET
@@ -325,7 +301,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         // Wire updatedAt is epoch ms; the column is epoch seconds. This /1000 is
         // the single documented unit boundary (DESIGN.md §4.1).
         let updatedAtSeconds = record.updatedAt / 1000.0
-        try exec("""
+        try db.exec("""
             INSERT INTO sync_records (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection, record_id) DO UPDATE SET
@@ -360,7 +336,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         // INSERT OR IGNORE keyed on the PK: a provisional row never overwrites an
         // existing record (provisional or authoritative). rev = 0 marks it
         // unconfirmed; a real DO record (rev >= 1) later wins by the apply guard.
-        try exec("""
+        try db.exec("""
             INSERT OR IGNORE INTO sync_records
                 (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
             VALUES (?, ?, ?, 0, ?, ?, 0, ?);
@@ -378,30 +354,27 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         try ensureReady()
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, "SELECT value FROM sync_meta WHERE key = ?;", -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
-        }
-        try bind(statement: statement, parameters: [.text(migrationKey(accountID: accountID, teamID: teamID))])
+        statement = try db.prepare("SELECT value FROM sync_meta WHERE key = ?;")
+        try db.bind(statement: statement, parameters: [.text(migrationKey(accountID: accountID, teamID: teamID))])
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
     public func markMigrationCompleted(accountID: String, teamID: String) throws {
         try ensureReady()
-        try exec("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, '1');",
+        try db.exec("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, '1');",
                  binding: [.text(migrationKey(accountID: accountID, teamID: teamID))])
     }
 
     public func clear(teamID: String) throws {
         try ensureReady()
-        try transaction {
-            try exec("DELETE FROM sync_records WHERE team_id = ?;", binding: [.text(teamID)])
-            try exec("DELETE FROM sync_cursors WHERE team_id = ?;", binding: [.text(teamID)])
+        try db.transaction {
+            try db.exec("DELETE FROM sync_records WHERE team_id = ?;", binding: [.text(teamID)])
+            try db.exec("DELETE FROM sync_cursors WHERE team_id = ?;", binding: [.text(teamID)])
             // Clear this team's migration markers too, so a re-sign-in re-seeds
             // the provisional fallback rows we just deleted. The stored key holds
             // the RAW team id; escape it only for the LIKE pattern (so a team id
             // containing `_`, `%`, or `\` still matches its own stored key).
-            try exec("DELETE FROM sync_meta WHERE key LIKE ? ESCAPE '\\';",
+            try db.exec("DELETE FROM sync_meta WHERE key LIKE ? ESCAPE '\\';",
                      binding: [.text("\(escapeLike(migrationKeyPrefix(teamID: teamID)))%")])
         }
     }
@@ -434,9 +407,8 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = "SELECT rev FROM sync_records WHERE team_id = ? AND collection = ? AND record_id = ?;"
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else { throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage()) }
-        try bind(statement: statement, parameters: [.text(teamID), .text(collection), .text(recordID)])
+        statement = try db.prepare(sql)
+        try db.bind(statement: statement, parameters: [.text(teamID), .text(collection), .text(recordID)])
         if sqlite3_step(statement) == SQLITE_ROW {
             return Int(sqlite3_column_int64(statement, 0))
         }
@@ -450,9 +422,8 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             SELECT record_id FROM sync_records
             WHERE team_id = ? AND collection = ? AND rev >= ? AND rev <= ?;
         """
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else { throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage()) }
-        try bind(statement: statement, parameters: [
+        statement = try db.prepare(sql)
+        try db.bind(statement: statement, parameters: [
             .text(teamID), .text(collection), .int(Int64(minRev)), .int(Int64(maxRev)),
         ])
         var ids: [String] = []
@@ -468,7 +439,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     /// deletion watermark). Excluded from the live read; its rev guards against a
     /// later stale delta resurrecting the record. Idempotent via the PK upsert.
     private func tombstoneAt(teamID: String, collection: String, recordID: String, rev: Int, now: Date) throws {
-        try exec("""
+        try db.exec("""
             INSERT INTO sync_records (team_id, collection, record_id, rev, updated_at, sort_key, deleted, payload)
             VALUES (?, ?, ?, ?, ?, 0, 1, '{}')
             ON CONFLICT(team_id, collection, record_id) DO UPDATE SET
@@ -489,7 +460,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     /// the existing epoch (the delta path); a value adopts the server epoch (a
     /// snapshot commit). On first insert, a nil epoch defaults to 0.
     private func setCursor(teamID: String, collection: String, to rev: Int, epoch: Int? = nil, now: Date) throws {
-        try exec("""
+        try db.exec("""
             INSERT INTO sync_cursors (team_id, collection, cursor_rev, epoch, synced_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection) DO UPDATE SET
@@ -506,7 +477,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
     /// a reset snapshot to move the cursor DOWN to the new (lower) head and into
     /// the new history generation so the client converges to the reset DO history.
     private func forceCursor(teamID: String, collection: String, to rev: Int, epoch: Int, now: Date) throws {
-        try exec("""
+        try db.exec("""
             INSERT INTO sync_cursors (team_id, collection, cursor_rev, epoch, synced_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(team_id, collection) DO UPDATE SET
@@ -519,101 +490,4 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         ])
     }
 
-    private func readRecord(_ statement: OpaquePointer?, teamID: String, collection: String) -> StoredSyncRecord {
-        let recordID = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
-        let rev = Int(sqlite3_column_int64(statement, 1))
-        let updatedAt = sqlite3_column_double(statement, 2)
-        let sortKey = sqlite3_column_double(statement, 3)
-        let deleted = sqlite3_column_int(statement, 4) != 0
-        let payload = sqlite3_column_text(statement, 5).map { String(cString: $0) } ?? "{}"
-        return StoredSyncRecord(
-            collection: collection,
-            recordID: recordID,
-            rev: rev,
-            updatedAt: updatedAt,
-            sortKey: sortKey,
-            deleted: deleted,
-            payloadJSON: Data(payload.utf8)
-        )
-    }
-
-    private func jsonString(_ data: Data) -> String {
-        String(data: data, encoding: .utf8) ?? "{}"
-    }
-
-    private func userVersion() throws -> Int32 {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &statement, nil)
-        guard rc == SQLITE_OK else { throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage()) }
-        let step = sqlite3_step(statement)
-        guard step == SQLITE_ROW else { throw CmuxSyncStoreError.stepFailed(step, lastErrorMessage()) }
-        return sqlite3_column_int(statement, 0)
-    }
-
-    private func setUserVersion(_ version: Int32) throws {
-        try exec("PRAGMA user_version = \(version);")
-    }
-
-    // MARK: - Statement helpers (mirror MobilePairedMacStore)
-
-    private enum BindValue {
-        case text(String)
-        case int(Int64)
-        case real(Double)
-        case null
-    }
-
-    private func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
-        if parameters.isEmpty {
-            let rc = sqlite3_exec(db, sql, nil, nil, nil)
-            guard rc == SQLITE_OK else { throw CmuxSyncStoreError.stepFailed(rc, lastErrorMessage()) }
-            return
-        }
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else { throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage()) }
-        try bind(statement: statement, parameters: parameters)
-        let step = sqlite3_step(statement)
-        guard step == SQLITE_DONE || step == SQLITE_ROW else {
-            throw CmuxSyncStoreError.stepFailed(step, lastErrorMessage())
-        }
-    }
-
-    private func bind(statement: OpaquePointer?, parameters: [BindValue]) throws {
-        for (index, value) in parameters.enumerated() {
-            let pos = Int32(index + 1)
-            let rc: Int32
-            switch value {
-            case .text(let s):
-                rc = s.withCString { ptr in
-                    sqlite3_bind_text(statement, pos, ptr, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-                }
-            case .int(let i):
-                rc = sqlite3_bind_int64(statement, pos, i)
-            case .real(let d):
-                rc = sqlite3_bind_double(statement, pos, d)
-            case .null:
-                rc = sqlite3_bind_null(statement, pos)
-            }
-            guard rc == SQLITE_OK else { throw CmuxSyncStoreError.stepFailed(rc, lastErrorMessage()) }
-        }
-    }
-
-    private func transaction(_ block: () throws -> Void) throws {
-        try exec("BEGIN IMMEDIATE;")
-        do {
-            try block()
-            try exec("COMMIT;")
-        } catch {
-            _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
-            throw error
-        }
-    }
-
-    private func lastErrorMessage() -> String {
-        guard let cString = sqlite3_errmsg(db) else { return "" }
-        return String(cString: cString)
-    }
 }

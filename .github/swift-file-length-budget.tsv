@@ -148,7 +148,6 @@
 621	cmuxTests/FinderFileDropRegressionTests.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
-619	Packages/CmuxSyncStore/Sources/CmuxSyncStore/CmuxSyncStore.swift
 614	Sources/PortScanner.swift
 614	cmuxTests/SessionIndexViewTests.swift
 611	Sources/TerminalController+ControlPaneContext.swift
