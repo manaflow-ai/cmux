@@ -574,10 +574,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
 
         guard ensureInstalled() else { return }
-        let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
+        let shouldPromote = CommandPaletteOverlayPromotionPolicy(
             previouslyVisible: wasVisible,
             isVisible: isVisible
-        )
+        ).shouldPromote
 #if DEBUG
         if let window {
             cmuxDebugLog(
@@ -5108,7 +5108,7 @@ struct ContentView: View {
             hasSearchIndex: searchIndex != nil,
             corpusCount: searchCorpus.count
         ) {
-            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 searchCorpusByID: searchCorpusByID,
@@ -5164,7 +5164,7 @@ struct ContentView: View {
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
             let previewMatches = shouldApplyPreviewResults
-                ? CommandPaletteSearchOrchestrator.previewSearchMatches(
+                ? CommandPaletteSearchOrchestrator().previewSearchMatches(
                     scope: scope,
                     searchIndex: searchIndex,
                     searchCorpus: searchCorpus,
@@ -5216,7 +5216,7 @@ struct ContentView: View {
 
             guard !Task.isCancelled else { return }
 
-            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 searchCorpusByID: searchCorpusByID,
@@ -5439,7 +5439,7 @@ struct ContentView: View {
             for workspace in workspaces {
                 let workspaceName = workspaceDisplayName(workspace)
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
-                let workspaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
                         "workspace",
                         "switch",
@@ -5449,7 +5449,7 @@ struct ContentView: View {
                     ] + windowKeywords,
                     metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                     detail: .workspace
-                )
+                ).keywords
                 let workspaceId = workspace.id
                 entries.append(
                     CommandPaletteCommand(
@@ -5483,7 +5483,7 @@ struct ContentView: View {
                     )
                     let surfaceKindLabel = commandPaletteSurfaceKindLabel(for: panel.panelType)
                     let surfaceCommandId = "switcher.surface.\(panelId.uuidString.lowercased())"
-                    let surfaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                    let surfaceKeywords = CommandPaletteSwitcherSearchIndexer(
                         baseKeywords: [
                             "surface",
                             "tab",
@@ -5495,7 +5495,7 @@ struct ContentView: View {
                         ] + commandPaletteSurfaceKeywords(for: panel.panelType) + windowKeywords,
                         metadata: commandPaletteSurfaceSearchMetadata(for: workspace, panelId: panelId),
                         detail: .surface
-                    )
+                    ).keywords
                     entries.append(
                         CommandPaletteCommand(
                             id: surfaceCommandId,
@@ -10927,7 +10927,7 @@ struct VerticalTabsSidebar: View {
     // finite empty-area height keeps it hidden when content fits (#3241).
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
     @ViewBuilder
@@ -11828,10 +11828,9 @@ struct VerticalTabsSidebar: View {
         insertionPosition: Int,
         orderedRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> CmuxSidebarProviderWorkspaceMove? {
-        ExtensionSidebarBrowserStackDropPlanner.move(
+        ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
             draggedWorkspaceId: workspaceId,
-            insertionPosition: insertionPosition,
-            orderedRows: orderedRows
+            insertionPosition: insertionPosition
         )
     }
 
@@ -16213,12 +16212,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             pinnedTabIds: [],
             pointerY: info.location.y,
             targetHeight: targetRowHeight
-        ) ?? ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+        ) ?? ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).sectionBoundaryIndicator(
             draggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetWorkspaceId,
             pointerY: info.location.y,
-            targetHeight: targetRowHeight,
-            orderedRows: orderedRows
+            targetHeight: targetRowHeight
         )
     }
 
@@ -16244,19 +16242,17 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
         insertionPosition: Int,
         indicator: SidebarDropIndicator?
     ) -> CmuxSidebarProviderWorkspaceMove? {
-        ExtensionSidebarBrowserStackDropPlanner.move(
+        ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
             draggedWorkspaceId: draggedWorkspaceId,
             insertionPosition: insertionPosition,
-            orderedRows: orderedRows,
             preferredTargetSectionId: preferredTargetSectionId(indicator: indicator)
         )
     }
 
     private func preferredTargetSectionId(indicator: SidebarDropIndicator?) -> String? {
-        ExtensionSidebarBrowserStackDropPlanner.preferredSectionId(
+        ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).preferredSectionId(
             targetWorkspaceId: targetWorkspaceId,
-            indicator: indicator,
-            orderedRows: orderedRows
+            indicator: indicator
         )
     }
 }
@@ -16299,10 +16295,9 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
         }
         guard let draggedTabId,
               let insertionPosition = insertionPositionForEndMove(draggedWorkspaceId: draggedTabId),
-              let move = ExtensionSidebarBrowserStackDropPlanner.move(
+              let move = ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
                 draggedWorkspaceId: draggedTabId,
-                insertionPosition: insertionPosition,
-                orderedRows: orderedRows
+                insertionPosition: insertionPosition
               ) else {
             return false
         }
