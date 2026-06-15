@@ -12,22 +12,23 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `55b399077`, which adds precision pixel-scroll
+Current cmux pinned fork head: `5829274d4`, which adds precision pixel-scroll
 rendering for primary-screen scrollback on top of `5697db81` and lets macOS
 native live scroll submit a fractional row offset directly to Ghostty.
 Precision scroll input now accumulates a fractional pixel offset, advances the
 terminal viewport only when a full row boundary is crossed, and passes the
 remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
-text, and images translate between rows. cmux iOS uses this for local scrollback
-on non-alt terminal content without waiting for a host round trip, and macOS
-uses the same renderer path while AppKit remains the native scroll gesture
-owner. The renderer-space pixel-scroll invariant is that positive
+text, and images translate between rows. The render state preloads one
+render-only guard row above and below the visible viewport when available, then
+shifts the shader uniform by the guard-row origin so fractional motion reveals
+real adjacent rows instead of empty edge pixels. cmux iOS uses this for local
+scrollback on non-alt terminal content without waiting for a host round trip,
+and macOS uses the same renderer path while AppKit remains the native scroll
+gesture owner. The renderer-space pixel-scroll invariant is that positive
 `pixel_scroll_offset_y` moves rendered cells upward, matching positive fractional
-row offsets from the top of scrollback. The patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
-visual-effect changes in parkers0405/ghostty-pixel-scroll. It also does not port
-Parker's larger hidden extra-row renderer changes, so edge fill during sub-row
-movement is the main conflict/risk area if upstream renderer row-buffer logic
-changes.
+row offsets from the top of scrollback. The patch intentionally avoids the
+unrelated Neovim GUI, cursor animation, and visual-effect changes in
+parkers0405/ghostty-pixel-scroll.
 
 The previous head was `5697db81`, which adds the Darwin-only
 `ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
@@ -71,6 +72,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `a0f40f77` (Forward macOS wheel events as precision input)
   - `f644b4c10` (Drive macOS scrollback by fractional row offset)
   - `55b399077` (Fix fractional scroll renderer direction)
+  - `5829274d4` (Preload guard rows for smooth pixel scrolling)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -100,6 +102,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     moving in the same direction as committed whole-row viewport changes.
   - Preserve the row-based sync path for scrollbar state coming from the core;
     only user live scrolling should submit fractional offsets from AppKit.
+  - Preserve render-state overscan for the fractional scroll path. `rows` stays
+    the visible terminal height, while `row_data` may include render-only guard
+    rows and `viewport_row` maps visible viewport y=0 into that render window.
   - If upstream changes `SurfaceScrollView`, keep AppKit as the owner of gesture
     position and Ghostty as the owner of terminal/render state.
 
@@ -131,9 +136,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - Inspired by `parkers0405/ghostty-pixel-scroll`, but limited to terminal
     precision scrollback. Do not wholesale merge Parker's fork without separating
     unrelated Neovim GUI, animation, cursor, and visual-effect changes.
-  - Parker's fork also renders hidden extra rows to avoid edge gaps during
-    fractional movement. This cmux patch does not port that larger row-buffer
-    change.
+  - The renderer now requests one row of render-only overscan above and below
+    the visible viewport when available, preventing first/last row popping while
+    preserving the terminal's visible row count.
 
 ### 2) macOS display link restart on display changes
 
