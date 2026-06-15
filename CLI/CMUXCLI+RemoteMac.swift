@@ -60,7 +60,6 @@ extension CMUXCLI {
             throw CLIError(message: "Usage: cmux remote mac open <user@mac>")
         }
         let options = try parseRemoteMacOpenOptions(rest, windowOverride: windowOverride)
-        let targetWindowRaw = try remoteMacTargetWindowRaw(options: options, client: client)
         let remoteWindow = try resolveRemoteMacWindowScope(options)
         let mint = try mintRemoteMacAttachTicket(options)
         let tunneled = try CmxSSHTunneledAttachTicket(
@@ -80,6 +79,8 @@ extension CMUXCLI {
 
         let workspaceName = options.workspaceName ?? "cmux:\(options.destination)"
         let attachURL = try tunneled.attachURL().absoluteString
+        let targetWindowRaw = try remoteMacTargetWindowRaw(options: options, client: client)
+        let createdWindowRaw = options.createNewWindow ? targetWindowRaw : nil
         let sshCommandOptions = SSHCommandOptions(
             destination: options.destination,
             port: options.sshPort,
@@ -95,27 +96,32 @@ extension CMUXCLI {
         )
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
-        _ = try runSSHWithOptions(
-            sshCommandOptions,
-            relayID: relayID,
-            relayToken: relayToken,
-            client: client,
-            jsonOutput: jsonOutput,
-            idFormat: idFormat,
-            decorateConfigureParams: { params in
-                params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
-                params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
-                params["remote_mac_window_id"] = remoteWindow.id
+        do {
+            _ = try runSSHWithOptions(
+                sshCommandOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                decorateConfigureParams: { params in
+                    params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
+                    params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+                    params["remote_mac_window_id"] = remoteWindow.id
+                }
+            ) { payload in
+                payload["remote_mac_attach_url"] = attachURL
+                payload["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
+                payload["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+                payload["remote_mac_window_id"] = remoteWindow.id
+                if let remoteWindowRef = remoteWindow.ref {
+                    payload["remote_mac_window_ref"] = remoteWindowRef
+                }
+                payload["remote_mac_ticket"] = mint.rawResponse["ticket"]
             }
-        ) { payload in
-            payload["remote_mac_attach_url"] = attachURL
-            payload["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
-            payload["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
-            payload["remote_mac_window_id"] = remoteWindow.id
-            if let remoteWindowRef = remoteWindow.ref {
-                payload["remote_mac_window_ref"] = remoteWindowRef
-            }
-            payload["remote_mac_ticket"] = mint.rawResponse["ticket"]
+        } catch {
+            closeRemoteMacCreatedWindowIfNeeded(createdWindowRaw, client: client)
+            throw error
         }
         if !jsonOutput {
             print("remote_window_id=\(remoteWindow.id)")
@@ -291,6 +297,14 @@ extension CMUXCLI {
         return windowID
     }
 
+    private func closeRemoteMacCreatedWindowIfNeeded(_ windowRaw: String?, client: SocketClient) {
+        guard let windowRaw = windowRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !windowRaw.isEmpty else {
+            return
+        }
+        _ = try? sendV1Command("close_window \(windowRaw)", client: client)
+    }
+
     private func parseNewWindowID(_ response: String) -> String {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("OK ") {
@@ -416,7 +430,7 @@ extension CMUXCLI {
             workspaceName: nil,
             windowRaw: nil,
             noFocus: true,
-            sshOptions: remoteMacSSHOptionsWithNetworkDefaults(options.sshOptions),
+            sshOptions: remoteMacSSHOptionsForPreflight(options.sshOptions),
             extraArguments: [posixShellCommand(remoteScript)],
             localSocketPath: "",
             remoteRelayPort: 0,
@@ -440,51 +454,59 @@ extension CMUXCLI {
         return merged
     }
 
+    private func remoteMacSSHOptionsForPreflight(_ options: [String]) -> [String] {
+        var merged = remoteMacSSHOptionsWithNetworkDefaults(options)
+        if !hasSSHOptionKey(merged, key: "BatchMode") {
+            merged.append("BatchMode=yes")
+        }
+        if !hasSSHOptionKey(merged, key: "NumberOfPasswordPrompts") {
+            merged.append("NumberOfPasswordPrompts=0")
+        }
+        if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
+            merged.append("StrictHostKeyChecking=accept-new")
+        }
+        return merged
+    }
+
     private func runRemoteMacSSHCommand(arguments: [String]) throws -> String {
         guard let launchPath = arguments.first else {
             throw CLIError(message: "remote mac open: could not construct ssh command")
         }
-        let fileManager = FileManager.default
-        let tempDirectory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-remote-mac-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDirectory) }
-
-        let stdoutURL = tempDirectory.appendingPathComponent("stdout")
-        let stderrURL = tempDirectory.appendingPathComponent("stderr")
-        fileManager.createFile(atPath: stdoutURL.path, contents: nil)
-        fileManager.createFile(atPath: stderrURL.path, contents: nil)
-        let stdoutFile = try FileHandle(forWritingTo: stdoutURL)
-        let stderrFile = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stdoutFile.close()
-            try? stderrFile.close()
-        }
-
-        let process = Process()
+        let result: CLIProcessResult
         if launchPath.contains("/") {
-            process.executableURL = URL(fileURLWithPath: launchPath)
-            process.arguments = Array(arguments.dropFirst())
+            result = CLIProcessRunner.runProcess(
+                executablePath: launchPath,
+                arguments: Array(arguments.dropFirst()),
+                timeout: 30
+            )
         } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = arguments
+            result = CLIProcessRunner.runProcess(
+                executablePath: "/usr/bin/env",
+                arguments: arguments,
+                timeout: 30
+            )
         }
-        process.standardOutput = stdoutFile
-        process.standardError = stderrFile
-        do {
-            try process.run()
-        } catch {
-            throw CLIError(message: "remote mac open: failed to launch ssh")
+        if result.timedOut {
+            throw CLIError(message: "remote mac open: ssh preflight timed out after 30 seconds")
         }
-        process.waitUntilExit()
-        try? stdoutFile.close()
-        try? stderrFile.close()
-        let outputData = (try? Data(contentsOf: stdoutURL)) ?? Data()
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            throw CLIError(message: "remote mac open: ssh exited with status \(process.terminationStatus)")
+        guard result.status == 0 else {
+            let details = compactRemoteMacSSHError(stderr: result.stderr, stdout: result.stdout)
+            throw CLIError(message: "remote mac open: ssh exited with status \(result.status)\(details)")
         }
-        return output
+        return result.stdout
+    }
+
+    private func compactRemoteMacSSHError(stderr: String, stdout: String) -> String {
+        let combined = [stderr, stdout]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !combined.isEmpty else {
+            return ""
+        }
+        let maxLength = 600
+        let clipped = combined.count > maxLength ? String(combined.prefix(maxLength)) + "..." : combined
+        return ": \(clipped)"
     }
 
     private func decodeRemoteMacJSONObject(_ output: String) throws -> [String: Any] {

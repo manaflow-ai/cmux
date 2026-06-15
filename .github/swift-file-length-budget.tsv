@@ -189,6 +189,7 @@
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
+526	CLI/CMUXCLI+RemoteMac.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 522	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
@@ -205,7 +206,6 @@
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
-504	CLI/CMUXCLI+RemoteMac.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
 502	Packages/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
