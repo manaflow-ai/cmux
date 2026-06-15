@@ -27,6 +27,7 @@ extension CanvasRootView {
             // settle through the normal path.
             if event.type == .magnify {
                 self.scrollView.magnify(with: event)
+                self.updateMinimap(reveal: true)
                 return nil
             }
 
@@ -143,7 +144,9 @@ extension CanvasRootView {
             context.duration = 0.25
             host.animator().alphaValue = 0
         }, completionHandler: { [weak host] in
-            host?.removeFromSuperview()
+            Task { @MainActor [weak host] in
+                host?.removeFromSuperview()
+            }
         })
         commandScrollHintHost = nil
     }
