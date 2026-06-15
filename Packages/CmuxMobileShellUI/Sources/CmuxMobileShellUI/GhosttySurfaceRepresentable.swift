@@ -273,6 +273,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteText text: String) {
+            // A committed block of text (dictation, autocorrect, keyboard
+            // clipboard insert). Send it through the Mac's bracketed-paste RPC so
+            // newlines stay part of one paste instead of fragmenting into Returns.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalPasteText(text, surfaceID: self.surfaceID)
+            }
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
             // Report our natural grid to the Mac and pin our render to the
             // effective grid it returns (the smallest across every attached

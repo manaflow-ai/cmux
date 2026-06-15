@@ -20,6 +20,11 @@ extension MobileHostService {
             "notification.dismiss.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
+            // Bracketed-paste `terminal.paste` RPC. iOS routes multi-character
+            // commits (dictation, autocorrect, keyboard/clipboard paste) here so
+            // they land as one paste instead of fragmenting into per-key input;
+            // it falls back to `terminal.input` against a Mac that omits this.
+            "terminal.paste.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
