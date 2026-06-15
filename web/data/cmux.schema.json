@@ -656,7 +656,7 @@
         "hideAllDetails": {
           "type": "boolean",
           "default": false,
-          "description": "Hide all per-workspace detail rows. Enabling this also stops backend remote SSH port scanning for remote workspaces, since no detected ports are displayed."
+          "description": "Hide all per-workspace detail rows."
         },
         "wrapWorkspaceTitles": {
           "type": "boolean",
@@ -717,7 +717,7 @@
         "showPorts": {
           "type": "boolean",
           "default": true,
-          "description": "Show listening ports. Disabling this (or enabling hideAllDetails) also stops backend remote SSH port scanning for remote workspaces."
+          "description": "Show listening ports."
         },
         "showLog": {
           "type": "boolean",
