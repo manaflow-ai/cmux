@@ -1,0 +1,25 @@
+# cmux Subrouter control plane. Traffic routing still lives in the Subrouter
+# data plane; this Worker owns the deployable Durable Object control surface.
+#
+# CI/CD mirrors workers/presence:
+#   PR: typecheck, unit tests, wrangler deploy --dry-run
+#   main: wrangler deploy, applying Durable Object class migrations atomically.
+# Past migration tags are append-only. Add a new migration for class changes.
+
+name = "cmux-subrouter"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "SUBROUTER_CONTROL"
+class_name = "SubrouterControl"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SubrouterControl"]
+
+# Intentionally workers.dev-only for the first control-plane deploy. Add a
+# custom_domain route after the managed Cloud VM router lifecycle is ready.

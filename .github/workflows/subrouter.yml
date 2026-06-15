@@ -1,0 +1,86 @@
+# CI/CD for the Subrouter control plane (workers/subrouter).
+#
+# This mirrors workers/presence: PRs run typecheck + unit tests + a Wrangler
+# dry-run build. Pushes to main deploy to Cloudflare. `wrangler deploy` applies
+# Durable Object migrations declared in wrangler.toml atomically with upload.
+
+name: subrouter
+
+on:
+  pull_request:
+    paths:
+      - "workers/subrouter/**"
+      - ".github/workflows/subrouter.yml"
+  push:
+    branches: [main]
+    paths:
+      - "workers/subrouter/**"
+      - ".github/workflows/subrouter.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/subrouter
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Wrangler dry-run build
+        run: bunx wrangler deploy --dry-run --outdir dist
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: subrouter-deploy
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/subrouter
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Subrouter deploy needs repository secrets ${missing[*]}." \
+              "Use the same Cloudflare account deploy secrets as workers/presence."
+            exit 1
+          fi
+
+      - name: Deploy (applies DO migrations atomically)
+        run: bunx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
