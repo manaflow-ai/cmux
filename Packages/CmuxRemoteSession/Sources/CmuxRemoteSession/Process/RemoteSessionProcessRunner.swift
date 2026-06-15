@@ -95,36 +95,24 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.terminationHandler = { _ in
             exitSemaphore.signal()
         }
-        // Snapshot independent descriptors on the calling thread, while the
-        // handles are guaranteed open, and drain those duplicates. The contract
-        // (pinned by the capture-survives-teardown test) is that closing the
-        // read handles mid-run must not break the run. A closed FileHandle's
-        // original descriptor can be recycled under a background reader; a
-        // duplicated descriptor stays owned by the reader until it closes it.
-        let stdoutDescriptor = dup(stdoutHandle.fileDescriptor)
-        let stderrDescriptor = dup(stderrHandle.fileDescriptor)
-        let duplicateDescriptorErrno = errno
-        guard stdoutDescriptor >= 0, stderrDescriptor >= 0 else {
-            if stdoutDescriptor >= 0 {
-                _ = Darwin.close(stdoutDescriptor)
-            }
-            if stderrDescriptor >= 0 {
-                _ = Darwin.close(stderrDescriptor)
-            }
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-            let executableName = URL(fileURLWithPath: executable).lastPathComponent
-            let reason = String(cString: strerror(duplicateDescriptorErrno))
-            throw NSError(domain: "cmux.remote.process", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Failed to prepare process pipes for \(executableName): \(reason)",
-            ])
+        // Duplicate the descriptors on the calling thread, while the handles
+        // are guaranteed open, and drain the duplicates. The contract (pinned
+        // by the capture-survives-teardown test) is that closing the read
+        // handles mid-run must not break or cross-wire capture: a closed
+        // FileHandle's fd number can be recycled by another process, but the
+        // duplicated fd remains attached to this pipe until the reader closes it.
+        let stdoutDescriptor = try duplicateReadDescriptor(stdoutHandle.fileDescriptor)
+        let stderrDescriptor: Int32
+        do {
+            stderrDescriptor = try duplicateReadDescriptor(stderrHandle.fileDescriptor)
+        } catch {
+            _ = Darwin.close(stdoutDescriptor)
+            throw error
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            defer {
-                _ = Darwin.close(stdoutDescriptor)
-                captureGroup.leave()
-            }
+            defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stdoutDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stdoutDescriptor)
             captureQueue.sync {
                 captureState.stdoutData = result.data
@@ -133,10 +121,8 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            defer {
-                _ = Darwin.close(stderrDescriptor)
-                captureGroup.leave()
-            }
+            defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stderrDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stderrDescriptor)
             captureQueue.sync {
                 captureState.stderrData = result.data
@@ -242,6 +228,14 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         ([URL(fileURLWithPath: executable).lastPathComponent] + arguments)
             .map(\.shellSingleQuoted)
             .joined(separator: " ")
+    }
+
+    private func duplicateReadDescriptor(_ fileDescriptor: Int32) throws -> Int32 {
+        let duplicate = Darwin.dup(fileDescriptor)
+        guard duplicate >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return duplicate
     }
 
     private func debugLog(_ message: @autoclosure () -> String) {
