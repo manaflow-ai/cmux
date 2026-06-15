@@ -40,7 +40,24 @@ public struct ChatScreen: View {
             height: height
         )
     }
+
+    /// Amount of the composer/action/keyboard stack covering the transcript.
+    /// The UIKit transcript table uses this as its bottom content inset, so its
+    /// visible viewport ends at the action bar's top edge instead of underneath it.
+    private var transcriptBottomContentInset: CGFloat {
+        guard transcriptFrame != .zero, composerFrame != .zero else { return 0 }
+        return max(0, transcriptFrame.maxY - composerFrame.minY)
+    }
     #endif
+
+    private var activeTranscriptBottomContentInset: CGFloat {
+        #if os(iOS)
+        transcriptBottomContentInset
+        #else
+        0
+        #endif
+    }
+
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
@@ -80,6 +97,7 @@ public struct ChatScreen: View {
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
             initialLoadFailed: store.initialLoadFailed,
             historyTruncatedAtHead: store.historyTruncatedAtHead,
+            bottomContentInset: activeTranscriptBottomContentInset,
             actions: rowActions,
             onReachTop: { Task { await store.loadOlder() } },
             onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
