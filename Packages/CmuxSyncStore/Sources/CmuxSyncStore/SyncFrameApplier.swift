@@ -39,7 +39,12 @@ public actor SyncFrameApplier {
     public static let defaultMaxBufferedRecords = 100_000
     /// Default ceiling on total records retained across deltas queued while a
     /// snapshot is still paging (bounds memory by records, not frame count).
-    public static let defaultMaxQueuedDeltaRecords = 100_000
+    /// Intentionally an order of magnitude TIGHTER than `defaultMaxBufferedRecords`:
+    /// deltas queued during paging are transient overhead the completing snapshot
+    /// will subsume, so the legitimate count is tiny (the devices collection is
+    /// presence-capped well under 10k) and a stalled-snapshot producer should be
+    /// cut off sooner here than on the snapshot pages themselves.
+    public static let defaultMaxQueuedDeltaRecords = 10_000
 
     public init(
         store: any CmuxSyncStoring,
