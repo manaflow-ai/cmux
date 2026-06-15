@@ -30,6 +30,7 @@ public struct AutoNamingStatus: Codable, Sendable, Equatable {
 /// handler records it when a naming pass reports a problem; the Settings UI
 /// reads it to show a single status line. Persisted as a JSON string under one
 /// key so it survives relaunch and is trivially observable.
+/// lint:allow namespace-type — stateless accessor; the `UserDefaults` store is injected per call via the `in:` parameter (used by tests), so there is no hidden global state to model as an instance.
 public enum AutoNamingStatusStore {
     public static let userDefaultsKey = "autoNamingLastStatus"
 

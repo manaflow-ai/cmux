@@ -32,6 +32,7 @@ public struct AutoNamingAgentOption: Sendable, Hashable {
 /// Lives in `CmuxSettings` (imported by both the app's Settings UI and the
 /// bundled `cmux` CLI) so the picker and the summarizer dispatch share one
 /// source of truth for which agents exist and which can actually summarize.
+/// lint:allow namespace-type — stateless, dependency-free agent data table shared verbatim by the Settings picker and the CLI summarizer dispatch.
 public enum AutoNamingAgentCatalog {
     /// Sentinel meaning "name each session with its own agent" — the default,
     /// identical to the original auto-naming behavior.
