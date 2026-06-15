@@ -174,6 +174,21 @@ struct TerminalComposerView: View {
             // view-recreation bug (the flag stayed true but SwiftUI rebuilt the
             // view), not an intentional dismiss.
             recordComposerEvent(.composerViewDisappear)
+            // Cancel any in-flight staging batch when the composer goes away (a
+            // terminal switch recreates this view with a new identity, so the
+            // outgoing one disappears; a dismissal unmounts it entirely). The
+            // batch's ImageIO work is structured under this task, so cancelling it
+            // propagates into the decode and stops fanning out temp files for a
+            // composer the user has already left. Without this, a switch right
+            // after a big pick leaves the encode running unobserved.
+            stagingTask.task?.cancel()
+        }
+        .onChange(of: terminalID) { _, _ in
+            // Defense in depth: if SwiftUI ever reuses this view's identity across
+            // a terminal switch (rather than recreating it), the `let terminalID`
+            // changing must also cancel the prior terminal's in-flight batch so its
+            // encode does not stage onto, or burn CPU for, the new terminal.
+            stagingTask.task?.cancel()
         }
         .onChange(of: isFieldFocused) { _, focused in
             // Mirror the field's focus into the store so a terminal switch knows
@@ -472,27 +487,51 @@ struct TerminalComposerView: View {
     /// decoded into a full-size raster and never re-encoded to a hundreds-of-MB
     /// PNG just to measure it. The per-image byte cap is enforced on the bounded
     /// result, downscaling further (JPEG, then progressively smaller) if needed.
-    /// Returns `nil` when the file is not a decodable image. Every returned field
-    /// is `Sendable` value data (`Data`), so nothing UIKit-reference crosses back
-    /// to the main actor. The caller deletes the temp file.
-    private static func prepare(url: URL) async -> PreparedAttachment? {
-        await Task.detached(priority: .userInitiated) {
-            // Read the image from the file URL: ImageIO maps it lazily and only
-            // ever decodes the downsampled thumbnail below, so the full-resolution
-            // raster is never materialized in memory.
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            guard let (data, format) = boundedSendPayload(from: source) else { return nil }
-            return PreparedAttachment(
-                data: data,
-                format: format,
-                thumbnail: downsampledImageData(
-                    from: source,
-                    maxPixelSize: thumbnailMaxPixelSize,
-                    type: "public.png",
-                    jpegQuality: nil
+    /// Returns `nil` when the file is not a decodable image OR when the staging
+    /// task was cancelled (a re-pick, a terminal switch, or the view
+    /// disappearing). Every returned field is `Sendable` value data (`Data`), so
+    /// nothing UIKit-reference crosses back to the main actor. The caller deletes
+    /// the temp file.
+    ///
+    /// STRUCTURED, not detached: this runs the heavy ImageIO inside a child task
+    /// group at background priority, so it is a child of the caller's (staging)
+    /// task and cancellation PROPAGATES into it. The old `Task.detached` did not
+    /// inherit cancellation, so cancelling the staging task left its ImageIO jobs
+    /// running and fanning out temp files. `nonisolated` so the synchronous decode
+    /// never runs on the main actor. The cancellation check before the heavy
+    /// `CGImageSourceCreateWithURL` skips the decode entirely once cancelled.
+    private nonisolated static func prepare(url: URL) async -> PreparedAttachment? {
+        // Bail before launching the decode if the staging task is already cancelled.
+        if Task.isCancelled { return nil }
+        return await withTaskGroup(of: PreparedAttachment?.self) { group in
+            group.addTask(priority: .background) {
+                // Re-check inside the child task: cancellation may have landed
+                // between the parent check and this body starting. Skip the
+                // expensive CGImageSourceCreateWithURL when cancelled.
+                if Task.isCancelled { return nil }
+                // Read the image from the file URL: ImageIO maps it lazily and only
+                // ever decodes the downsampled thumbnail below, so the full-resolution
+                // raster is never materialized in memory.
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                guard let (data, format) = boundedSendPayload(from: source) else { return nil }
+                // The send payload is the costly step; if cancellation landed while
+                // it ran, drop the result rather than also encoding the thumbnail.
+                if Task.isCancelled { return nil }
+                return PreparedAttachment(
+                    data: data,
+                    format: format,
+                    thumbnail: downsampledImageData(
+                        from: source,
+                        maxPixelSize: thumbnailMaxPixelSize,
+                        type: "public.png",
+                        jpegQuality: nil
+                    )
                 )
-            )
-        }.value
+            }
+            // Single child: its value is the prepared attachment (or nil). Awaiting
+            // the group here keeps the work structured under the staging task.
+            return await group.next() ?? nil
+        }
     }
 
     /// Produce the bounded SEND payload for one picked image from its ImageIO

@@ -345,6 +345,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).
     public static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
+    /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
+    /// just the target's. The per-terminal cap bounds one draft, but each live
+    /// terminal carries its own per-terminal budget, so staging photos across many
+    /// terminals/workspaces without sending grows linearly with terminal count and
+    /// can OOM. This global cap is enforced in the same atomic add path (on
+    /// @MainActor, summing across all keys at insert time is consistent) as a hard
+    /// reject: an add that would push the all-terminals total past this is dropped,
+    /// in addition to the per-terminal checks. 64 MB tolerates a couple of full
+    /// per-terminal drafts while still bounding the process.
+    public static let maxPendingAttachmentTotalBytesAllTerminals = 64 * 1024 * 1024
+    /// GLOBAL count budget summed across EVERY terminal's staged set. Bounds the
+    /// total number of staged images process-wide regardless of how they are spread
+    /// across terminals, enforced as a hard reject in the same atomic add path.
+    public static let maxPendingAttachmentCountAllTerminals = 20
     /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
     /// session. The composer's photo-staging path captures it before its
     /// (off-main) load + encode and re-checks it just before mutating the store:
@@ -2761,8 +2775,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///     selected terminal.
     /// - Returns: The new attachment's stable id, so the caller can key a side
     ///   cache (e.g. a downsampled thumbnail) to it; `nil` when nothing was
-    ///   staged (empty bytes, no target terminal, an over-cap single image, or an
-    ///   add that would exceed the per-terminal count or total-byte budget).
+    ///   staged (empty bytes, no target terminal, an over-cap single image, an
+    ///   add that would exceed the per-terminal count or total-byte budget, or one
+    ///   that would exceed the GLOBAL all-terminals count or byte budget).
     ///
     /// The count and total-byte caps are enforced HERE against the current staged
     /// set, not against a caller-side pre-await snapshot, so the check+insert is
@@ -2786,6 +2801,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Total-byte budget, likewise against the current set.
         let currentBytes = existing.reduce(0) { $0 + $1.data.count }
         guard currentBytes + data.count <= Self.maxPendingAttachmentTotalBytes else { return nil }
+        // GLOBAL caps, summed across ALL terminals' staged sets (not just the
+        // target's). The per-terminal checks above bound one draft, but each live
+        // terminal keeps its own per-terminal budget, so without a global cap
+        // staging across many terminals/workspaces grows unbounded with terminal
+        // count and can OOM. Summing all keys at insert time is consistent because
+        // this whole add path runs on @MainActor: no other mutation interleaves.
+        // A hard reject (no eviction) keeps the invariant simple and testable.
+        var globalCount = 0
+        var globalBytes = 0
+        for list in pendingAttachmentsByTerminalID.values {
+            globalCount += list.count
+            for item in list { globalBytes += item.data.count }
+        }
+        guard globalCount < Self.maxPendingAttachmentCountAllTerminals else { return nil }
+        guard globalBytes + data.count <= Self.maxPendingAttachmentTotalBytesAllTerminals else { return nil }
         let attachment = MobilePendingAttachment(data: data, format: format)
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         return attachment.id

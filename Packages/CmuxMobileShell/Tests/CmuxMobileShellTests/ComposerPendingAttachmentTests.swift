@@ -360,6 +360,94 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-a").count == cap)
     }
 
+    // MARK: - Global (all-terminals) caps
+
+    /// A composite whose single workspace holds `count` terminals (term-0 ...),
+    /// so a test can spread staged attachments across many terminals to drive the
+    /// GLOBAL budget while each terminal stays under its own per-terminal cap.
+    private static func makeMultiTerminalComposite(terminalCount: Int) -> MobileShellComposite {
+        let terminals = (0..<terminalCount).map { i in
+            MobileTerminalPreview(id: MobileTerminalPreview.ID(rawValue: "term-\(i)"), name: "t\(i)")
+        }
+        return MobileShellComposite(
+            workspaces: [MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: terminals)]
+        )
+    }
+
+    /// Staging across many terminals must stop at the GLOBAL byte budget even
+    /// though every individual terminal stays under its own per-terminal cap:
+    /// without the global cap the all-terminals total grows linearly with
+    /// terminal count and can OOM. One 4 MB image per terminal keeps each terminal
+    /// far under its 32 MB per-terminal budget, so only the global cap can bind.
+    @Test func globalByteBudgetRejectsAcrossManyTerminalsEachUnderPerTerminalCap() {
+        let globalBudget = MobileShellComposite.maxPendingAttachmentTotalBytesAllTerminals
+        let chunk = 4 * 1024 * 1024
+        let fits = globalBudget / chunk
+        // Enough terminals to overflow the global budget with one image each.
+        let composite = Self.makeMultiTerminalComposite(terminalCount: fits + 2)
+
+        var accepted = 0
+        var fill: UInt8 = 1
+        for i in 0..<(fits + 2) {
+            // Each terminal gets exactly one 4 MB image: per-terminal byte cap
+            // (32 MB) and per-terminal count cap (10) are never the binding limit.
+            let id = composite.addPendingAttachment(
+                Self.bytes(count: chunk, fill: fill),
+                format: "jpg",
+                forTerminalID: "term-\(i)"
+            )
+            if id != nil { accepted += 1 }
+            fill &+= 1
+        }
+
+        // Only as many as the global budget allows landed.
+        #expect(accepted == fits)
+        var globalBytes = 0
+        for i in 0..<(fits + 2) {
+            globalBytes += composite.pendingAttachments(forTerminalID: "term-\(i)").reduce(0) { $0 + $1.data.count }
+        }
+        #expect(globalBytes <= globalBudget)
+    }
+
+    /// Staging across many terminals must also stop at the GLOBAL count budget,
+    /// independent of bytes: tiny images spread one-per-terminal stay under every
+    /// per-terminal count cap (10) yet must be rejected once the all-terminals
+    /// total reaches the global count cap.
+    @Test func globalCountBudgetRejectsAcrossManyTerminalsEachUnderPerTerminalCap() {
+        let globalCount = MobileShellComposite.maxPendingAttachmentCountAllTerminals
+        let composite = Self.makeMultiTerminalComposite(terminalCount: globalCount + 3)
+
+        var accepted = 0
+        for i in 0..<(globalCount + 3) {
+            // One tiny image per terminal: per-terminal count cap (10) never binds.
+            let id = composite.addPendingAttachment(Self.bytes("img-\(i)"), format: "png", forTerminalID: "term-\(i)")
+            if id != nil { accepted += 1 }
+        }
+
+        #expect(accepted == globalCount)
+        var total = 0
+        for i in 0..<(globalCount + 3) {
+            total += composite.pendingAttachments(forTerminalID: "term-\(i)").count
+        }
+        #expect(total == globalCount)
+    }
+
+    /// The per-terminal caps still bind independently of the global cap: a single
+    /// terminal cannot exceed its own count cap even when the global budget has
+    /// ample headroom.
+    @Test func perTerminalCountCapStillBindsUnderGlobalHeadroom() {
+        let composite = Self.makeComposite()
+        let perTerminalCap = MobileShellComposite.maxPendingAttachmentCount
+        // Global count cap (20) > per-terminal cap (10), so the global cap has
+        // headroom; the per-terminal cap must still reject the 11th add.
+        for i in 0..<perTerminalCap {
+            #expect(composite.addPendingAttachment(Self.bytes("img-\(i)"), format: "png", forTerminalID: "term-a") != nil)
+        }
+        let overflow = composite.addPendingAttachment(Self.bytes("over"), format: "png", forTerminalID: "term-a")
+        #expect(overflow == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == perTerminalCap)
+    }
+
     @Test func submitKeepsAttachmentsWhenSendFails() async {
         let composite = Self.makeComposite()
         // No remoteClient is wired, so the image send fails (returns false). A
