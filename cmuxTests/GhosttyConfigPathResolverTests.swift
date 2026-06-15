@@ -370,7 +370,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -386,7 +386,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 .appendingPathComponent("config.ghostty", isDirectory: false)
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
                     appSupportDirectory: appSupportDirectory
                 ),
