@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Notes"
+  short_description: "Create, read, edit, and organize project notes in the cmux per-workspace Notes tree."
+  default_prompt: "Use this skill to manage project notes as real Markdown files in cmux's Notes sidebar tree: resolve the workspace notes root from $CMUX_WORKSPACE_NOTES_DIR, then create/read/edit/move/rename .md notes and folders (and file them under agent session folders). When reading, start from your own session's folder, then the workspace, then the project-wide .cmux/notes. Never move index-owned flat notes (the ones in `cmux note list`) by hand — use the cmux note CLI for those. Changes appear live in the Notes tab."

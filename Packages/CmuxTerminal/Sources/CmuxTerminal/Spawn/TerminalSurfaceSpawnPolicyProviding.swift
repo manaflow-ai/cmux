@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Live settings and control-plane reads the surface model performs while
 /// assembling a spawn.
 ///
@@ -12,4 +14,7 @@ public protocol TerminalSurfaceSpawnPolicyProviding: AnyObject {
 
     /// The active control socket path exported as `CMUX_SOCKET_PATH`.
     func controlSocketPath() -> String
+
+    /// The workspace Notes tree root exported as `CMUX_WORKSPACE_NOTES_DIR`, if any.
+    func workspaceNotesDirectory(workspaceId: UUID) -> String?
 }

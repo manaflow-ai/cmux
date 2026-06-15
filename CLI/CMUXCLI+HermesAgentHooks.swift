@@ -1,5 +1,5 @@
-import Foundation
 import CMUXAgentLaunch
+import Foundation
 
 extension CMUXCLI {
     func hermesAgentShellCommand(_ script: String) -> String {

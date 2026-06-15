@@ -1,10 +1,37 @@
-import CMUXAgentVault
 import Foundation
 
 public enum RovoDevSessionResolver {
     private struct RovoDevSessionCandidate {
         let sessionId: String
         let modified: Date
+    }
+
+    private enum RovoDevSessionMetadataFields {
+        private static let workspacePathKeys: [String] = [
+            "workspace_path",
+            "workspacePath",
+            "workspace",
+            "cwd",
+            "working_directory",
+            "workingDirectory",
+            "project_path",
+            "projectPath",
+        ]
+
+        static func workspacePath(from metadata: [String: Any]) -> String? {
+            firstString(from: metadata, keys: workspacePathKeys)
+        }
+
+        private static func firstString(from metadata: [String: Any], keys: [String]) -> String? {
+            for key in keys {
+                guard let value = metadata[key] as? String else { continue }
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
+        }
     }
 
     public static func inferredRovoDevSessionId(cwd: String?, env: [String: String]) -> String? {
@@ -19,7 +46,7 @@ public enum RovoDevSessionResolver {
             return nil
         }
 
-        let normalizedCwd = RovoDevIndex.normalizedPath(cwd)
+        let normalizedCwd = normalizedPath(cwd)
         var candidates: [RovoDevSessionCandidate] = []
         candidates.reserveCapacity(sessionURLs.count)
         for sessionURL in sessionURLs {
@@ -31,15 +58,15 @@ public enum RovoDevSessionResolver {
                   let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
             }
-            let workspace = RovoDevMetadataFields.workspacePath(from: metadata)
-            let normalizedWorkspace = RovoDevIndex.normalizedPath(workspace)
+            let workspace = RovoDevSessionMetadataFields.workspacePath(from: metadata)
+            let normalizedWorkspace = normalizedPath(workspace)
             guard rovoDevWorkspace(normalizedWorkspace, matches: normalizedCwd) else {
                 continue
             }
             let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
             let modified = max(
-                RovoDevIndex.contentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
-                RovoDevIndex.contentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
+                contentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
+                contentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
             )
             candidates.append(RovoDevSessionCandidate(
                 sessionId: sessionURL.lastPathComponent,
@@ -76,6 +103,27 @@ public enum RovoDevSessionResolver {
         guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace
+    }
+
+    private static func contentModificationDate(ofRegularFile url: URL) -> Date? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return values.contentModificationDate
+    }
+
+    private static func normalizedPath(_ path: String?) -> String? {
+        guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
     }
 
     public static func rovoDevPersistenceDir(fromConfig config: String) -> String? {

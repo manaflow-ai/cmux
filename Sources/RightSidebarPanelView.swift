@@ -13,15 +13,19 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
 nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
+    // Declaration order is the mode-switcher tab order: Notes (beta) sits
+    // immediately to the right of Vault.
     case files
     case find
     case sessions
+    case notes
     case feed
     case dock
 
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
+        case .notes: return String(localized: "rightSidebar.mode.notes", defaultValue: "Notes")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
@@ -32,6 +36,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     var symbolName: String {
         switch self {
         case .files: return "folder"
+        case .notes: return "note.text"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
@@ -42,6 +47,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
+        case .notes: return .switchRightSidebarToNotes
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
@@ -70,7 +76,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock:
+        case .notes, .sessions, .feed, .dock:
             return false
         }
     }
@@ -183,10 +189,15 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    @ObservedObject var notesTreeStore: NotesTreeStore
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
+    let onResumeNoteSession: (NotesSessionMarker) -> Void
+    let onFocusNoteTerminal: (UUID) -> Void
+    let onResolveTerminalNoteTarget: (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
@@ -205,6 +216,8 @@ struct RightSidebarPanelView: View {
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    private var notesEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
@@ -218,7 +231,9 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            notesEnabled: notesEnabled, feedEnabled: feedEnabled, dockEnabled: dockEnabled
+        )
     }
 
     private var focusShortcutHintAnimationValue: Bool {
@@ -290,6 +305,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: workspaceId) { _, newValue in
             synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
         }
+        .onChange(of: notesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
@@ -463,6 +479,19 @@ struct RightSidebarPanelView: View {
                     onOpenFilePreview: onOpenFilePreview,
                     presentation: .files
                 )
+            case .notes:
+                NotesTreePanelView(
+                    store: notesTreeStore,
+                    onOpenNote: onOpenNote,
+                    onResumeMarker: onResumeNoteSession,
+                    onFocusTerminalPanel: onFocusNoteTerminal,
+                    onResolveTerminalNoteTarget: onResolveTerminalNoteTarget
+                )
+                .onAppear {
+                    notesTreeStore.setVisible(true)
+                    notesTreeStore.reloadIfNeeded()
+                }
+                .onDisappear { notesTreeStore.setVisible(false) }
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,
@@ -517,6 +546,9 @@ struct RightSidebarPanelView: View {
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
+        }
+        if fileExplorerState.mode == .notes {
+            notesTreeStore.reloadIfNeeded()
         }
     }
 

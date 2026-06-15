@@ -109,7 +109,7 @@ extension KeyboardShortcutSettings.Action {
     /// test asserts the two stay aligned.
     var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
@@ -125,7 +125,7 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch:
             return .browserPanel
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel

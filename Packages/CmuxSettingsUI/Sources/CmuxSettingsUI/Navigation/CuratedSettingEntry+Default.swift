@@ -149,6 +149,11 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
+            // Pane tab bar
+            .init(section: .paneTabBar, id: "documentation", title: "Pane tab bar documentation", synonyms: "surface tab bar pane buttons more menu customize docs"),
+            .init(section: .paneTabBar, id: "global-config", title: "Global cmux.json", synonyms: "global config file cmux json user settings"),
+            .init(section: .paneTabBar, id: "project-config", title: "Project .cmux/cmux.json", synonyms: "project local directory scoped config cmux json"),
+
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),

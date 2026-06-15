@@ -104,47 +104,106 @@ struct MarkdownPanelView: View {
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    wordWrap: fileEditorWordWrap,
+                    onPointerDown: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
+    @ViewBuilder
     private var filePathHeader: some View {
-        PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.richtext",
-            filePath: panel.filePath,
-            foregroundColor: themeForegroundColor
-        ) {
-            if panel.displayMode == .text {
-                PanelHeaderIconButton(
-                    systemName: "arrow.counterclockwise",
-                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
-                    action: { panel.loadTextContent() }
+        if panel.isProjectNote {
+            // Project notes live at store-managed paths, so the header leads
+            // with the record title as a Google-Docs-style rename field
+            // instead of the meaningless file path (still available via the
+            // field's tooltip and the external-open menu).
+            HStack(spacing: 8) {
+                NoteTitleRenameField(
+                    title: panel.displayTitle,
+                    filePath: panel.filePath,
+                    foregroundColor: themeForegroundColor,
+                    onRename: { panel.renameNoteTitle($0) }
                 )
+                Spacer(minLength: 8)
+                headerTrailingControls
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(Color.clear)
+        } else {
+            PanelFilePathHeader(
+                iconSystemName: nil,
+                filePath: panel.filePath,
+                foregroundColor: themeForegroundColor
+            ) {
+                headerTrailingControls
+            }
+        }
+    }
 
-                PanelHeaderIconButton(
-                    systemName: "square.and.arrow.down",
-                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
-                    action: { panel.saveTextContent() }
-                )
-            }
-            if panel.displayMode == .preview {
-                MarkdownTypographyControl(panel: panel)
-            }
-            markdownModeButton
-            MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
-                onCopyMarkdown: { copyAsMarkdown() },
-                onCopyHTML: { copyAsHTML() }
+    @ViewBuilder
+    private var headerTrailingControls: some View {
+        // Notes auto-save, so the Save control only appears for plain
+        // Markdown files (which still save explicitly).
+        if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
+            PanelHeaderIconButton(
+                systemName: "square.and.arrow.down",
+                label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                isDisabled: !panel.isDirty || panel.isSaving,
+                action: { panel.saveTextContent() }
             )
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
-            )
+        }
+        if panel.displayMode == .preview {
+            MarkdownTypographyControl(panel: panel)
+        }
+        markdownModeButton
+        MarkdownPanelToolbar(
+            confirmation: copyConfirmation?.label,
+            onCopyMarkdown: { copyAsMarkdown() },
+            onCopyHTML: { copyAsHTML() }
+        )
+        FileExternalOpenMenu(
+            fileURL: URL(fileURLWithPath: panel.filePath),
+            isDisabled: panel.isFileUnavailable
+        )
+    }
+
+    // MARK: - Copy actions
+
+    private func copyAsMarkdown() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(panel.content, forType: .string)
+        flashCopyConfirmation(.markdown)
+    }
+
+    private func copyAsHTML() {
+        Task { @MainActor in
+            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+            // Plain-text targets get readable text, not raw markup.
+            let text = await panel.rendererSession.renderedText() ?? panel.content
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
+            // and a plain-text fallback so plain editors still receive content.
+            pb.setString(html, forType: .html)
+            pb.setString(text, forType: .string)
+            flashCopyConfirmation(.html)
+        }
+    }
+
+    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
+        copyConfirmationGeneration &+= 1
+        let generation = copyConfirmationGeneration
+        copyConfirmation = kind
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard copyConfirmationGeneration == generation else { return }
+            if copyConfirmation == kind {
+                copyConfirmation = nil
+            }
         }
     }
 
@@ -205,42 +264,6 @@ struct MarkdownPanelView: View {
         themeBackgroundColor.isLightColor ? .light : .dark
     }
 
-    // MARK: - Copy actions
-
-    private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
-        flashCopyConfirmation(.markdown)
-    }
-
-    private func copyAsHTML() {
-        Task { @MainActor in
-            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
-            let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
-            // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
-            flashCopyConfirmation(.html)
-        }
-    }
-
-    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
-        copyConfirmationGeneration &+= 1
-        let generation = copyConfirmationGeneration
-        copyConfirmation = kind
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard copyConfirmationGeneration == generation else { return }
-            if copyConfirmation == kind {
-                copyConfirmation = nil
-            }
-        }
-    }
-
     // MARK: - Focus Flash
 
     private func triggerFocusFlashAnimation() {
@@ -268,7 +291,213 @@ struct MarkdownPanelView: View {
     }
 }
 
-// MARK: - Toolbar
+/// Google-Docs-style inline rename for a note's title: reads as plain header
+/// text, grows a subtle outline on hover, and edits in place on click.
+/// Enter or clicking away commits through `onRename`; Escape restores the
+/// committed title. The committed title stays authoritative — external
+/// retitles (tree rename, another panel) overwrite an idle field but never
+/// an in-progress edit.
+private struct NoteTitleRenameField: View {
+    let title: String
+    let filePath: String
+    let foregroundColor: NSColor
+    let onRename: (String) -> Void
+
+    @State private var draft: String = ""
+    @State private var isHovering = false
+    @State private var isFocused = false
+
+    private var placeholder: String {
+        String(localized: "note.title.placeholder", defaultValue: "Untitled note")
+    }
+
+    private var titleFont: Font {
+        .system(size: 12, weight: .semibold)
+    }
+
+    private var titleNSFont: NSFont {
+        .systemFont(ofSize: 12, weight: .semibold)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.58))
+                .frame(width: 16, height: 20)
+
+            // Size the editable field from label text so the title behaves like
+            // the other compact panel headers while still accepting in-place edits.
+            Text(draft.isEmpty ? placeholder : draft)
+                .font(titleFont)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .overlay(alignment: .leading) {
+                    NoteTitleTextFieldRepresentable(
+                        placeholder: placeholder,
+                        text: $draft,
+                        isFocused: $isFocused,
+                        font: titleNSFont,
+                        foregroundColor: foregroundColor,
+                        onCommit: commit,
+                        onCancel: { draft = title }
+                    )
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(isFocused ? Color.accentColor.opacity(0.65) : Color(nsColor: foregroundColor).opacity(0.22))
+                        .frame(height: 1)
+                        .opacity(isFocused || isHovering ? 1 : 0)
+                }
+                .frame(minWidth: 40, minHeight: 20, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
+            .onHover { isHovering = $0 }
+            .onAppear { draft = title }
+            .onChange(of: title) { _, newValue in
+                guard !isFocused else { return }
+                draft = newValue
+            }
+            .help(filePath)
+            .accessibilityLabel(String(localized: "note.title.accessibility", defaultValue: "Note title"))
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != title else {
+            draft = title
+            return
+        }
+        onRename(trimmed)
+    }
+}
+
+private final class NoteTitleNativeTextField: NSTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+        usesSingleLineMode = true
+        lineBreakMode = .byTruncatingTail
+        cell?.wraps = false
+        cell?.truncatesLastVisibleLine = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+}
+
+private struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let font: NSFont
+    let foregroundColor: NSColor
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: NoteTitleTextFieldRepresentable
+        var isProgrammaticMutation = false
+        var skipCommitOnEndEditing = false
+
+        init(parent: NoteTitleTextFieldRepresentable) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard !isProgrammaticMutation else { return }
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            if !parent.isFocused {
+                parent.isFocused = true
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            if parent.isFocused {
+                parent.isFocused = false
+            }
+            if skipCommitOnEndEditing {
+                skipCommitOnEndEditing = false
+                return
+            }
+            parent.onCommit()
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                textView.window?.makeFirstResponder(nil)
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                skipCommitOnEndEditing = true
+                parent.onCancel()
+                textView.window?.makeFirstResponder(nil)
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NoteTitleNativeTextField {
+        let field = NoteTitleNativeTextField(frame: .zero)
+        field.delegate = context.coordinator
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        applyStyle(to: field)
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: NoteTitleNativeTextField, context: Context) {
+        context.coordinator.parent = self
+        applyStyle(to: field)
+        if field.currentEditor() == nil, field.stringValue != text {
+            context.coordinator.isProgrammaticMutation = true
+            field.stringValue = text
+            context.coordinator.isProgrammaticMutation = false
+        }
+    }
+
+    static func dismantleNSView(_ field: NoteTitleNativeTextField, coordinator: Coordinator) {
+        field.delegate = nil
+    }
+
+    private func applyStyle(to field: NoteTitleNativeTextField) {
+        field.font = font
+        field.textColor = foregroundColor.withAlphaComponent(0.88)
+        field.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font,
+                .foregroundColor: foregroundColor.withAlphaComponent(0.42)
+            ]
+        )
+    }
+}
 
 private struct MarkdownPanelToolbar: View {
     let confirmation: String?

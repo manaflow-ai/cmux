@@ -31,6 +31,40 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    private func withSavedRightSidebarBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+        let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        defer {
+            restore(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        }
+        try body()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, "git \(arguments.joined(separator: " "))")
+    }
+
     // MARK: Simple commands
 
     func testDecodeSimpleCommand() throws {
@@ -250,6 +284,379 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(buttons[1].id, "start-claude")
         XCTAssertEqual(buttons[1].icon, .emoji("🤖"))
         XCTAssertEqual(buttons[1].terminalCommand, "claude --permission-mode acceptEdits")
+    }
+
+    func testDecodeSurfaceTabBarMenuButton() throws {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "id": "workspace-tools",
+                  "type": "menu",
+                  "title": "Workspace Tools",
+                  "icon": { "type": "symbol", "name": "ellipsis.circle" },
+                  "menu": [
+                    "vault",
+                    { "builtin": "finder" },
+                    {
+                      "id": "git-status",
+                      "title": "Git Status",
+                      "command": "git status"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(rawButton.id, "workspace-tools")
+        XCTAssertEqual(rawButton.title, "Workspace Tools")
+        XCTAssertEqual(rawButton.icon, .symbol("ellipsis.circle"))
+        XCTAssertEqual(rawButton.action, .builtIn(.more))
+
+        let rawMenu = try XCTUnwrap(rawButton.menu)
+        XCTAssertEqual(rawMenu.count, 3)
+        XCTAssertEqual(rawMenu[0].action, .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID))
+        XCTAssertEqual(rawMenu[1].action, .builtIn(.revealCurrentDirectoryInFinder))
+        XCTAssertEqual(rawMenu[2].id, "git-status")
+        XCTAssertEqual(rawMenu[2].title, "Git Status")
+        XCTAssertEqual(rawMenu[2].terminalCommand, "git status")
+
+        let resolvedButton = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
+        XCTAssertEqual(resolvedButton.menu?[0].action, .builtIn(.vaultPane))
+        XCTAssertEqual(resolvedButton.menu?[1].action, .builtIn(.revealCurrentDirectoryInFinder))
+        XCTAssertEqual(resolvedButton.menu?[2].terminalCommand, "git status")
+    }
+
+    @MainActor
+    func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let store = CmuxConfigStore(
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+                CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+                CmuxSurfaceTabBarBuiltInAction.more.configID,
+            ])
+
+            let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
+            XCTAssertEqual(moreButton.action, .builtIn(.more))
+            XCTAssertEqual(moreButton.menu?.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+            ])
+        }
+    }
+
+    @MainActor
+    func testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let store = CmuxConfigStore(
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
+            XCTAssertEqual(moreButton.menu?.map(\.id), [
+                CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+            ])
+        }
+    }
+
+    @MainActor
+    func testSurfaceTabBarMenuFiltersUnavailableBetaBuiltIns() throws {
+        try withSavedRightSidebarBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-config-store-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let configURL = root.appendingPathComponent("cmux.json")
+            try """
+            {
+              "ui": {
+                "surfaceTabBar": {
+                  "buttons": [
+                    {
+                      "action": "more",
+                      "menu": ["diff", "note", "feed", "dock", "vaultPane"]
+                    }
+                  ]
+                }
+              }
+            }
+            """.write(to: configURL, atomically: true, encoding: .utf8)
+
+            let store = CmuxConfigStore(
+                globalConfigPath: configURL.path,
+                startFileWatchers: false
+            )
+            store.loadAll()
+
+            XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [
+                .builtIn(.diffViewer),
+                .builtIn(.newNote),
+                .builtIn(.vaultPane),
+            ])
+        }
+    }
+
+    func testDiffViewerAvailabilityRequiresGitDiff() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-diff-availability-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let plain = root.appendingPathComponent("plain", isDirectory: true)
+        let file = repo.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: plain.path))
+
+        try runGit(["init"], in: repo)
+        try runGit(["checkout", "-b", "main"], in: repo)
+        try runGit(["config", "user.name", "cmux tests"], in: repo)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repo)
+        try "one\n".write(to: file, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repo)
+        try runGit(["commit", "-m", "initial"], in: repo)
+        XCTAssertFalse(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
+
+        try "one\ntwo\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
+
+        try runGit(["add", "story.txt"], in: repo)
+        XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
+    }
+
+    @MainActor
+    func testConfiguredSurfaceTabBarButtonsAppendMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal", "icon": { "type": "symbol", "name": "terminal" } },
+                { "action": "newBrowser", "tooltip": "New browser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+            .more,
+        ])
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.first?.action, .builtIn(.diffViewer))
+    }
+
+    @MainActor
+    func testSurfaceTabBarCanExplicitlyHideMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "hideMoreButton": true,
+              "buttons": [
+                { "action": "newTerminal" },
+                { "action": "newBrowser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+        ])
+    }
+
+    @MainActor
+    func testSurfaceTabBarKeepsConfiguredMoreMenuAtEnd() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal" },
+                {
+                  "action": "more",
+                  "title": "Tools",
+                  "menu": ["vault"]
+                },
+                { "action": "newBrowser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+            .more,
+        ])
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.title, "Tools")
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [.builtIn(.vaultPane)])
+    }
+
+    @MainActor
+    func testProjectLocalSurfaceTabBarButtonsOverrideGlobalButtons() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": ["cmux.newTerminal", "cmux.newBrowser"]
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": ["cmux.splitRight"]
+            }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .splitRight,
+            .more,
+        ])
+    }
+
+    func testMenuSurfaceTabBarButtonActivatesOnMouseDown() throws {
+        let button = CmuxSurfaceTabBarButton(
+            id: CmuxSurfaceTabBarBuiltInAction.more.configID,
+            action: .builtIn(.more),
+            menu: [.actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID)]
+        )
+
+        let bonsplitButton = button.bonsplitActionButton(
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux.json"
+        )
+
+        XCTAssertTrue(bonsplitButton.activatesOnMouseDown)
     }
 
     func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
@@ -1321,8 +1728,69 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
         store.loadAll()
 
-        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
-        XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev", "cmux.more"])
+        XCTAssertEqual(store.surfaceTabBarButtons.dropLast().last?.workspaceCommandName, "Dev Environment")
+    }
+
+    @MainActor
+    func testSurfaceTabBarMenuResolvesNestedWorkspaceCommandsAndSourcePaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        let globalJSON = """
+        {
+          "actions": {
+            "repo-status": { "type": "command", "command": "git status" }
+          }
+        }
+        """
+        let localJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "id": "workspace-tools",
+                  "type": "menu",
+                  "menu": [
+                    { "action": "repo-status" },
+                    { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
+                    { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" }
+                  ]
+                }
+              ]
+            }
+          },
+          "commands": [
+            {
+              "name": "Dev Environment",
+              "workspace": { "name": "Dev" }
+            }
+          ]
+        }
+        """
+        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let menu = try XCTUnwrap(store.surfaceTabBarButtons.first?.menu)
+        XCTAssertEqual(menu.map(\.id), ["repo-status", "dev"])
+        XCTAssertEqual(menu[0].terminalCommand, "git status")
+        XCTAssertEqual(menu[1].workspaceCommandName, "Dev Environment")
+        XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["repo-status"], globalConfigURL.path)
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {
@@ -1831,6 +2299,60 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         XCTAssertThrowsError(try decode(json))
     }
+
+    func testDecodeDuplicateSurfaceTabBarMenuItemIdsThrows() {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "tools",
+              "type": "menu",
+              "menu": [
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "play" },
+                  "command": "npm run dev"
+                },
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "checkmark" },
+                  "command": "npm test"
+                }
+              ]
+            }
+          ],
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeSurfaceTabBarMenuItemCannotReuseTopLevelId() {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "run",
+              "icon": { "type": "symbol", "name": "play" },
+              "command": "npm run dev"
+            },
+            {
+              "id": "tools",
+              "type": "menu",
+              "menu": [
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "checkmark" },
+                  "command": "npm test"
+                }
+              ]
+            }
+          ],
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
 }
 
 // MARK: - Command identity
@@ -2113,5 +2635,288 @@ final class CmuxLayoutEncodingTests: XCTestCase {
         } else {
             XCTFail("Expected split node after round-trip")
         }
+    }
+}
+
+// MARK: - Note support
+
+final class NoteSupportTests: XCTestCase {
+
+    func testNoteSlugFromPathRejectsInvalidFilenames() {
+        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/Bad Name.md"))
+        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/-todo.md"))
+        XCTAssertEqual(
+            NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
+            "todo-1"
+        )
+    }
+
+    func testProjectRootFromNotePathIsPurePathDecomposition() {
+        XCTAssertEqual(
+            NoteSupport.projectRoot(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
+            "/tmp/project"
+        )
+        XCTAssertNil(NoteSupport.projectRoot(forNotePath: "/tmp/project/notes/todo-1.md"))
+    }
+
+    func testRestoredProjectRootPrefersCurrentDirectoryWhenStoredNoteMoved() {
+        XCTAssertEqual(
+            NoteSupport.restoredProjectRoot(
+                forStoredNotePath: "/tmp/old-project/.cmux/notes/todo-1.md",
+                currentDirectory: "/tmp/new-project"
+            ),
+            "/tmp/new-project"
+        )
+        XCTAssertEqual(
+            NoteSupport.restoredProjectRoot(
+                forStoredNotePath: "/tmp/project/.cmux/notes/todo-1.md",
+                currentDirectory: "/tmp/project/subdir"
+            ),
+            "/tmp/project"
+        )
+    }
+
+    func testConfigFallbackSlugIsDeterministicAndValid() throws {
+        let first = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
+        let second = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
+        let other = NoteSupport.configFallbackSlug(seed: "root.1.surface.1")
+
+        XCTAssertEqual(first, second)
+        XCTAssertNotEqual(first, other)
+        XCTAssertEqual(try NoteSupport.validateSlug(first), first)
+    }
+
+    func testDeleteNoteIsIdempotentWhenFileIsAlreadyAbsent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertFalse(try NoteSupport.deleteNote(slug: "todo", projectRoot: root.path))
+    }
+
+    func testIndexedNoteCreateAttachesAndReusesCurrentSurfaceNote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "workspace-anchor",
+            surfaceAnchorId: "surface-anchor",
+            surfaceKind: PanelType.terminal.rawValue
+        )
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: nil,
+            title: "Build Notes",
+            projectRoot: root.path,
+            createIfMissing: true,
+            attachment: target,
+            preferAttachedExisting: true
+        )
+
+        XCTAssertTrue(created.created)
+        XCTAssertTrue(created.attached)
+        XCTAssertEqual(created.note.title, "Build Notes")
+        XCTAssertEqual(created.note.attachments.count, 1)
+        XCTAssertEqual(created.note.attachments.first?.workspaceAnchorId, "workspace-anchor")
+        XCTAssertEqual(created.note.attachments.first?.surfaceAnchorId, "surface-anchor")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: CmuxNoteStore.indexPath(forProjectRoot: root.path)))
+
+        let reopened = try CmuxNoteStore.createOrOpen(
+            slug: nil,
+            projectRoot: root.path,
+            createIfMissing: true,
+            attachment: target,
+            preferAttachedExisting: true
+        )
+
+        XCTAssertFalse(reopened.created)
+        XCTAssertFalse(reopened.attached)
+        XCTAssertEqual(reopened.note.id, created.note.id)
+        XCTAssertEqual(reopened.path, created.path)
+    }
+
+    func testNoteContextResolverPrefersSurfaceThenWorkspace() {
+        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
+        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "ws-1",
+            surfaceAnchorId: "surf-1",
+            surfaceKind: "terminal"
+        )
+
+        func note(_ slug: String, updatedAt: TimeInterval, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
+            CmuxNoteRecord(
+                id: slug,
+                slug: slug,
+                title: slug,
+                bodyPath: "notes/\(slug).md",
+                attachments: attachments,
+                createdAt: 0,
+                updatedAt: updatedAt
+            )
+        }
+
+        let surfaceOld = note("surf-old", updatedAt: 10, attachments: [surfaceTarget.attachment])
+        let surfaceNew = note("surf-new", updatedAt: 20, attachments: [surfaceTarget.attachment])
+        let workspaceNote = note("ws-note", updatedAt: 30, attachments: [workspaceTarget.attachment])
+        let unlinked = note("free", updatedAt: 40, attachments: [])
+
+        let resolution = CmuxNoteContextResolver.resolve(
+            notes: [unlinked, workspaceNote, surfaceOld, surfaceNew],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+
+        // A surface-linked note wins over a workspace-linked one even though the
+        // workspace note (and an unlinked note) are more recently updated.
+        XCTAssertEqual(resolution.resolvedNoteId, "surf-new")
+        XCTAssertEqual(resolution.link(for: surfaceNew), .surface)
+        XCTAssertEqual(resolution.link(for: surfaceOld), .surface)
+        XCTAssertEqual(resolution.link(for: workspaceNote), .workspace)
+        XCTAssertNil(resolution.link(for: unlinked))
+        // Order: surface-linked (newest first), then workspace, then unlinked.
+        XCTAssertEqual(resolution.orderedNotes.map(\.slug), ["surf-new", "surf-old", "ws-note", "free"])
+    }
+
+    func testNoteContextResolverFallsBackToWorkspaceThenNil() {
+        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
+        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "ws-1",
+            surfaceAnchorId: "surf-x",
+            surfaceKind: "terminal"
+        )
+
+        func note(_ slug: String, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
+            CmuxNoteRecord(
+                id: slug,
+                slug: slug,
+                title: slug,
+                bodyPath: "notes/\(slug).md",
+                attachments: attachments,
+                createdAt: 0,
+                updatedAt: 0
+            )
+        }
+
+        // No surface-linked note for this caller's surface → workspace note resolves.
+        let workspaceNote = note("ws", attachments: [workspaceTarget.attachment])
+        let workspaceResolution = CmuxNoteContextResolver.resolve(
+            notes: [workspaceNote],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+        XCTAssertEqual(workspaceResolution.resolvedNoteId, "ws")
+
+        // No links at all → nothing resolves.
+        let unlinked = note("free", attachments: [])
+        let emptyResolution = CmuxNoteContextResolver.resolve(
+            notes: [unlinked],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+        XCTAssertNil(emptyResolution.resolvedNoteId)
+        XCTAssertNil(emptyResolution.link(for: unlinked))
+    }
+
+    func testIndexedNoteAsyncCreateUsesSerializedStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let created = try await CmuxNoteStore.createOrOpenAsync(
+            slug: "async-note",
+            title: "Async Note",
+            projectRoot: root.path,
+            createIfMissing: true
+        )
+        let reopened = try CmuxNoteStore.createOrOpen(
+            slug: "async-note",
+            projectRoot: root.path,
+            createIfMissing: false
+        )
+
+        XCTAssertTrue(created.created)
+        XCTAssertEqual(created.note.id, reopened.note.id)
+        XCTAssertEqual(created.path, reopened.path)
+    }
+
+    func testIndexedNoteStoreKeepsLegacySlugFilesAddressable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyPath = try NoteSupport.ensureNoteFile(slug: "todo", projectRoot: root.path)
+        try "# Todo\n".write(toFile: legacyPath, atomically: true, encoding: .utf8)
+
+        let opened = try CmuxNoteStore.createOrOpen(
+            slug: "todo",
+            projectRoot: root.path,
+            createIfMissing: false
+        )
+
+        XCTAssertFalse(opened.created)
+        XCTAssertEqual(opened.note.id, "legacy-todo")
+        XCTAssertEqual(opened.note.bodyPath, "notes/todo.md")
+        XCTAssertEqual(opened.path, legacyPath)
+        XCTAssertEqual(try CmuxNoteStore.path(slug: "todo", projectRoot: root.path).path, legacyPath)
+    }
+
+    func testIndexedNoteStoreReadsWritesAndAppendsContent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let written = try CmuxNoteStore.write(
+            slug: "agent-notes",
+            title: "Agent Notes",
+            content: "alpha",
+            projectRoot: root.path
+        )
+        XCTAssertEqual(written.note.slug, "agent-notes")
+        XCTAssertEqual(written.note.title, "Agent Notes")
+        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha")
+
+        let appended = try CmuxNoteStore.append(
+            slug: "agent-notes",
+            content: "\nbeta",
+            projectRoot: root.path
+        )
+        XCTAssertEqual(appended.note.id, written.note.id)
+        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha\nbeta")
+
+        XCTAssertThrowsError(
+            try CmuxNoteStore.write(
+                slug: "missing",
+                content: "nope",
+                projectRoot: root.path,
+                createIfMissing: false
+            )
+        )
+    }
+
+    func testIndexedNoteDeleteRestoresIndexWhenBodyCleanupCannotUnlink() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let created = try CmuxNoteStore.createOrOpen(
+            slug: "blocked-delete",
+            projectRoot: root.path,
+            createIfMissing: true
+        )
+        try FileManager.default.removeItem(atPath: created.path)
+        try FileManager.default.createDirectory(atPath: created.path, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try CmuxNoteStore.delete(slug: "blocked-delete", projectRoot: root.path))
+        let retained = try CmuxNoteStore.path(slug: "blocked-delete", projectRoot: root.path)
+        XCTAssertEqual(retained.path, created.path)
+        XCTAssertFalse(retained.exists)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
     }
 }

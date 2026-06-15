@@ -727,6 +727,17 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rightSidebarNotes",
+                settingsKey: "betaFeatures.notes",
+                title: {
+                    String(localized: "settings.betaFeatures.notes", defaultValue: "Notes")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.notes", "notes", "right", "sidebar", "beta", "workspace", "sessions", "vault"],
+                defaultValue: RightSidebarBetaFeatureSettings.defaultNotesEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.notesEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarFeed",
                 settingsKey: "betaFeatures.feed",
                 title: {

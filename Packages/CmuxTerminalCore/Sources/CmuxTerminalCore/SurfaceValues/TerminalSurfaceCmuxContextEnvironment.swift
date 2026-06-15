@@ -14,15 +14,25 @@ public struct TerminalSurfaceCmuxContextEnvironment: Equatable, Sendable {
     /// The control socket path (exported as `CMUX_SOCKET_PATH`).
     public let socketPath: String
 
+    /// The workspace Notes tree root, when one should be exported.
+    public var workspaceNotesDir: String?
+
     /// Creates the managed context identity.
     ///
     /// - Parameters:
     ///   - workspaceId: The owning workspace id.
     ///   - surfaceId: The surface id.
     ///   - socketPath: The control socket path.
-    public init(workspaceId: UUID, surfaceId: UUID, socketPath: String) {
+    ///   - workspaceNotesDir: The workspace Notes tree root, if available.
+    public init(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        socketPath: String,
+        workspaceNotesDir: String? = nil
+    ) {
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         self.socketPath = socketPath
+        self.workspaceNotesDir = workspaceNotesDir
     }
 }

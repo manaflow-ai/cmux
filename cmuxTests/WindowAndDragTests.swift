@@ -1832,10 +1832,15 @@ final class WindowDragHandleHitTests: XCTestCase {
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
+            notesTreeStore: NotesTreeStore(),
             titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenNote: { _, _ in },
+            onResumeNoteSession: { _ in },
+            onFocusNoteTerminal: { _ in },
+            onResolveTerminalNoteTarget: { _ in nil },
             onOpenAsPane: { _ in },
             onClose: {}
         )
@@ -3018,6 +3023,52 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(panel.textContent, "second save")
         XCTAssertTrue(panel.isDirty)
         XCTAssertFalse(panel.isSaving)
+    }
+
+    @MainActor
+    func testMarkdownNoteSaveCompletionDoesNotClearDirtyAfterRelocation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notesDir = root.appendingPathComponent(".cmux/notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldURL = notesDir.appendingPathComponent("old.md")
+        let newURL = notesDir.appendingPathComponent("new.md")
+        try "original".write(to: oldURL, atomically: true, encoding: .utf8)
+        try "original".write(to: newURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: oldURL.path)
+        defer { panel.close() }
+        panel.updateTextContent("edited")
+        try FileManager.default.removeItem(at: oldURL)
+        XCTAssertEqual(mkfifo(oldURL.path, 0o600), 0)
+
+        let save = try XCTUnwrap(panel.saveTextContent())
+        NotificationCenter.default.post(
+            name: .cmuxNoteFileRelocated,
+            object: nil,
+            userInfo: ["oldPath": oldURL.path, "newPath": newURL.path]
+        )
+        for _ in 0..<3 { await Task.yield() }
+        XCTAssertEqual(panel.filePath, newURL.path)
+
+        let pipeRead = Task.detached { () throws -> String in
+            let handle = try FileHandle(forReadingFrom: oldURL)
+            defer { try? handle.close() }
+            return String(data: handle.availableData, encoding: .utf8) ?? ""
+        }
+        let oldPipeContent = try await pipeRead.value
+        XCTAssertEqual(oldPipeContent, "edited")
+        await save.value
+
+        XCTAssertTrue(panel.isDirty)
+        XCTAssertFalse(panel.isSaving)
+
+        let resave = try XCTUnwrap(panel.saveTextContent())
+        await resave.value
+        XCTAssertEqual(try String(contentsOf: newURL, encoding: .utf8), "edited")
+        XCTAssertFalse(panel.isDirty)
     }
 
     func testCleanSaveDoesNotCancelPendingTextLoad() async throws {

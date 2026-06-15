@@ -61,6 +61,8 @@ final class FileDropOverlayView: NSView {
     let hintBadgeView = FileDropHintBadgeView(frame: .zero)
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
+    /// Sidebar tree (Notes outline) currently receiving forwarded drag events.
+    weak var activeSidebarDropView: NSView?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -257,9 +259,16 @@ final class FileDropOverlayView: NSView {
             prev.fileDropDraggingExited(sender)
             activePaneDropTarget = nil
         }
+        if let prev = activeSidebarDropView {
+            prev.draggingExited(sender)
+            activeSidebarDropView = nil
+        }
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let sidebarView = activeSidebarDropView {
+            return sidebarView.prepareForDragOperation(sender)
+        }
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -320,6 +329,14 @@ final class FileDropOverlayView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let sidebarView = activeSidebarDropView {
+            #if DEBUG
+            cmuxDebugLog("overlay.fileDrop.sidebarRoute perform view=\(type(of: sidebarView))")
+            #endif
+            let handled = sidebarView.performDragOperation(sender)
+            if !handled { activeSidebarDropView = nil }
+            return handled
+        }
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -416,11 +433,16 @@ final class FileDropOverlayView: NSView {
             activeDragWebView = nil
             preparedPaneDropTarget = nil
             activePaneDropTarget = nil
+            activeSidebarDropView = nil
             didPerformDragAsText = false
             performedTextDragWebView = nil
             performedTextPaneDropTarget = nil
         }
         guard let sender else { return }
+        if let sidebarView = activeSidebarDropView {
+            sidebarView.concludeDragOperation(sender)
+            return
+        }
         if didPerformDragAsText {
             if let paneDropTarget = performedTextPaneDropTarget ?? preparedPaneDropTarget ?? activePaneDropTarget {
                 paneDropTarget.fileDropConcludeDragOperation(sender)

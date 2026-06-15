@@ -21,6 +21,25 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    let onPointerDown: (() -> Void)?
+
+    init(
+        panel: PanelModel,
+        isVisibleInUI: Bool,
+        themeBackgroundColor: NSColor,
+        themeForegroundColor: NSColor,
+        drawsBackground: Bool,
+        wordWrap: Bool,
+        onPointerDown: (() -> Void)? = nil
+    ) {
+        self.panel = panel
+        self.isVisibleInUI = isVisibleInUI
+        self.themeBackgroundColor = themeBackgroundColor
+        self.themeForegroundColor = themeForegroundColor
+        self.drawsBackground = drawsBackground
+        self.wordWrap = wordWrap
+        self.onPointerDown = onPointerDown
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -37,6 +56,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
+        textView.onPointerDown = onPointerDown
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
@@ -64,6 +84,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
+        textView.onPointerDown = onPointerDown
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
@@ -71,6 +92,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
         context.coordinator.isApplyingPanelUpdate = false
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        textView.onPointerDown = nil
     }
 
     static func applyTheme(
@@ -215,6 +241,7 @@ final class SavingTextView: NSTextView {
     private static let maximumPreviewFontSize: CGFloat = 36
 
     weak var panel: (any FilePreviewTextEditingPanel)?
+    var onPointerDown: (() -> Void)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 
@@ -237,6 +264,11 @@ final class SavingTextView: NSTextView {
             panel?.saveTextContent()
         }
         return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+        super.mouseDown(with: event)
     }
 
     override func magnify(with event: NSEvent) {

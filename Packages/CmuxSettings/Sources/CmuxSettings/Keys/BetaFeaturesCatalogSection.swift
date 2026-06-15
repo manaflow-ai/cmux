@@ -25,6 +25,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Right-sidebar Notes: the experimental per-workspace notes tree
+    /// (filesystem notes plus the workspace's agent sessions as folders),
+    /// shown to the right of Vault in the mode switcher. Defaults off;
+    /// while off, the Notes mode is hidden from the switcher so the
+    /// feature stays opt-in while it is in beta.
+    public let rightSidebarNotes = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.notes.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.notes.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every

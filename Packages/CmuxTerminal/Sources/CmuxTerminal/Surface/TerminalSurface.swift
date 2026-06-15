@@ -291,12 +291,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     static func cmuxContextEnvironment(
         workspaceId: UUID,
         surfaceId: UUID,
-        socketPath: String
+        socketPath: String,
+        workspaceNotesDir: String?
     ) -> CmuxContextEnvironment {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            socketPath: socketPath
+            socketPath: socketPath,
+            workspaceNotesDir: workspaceNotesDir
         )
     }
 
@@ -312,7 +314,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
-                socketPath: socketPath
+                socketPath: socketPath,
+                workspaceNotesDir: spawnPolicyProvider.workspaceNotesDirectory(workspaceId: tabId)
             ),
             to: &environment,
             protectedKeys: &protectedKeys

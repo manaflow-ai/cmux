@@ -2,6 +2,56 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+Project-scoped action wiring can also live in `.cmux/cmux.json` inside a project directory. For pane tab bar customization, the nearest project config overrides the global button list for workspaces under that directory, while actions and commands can still fall back to global definitions.
+
+## `ui.surfaceTabBar.buttons`
+
+Controls the buttons shown at the end of each pane tab bar. cmux appends the built-in More button unless `ui.surfaceTabBar.hideMoreButton` is `true`.
+
+The default More menu is pane-scoped: Diff Viewer, Files pane, Find pane, Vault pane, and New Note.
+
+```json
+{
+  "ui": {
+    "surfaceTabBar": {
+      "hideMoreButton": false,
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        {
+          "type": "menu",
+          "id": "cmux.more",
+          "title": "More",
+          "icon": { "type": "symbol", "name": "ellipsis.vertical" },
+          "items": [
+            "cmux.diffViewer",
+            "cmux.filesPane",
+            "cmux.findPane",
+            "cmux.vaultPane",
+            "cmux.newNote"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Useful built-ins:
+
+- `cmux.newTerminal`
+- `cmux.newBrowser`
+- `cmux.splitRight`
+- `cmux.splitDown`
+- `cmux.more`
+- `cmux.diffViewer`
+- `cmux.filesPane`
+- `cmux.findPane`
+- `cmux.vaultPane`
+- `cmux.newNote`
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -24,6 +74,20 @@ Supported placeholders:
 - `{appName}`: `cmux`.
 
 For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.
+
+## `shortcuts.bindings`
+
+Shortcut overrides are keyed by action id under `shortcuts.bindings`. `newNote` creates or focuses a note for the current surface.
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "newNote": "ctrl+cmd+n"
+    }
+  }
+}
+```
 
 ## `app.confirmQuit`
 

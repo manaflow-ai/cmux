@@ -146,16 +146,18 @@ struct PanelContentView: View {
 }
 
 struct PanelFilePathHeader<TrailingContent: View>: View {
-    let iconSystemName: String
+    var iconSystemName: String?
     let filePath: String
     let foregroundColor: NSColor
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconSystemName)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
+            if let iconSystemName {
+                Image(systemName: iconSystemName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
             Text(filePath)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))

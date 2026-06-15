@@ -56,6 +56,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
+        // Project-note v2 commands: their handlers are `nonisolated` and bridge
+        // to the main actor internally via `v2MainSync`, so they must run on the
+        // socket worker (running them on the main actor would deadlock).
+        "note.create",
+        "note.open",
+        "note.list",
+        "note.path",
+        "note.read",
+        "note.write",
+        "note.append",
+        "note.delete",
         "mobile.attach_ticket.create",
         "system.top",
         "system.memory",
