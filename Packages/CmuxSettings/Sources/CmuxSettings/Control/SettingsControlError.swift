@@ -41,3 +41,10 @@ public enum SettingsControlError: Error, Sendable, Equatable {
         }
     }
 }
+
+extension SettingsControlError: CustomStringConvertible, LocalizedError {
+    /// So `String(describing:)` (used by the socket worker's error encoder) and
+    /// `localizedDescription` both surface the friendly ``message``.
+    public var description: String { message }
+    public var errorDescription: String? { message }
+}

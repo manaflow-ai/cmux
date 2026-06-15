@@ -298,6 +298,20 @@ extension CMUXCLI {
             return
         }
 
+        // Data subcommands (read/write settings and shortcuts) route to the
+        // catalog-driven engine over the control socket; everything else opens
+        // the GUI Settings window.
+        if settingsUsesControlEngine(subcommand: subcommand, args: args) {
+            try runSettingsControl(
+                subcommand: subcommand,
+                args: args,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+            return
+        }
+
         switch subcommand {
         case "path", "paths":
             guard args.count == 1 else {
@@ -359,11 +373,26 @@ extension CMUXCLI {
 
     func settingsUsage() -> String {
         return """
-        Usage: cmux settings [open [target]|path|docs|<target>]
+        Usage: cmux settings <subcommand> [args]
 
-        Open cmux Settings, print cmux.json paths, or show settings documentation.
+        Read and write every cmux setting and keyboard shortcut, or open the GUI.
 
-        Subcommands:
+        Read/write subcommands (catalog-driven; require a running cmux app):
+          list [--json] [--keys]    List every setting (id, value, default, backend).
+          get <key> [--json]        Print one setting's value.
+          set <key> <value>         Set a value (validated against the catalog).
+          unset <key>               Clear an override, reverting to the default.
+          reset <key>               Same as unset.
+          reset --all --yes         Clear every override.
+          describe <key> [--json]   Full metadata: type, allowed values, default, backend.
+          export [--json] [--out f] Dump current settings (secrets omitted).
+          import <file>             Apply a settings file (validated atomically).
+          shortcuts <subcommand>    Manage keyboard shortcuts (list/get/set/unset/reset).
+
+        Discover keys with `cmux settings list --keys`, inspect one with
+        `cmux settings describe <key>`. Secret values are redacted on read.
+
+        GUI subcommands:
           open [target]       Open Settings, optionally to a target section.
           path                Print cmux.json paths, docs URL, and schema URL.
           docs                Print the same output as `cmux docs settings`.
