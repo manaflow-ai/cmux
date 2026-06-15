@@ -5577,6 +5577,23 @@
         }
       }
     },
+    "terminal.shortcut.name.return": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リターン"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.tab": {
       "extractionState": "manual",
       "localizations": {
