@@ -578,6 +578,220 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
 
 
+def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", '{"ultracode": true, "effortLevel": "max"}', "-p", "hi"],
+    )
+    expect(code == 0, f"merge user settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"merge user settings: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"merge user settings: cmux hook settings lost, got {settings}",
+        failures,
+    )
+    expected_hooks = {
+        "SessionStart", "Stop", "SubagentStop", "SessionEnd",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+    }
+    expect(
+        set(settings.get("hooks", {}).keys()) == expected_hooks,
+        f"merge user settings: cmux hooks missing after merge, got {settings.get('hooks', {}).keys()}",
+        failures,
+    )
+    expect(
+        settings.get("ultracode") is True,
+        f"merge user settings: user 'ultracode' dropped, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("effortLevel") == "max",
+        f"merge user settings: user 'effortLevel' dropped, got {settings}",
+        failures,
+    )
+    expect(
+        '{"ultracode": true, "effortLevel": "max"}' not in real_argv,
+        f"merge user settings: raw user --settings should be folded in, got {real_argv}",
+        failures,
+    )
+    expect(
+        "-p" in real_argv and "hi" in real_argv,
+        f"merge user settings: user args dropped, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_merges_inline_settings_form(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=['--settings={"ultracode": true}', "hello"],
+    )
+    expect(code == 0, f"inline settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"inline settings: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(settings.get("ultracode") is True, f"inline settings: user key dropped, got {settings}", failures)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"inline settings: cmux hooks lost, got {settings}",
+        failures,
+    )
+    expect(real_argv[-1] == "hello", f"inline settings: positional arg dropped, got {real_argv}", failures)
+
+
+def test_live_socket_repeated_settings_user_value_wins_conflict(failures: list[str]) -> None:
+    # The wrapper folds repeated user --settings into ONE merged payload, so
+    # Claude Code never sees multiple --settings and its own multi-flag
+    # precedence (which changed from first-wins on <=2.1.168 to last-wins on
+    # >=2.1.169) is irrelevant. Among the user's own repeated --settings, the
+    # earliest-listed value wins a scalar conflict. Asserted on the WRAPPER
+    # OUTPUT (a single merged --settings in argv).
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=[
+            "--settings", '{"effortLevel": "high", "a": 1}',
+            "--settings", '{"effortLevel": "low", "b": 2}',
+            "hi",
+        ],
+    )
+    expect(code == 0, f"merged: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"merged: expected one combined --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("effortLevel") == "high",
+        f"merged: earliest user --settings should win the conflict, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("a") == 1 and settings.get("b") == 2,
+        f"merged: non-conflicting user keys should all survive, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"merged: cmux hook settings lost, got {settings}",
+        failures,
+    )
+
+
+def test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures: list[str]) -> None:
+    # Regression: the merge must never let a non-object/array user value clobber
+    # cmux's own hook structure. If a user --settings sets `hooks` to a non-object
+    # (here an array; `null` behaves the same), the cmux hook object must survive
+    # so notifications/status keep working, while the user's other keys still apply.
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=[
+            "--settings", '{"hooks": [], "myKey": "kept"}',
+            "hi",
+        ],
+    )
+    expect(code == 0, f"nonobject-hooks: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"nonobject-hooks: expected one combined --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    hooks = settings.get("hooks")
+    expect(
+        isinstance(hooks, dict) and "SessionStart" in hooks,
+        f"nonobject-hooks: cmux hook object dropped by non-object user hooks, got {hooks!r}",
+        failures,
+    )
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"nonobject-hooks: cmux preferredNotifChannel lost, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("myKey") == "kept",
+        f"nonobject-hooks: user non-conflicting key dropped, got {settings}",
+        failures,
+    )
+
+
+def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) -> None:
+    # A malformed --settings must not be dropped in silence: the wrapper surfaces
+    # a stderr warning instead of quietly reverting to the dual --settings
+    # behavior that #2816 fixes.
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", "{not valid json", "hi"],
+    )
+    expect(code == 0, f"invalid settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "merge failed" in stderr,
+        f"invalid settings: expected a stderr warning, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "{not valid json" in real_argv,
+        f"invalid settings: expected fallback to forward original args, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_merges_settings_file_form(failures: list[str]) -> None:
+    # --settings <path> reads JSON from disk (readFileSync/expand). Exercise that
+    # loader branch end-to-end so path parsing/merging cannot silently regress.
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-file-") as td:
+        settings_path = Path(td) / "user-settings.json"
+        settings_path.write_text('{"ultracode": true, "effortLevel": "max"}', encoding="utf-8")
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["--settings", str(settings_path), "hello"],
+        )
+    expect(code == 0, f"settings file: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"settings file: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(settings.get("ultracode") is True, f"settings file: user key dropped, got {settings}", failures)
+    expect(settings.get("effortLevel") == "max", f"settings file: user key dropped, got {settings}", failures)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"settings file: cmux hooks lost, got {settings}",
+        failures,
+    )
+    expect(real_argv[-1] == "hello", f"settings file: positional arg dropped, got {real_argv}", failures)
+
+
+def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[str]) -> None:
+    # An explicit empty --settings= must not be swallowed in silence: the wrapper
+    # surfaces the merge-failure warning instead of dropping the flag with no
+    # signal (CodeRabbit review on #5388).
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings=", "hi"],
+    )
+    expect(code == 0, f"empty settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "merge failed" in stderr,
+        f"empty settings: expected a stderr warning, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "--settings=" in real_argv and "hi" in real_argv,
+        f"empty settings: expected fallback to forward original args, got {real_argv}",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -1166,6 +1380,13 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_merges_user_settings_into_hooks(failures)
+    test_live_socket_merges_inline_settings_form(failures)
+    test_live_socket_repeated_settings_user_value_wins_conflict(failures)
+    test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures)
+    test_live_socket_invalid_settings_warns_and_falls_back(failures)
+    test_live_socket_merges_settings_file_form(failures)
+    test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

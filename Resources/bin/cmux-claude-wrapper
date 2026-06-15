@@ -506,6 +506,115 @@ fi
 #   hook because a subagent finishing should not notify like the parent.
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
+# Fold any user-provided --settings into HOOKS_JSON before launching.
+#
+# cmux injects its hook configuration via --settings. Passing it as a separate
+# flag alongside a user's own --settings is fragile: with two --settings on the
+# command line Claude Code reads only ONE of them (a pure replace, not a merge),
+# and which one is undocumented and has already changed across CLI versions --
+# first-wins on <=2.1.168 (the user's flag was dropped: the original #2816
+# symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
+# --settings is dropped, silently breaking cmux notifications/status). Either
+# way one side is lost. Deep-merge the user's settings into ours and pass a
+# SINGLE combined --settings so Claude Code never sees multiple --settings: hook
+# arrays are concatenated (so both cmux and user hooks run) and the user's other
+# keys win. This is precedence-agnostic -- it does not rely on the CLI's
+# multi-flag behavior. Requires `node`; if node is missing or the merge fails we
+# fall back to the previous behavior (no worse than before).
+CMUX_FILTERED_ARGS=()
+CMUX_USER_SETTINGS=()
+cmux_collect_settings_value=false
+cmux_pending_option_value=false
+cmux_positional_only=false
+for arg in "$@"; do
+    if [[ "$cmux_positional_only" == true ]]; then
+        CMUX_FILTERED_ARGS+=("$arg")
+        continue
+    fi
+    if [[ "$cmux_collect_settings_value" == true ]]; then
+        CMUX_USER_SETTINGS+=("$arg")
+        cmux_collect_settings_value=false
+        continue
+    fi
+    if [[ "$cmux_pending_option_value" == true ]]; then
+        CMUX_FILTERED_ARGS+=("$arg")
+        cmux_pending_option_value=false
+        continue
+    fi
+    case "$arg" in
+        --)
+            cmux_positional_only=true
+            CMUX_FILTERED_ARGS+=("$arg")
+            ;;
+        --settings)
+            cmux_collect_settings_value=true
+            ;;
+        --settings=*)
+            CMUX_USER_SETTINGS+=("${arg#--settings=}")
+            ;;
+        -*)
+            CMUX_FILTERED_ARGS+=("$arg")
+            if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                cmux_pending_option_value=true
+            fi
+            ;;
+        *)
+            CMUX_FILTERED_ARGS+=("$arg")
+            ;;
+    esac
+done
+if [[ "$cmux_collect_settings_value" == true ]]; then
+    # Dangling --settings with no value; keep it so the real CLI reports the error.
+    CMUX_FILTERED_ARGS+=("--settings")
+fi
+
+if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
+    CMUX_MERGED_SETTINGS="$(
+        CMUX_BASE_SETTINGS="$HOOKS_JSON" \
+        CMUX_USER_SETTINGS_B64="$(printf '%s\0' "${CMUX_USER_SETTINGS[@]}" | base64 | tr -d '\n')" \
+        node -e '
+const fs=require("fs"),os=require("os"),path=require("path");
+const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
+const merge=(a,b)=>{
+  if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
+  if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
+  // a is the cmux/base side; on a type mismatch keep the cmux container so a
+  // non-object/array user value (e.g. hooks:null or hooks:[]) cannot wipe the
+  // cmux hook object/event arrays. Scalars still let the user value (b) win.
+  if(isObj(a)||Array.isArray(a))return a;
+  return b;
+};
+const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
+const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
+let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
+const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
+// split() leaves one trailing "" from printf terminating NUL; slice it off
+// rather than filtering all empties, so an explicit empty --settings= reaches
+// load("") -> JSON.parse throws -> merge fails loudly (warning + fallback)
+// instead of being silently dropped. The wrapper emits exactly one --settings,
+// so Claude Code never sees multiples; its multi-flag precedence (first-wins
+// <=2.1.168, last-wins >=2.1.169, undocumented) is irrelevant here. Among
+// repeated USER --settings, reverse() makes the earliest-listed value win the
+// scalar conflict (issue #2816).
+try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
+catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
+process.stdout.write(JSON.stringify(acc));
+'
+    )"
+    cmux_merge_status=$?
+    if [[ $cmux_merge_status -eq 0 && -n "$CMUX_MERGED_SETTINGS" ]]; then
+        HOOKS_JSON="$CMUX_MERGED_SETTINGS"
+        set -- "${CMUX_FILTERED_ARGS[@]}"
+    else
+        # Merge failed: malformed JSON, an unreadable --settings file, or a node
+        # error. node has already written the specific cause to stderr; add a
+        # one-line summary so the user knows their --settings was dropped instead
+        # of silently falling back to the dual-flag behavior that #2816 fixes.
+        printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
+    fi
+    unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
