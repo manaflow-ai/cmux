@@ -2,8 +2,9 @@ import Foundation
 
 /// Serializes the real-subprocess tests in this target against each other.
 ///
-/// `RemoteSessionProcessRunnerTests` and `RemotePlatformProbeScriptTests` each
-/// spawn a real `Process` with `Pipe`s and raw-read the pipe file descriptors.
+/// `RemoteSessionProcessRunnerTests`, `RemotePlatformProbeScriptTests`, and the
+/// `ssh -G` cases of `RemoteHostReachabilityProbeTests` each spawn a real
+/// `Process` with `Pipe`s and raw-read the pipe file descriptors.
 /// The `.serialized` suite trait orders the tests *within* one suite, but the
 /// process-global fd table is shared across suites: a `FileHandle` one suite
 /// closes can have its descriptor immediately recycled by another suite's
