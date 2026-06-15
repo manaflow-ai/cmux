@@ -1,14 +1,18 @@
 import Foundation
 
-/// Config-string parsing, formatting, and conflict detection for keyboard
-/// shortcut bindings.
+/// Config-string parsing, formatting, and conflict detection for the catalog's
+/// keyboard-shortcut value types (``CmuxSettings/ShortcutStroke`` /
+/// ``CmuxSettings/StoredShortcut``), used by the catalog-driven
+/// `cmux settings shortcuts` engine which reads and writes the
+/// `shortcuts.bindings` catalog entry.
 ///
-/// These live in `CmuxSettings` (not the app target) so that **one**
-/// definition is shared by the `cmux settings shortcuts` CLI, the `cmux.json`
-/// file store, the `cmux.json` config encoder, and the Settings UI. They were
-/// moved out of the app's `KeyboardShortcutSettings.swift`; the only
-/// app-coupled reference in the original (`firstStroke.modifierFlags.isEmpty`)
-/// maps exactly to the package's ``ShortcutStroke/hasAnyModifier``.
+/// The app target carries a parallel, identically-named pair of shortcut types
+/// (a flat-chord runtime model in `KeyboardShortcutSettings.swift`) with its own
+/// copy of these helpers; the two type hierarchies are distinct, so each needs
+/// its own parser. This package copy mirrors the app's grammar exactly (the
+/// app's lone AppKit-coupled check, `firstStroke.modifierFlags.isEmpty`, maps to
+/// ``ShortcutStroke/hasAnyModifier`` here) so bindings round-trip identically
+/// through `cmux.json` regardless of which side writes them.
 ///
 /// A config token is `modifier+…+key`, e.g. `cmd+t`, `ctrl+shift+]`, `space`,
 /// or `f5`. A binding is one token (single stroke) or two space-/array-

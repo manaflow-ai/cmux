@@ -23,11 +23,3 @@ public struct SettingsControlStores: Sendable {
         self.secret = secret
     }
 }
-
-/// Centralizes the placeholder substituted for secret values so it is impossible
-/// for a secret's plaintext to leak through `get` / `list` / `export`.
-public enum SettingsRedaction {
-    /// The text printed in place of a stored secret. A setting whose secret is
-    /// unset prints its (empty) default instead.
-    public static let marker = "<redacted>"
-}

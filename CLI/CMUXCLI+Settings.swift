@@ -307,6 +307,58 @@ extension CMUXCLI {
         return first
     }
 
+    /// Top-level `cmux settings` usage. Lives here (with the read/write
+    /// subcommands it documents) rather than in `CMUXCLI+DocsSettings.swift`,
+    /// which owns the GUI-open path; the `Self.*DisplayPath` constants resolve
+    /// across the shared `CMUXCLI` extension.
+    func settingsUsage() -> String {
+        return """
+        Usage: cmux settings <subcommand> [args]
+
+        Read and write every cmux setting and keyboard shortcut, or open the GUI.
+
+        Read/write subcommands (catalog-driven; require a running cmux app):
+          list [--json] [--keys]    List every setting (id, value, default, backend).
+          get <key> [--json]        Print one setting's value.
+          set <key> <value>         Set a value (validated against the catalog).
+          unset <key>               Clear an override, reverting to the default.
+          reset <key>               Same as unset.
+          reset --all --yes         Clear every override.
+          describe <key> [--json]   Full metadata: type, allowed values, default, backend.
+          export [--json] [--out f] Dump current settings (secrets omitted).
+          import <file>             Apply a settings file (validated atomically).
+          shortcuts <subcommand>    Manage keyboard shortcuts (list/get/set/unset/reset).
+
+        Discover keys with `cmux settings list --keys`, inspect one with
+        `cmux settings describe <key>`. Secret values are redacted on read.
+
+        GUI subcommands:
+          open [target]       Open Settings, optionally to a target section.
+          path                Print cmux.json paths, docs URL, and schema URL.
+          docs                Print the same output as `cmux docs settings`.
+
+        Targets:
+          account, app, terminal, sidebar-appearance, custom-sidebars,
+          automation, browser, browser-import, global-hotkey,
+          keyboard-shortcuts, shortcuts, workspace-colors, cmux-json,
+          json, reset
+
+        Config file:
+          \(Self.primarySettingsDisplayPath)
+          legacy config: \(Self.legacySettingsDisplayPath)
+          legacy app support: \(Self.fallbackSettingsDisplayPath)
+
+        Related (not cmux-owned, but cmux reads it for terminal behavior):
+          \(Self.ghosttyConfigDisplayPath)
+
+        Before editing cmux.json:
+          Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
+
+        Reload after editing cmux.json or Ghostty config:
+          cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)
+        """
+    }
+
     static let settingsShortcutsUsage = """
     cmux settings shortcuts — view and remap keyboard shortcuts
 

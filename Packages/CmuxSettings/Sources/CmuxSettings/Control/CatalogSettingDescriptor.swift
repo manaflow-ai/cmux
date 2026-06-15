@@ -28,6 +28,22 @@ public struct CatalogSettingDescriptor: Sendable {
     /// The key's default, as a value-typed JSON value.
     public let defaultValue: SettingJSONValue
 
+    /// The placeholder substituted for a stored secret on read, so a secret's
+    /// plaintext can never leak through `get` / `list` / `export`. A setting
+    /// whose secret is unset reports its (empty) default instead.
+    public static let redactionMarker = "<redacted>"
+
+    /// Catalog-side semantic minimums for integer settings whose value range is
+    /// narrower than `Int` and is enforced by the app's `cmux.json` parser. The
+    /// engine applies these generically in ``validate(_:)`` so a CLI write is
+    /// rejected for the same out-of-range values the config file rejects (e.g.
+    /// `automation.portBase` / `automation.portRange` must be `> 0`). Keyed by
+    /// dotted id; absent ids have no extra bound beyond their type.
+    static let integerMinimums: [String: Int] = [
+        "automation.portBase": 1,
+        "automation.portRange": 1,
+    ]
+
     /// Reads the current value. For secrets this returns a redaction marker (or
     /// the empty default when unset) and never the plaintext.
     let readCurrent: @Sendable (SettingsControlStores) async -> SettingJSONValue
@@ -56,6 +72,13 @@ public struct CatalogSettingDescriptor: Sendable {
     public func validate(_ candidate: SettingJSONValue) throws -> SettingJSONValue {
         guard let normalized = validateValue(candidate) else {
             throw SettingsControlError.invalidValue(key: id, reason: invalidValueReason(candidate))
+        }
+        // Apply any catalog-side semantic bound (e.g. ports must be > 0).
+        if case let .int(value) = normalized, let minimum = Self.integerMinimums[id], value < minimum {
+            throw SettingsControlError.invalidValue(
+                key: id,
+                reason: "must be at least \(minimum), got \(value)"
+            )
         }
         return normalized
     }
@@ -189,7 +212,7 @@ extension CatalogSettingDescriptor {
         self.defaultValue = .string(key.defaultValue)
         self.readCurrent = { stores in
             let present = await stores.secret.hasValue(for: key)
-            return .string(present ? SettingsRedaction.marker : key.defaultValue)
+            return .string(present ? Self.redactionMarker : key.defaultValue)
         }
         self.readHasOverride = { stores in
             await stores.secret.hasValue(for: key)

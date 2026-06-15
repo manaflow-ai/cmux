@@ -22,7 +22,13 @@ extension SettingsControlEngine {
     @discardableResult
     public func shortcutSet(_ actionID: String, combo: String, force: Bool = false) async throws -> ShortcutRow {
         let action = try shortcutAction(actionID)
-        guard let proposed = Self.parseStoredShortcut(from: combo) else {
+        // Honor the action's own first-stroke policy: most actions require a
+        // modifier (so a bare key never steals plain typing), but vim-style
+        // diff-viewer actions accept a bare first stroke like `j`.
+        guard let proposed = Self.parseStoredShortcut(
+            from: combo,
+            allowBareFirstStroke: action.allowsBareFirstStroke
+        ) else {
             throw SettingsControlError.invalidShortcut(
                 action: actionID,
                 reason: "could not parse '\(combo)'. Use e.g. 'cmd+t', a chord 'ctrl+b c', or 'none' to unbind."
@@ -107,20 +113,21 @@ extension SettingsControlEngine {
 
     /// Parses a CLI combo argument into a binding, accepting a single token
     /// (`cmd+t`), a space-separated chord (`ctrl+b c`), or a JSON array
-    /// (`["ctrl+b","c"]`). `none` / empty unbinds.
-    static func parseStoredShortcut(from combo: String) -> StoredShortcut? {
+    /// (`["ctrl+b","c"]`). `none` / empty unbinds. `allowBareFirstStroke` is the
+    /// action's own policy (see ``ShortcutAction/allowsBareFirstStroke``).
+    static func parseStoredShortcut(from combo: String, allowBareFirstStroke: Bool) -> StoredShortcut? {
         let trimmed = combo.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("[") {
             if let data = trimmed.data(using: .utf8),
                let array = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                return StoredShortcut.parseConfig(strokes: array)
+                return StoredShortcut.parseConfig(strokes: array, allowBareFirstStroke: allowBareFirstStroke)
             }
             return nil
         }
         let tokens = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         if tokens.count >= 2 {
-            return StoredShortcut.parseConfig(strokes: Array(tokens.prefix(2)))
+            return StoredShortcut.parseConfig(strokes: Array(tokens.prefix(2)), allowBareFirstStroke: allowBareFirstStroke)
         }
-        return StoredShortcut.parseConfig(trimmed)
+        return StoredShortcut.parseConfig(trimmed, allowBareFirstStroke: allowBareFirstStroke)
     }
 }

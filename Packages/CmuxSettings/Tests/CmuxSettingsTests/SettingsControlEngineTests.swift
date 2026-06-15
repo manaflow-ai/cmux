@@ -190,6 +190,21 @@ struct SettingsControlEngineTests {
         #expect(try await harness.engine.get("app.appearance").isOverridden == false)
     }
 
+    @Test func rejectsOutOfRangeInteger() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // Ports must be > 0, matching the cmux.json parser's semantic bound.
+        for bad in ["-1", "0"] {
+            await #expect(throws: SettingsControlError.self) {
+                try await harness.engine.set("automation.portBase", rawValue: bad)
+            }
+        }
+        #expect(try await harness.engine.get("automation.portBase").isOverridden == false)
+        // A valid port still goes through.
+        let row = try await harness.engine.set("automation.portBase", rawValue: "8080")
+        #expect(row.value == .int(8080))
+    }
+
     // MARK: - Secret redaction
 
     @Test func secretIsRedactedButSettable() async throws {
@@ -205,10 +220,10 @@ struct SettingsControlEngineTests {
 
         // But it is never surfaced by get / list / export.
         let getValue = try await harness.engine.get(secretID).value
-        #expect(getValue == .string(SettingsRedaction.marker))
+        #expect(getValue == .string(CatalogSettingDescriptor.redactionMarker))
 
         let listRow = try #require(await harness.engine.list().first { $0.id == secretID })
-        #expect(listRow.value == .string(SettingsRedaction.marker))
+        #expect(listRow.value == .string(CatalogSettingDescriptor.redactionMarker))
 
         let exportText = await harness.engine.export().jsonText
         #expect(!exportText.contains("hunter2"))
@@ -337,6 +352,22 @@ struct SettingsControlEngineTests {
         await #expect(throws: SettingsControlError.self) {
             try await harness.engine.shortcutSet("openSettings", combo: "%%%bogus%%%")
         }
+    }
+
+    @Test func shortcutSetHonorsActionBareFirstStrokePolicy() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+
+        // Vim-style diff-viewer actions accept a bare first stroke.
+        let row = try await engine.shortcutSet("diffViewerScrollDown", combo: "j")
+        #expect(row.binding == "j")
+
+        // A modifier-required action rejects a bare key.
+        await #expect(throws: SettingsControlError.self) {
+            try await engine.shortcutSet("newTab", combo: "j")
+        }
+        #expect(try await engine.shortcutGet("newTab").isOverridden == false)
     }
 
     @Test func shortcutListCoversEveryAction() async {

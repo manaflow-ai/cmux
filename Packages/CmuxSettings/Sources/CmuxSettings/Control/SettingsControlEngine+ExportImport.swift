@@ -36,7 +36,7 @@ extension SettingsControlEngine {
                 errors.append("unknown setting '\(id)'")
                 continue
             }
-            if descriptor.isSecret, case let .string(text) = value, text == SettingsRedaction.marker {
+            if descriptor.isSecret, case let .string(text) = value, text == CatalogSettingDescriptor.redactionMarker {
                 // A redacted placeholder carries no real secret; leave the
                 // stored secret untouched.
                 continue
