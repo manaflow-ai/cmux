@@ -191,4 +191,55 @@ enum AgentUsageLogParser {
             cacheWrite: 0
         )
     }
+
+    // MARK: - OpenCode (~/.local/share/opencode/storage/message/**/*.json)
+
+    /// Parses one OpenCode message file. Only assistant messages carry token
+    /// usage; the schema nests counts under `tokens` with a `cache` sub-object
+    /// (`tokens.{input,output,reasoning,cache.{read,write}}`), records `cost`
+    /// (often `0`, in which case it is estimated from the price table later),
+    /// identifies the model via `modelID`, and timestamps via `time.completed`
+    /// or `time.created` in epoch milliseconds. Reasoning tokens are folded into
+    /// output to match how the other sources report generated tokens.
+    static func parseOpenCodeMessage(_ contents: String) -> AgentUsageEvent? {
+        guard let object = jsonObject(contents) else { return nil }
+        guard (object["role"] as? String) == "assistant" else { return nil }
+        guard let tokensDict = object["tokens"] as? [String: Any] else { return nil }
+
+        let cache = tokensDict["cache"] as? [String: Any]
+        let tokens = AgentUsageTokens(
+            input: intValue(tokensDict["input"]),
+            output: intValue(tokensDict["output"]) + intValue(tokensDict["reasoning"]),
+            cacheRead: intValue(cache?["read"]),
+            cacheWrite: intValue(cache?["write"])
+        )
+        guard !tokens.isEmpty else { return nil }
+
+        guard let timestamp = openCodeTimestamp(object["time"]) else { return nil }
+
+        let model = (object["modelID"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "opencode"
+        let cost = (object["cost"] as? NSNumber)?.doubleValue
+        return AgentUsageEvent(
+            source: .openCode,
+            timestamp: timestamp,
+            model: model,
+            tokens: tokens,
+            // OpenCode writes cost: 0 when it cannot price a model; treat only a
+            // positive recorded cost as authoritative and estimate otherwise.
+            recordedCostUSD: (cost ?? 0) > 0 ? cost : nil
+        )
+    }
+
+    /// Reads OpenCode's `time` object (`completed` preferred over `created`),
+    /// interpreting the value as epoch milliseconds, but tolerating a seconds
+    /// value in case the format changes.
+    private static func openCodeTimestamp(_ any: Any?) -> Date? {
+        guard let time = any as? [String: Any] else { return nil }
+        let raw = (time["completed"] as? NSNumber)?.doubleValue
+            ?? (time["created"] as? NSNumber)?.doubleValue
+        guard let raw, raw > 0 else { return nil }
+        // Epoch milliseconds are ~1e12; a value below that is already in seconds.
+        let seconds = raw >= 1_000_000_000_000 ? raw / 1000 : raw
+        return Date(timeIntervalSince1970: seconds)
+    }
 }

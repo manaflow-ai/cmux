@@ -464,6 +464,7 @@
 		A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
 		A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */; };
+		A6E0200000000000000000C1 /* OpenRouterUsageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -1232,6 +1233,7 @@
 		A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventTextAccumulator.swift; sourceTree = "<group>"; };
 		A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHookRegressionTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeProcessOutputDisposition.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenRouterUsageClient.swift; sourceTree = "<group>"; };
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
@@ -2014,6 +2016,7 @@
 				A9E01000000000000000000D /* AgentSessionWebTheme.swift */,
 				A9E010000000000000000004 /* AgentSessionPanelView.swift */,
 				A6E0100000000000000000A2 /* AgentUsagePanel.swift */,
+				A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */,
 				A6E0100000000000000000B1 /* AgentUsageTypes.swift */,
 				A6E0100000000000000000B2 /* AgentUsagePricing.swift */,
 				A6E0100000000000000000B3 /* AgentUsageLogParser.swift */,
@@ -3008,6 +3011,7 @@
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,
+				A6E0200000000000000000C1 /* OpenRouterUsageClient.swift in Sources */,
 				D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,

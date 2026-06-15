@@ -6035,7 +6035,7 @@ struct ContentView: View {
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .agentUsage:
-            return ["usage", "tokens", "cost", "claude", "codex", "agent"]
+            return ["usage", "tokens", "cost", "claude", "codex", "opencode", "openrouter", "agent"]
         }
     }
 

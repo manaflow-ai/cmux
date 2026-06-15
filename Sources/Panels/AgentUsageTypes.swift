@@ -6,6 +6,11 @@ enum AgentUsageSource: String, CaseIterable, Identifiable, Sendable {
     case claudeCode
     /// Usage parsed from Codex CLI rollout files (`~/.codex/sessions`).
     case codex
+    /// Usage parsed from OpenCode message files (`~/.local/share/opencode`).
+    case openCode
+    /// Usage fetched from the OpenRouter account-activity API (server-reported,
+    /// not a local transcript scan).
+    case openRouter
 
     /// Stable identity for SwiftUI lists.
     var id: String { rawValue }
@@ -17,8 +22,16 @@ enum AgentUsageSource: String, CaseIterable, Identifiable, Sendable {
             return "Claude Code"
         case .codex:
             return "Codex"
+        case .openCode:
+            return "OpenCode"
+        case .openRouter:
+            return "OpenRouter"
         }
     }
+
+    /// True when the source's usage comes from a remote API rather than from
+    /// locally scanned transcript files.
+    var isServerReported: Bool { self == .openRouter }
 }
 
 /// Token counts for one event or rollup, broken down the way providers bill them.
@@ -176,6 +189,9 @@ struct AgentUsageSnapshot: Equatable, Sendable {
     var scannedFileCount: Int
     /// Plan-limit windows (5-hour and weekly per source).
     var rateWindows: [AgentUsageRateWindow] = []
+    /// OpenRouter account balance, when an API key is configured and the fetch
+    /// succeeded; nil otherwise.
+    var openRouterCredits: OpenRouterCredits? = nil
 
     /// A snapshot with no data, timestamped at the epoch.
     static let empty = AgentUsageSnapshot(

@@ -141,6 +141,71 @@ final class AgentUsageModelTests: XCTestCase {
         XCTAssertEqual(observation.secondary?.usedPercent, 4.5)
     }
 
+    // MARK: - OpenCode message parsing
+
+    func testParseOpenCodeMessageFoldsReasoningAndMapsCache() throws {
+        let json = #"""
+        {"role":"assistant","modelID":"claude-sonnet-4-20250514","providerID":"anthropic","cost":0,"time":{"created":1749560096000,"completed":1749560100000},"tokens":{"input":10,"output":200,"reasoning":20,"cache":{"read":4000,"write":300}}}
+        """#
+        let event = try XCTUnwrap(AgentUsageLogParser.parseOpenCodeMessage(json))
+
+        XCTAssertEqual(event.source, .openCode)
+        XCTAssertEqual(event.model, "claude-sonnet-4-20250514")
+        XCTAssertEqual(event.tokens.input, 10)
+        XCTAssertEqual(event.tokens.output, 220, "Reasoning tokens fold into output")
+        XCTAssertEqual(event.tokens.cacheRead, 4000)
+        XCTAssertEqual(event.tokens.cacheWrite, 300)
+        XCTAssertNil(event.recordedCostUSD, "A cost of 0 is treated as unpriced so it gets estimated")
+        XCTAssertEqual(event.timestamp, Date(timeIntervalSince1970: 1_749_560_100), "time.completed is epoch milliseconds")
+    }
+
+    func testParseOpenCodeMessageSkipsNonAssistantAndEmptyUsage() {
+        XCTAssertNil(
+            AgentUsageLogParser.parseOpenCodeMessage(#"{"role":"user","tokens":{"input":5}}"#),
+            "Only assistant messages carry billable usage"
+        )
+        XCTAssertNil(
+            AgentUsageLogParser.parseOpenCodeMessage(#"{"role":"assistant","time":{"completed":1749560100000},"tokens":{"input":0,"output":0,"cache":{"read":0,"write":0}}}"#),
+            "Zero-token assistant messages carry no usage"
+        )
+        XCTAssertNil(AgentUsageLogParser.parseOpenCodeMessage("not json"))
+    }
+
+    func testParseOpenCodeMessagePrefersPositiveRecordedCost() throws {
+        let json = #"""
+        {"role":"assistant","modelID":"some-local-model","cost":0.0731,"time":{"completed":1749560100000},"tokens":{"input":100,"output":50,"cache":{"read":0,"write":0}}}
+        """#
+        let event = try XCTUnwrap(AgentUsageLogParser.parseOpenCodeMessage(json))
+        XCTAssertEqual(event.recordedCostUSD, 0.0731)
+    }
+
+    // MARK: - OpenRouter activity mapping
+
+    func testOpenRouterActivityMapsToEvents() throws {
+        let json = Data(#"""
+        {"data":[
+          {"date":"2026-06-10","model":"openai/gpt-4.1","model_permaslug":"openai/gpt-4.1@2025","endpoint_id":"ep","provider_name":"OpenAI","prompt_tokens":1000,"completion_tokens":200,"reasoning_tokens":50,"requests":5,"usage":0.1234,"byok_usage_inference":0},
+          {"date":"bad-date","model":"x","model_permaslug":"x","endpoint_id":"ep","provider_name":"p","prompt_tokens":1,"completion_tokens":1,"reasoning_tokens":0,"requests":1,"usage":0.01,"byok_usage_inference":0}
+        ]}
+        """#.utf8)
+
+        let events = OpenRouterUsageClient.events(fromActivityJSON: json)
+        XCTAssertEqual(events.count, 1, "Rows with an unparseable date are dropped")
+
+        let event = try XCTUnwrap(events.first)
+        XCTAssertEqual(event.source, .openRouter)
+        XCTAssertEqual(event.model, "openai/gpt-4.1")
+        XCTAssertEqual(event.tokens.input, 1000)
+        XCTAssertEqual(event.tokens.output, 250, "Reasoning tokens fold into output")
+        XCTAssertEqual(event.recordedCostUSD, 0.1234, "OpenRouter's reported usage cost is authoritative")
+
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        XCTAssertEqual(utc.component(.year, from: event.timestamp), 2026)
+        XCTAssertEqual(utc.component(.month, from: event.timestamp), 6)
+        XCTAssertEqual(utc.component(.day, from: event.timestamp), 10)
+    }
+
     // MARK: - Rate windows
 
     private func usageEvent(

@@ -61,10 +61,10 @@ private struct AgentUsageContentView: View {
             header
             Divider()
             if let snapshot = store.snapshot {
-                if snapshot.days.isEmpty {
+                if snapshot.days.isEmpty && snapshot.openRouterCredits == nil {
                     emptyState
                 } else {
-                    AgentUsageReportView(snapshot: snapshot)
+                    AgentUsageReportView(snapshot: snapshot, openRouterError: store.openRouterError)
                 }
             } else {
                 loadingState
@@ -130,7 +130,7 @@ private struct AgentUsageContentView: View {
                 .foregroundStyle(.tertiary)
             Text(String(
                 localized: "agentUsage.empty",
-                defaultValue: "No recent usage found in ~/.claude or ~/.codex."
+                defaultValue: "No recent usage found in ~/.claude, ~/.codex, or ~/.local/share/opencode. Add an OpenRouter key in Settings to include OpenRouter usage."
             ))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
@@ -144,11 +144,24 @@ private struct AgentUsageContentView: View {
 /// (snapshot boundary policy for list subtrees).
 private struct AgentUsageReportView: View {
     let snapshot: AgentUsageSnapshot
+    let openRouterError: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if let openRouterError {
+                    Label(openRouterError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
                 totalsSection
+                if let credits = snapshot.openRouterCredits {
+                    openRouterCreditsSection(credits)
+                }
                 if !snapshot.rateWindows.isEmpty {
                     windowsSection
                 }
@@ -188,6 +201,29 @@ private struct AgentUsageReportView: View {
                 title: String(localized: "agentUsage.totals.estimatedCost", defaultValue: "Est. API Cost"),
                 value: AgentUsageFormat.cost(snapshot.totalCostUSD)
             )
+        }
+    }
+
+    /// OpenRouter account balance, shown as three cards.
+    private func openRouterCreditsSection(_ credits: OpenRouterCredits) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "agentUsage.section.openRouter", defaultValue: "OpenRouter Balance"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                AgentUsageStatCard(
+                    title: String(localized: "agentUsage.openRouter.remaining", defaultValue: "Remaining"),
+                    value: AgentUsageFormat.cost(credits.remaining)
+                )
+                AgentUsageStatCard(
+                    title: String(localized: "agentUsage.openRouter.purchased", defaultValue: "Purchased"),
+                    value: AgentUsageFormat.cost(credits.totalCredits)
+                )
+                AgentUsageStatCard(
+                    title: String(localized: "agentUsage.openRouter.used", defaultValue: "Used"),
+                    value: AgentUsageFormat.cost(credits.totalUsage)
+                )
+            }
         }
     }
 
