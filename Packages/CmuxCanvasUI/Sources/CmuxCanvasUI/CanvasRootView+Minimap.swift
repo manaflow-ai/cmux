@@ -2,7 +2,7 @@ import AppKit
 
 extension CanvasRootView {
     private static let minimapVisibleAlpha: CGFloat = 0.92
-    private static let minimapAutoHideDelayNanoseconds: UInt64 = 3_000_000_000
+    private static let minimapAutoHideDelay: Duration = .seconds(3)
 
     func updateMinimap(reveal: Bool = false) {
         let visible = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
@@ -46,8 +46,14 @@ extension CanvasRootView {
             minimapView.animator().alphaValue = Self.minimapVisibleAlpha
         }
 
-        minimapHideTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.minimapAutoHideDelayNanoseconds)
+        let clock = minimapClock
+        let delay = Self.minimapAutoHideDelay
+        minimapHideTask = Task { [weak self, clock, delay] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.hideMinimap(animated: true)

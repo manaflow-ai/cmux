@@ -1,7 +1,6 @@
 public import AppKit
 import SwiftUI
 import CmuxCanvas
-
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
@@ -15,6 +14,7 @@ public final class CanvasRootView: NSView {
     let model: CanvasModel
     let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
+    let minimapClock: any Clock<Duration>
     /// Pre-localized text for the Command+scroll discovery hint.
     let commandScrollHintText: String
     let scrollView: CanvasScrollView
@@ -73,12 +73,13 @@ public final class CanvasRootView: NSView {
         model: CanvasModel,
         commandScrollHintText: String,
         callbacks: CanvasHostCallbacks,
-        themeProvider: @escaping () -> CanvasTheme
+        themeProvider: @escaping () -> CanvasTheme, minimapClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.model = model
         self.callbacks = callbacks
         self.commandScrollHintText = commandScrollHintText
         self.themeProvider = themeProvider
+        self.minimapClock = minimapClock
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
         applyTheme()
