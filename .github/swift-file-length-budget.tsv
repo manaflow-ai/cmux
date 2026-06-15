@@ -2,8 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34207	CLI/cmux.swift
-17914	Sources/AppDelegate.swift
-16705	Sources/ContentView.swift
+17927	Sources/AppDelegate.swift
+16720	Sources/ContentView.swift
 14682	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
 12223	Sources/Workspace.swift
@@ -16,7 +16,7 @@
 6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
-6091	Sources/TabManager.swift
+6109	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5522	cmuxTests/BrowserConfigTests.swift
@@ -35,7 +35,7 @@
 3200	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
-2573	Sources/KeyboardShortcutSettings.swift
+2581	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2449	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -45,7 +45,7 @@
 2259	Sources/TerminalWindowPortal.swift
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
-2095	cmuxTests/ShortcutAndCommandPaletteTests.swift
+2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2062	Sources/SessionPersistence.swift
 2036	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
@@ -98,7 +98,7 @@
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 893	Sources/WorkspaceContentView.swift
-876	Sources/Panels/TerminalPanel.swift
+882	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 859	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
@@ -116,11 +116,11 @@
 754	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
+745	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 716	Sources/TaskManagerSnapshot.swift
-715	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
 707	CLI/CMUXCLI+AgentHookDefinitions.swift
