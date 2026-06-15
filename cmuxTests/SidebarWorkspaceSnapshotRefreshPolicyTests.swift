@@ -111,6 +111,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
+            agentForkAvailabilityGeneration: 0,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
