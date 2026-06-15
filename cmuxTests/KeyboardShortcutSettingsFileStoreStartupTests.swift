@@ -6,6 +6,8 @@ import AppKit
 import struct CmuxSettings.AppCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
+import enum CmuxSettings.BrowserSearchEngine
+import struct CmuxSettings.BrowserSearchSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
