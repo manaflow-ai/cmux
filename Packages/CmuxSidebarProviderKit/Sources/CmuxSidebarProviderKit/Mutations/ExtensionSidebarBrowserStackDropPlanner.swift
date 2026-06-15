@@ -88,7 +88,7 @@ public enum ExtensionSidebarBrowserStackDropPlanner {
         }
         let edge: SidebarDropEdge
         if let pointerY, let targetHeight {
-            edge = SidebarDropPlanner.edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+            edge = SidebarDropPlanner().edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
         } else {
             edge = sourceIndex < targetIndex ? .top : .bottom
         }
