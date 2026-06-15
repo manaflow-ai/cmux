@@ -239,6 +239,29 @@ extension ShortcutAction {
         }
     }
 
+    /// The 1-based surface index a per-surface selection action targets, or
+    /// `nil` for any other action.
+    ///
+    /// Maps ``selectSurface1``…``selectSurface9`` to `1`…`9` (where `9` selects
+    /// the last surface). Mirrors the app target's
+    /// `KeyboardShortcutSettings.Action.surfaceSelectionDigit` so the settings
+    /// UI can expand a configured legacy ``selectSurfaceByNumber`` binding onto
+    /// each per-surface row, matching the shortcut the app actually routes.
+    public var surfaceSelectionDigit: Int? {
+        switch self {
+        case .selectSurface1: return 1
+        case .selectSurface2: return 2
+        case .selectSurface3: return 3
+        case .selectSurface4: return 4
+        case .selectSurface5: return 5
+        case .selectSurface6: return 6
+        case .selectSurface7: return 7
+        case .selectSurface8: return 8
+        case .selectSurface9: return 9
+        default: return nil
+        }
+    }
+
     /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
     ///
     /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
