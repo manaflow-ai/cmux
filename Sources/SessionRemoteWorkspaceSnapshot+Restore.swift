@@ -42,13 +42,17 @@ extension SessionRemoteWorkspaceSnapshot {
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
+        let restoredSSHOptionsWithRemoteMacTunnel = Self.sshOptionsWithRemoteMacTunnelDefaults(
+            restoredSSHOptions,
+            remoteMacTunnel: remoteMacTunnel
+        )
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: normalizedDestination,
                 port: normalizedPort,
                 identityFile: Self.normalizedIdentityPath(identityFile),
-                sshOptions: restoredSSHOptions,
+                sshOptions: restoredSSHOptionsWithRemoteMacTunnel,
                 token: $0
             )
         }
@@ -66,7 +70,7 @@ extension SessionRemoteWorkspaceSnapshot {
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
-            sshOptions: restoredSSHOptions,
+            sshOptions: restoredSSHOptionsWithRemoteMacTunnel,
             localProxyPort: nil,
             relayPort: preservePTYSession ? normalizedRelayPort : nil,
             relayID: restoredRelayID,
@@ -83,17 +87,18 @@ extension SessionRemoteWorkspaceSnapshot {
                 : sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
-                    sshOptions: restoredSSHOptions
+                    sshOptions: restoredSSHOptionsWithRemoteMacTunnel
                 ),
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
-                sshOptions: restoredSSHOptions,
+                sshOptions: restoredSSHOptionsWithRemoteMacTunnel,
                 explicitAgentSocketPath: overrideAgentSocketPath
             ),
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
-            skipDaemonBootstrap: skipDaemonBootstrap == true
+            skipDaemonBootstrap: skipDaemonBootstrap == true,
+            remoteMacTunnel: remoteMacTunnel
         )
     }
 
@@ -142,6 +147,21 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: key)
+    }
+
+    private static func sshOptionsWithRemoteMacTunnelDefaults(
+        _ options: [String],
+        remoteMacTunnel: WorkspaceRemoteMacTunnel?
+    ) -> [String] {
+        guard let remoteMacTunnel else { return options }
+        var updated = options
+        if !hasSSHOptionKey(updated, key: "ExitOnForwardFailure") {
+            updated.append("ExitOnForwardFailure=yes")
+        }
+        if !hasSSHOptionKey(updated, key: "LocalForward") {
+            updated.append(remoteMacTunnel.localForwardSSHOption)
+        }
+        return updated
     }
 
     private static func shellQuote(_ value: String) -> String {

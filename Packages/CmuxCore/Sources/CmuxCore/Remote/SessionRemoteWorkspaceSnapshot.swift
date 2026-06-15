@@ -22,6 +22,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var relayPort: Int? = nil
     /// The persistent daemon slot captured for persistent-PTY restore.
     public var persistentDaemonSlot: String? = nil
+    /// SSH-local-forward attach metadata for desktop-to-desktop remote Mac access.
+    public var remoteMacTunnel: WorkspaceRemoteMacTunnel? = nil
 
     /// Creates a snapshot value; mirrors the synthesized memberwise initializer.
     public init(
@@ -33,7 +35,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         preserveAfterTerminalExit: Bool? = nil,
         skipDaemonBootstrap: Bool? = nil,
         relayPort: Int? = nil,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        remoteMacTunnel: WorkspaceRemoteMacTunnel? = nil
     ) {
         self.transport = transport
         self.destination = destination
@@ -44,5 +47,6 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.skipDaemonBootstrap = skipDaemonBootstrap
         self.relayPort = relayPort
         self.persistentDaemonSlot = persistentDaemonSlot
+        self.remoteMacTunnel = remoteMacTunnel
     }
 }

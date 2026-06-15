@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxSettings
 import CmuxSocketControl
@@ -4321,6 +4322,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "remote":
+            try runRemoteNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
@@ -5996,7 +6005,7 @@ struct CMUXCLI {
         return .refs
     }
 
-    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
@@ -8658,12 +8667,12 @@ struct CMUXCLI {
         }
     }
 
-    private func generateRemoteRelayPort() -> Int {
+    func generateRemoteRelayPort() -> Int {
         // Random port in the ephemeral range (49152-65535)
         Int.random(in: 49152...65535)
     }
 
-    private func randomHex(byteCount: Int) throws -> String {
+    func randomHex(byteCount: Int) throws -> String {
         var bytes = [UInt8](repeating: 0, count: byteCount)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
@@ -8703,15 +8712,18 @@ struct CMUXCLI {
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
-    private func runSSHWithOptions(
+    @discardableResult
+    func runSSHWithOptions(
         _ sshOptions: SSHCommandOptions,
         relayID: String,
         relayToken: String,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        vmIDForSplitAttach: String? = nil
-    ) throws {
+        vmIDForSplitAttach: String? = nil,
+        decorateConfigureParams: ((inout [String: Any]) -> Void)? = nil,
+        decoratePayload: ((inout [String: Any]) -> Void)? = nil
+    ) throws -> [String: Any] {
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -8944,6 +8956,7 @@ struct CMUXCLI {
                 configureParams["preserve_after_terminal_exit"] = true
                 configureParams["persistent_daemon_slot"] = persistentDaemonSlot
             }
+            decorateConfigureParams?(&configureParams)
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -9014,6 +9027,7 @@ struct CMUXCLI {
         if let persistentDaemonSlot {
             payload["persistent_daemon_slot"] = persistentDaemonSlot
         }
+        decoratePayload?(&payload)
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -9023,6 +9037,7 @@ struct CMUXCLI {
             let state = (remote?["state"] as? String) ?? "unknown"
             print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
         }
+        return payload
     }
 
     private func parseSSHCommandOptions(
@@ -9197,7 +9212,7 @@ struct CMUXCLI {
         .joined(separator: " ")
     }
 
-    private func buildSSHCommandArguments(
+    func buildSSHCommandArguments(
         _ options: SSHCommandOptions,
         remoteBootstrapScript: String? = nil,
         localCommandScript: String? = nil
@@ -11960,7 +11975,7 @@ struct CMUXCLI {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+    func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
@@ -14961,6 +14976,37 @@ struct CMUXCLI {
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """)
+        case "remote":
+            return """
+            Usage: cmux remote mac open <destination> [flags]
+
+            Open a managed SSH workspace to a remote Mac running cmux, mint a
+            mobile attach ticket from that remote cmux instance, and rewrite the
+            ticket to a local SSH tunnel endpoint.
+
+            The remote Mac must be signed in to cmux, have Mobile/iOS pairing
+            enabled, and advertise a Tailscale mobile route.
+
+            Flags:
+              --name <title>          Optional workspace title
+              --port <n>              SSH port
+              --identity <path>       SSH identity file path
+              --ssh-option <opt>      Extra SSH -o option (repeatable)
+              --local-port <n>        Local forwarded port (default: generated)
+              --ttl <seconds>         Attach ticket TTL, 30-3600 (default: 600)
+              --remote-cmux <path>    Remote cmux CLI path/name (default: cmux)
+              --remote-socket <path>  Remote cmux debug socket path
+              --remote-window <id>    Remote cmux window id/ref/index/current (default: current)
+              --window <id|ref|index> Target window for the managed workspace
+              --new-window            Create a dedicated local window for this remote Mac
+              --no-focus              Create workspace without switching to it
+
+            Example:
+              cmux remote mac open lawrence@mac-mini
+              cmux remote mac open cmux-macmini --new-window
+              cmux remote mac open cmux-macmini --new-window --remote-window window:2
+              cmux remote mac open cmux-macmini --name "mini cmux" --identity ~/.ssh/id_ed25519
+            """
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -34007,6 +34053,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--remote-socket <path>] [--remote-window <id|ref|index|current>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

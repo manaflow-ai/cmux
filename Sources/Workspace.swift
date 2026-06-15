@@ -1641,8 +1641,10 @@ extension Workspace {
                 (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
+            let restoresRemoteMacTunnelWorkspace = remoteConfiguration?.remoteMacTunnel != nil
             let suppressWorkspaceRemoteStartupCommand =
                 remoteConfiguration != nil &&
+                !restoresRemoteMacTunnelWorkspace &&
                 snapshot.terminal?.isRemoteTerminal == false &&
                 restoredRemotePTYAttachCommand == nil
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
@@ -5615,6 +5617,16 @@ final class Workspace: Identifiable, ObservableObject {
             payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
             payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
+            if let remoteMacTunnel = remoteConfiguration.remoteMacTunnel {
+                var remoteMac: [String: Any] = [
+                    "local_endpoint": remoteMacTunnel.localEndpoint,
+                    "forward_target": remoteMacTunnel.forwardTarget,
+                ]
+                remoteMac["remote_window_id"] = remoteMacTunnel.remoteWindowID ?? NSNull()
+                payload["remote_mac"] = remoteMac
+            } else {
+                payload["remote_mac"] = NSNull()
+            }
         } else {
             payload["transport"] = NSNull()
             payload["destination"] = NSNull()
@@ -5623,6 +5635,7 @@ final class Workspace: Identifiable, ObservableObject {
             payload["has_ssh_options"] = false
             payload["local_proxy_port"] = NSNull()
             payload["persistent_daemon_slot"] = NSNull()
+            payload["remote_mac"] = NSNull()
         }
         return payload
     }
@@ -5810,7 +5823,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
         guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
         guard pendingRemoteDisconnectReplacement == nil else { return }
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
+        if shouldPreserveRemoteConfigurationAfterTerminalExit {
             return
         }
         disconnectRemoteConnection(clearConfiguration: true)
@@ -6282,7 +6295,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
+        if shouldPreserveRemoteConfigurationAfterTerminalExit {
             return
         }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
@@ -6296,6 +6309,11 @@ final class Workspace: Identifiable, ObservableObject {
             }
             disconnectRemoteConnection(clearConfiguration: true)
         }
+    }
+
+    private var shouldPreserveRemoteConfigurationAfterTerminalExit: Bool {
+        remoteConfiguration?.preserveAfterTerminalExit == true ||
+            remoteConfiguration?.remoteMacTunnel != nil
     }
 
     @MainActor

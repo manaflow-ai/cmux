@@ -4070,6 +4070,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @discardableResult
+    func persistSessionSnapshotAfterControlMutation() -> Bool {
+        guard !isTerminatingApp else { return false }
+        return saveSessionSnapshot(
+            includeScrollback: false
+        )
+    }
+
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false

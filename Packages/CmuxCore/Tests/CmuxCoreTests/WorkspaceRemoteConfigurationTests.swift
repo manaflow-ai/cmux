@@ -94,7 +94,8 @@ struct WorkspaceRemoteConfigurationValueTests {
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        remoteMacTunnel: WorkspaceRemoteMacTunnel? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -110,7 +111,8 @@ struct WorkspaceRemoteConfigurationValueTests {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            remoteMacTunnel: remoteMacTunnel
         )
     }
 
@@ -131,6 +133,67 @@ struct WorkspaceRemoteConfigurationValueTests {
     func displayTarget() {
         #expect(makeConfiguration().displayTarget == "user@host")
         #expect(makeConfiguration(port: 2222).displayTarget == "user@host:2222")
+    }
+
+    @Test("session snapshot preserves remote Mac tunnel metadata and durable local forwards")
+    func sessionSnapshotPreservesRemoteMacTunnel() throws {
+        let tunnel = try #require(WorkspaceRemoteMacTunnel(
+            localEndpoint: "127.0.0.1:49321",
+            forwardTarget: "100.102.73.120:61848",
+            remoteWindowID: "33333333-3333-3333-3333-333333333333"
+        ))
+        let configuration = makeConfiguration(
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-%C",
+                "ExitOnForwardFailure=yes",
+                tunnel.localForwardSSHOption,
+            ],
+            remoteMacTunnel: tunnel
+        )
+
+        let snapshot = try #require(configuration.sessionSnapshot())
+
+        #expect(snapshot.remoteMacTunnel == tunnel)
+        #expect(snapshot.remoteMacTunnel?.remoteWindowID == "33333333-3333-3333-3333-333333333333")
+        #expect(!String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self).contains("attach"))
+        #expect(snapshot.sshOptions.contains("ExitOnForwardFailure=yes"))
+        #expect(snapshot.sshOptions.contains(tunnel.localForwardSSHOption))
+        #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlMaster") })
+        #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlPath") })
+    }
+
+    @Test("remote Mac tunnel decode rejects invalid persisted endpoints")
+    func remoteMacTunnelDecodeRejectsInvalidEndpoints() throws {
+        let payload = Data(
+            """
+            {
+              "localHost": "127.0.0.1",
+              "localPort": 70000,
+              "remoteHost": "bad host",
+              "remotePort": 61848,
+              "remoteWindowID": "33333333-3333-3333-3333-333333333333"
+            }
+            """.utf8
+        )
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(WorkspaceRemoteMacTunnel.self, from: payload)
+        }
+    }
+
+    @Test("remote Mac tunnel brackets IPv6 hosts in SSH LocalForward")
+    func remoteMacTunnelBracketsIPv6ForwardEndpoints() throws {
+        let tunnel = try #require(WorkspaceRemoteMacTunnel(
+            localEndpoint: "[::1]:49321",
+            forwardTarget: "fd7a:115c:a1e0::1:61848"
+        ))
+
+        #expect(tunnel.localHost == "::1")
+        #expect(tunnel.remoteHost == "fd7a:115c:a1e0::1")
+        #expect(tunnel.localEndpoint == "[::1]:49321")
+        #expect(tunnel.forwardTarget == "[fd7a:115c:a1e0::1]:61848")
+        #expect(tunnel.localForwardSSHOption == "LocalForward=[::1]:49321 [fd7a:115c:a1e0::1]:61848")
     }
 
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")

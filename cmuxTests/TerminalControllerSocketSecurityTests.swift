@@ -513,6 +513,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "system.ping",
                 "system.capabilities",
                 "mobile.host.status",
+                "mobile.host.ensure",
                 "mobile.attach_ticket.create",
                 "mobile.workspace.list",
                 "workspace.list",
