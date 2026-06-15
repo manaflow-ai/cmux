@@ -230,6 +230,7 @@
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
 		CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
+		C750310000000000000000A3 /* CmuxGhosttyConfigLoader in Frameworks */ = {isa = PBXBuildFile; productRef = C750310000000000000000A2 /* CmuxGhosttyConfigLoader */; };
 		C617000000000000000000A3 /* CmuxGit in Frameworks */ = {isa = PBXBuildFile; productRef = C617000000000000000000A2 /* CmuxGit */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
@@ -1783,6 +1784,7 @@
 				CFF11E0000000000000000A3 /* CmuxFileOpen in Frameworks */,
 				C8000313C8000313C8000313 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
+				C750310000000000000000A3 /* CmuxGhosttyConfigLoader in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				C19C5E0300000000000000A3 /* CmuxIPCService in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
@@ -2856,6 +2858,7 @@
 				CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */,
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
 				C750300000000000000000A2 /* CmuxTerminalEngine */,
+				C750310000000000000000A2 /* CmuxGhosttyConfigLoader */,
 				C750400000000000000000A2 /* CmuxTerminalServices */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
@@ -3042,6 +3045,7 @@
 				C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				C750300000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalEngine" */,
+				C750310000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGhosttyConfigLoader" */,
 				C750400000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalServices" */,
 				C750400000000000000000D1 /* XCLocalSwiftPackageReference "CmuxWorkspaceWindow" */,
 				C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */,
@@ -4607,6 +4611,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxTerminalEngine;
 		};
+		C750310000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGhosttyConfigLoader" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxGhosttyConfigLoader;
+		};
 		C750400000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalServices" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxTerminalServices;
@@ -4918,6 +4926,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750300000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalEngine" */;
 			productName = CmuxTerminalEngine;
+		};
+		C750310000000000000000A2 /* CmuxGhosttyConfigLoader */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750310000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGhosttyConfigLoader" */;
+			productName = CmuxGhosttyConfigLoader;
 		};
 		C750400000000000000000A2 /* CmuxTerminalServices */ = {
 			isa = XCSwiftPackageProductDependency;
