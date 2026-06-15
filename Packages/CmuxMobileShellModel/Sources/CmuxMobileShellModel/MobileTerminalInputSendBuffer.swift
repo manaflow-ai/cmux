@@ -71,7 +71,22 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         let acceptsSingleOversizedInput = pendingChunks.isEmpty
             && pendingByteCount == 0
             && byteCount <= Self.maximumSingleInputByteCount
-        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount || acceptsSingleOversizedInput else {
+        // A single oversized input (a large paste) transiently pushes
+        // `pendingByteCount` above ``maximumPendingByteCount`` until the drain
+        // loop's first ``nextBatch()`` splits it into bounded batches. While
+        // exactly that one oversized chunk is pending, accept follow-on input
+        // (bounded by the absolute single-input ceiling) instead of rejecting
+        // it: a keystroke delivered right after a large paste — before the
+        // scheduled drain task runs its first split — must not be turned into a
+        // queue-overflow disconnect (issue #6082). Normal backlog pressure
+        // (``pendingByteCount`` at or below ``maximumPendingByteCount``) is
+        // unaffected, so a genuinely full queue still rejects.
+        let drainingSingleOversizedChunk = pendingChunks.count == 1
+            && pendingByteCount > Self.maximumPendingByteCount
+            && pendingByteCount + byteCount <= Self.maximumSingleInputByteCount
+        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount
+            || acceptsSingleOversizedInput
+            || drainingSingleOversizedChunk else {
             return .rejected
         }
         if var last = pendingChunks.last,

@@ -83,4 +83,48 @@ import Testing
         #expect(buffer.pendingByteCount == 0)
         #expect(buffer.nextBatch() == nil)
     }
+
+    @Test func acceptsFollowOnInputWhileSingleOversizedInputDrains() {
+        // Regression for the oversized-paste-then-keystroke gap: after a large
+        // paste is accepted, `pendingByteCount` exceeds `maximumPendingByteCount`
+        // until the drain loop's first `nextBatch()` splits it. A keystroke
+        // arriving in that window (before the scheduled drain task runs) must be
+        // queued, not rejected — a rejection would disconnect the session
+        // (issue #6082 follow-on; see the enqueue overflow path).
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedText = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumPendingByteCount + 1)
+
+        #expect(buffer.enqueue(oversizedText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.pendingByteCount == oversizedText.utf8.count)
+        #expect(buffer.pendingByteCount > MobileTerminalInputSendBuffer.maximumPendingByteCount)
+
+        // The keystroke lands BEFORE any nextBatch() has run.
+        #expect(buffer.enqueue("x", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+        #expect(buffer.pendingChunks.count == 1)
+        #expect(buffer.pendingByteCount == oversizedText.utf8.count + 1)
+
+        // It still drains in bounded batches, in order, with the keystroke last.
+        let firstBatch = buffer.nextBatch()
+        #expect(firstBatch?.text.utf8.count == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+        let secondBatch = buffer.nextBatch()
+        #expect(secondBatch?.text == "px")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch() == nil)
+    }
+
+    @Test func rejectsFollowOnInputThatExceedsAbsoluteCeilingWhileOversizedDrains() {
+        // The relaxed window is still bounded: once total pending would exceed
+        // the absolute single-input ceiling, follow-on input is rejected.
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedText = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumSingleInputByteCount)
+
+        #expect(buffer.enqueue(oversizedText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumSingleInputByteCount)
+        #expect(buffer.enqueue("x", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+        #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumSingleInputByteCount)
+    }
 }
