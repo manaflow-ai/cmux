@@ -47,7 +47,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
-
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t?
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
@@ -191,6 +190,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
+    var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false

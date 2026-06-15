@@ -7,9 +7,7 @@ internal import Darwin
 #if DEBUG
 internal import CMUXDebugLog
 #endif
-
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
-
 extension TerminalSurface {
     @MainActor
     func scheduleHeadlessRuntimeStartIfNeeded(
@@ -27,8 +25,11 @@ extension TerminalSurface {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        let previousAttachCreationSource = paneHostAttachCreationSource
+        paneHostAttachCreationSource = source
         paneHost.attachSurface(self)
-        if source == .inputDemand, surface == nil {
+        paneHostAttachCreationSource = previousAttachCreationSource
+        if source == .inputDemand, surface == nil, attachedView !== surfaceView {
             attachToViewForInputDemand(surfaceView)
         }
     }
@@ -37,7 +38,6 @@ extension TerminalSurface {
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
         guard headlessStartupWindow == nil else { return }
         guard paneHost.window == nil else { return }
-
         let width = max(surfaceView.bounds.width, CGFloat(800))
         let height = max(surfaceView.bounds.height, CGFloat(600))
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -53,7 +53,6 @@ extension TerminalSurface {
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
-
         let contentView = NSView(frame: frame)
         paneHost.frame = contentView.bounds
         paneHost.autoresizingMask = [.width, .height]
@@ -433,7 +432,7 @@ extension TerminalSurface {
                 "inWindow=\(view.window != nil ? 1 : 0)"
             )
 #endif
-            createSurface(for: view)
+            createSurface(for: view, source: paneHostAttachCreationSource)
 #if DEBUG
             logDebugEvent("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
 #endif

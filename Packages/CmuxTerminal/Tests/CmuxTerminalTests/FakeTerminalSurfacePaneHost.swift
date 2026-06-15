@@ -4,9 +4,11 @@ import AppKit
 @MainActor
 final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let surfaceView: FakeTerminalSurfaceNativeView
+    private let attachesThroughSurfaceModel: Bool
 
-    init(surfaceView: FakeTerminalSurfaceNativeView) {
+    init(surfaceView: FakeTerminalSurfaceNativeView, attachesThroughSurfaceModel: Bool = false) {
         self.surfaceView = surfaceView
+        self.attachesThroughSurfaceModel = attachesThroughSurfaceModel
         super.init(frame: surfaceView.frame)
         addSubview(surfaceView)
     }
@@ -18,6 +20,9 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
 
     func attachSurface(_ surface: TerminalSurface) {
         surfaceView.attachedController = surface
+        if attachesThroughSurfaceModel {
+            surface.attachToView(surfaceView)
+        }
     }
 
     func cancelFocusRequest() {}
