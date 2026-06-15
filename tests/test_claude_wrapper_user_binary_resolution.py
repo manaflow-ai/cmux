@@ -129,7 +129,6 @@ exec "{wrapper}" "$@"
             f"{stale_shim_bin}:{current_shim_bin}:{bundle_bin}:{real_bin}:"
             "/usr/bin:/bin"
         )
-        env["TMPDIR"] = f"{tmp_root}/"
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(current_shim)
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(current_shim_bin)
         env["CMUX_CUSTOM_CLAUDE_PATH"] = str(bundle_bin / "claude")
