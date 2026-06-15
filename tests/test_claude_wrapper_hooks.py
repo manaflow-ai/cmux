@@ -686,6 +686,43 @@ def test_live_socket_repeated_settings_user_value_wins_conflict(failures: list[s
     )
 
 
+def test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures: list[str]) -> None:
+    # Regression: the merge must never let a non-object/array user value clobber
+    # cmux's own hook structure. If a user --settings sets `hooks` to a non-object
+    # (here an array; `null` behaves the same), the cmux hook object must survive
+    # so notifications/status keep working, while the user's other keys still apply.
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=[
+            "--settings", '{"hooks": [], "myKey": "kept"}',
+            "hi",
+        ],
+    )
+    expect(code == 0, f"nonobject-hooks: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"nonobject-hooks: expected one combined --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    hooks = settings.get("hooks")
+    expect(
+        isinstance(hooks, dict) and "SessionStart" in hooks,
+        f"nonobject-hooks: cmux hook object dropped by non-object user hooks, got {hooks!r}",
+        failures,
+    )
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"nonobject-hooks: cmux preferredNotifChannel lost, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("myKey") == "kept",
+        f"nonobject-hooks: user non-conflicting key dropped, got {settings}",
+        failures,
+    )
+
+
 def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) -> None:
     # A malformed --settings must not be dropped in silence: the wrapper surfaces
     # a stderr warning instead of quietly reverting to the dual --settings
@@ -1346,6 +1383,7 @@ def main() -> int:
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
+    test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)

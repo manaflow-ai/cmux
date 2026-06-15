@@ -578,6 +578,10 @@ const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
 const merge=(a,b)=>{
   if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
   if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
+  // a is the cmux/base side; on a type mismatch keep the cmux container so a
+  // non-object/array user value (e.g. hooks:null or hooks:[]) cannot wipe the
+  // cmux hook object/event arrays. Scalars still let the user value (b) win.
+  if(isObj(a)||Array.isArray(a))return a;
   return b;
 };
 const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
