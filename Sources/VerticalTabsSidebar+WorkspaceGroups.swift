@@ -14,7 +14,7 @@ extension VerticalTabsSidebar {
         showModifierHoldHints: Bool
     ) -> some View {
         let settings = renderContext.tabItemSettings
-        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isAnchorActive = group.isCollapsed && tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
@@ -25,20 +25,13 @@ extension VerticalTabsSidebar {
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
-            if group.isCollapsed {
-                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
-                }
+            guard group.isCollapsed else { return 0 }
+            return memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                partial + notificationStore.unreadCount(forTabId: workspaceId)
             }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
         }()
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let showsHintForAnchor = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -91,7 +84,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
-            shortcutDigit: shortcutDigit,
+            shortcutDigit: nil,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
@@ -161,12 +154,12 @@ extension VerticalTabsSidebar {
             }
         )
         .equatable()
-        .id(group.anchorWorkspaceId)
+        .id(group.isCollapsed ? group.anchorWorkspaceId : group.id)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
 
         header
             .sidebarWorkspaceFrameAnchor(
-                id: group.anchorWorkspaceId,
+                id: group.isCollapsed ? group.anchorWorkspaceId : group.id,
                 isEnabled: shouldCollectWorkspaceDropTargets
             )
     }

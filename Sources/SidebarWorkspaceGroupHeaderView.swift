@@ -4,7 +4,7 @@ import CmuxFoundation
 import SwiftUI
 import CmuxSettings
 
-/// Collapsible group header that doubles as the anchor workspace row.
+/// Collapsible group header for a workspace group.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Closures and delegate factories are excluded because they are recreated
     // by the parent on each evaluation. The scalar snapshots below are the

@@ -13162,14 +13162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = tabManager,
-               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+            if let manager = tabManager {
 #if DEBUG
                 cmuxDebugLog(
-                    "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    "shortcut.action name=workspaceDigit digit=\(digit) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
                 )
 #endif
-                manager.selectTab(at: targetIndex)
+                manager.selectWorkspaceByShortcutDigit(digit)
             }
             return true
         }
@@ -14391,9 +14390,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
         let selectedSet = tabManager.sidebarSelectedWorkspaceIds
-        // sidebarSelectedWorkspaceIds is a Set; sort by tabs[] order so the
-        // anchor is placed before the first sidebar-visible selected workspace
-        // (createWorkspaceGroup uses the first child to position the anchor).
+        // sidebarSelectedWorkspaceIds is a Set; sort by tabs[] order so
+        // createWorkspaceGroup promotes the first selected workspace as the
+        // group's ordering anchor.
         let orderedSelectedIds: [UUID] = selectedSet.isEmpty
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
@@ -14408,8 +14407,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard orderedSelectedIds.count >= 2 else { return false }
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
-        // doesn't silently create an anchor-only group when every selected
-        // target is already an existing group's anchor.
+        // doesn't silently no-op when every selected target is already an
+        // existing group's anchor.
         let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleIds: [UUID] = candidateIds.filter { id in
             tabManager.tabs.contains(where: { $0.id == id }) && !existingAnchorIds.contains(id)

@@ -10610,6 +10610,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let numberedWorkspaceShortcutIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10645,6 +10646,7 @@ struct VerticalTabsSidebar: View {
             groupsById: workspaceGroupById
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let numberedWorkspaceShortcutIds = workspaceRenderItems.compactMap(\.numberedShortcutWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10671,7 +10673,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            numberedWorkspaceShortcutIds: numberedWorkspaceShortcutIds
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -12318,8 +12321,8 @@ struct VerticalTabsSidebar: View {
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: renderContext.workspaceCount
+                id: tab.id,
+                workspaceIds: renderContext.numberedWorkspaceShortcutIds
             ),
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,

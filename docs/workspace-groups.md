@@ -1,20 +1,20 @@
 # Workspace Groups
 
-Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit "anchor workspace," a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.
+Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has a folder-style header, an implicit "anchor workspace" used for ordering, a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.
 
 ## Concepts
 
 ### Anchor workspace
 
-Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
+Every group has exactly one workspace called the **anchor**. The anchor is an existing member workspace used to position the group and provide a reference working directory. The group header is its own folder-style row; when the group is expanded, the anchor remains visible as a normal workspace row under the header. Clicking the chevron toggles collapse.
 
-Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+When a group is created, cmux promotes the first eligible selected workspace to be the anchor. It does not create a new terminal workspace just to act as the group header.
 
 Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens.
 
 ### Group identity
 
-A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). Both are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.
+A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an optional `customColor` (hex string). These are independent of the anchor workspace's own customizations.
 
 ### Pinning
 
@@ -28,7 +28,7 @@ The sidebar layout, top to bottom:
 
 ### From the keyboard (`⌘⇧G`)
 
-Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. The selected workspaces move under a new folder-style group header, and the first selected workspace becomes the group's anchor. No extra terminal workspace is created. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
 Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
 
@@ -54,7 +54,7 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 
 ```bash
 cmux workspace-group list [--json]
-cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
+cmux workspace-group create --name "manaflow" [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
 cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
 cmux workspace-group rename <group-id> --name "new name"

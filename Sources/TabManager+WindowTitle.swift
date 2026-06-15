@@ -28,17 +28,7 @@ extension TabManager {
 
     /// The name to display for `tab` across window chrome — the custom title
     /// bar, `NSWindow.title`, and the toolbar command label.
-    ///
-    /// A workspace group's anchor is represented everywhere by the group itself
-    /// (the sidebar draws only the group header, never a separate anchor row,
-    /// per `SidebarWorkspaceRenderItem`), so for an anchor the single source of
-    /// truth for the displayed name is the group's `name`. The anchor's own
-    /// `title` is merely seeded equal to the group name at creation and would
-    /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
-        }
         return tab.title
     }
 

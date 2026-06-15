@@ -149,8 +149,13 @@ struct MobileWorkspaceListFidelityTests {
     @Test func movingWorkspaceBetweenGroupsChangesObserverHash() throws {
         let manager = TabManager()
         let member = try #require(manager.selectedWorkspace)
-        // A real group with its own anchor; the member starts ungrouped.
-        let groupId = try #require(manager.createWorkspaceGroup(name: "Group A"))
+        let groupAnchor = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        // A real group with an existing workspace anchor; the member starts ungrouped.
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "Group A",
+            childWorkspaceIds: [groupAnchor.id],
+            selectAnchor: false
+        ))
         #expect(member.groupId == nil)
 
         let before = MobileWorkspaceListObserver.summaryHashForTesting(

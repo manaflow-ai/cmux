@@ -4,17 +4,16 @@ import SwiftUI
 
 /// A collapsible group-section header in the mobile workspace list.
 ///
-/// Mirrors the Mac sidebar group header, which doubles as the group's anchor
-/// workspace row: the leading disclosure chevron toggles collapse, while tapping
-/// the name/body selects (and, in push navigation, opens) the anchor workspace.
-/// The anchor is represented by this header and never rendered as a separate row,
-/// so this split is what keeps the anchor's terminals reachable from the phone.
+/// Mirrors the Mac sidebar group header: the leading disclosure chevron toggles
+/// collapse, while tapping the name/body selects (and, in push navigation,
+/// opens) the anchor workspace.
+/// Expanded groups also render the anchor as a normal workspace row.
 struct WorkspaceGroupHeaderRow: View {
     let group: MobileWorkspaceGroupPreview
     /// Aggregate unread state for the header dot, computed by
-    /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
-    /// the whole group's (anchor included) while collapsed, mirroring the Mac
-    /// sidebar header badge so collapsing a group never hides activity.
+    /// `MobileWorkspaceListItem.items`: no header badge while expanded because
+    /// workspace rows are visible, the whole group's unread while collapsed,
+    /// mirroring the Mac sidebar header badge so collapsing never hides activity.
     let hasUnread: Bool
     let navigationStyle: WorkspaceNavigationStyle
     /// Whether the anchor workspace is the current selection (sidebar style only).

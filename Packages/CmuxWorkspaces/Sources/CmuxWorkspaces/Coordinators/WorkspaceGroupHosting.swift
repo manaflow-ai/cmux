@@ -9,25 +9,13 @@ public import CmuxSettings
 ///
 /// Synchronous two-way protocol for the same reason as `WorkspacesHosting`:
 /// every legacy group operation is one MainActor turn interleaving reads
-/// and writes (creating the anchor re-enters the model through the tabs
-/// willSet, selecting a workspace re-enters through the selection didSet).
+/// and writes (selecting a workspace re-enters through the selection didSet).
 @MainActor
 public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
     /// The window's workspace ("tab") type; the app target's `Workspace`.
     associatedtype Tab: WorkspaceTabRepresenting
 
     // MARK: Workspace lifecycle (stays with the Workspace god object)
-
-    /// Creates the fresh anchor workspace for a new group (legacy
-    /// `addWorkspace(title:workingDirectory:inheritWorkingDirectory:select:
-    /// placementOverride: .top, autoWelcomeIfNeeded: false,
-    /// normalizeWorkspaceGroupsAfterInsert: false)`).
-    func createGroupAnchorWorkspace(
-        title: String,
-        workingDirectory: String?,
-        inheritWorkingDirectory: Bool,
-        select: Bool
-    ) -> Tab
     /// Creates a member workspace for `createWorkspaceInGroup` (legacy
     /// `addWorkspace(workingDirectory:initialSurface:inheritWorkingDirectory:
     /// select:autoWelcomeIfNeeded: false)`).
@@ -48,7 +36,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
 
     /// The current sidebar multi-selection.
     var sidebarSelectedWorkspaceIds: Set<UUID> { get }
-    /// Collapses the sidebar multi-selection onto the fresh group anchor
+    /// Collapses the sidebar multi-selection onto the group anchor
     /// (legacy `replaceSelection(with: [anchorId])` +
     /// `postDidHide(hiddenWorkspaceIds:focusedWorkspaceId: anchorId)`).
     func collapseSidebarSelectionForGroupCreation(

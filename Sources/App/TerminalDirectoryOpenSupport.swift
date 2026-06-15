@@ -939,6 +939,42 @@ enum WorkspaceShortcutMapper {
         }
         return nil
     }
+
+    static func workspaceId(forDigit digit: Int, workspaceIds: [UUID]) -> UUID? {
+        guard let index = workspaceIndex(forDigit: digit, workspaceCount: workspaceIds.count) else {
+            return nil
+        }
+        return workspaceIds[index]
+    }
+
+    static func digitForWorkspace(id workspaceId: UUID, workspaceIds: [UUID]) -> Int? {
+        guard let index = workspaceIds.firstIndex(of: workspaceId) else { return nil }
+        return digitForWorkspace(at: index, workspaceCount: workspaceIds.count)
+    }
+}
+
+@MainActor
+extension TabManager {
+    var numberedWorkspaceShortcutWorkspaceIds: [UUID] {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        return SidebarWorkspaceRenderItem.numberedShortcutWorkspaceIds(
+            tabs: tabs,
+            groupsById: groupsById
+        )
+    }
+
+    @discardableResult
+    func selectWorkspaceByShortcutDigit(_ digit: Int) -> Bool {
+        guard let workspaceId = WorkspaceShortcutMapper.workspaceId(
+            forDigit: digit,
+            workspaceIds: numberedWorkspaceShortcutWorkspaceIds
+        ),
+              let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return false
+        }
+        selectWorkspace(workspace)
+        return true
+    }
 }
 
 extension CommandPaletteContextKeys {

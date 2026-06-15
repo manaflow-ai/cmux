@@ -49,20 +49,6 @@ private final class StubGroupHost: WorkspaceGroupHosting {
         orderChanges.append(movedWorkspaceIds)
     }
 
-    func createGroupAnchorWorkspace(
-        title: String,
-        workingDirectory: String?,
-        inheritWorkingDirectory: Bool,
-        select: Bool
-    ) -> CoordinatorStubTab {
-        let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
-        // Legacy addWorkspace(placementOverride: .top) inserts after pinned.
-        let pinnedCount = model.tabs.prefix(while: \.isPinned).count
-        model.tabs.insert(tab, at: pinnedCount)
-        if select { model.selectedTabId = tab.id }
-        return tab
-    }
-
     func createWorkspaceForGroup(
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
@@ -213,11 +199,12 @@ struct WorkspaceCoordinatorTests {
         let group = try! #require(model.workspaceGroups.first(where: { $0.id == groupId }))
         #expect(group.name == "Group 1")
         let anchorId = group.anchorWorkspaceId
+        #expect(anchorId == child1.id)
         #expect(model.tabs.first(where: { $0.id == child1.id })?.groupId == groupId)
         #expect(model.tabs.first(where: { $0.id == child2.id })?.groupId == groupId)
         // Section is contiguous and anchor-first at the first child's slot.
-        #expect(model.tabs.map(\.id) == [anchorId, child1.id, child2.id, other.id])
-        #expect(host.orderChanges.last == [anchorId, child1.id, child2.id])
+        #expect(model.tabs.map(\.id) == [child1.id, child2.id, other.id])
+        #expect(host.orderChanges.last == [child1.id, child2.id])
     }
 
     @Test
@@ -245,10 +232,11 @@ struct WorkspaceCoordinatorTests {
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
-        // Anchor + one member close for real; the final holdout is kept
-        // alive as an ungrouped workspace (closeWorkspace's last-tab guard).
-        #expect(closed == 2)
-        #expect(host.closedWorkspaceIds.count >= 2)
+        // The first existing member is the anchor. Closing it dissolves the
+        // group; the final holdout is kept alive as an ungrouped workspace
+        // (closeWorkspace's last-tab guard).
+        #expect(closed == 1)
+        #expect(host.closedWorkspaceIds.count == 1)
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.count == 1)
         #expect(model.tabs[0].groupId == nil)
@@ -274,17 +262,18 @@ struct WorkspaceCoordinatorTests {
     func collapseToggleMovesFocusToAnchorAndStripsHiddenSelection() {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
-        model.tabs = [a]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
-        model.selectedTabId = a.id
-        host.sidebarSelectedWorkspaceIds = [a.id]
+        model.selectedTabId = b.id
+        host.sidebarSelectedWorkspaceIds = [b.id]
 
         groups.toggleWorkspaceGroupCollapsed(groupId: groupId)
 
         #expect(host.selectedWorkspaceIds == [anchorId])
         #expect(host.subtractedSidebarSelections.count == 1)
-        #expect(host.subtractedSidebarSelections[0].hidden == [a.id])
+        #expect(host.subtractedSidebarSelections[0].hidden == [b.id])
         #expect(model.workspaceGroups[0].isCollapsed)
     }
 

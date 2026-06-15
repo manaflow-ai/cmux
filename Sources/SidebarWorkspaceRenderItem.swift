@@ -39,6 +39,15 @@ enum SidebarWorkspaceRenderItem {
         }
     }
 
+    var numberedShortcutWorkspaceId: UUID? {
+        switch self {
+        case .groupHeader:
+            return nil
+        case .workspace(let workspace):
+            return workspace.id
+        }
+    }
+
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup]
@@ -73,14 +82,17 @@ enum SidebarWorkspaceRenderItem {
                     skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
                 }
             }
-            // Anchor workspaces are represented exclusively by the group header.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
-                continue
-            }
             if groupId == nil || !skipChildrenUntilNextGroup {
                 items.append(.workspace(tab))
             }
         }
         return items
+    }
+
+    static func numberedShortcutWorkspaceIds(
+        tabs: [Workspace],
+        groupsById: [UUID: WorkspaceGroup]
+    ) -> [UUID] {
+        renderItems(tabs: tabs, groupsById: groupsById).compactMap(\.numberedShortcutWorkspaceId)
     }
 }

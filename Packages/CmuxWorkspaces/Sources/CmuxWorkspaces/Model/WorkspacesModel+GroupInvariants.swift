@@ -96,10 +96,10 @@ extension WorkspacesModel {
               workspaceGroups[index].isCollapsed else {
             return
         }
-        // The anchor is the group header's visible representation, so
-        // focusing it doesn't hide it. Skip auto-expand when the focused
-        // workspace IS the group's anchor — that lets users work in the
-        // anchor while keeping the rest of the group folded away.
+        // When a group is collapsed, the anchor workspace's row is hidden
+        // behind the group header. Skip auto-expand when the focused workspace
+        // IS the group's anchor so users can keep a group folded while the
+        // anchor remains the selected workspace.
         guard workspaceGroups[index].anchorWorkspaceId != selectedTabId else { return }
         workspaceGroups[index].isCollapsed = false
     }
