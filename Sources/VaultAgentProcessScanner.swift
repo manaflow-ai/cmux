@@ -288,7 +288,14 @@ extension RestorableAgentSessionIndex {
                 continue
             }
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
-            let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
+            // Group by the symlink-canonical path (not `standardizingPath`, which
+            // does not resolve arbitrary symlinks) so two panels whose cwds are
+            // different spellings of the same real directory collapse into one
+            // group — otherwise the single-panel ambiguity guard is bypassed and
+            // both could infer the same session. Resolution normalizes the same
+            // way (codex via RovoDevIndex.normalizedPath), so the guard and the
+            // resolved target stay consistent. The snapshot keeps the literal cwd.
+            let cwdKey = cwd.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } ?? ""
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             candidates.append(Candidate(
                 panelKey: panelKey,

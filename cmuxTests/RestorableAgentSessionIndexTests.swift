@@ -1199,6 +1199,39 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertTrue(detected.isEmpty)
     }
 
+    func testProcessDetectionSkipsSymlinkAliasedSharedCwd() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-symlink-amb-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let realCwd = root.appendingPathComponent("repo-real", isDirectory: true)
+        let linkCwd = root.appendingPathComponent("repo-link", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: realCwd, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linkCwd, withDestinationURL: realCwd)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(realCwd.path), isDirectory: true),
+            withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "66666666-6666-6666-6666-666666666666",
+                                  cwd: realCwd, projectsDir: projectsDir)
+
+        // Two panels whose cwds are different spellings of the same real dir
+        // (real path vs symlink) must collapse into one group, so neither gets an
+        // inferred session — otherwise both would fork the same conversation.
+        let claude = "\(root.path)/.local/bin/claude"
+        let detected = detectClaudeCodex(
+            processes: [
+                (pid: 8_001, name: "claude", path: claude, arguments: [claude],
+                 environment: ["PWD": realCwd.path, "CLAUDE_CONFIG_DIR": configDir.path]),
+                (pid: 8_002, name: "claude", path: claude, arguments: [claude],
+                 environment: ["PWD": linkCwd.path, "CLAUDE_CONFIG_DIR": configDir.path]),
+            ],
+            fileManager: fm, distinctPanels: true)
+        XCTAssertTrue(detected.isEmpty)
+    }
+
     func testProcessDetectionRejectsShellAndSubrouterWrappers() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
