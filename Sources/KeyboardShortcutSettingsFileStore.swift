@@ -940,6 +940,14 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeCustomClaudePath.userDefaultsKey] = .string(raw)
         }
+        if let value = jsonBool(section["workspaceAutoNaming"]) {
+            snapshot.managedUserDefaults[AutomationCatalogSection().workspaceAutoNaming.userDefaultsKey] = .bool(value)
+        }
+        if let raw = jsonString(section["autoNamingAgent"]) {
+            // Open string (any agent slug, or "auto"); the catalog/CLI resolve
+            // unknown values by falling back to each session's own agent.
+            snapshot.managedUserDefaults[AutomationCatalogSection().autoNamingAgent.userDefaultsKey] = .string(raw)
+        }
         if let raw = jsonString(section["ripgrepBinaryPath"]) {
             snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
         }
