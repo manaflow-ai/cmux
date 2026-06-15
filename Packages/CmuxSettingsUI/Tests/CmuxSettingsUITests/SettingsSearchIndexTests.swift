@@ -31,6 +31,22 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test(arguments: [
+        ("naming", "setting:automation:workspace-auto-naming"),
+        ("auto name", "setting:automation:workspace-auto-naming"),
+        ("rename workspace", "setting:automation:workspace-auto-naming"),
+        ("option as alt", "setting:app:terminal-config"),
+        ("environment variables", "setting:app:notification-command"),
+    ])
+    func searchesFindRealSettingsRows(query: String, expectedID: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match(query)
+        #expect(
+            result.contains { $0.id == expectedID },
+            "Expected settings search for '\(query)' to include \(expectedID), got \(result.map(\.id))"
+        )
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")
