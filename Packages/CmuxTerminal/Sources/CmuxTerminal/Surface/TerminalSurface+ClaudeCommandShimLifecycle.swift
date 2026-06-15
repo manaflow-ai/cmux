@@ -95,7 +95,7 @@ extension TerminalSurface {
         } else if let attachedView, attachedView.window != nil {
             createSurface(for: attachedView, source: resumedSource)
         } else {
-            scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
+            scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready", source: resumedSource)
         }
     }
 }

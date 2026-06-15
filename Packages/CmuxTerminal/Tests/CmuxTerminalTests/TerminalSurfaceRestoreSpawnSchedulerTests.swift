@@ -282,6 +282,29 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         #expect(surface.claudeCommandShimPendingCreationSource == .inputDemand)
     }
 
+    @Test func inputDemandShimFallbackStartsHeadlessWithoutRestoreQueue() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
+            view: nil,
+            source: .inputDemand
+        )
+
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
     private func waitForSpawnCount(_ count: Int, spawned: () -> Int) async {
         for _ in 0..<100 {
             if spawned() >= count { return }
@@ -388,6 +411,7 @@ private final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHost
     init(surfaceView: FakeTerminalSurfaceNativeView) {
         self.surfaceView = surfaceView
         super.init(frame: surfaceView.frame)
+        addSubview(surfaceView)
     }
 
     @available(*, unavailable)
