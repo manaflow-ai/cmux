@@ -63,6 +63,10 @@ struct TerminalComposerView: View {
     /// lifecycle moves on. Held as `@State` so it survives this value type's
     /// frequent re-creation.
     @State private var stagingTask = StagingTaskBox()
+    /// On-device voice dictation for the field. Owned here so its lifecycle is
+    /// the composer's: it is torn down on send, focus loss, `onDisappear`, and a
+    /// terminal switch so the mic never stays hot after the user leaves.
+    @StateObject private var dictation = ComposerDictationController()
 
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
@@ -182,6 +186,8 @@ struct TerminalComposerView: View {
             // composer the user has already left. Without this, a switch right
             // after a big pick leaves the encode running unobserved.
             stagingTask.task?.cancel()
+            // Never leave the mic hot after the composer leaves the screen.
+            dictation.stop()
         }
         .onChange(of: terminalID) { _, _ in
             // Defense in depth: if SwiftUI ever reuses this view's identity across
@@ -189,6 +195,9 @@ struct TerminalComposerView: View {
             // changing must also cancel the prior terminal's in-flight batch so its
             // encode does not stage onto, or burn CPU for, the new terminal.
             stagingTask.task?.cancel()
+            // A terminal switch must stop dictation so the live transcript does not
+            // bleed into the incoming terminal's draft.
+            dictation.stop()
         }
         .onChange(of: isFieldFocused) { _, focused in
             // Mirror the field's focus into the store so a terminal switch knows
@@ -196,6 +205,10 @@ struct TerminalComposerView: View {
             // on the incoming composer) or merely looking at the default-open
             // field (keyboard stays down).
             store.composerFieldFocusChanged(focused)
+            // The field losing focus stops dictation cleanly (the user moved on).
+            if !focused {
+                dictation.stop()
+            }
             // COMPOSER: a focus-lost while the flag stayed presented and the
             // view stayed mounted, yet the field reads empty, isolates the
             // residual TextField/@FocusState render-blank case.
@@ -261,6 +274,8 @@ struct TerminalComposerView: View {
                 .mobileGlassCircle()
                 .accessibilityIdentifier("MobileComposerAttach")
                 .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
+
+                micButton
 
                 // The field and its send button share ONE rounded glass container —
                 // iMessage's layout, where the circular up-arrow lives INSIDE the
@@ -336,6 +351,41 @@ struct TerminalComposerView: View {
         }
     }
 
+    /// Mic button for on-device voice dictation, beside the attach button on the
+    /// leading side. Tapping toggles dictation; while listening it shows a filled,
+    /// tinted mic. Disabled when the recognizer is unavailable or permission was
+    /// denied so the user is never left tapping a dead control.
+    private var micButton: some View {
+        let listening = dictation.state.isListening
+        return Button {
+            toggleDictation()
+        } label: {
+            Image(systemName: listening ? "mic.fill" : "mic")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: controlHeight, height: controlHeight)
+                .symbolEffect(.pulse, isActive: listening)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
+        .mobileGlassCircle()
+        .disabled(!dictation.isAvailable)
+        .accessibilityIdentifier("MobileComposerMic")
+        .accessibilityLabel(
+            listening
+                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop Dictation")
+                : L10n.string("mobile.composer.mic.start", defaultValue: "Dictate Message")
+        )
+    }
+
+    /// Toggle voice dictation. On start the current text is captured as the merge
+    /// base and partial transcriptions are written back into `terminalInputText`
+    /// (base + transcript) so dictation appends to whatever was already typed.
+    private func toggleDictation() {
+        dictation.toggle(existingText: store.terminalInputText) { merged in
+            store.terminalInputText = merged
+        }
+    }
+
     /// Horizontal, removable thumbnail chips for the staged attachments. Each
     /// chip shows the picked image with an x to remove it.
     private var attachmentChipRow: some View {
@@ -368,6 +418,9 @@ struct TerminalComposerView: View {
     private func send() {
         // Allowed with empty text as long as an attachment is staged.
         guard canSend else { return }
+        // Stop dictation before sending so the final transcript is committed and
+        // the mic does not keep capturing into a now-empty field.
+        dictation.stop()
         isFieldFocused = true
         Task { @MainActor in
             // Sends staged images first (in order), then the text. Acknowledged
