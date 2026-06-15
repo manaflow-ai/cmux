@@ -111,4 +111,49 @@ public struct ToolbarLayoutMigration: Sendable {
         }
         return WidenedLayout(order: widenedOrder, enabled: enabledSet)
     }
+
+    /// Folds a built-in that became user-configurable *after* the v3 schema
+    /// shipped into an existing v3 layout.
+    ///
+    /// A persisted v3 layout that predates `id` becoming configurable has no
+    /// record of it, so a naive load would treat it as "the user hid this" and
+    /// leave it off the bar. This detects that exact case — `id` absent from the
+    /// saved `order` — and folds `id` in: it is inserted immediately after the
+    /// first present entry of `anchors` (falling back to the front when none is
+    /// present) and force-shown, matching a fresh install.
+    ///
+    /// The fold is intentionally one-shot: it keys off `id`'s *absence from the
+    /// order*, not its enabled state. Once folded in, `id` lives in the persisted
+    /// order on every later launch, so this returns `nil` (no-op) and the user's
+    /// own shown/hidden choice for `id` becomes authoritative — a user who hides
+    /// it keeps it hidden.
+    ///
+    /// - Parameters:
+    ///   - id: The newly-configurable identifier to fold in.
+    ///   - anchors: Candidate predecessors, in priority order; `id` is inserted
+    ///     right after the first one present in `order`.
+    ///   - order: The saved v3 order.
+    ///   - enabled: The saved v3 enabled set.
+    /// - Returns: The folded order/enabled, or `nil` when `id` is already present
+    ///   in `order` (no migration needed).
+    public func foldingNewlyConfigurable(
+        _ id: ToolbarItemID,
+        after anchors: [ToolbarItemID],
+        order: [ToolbarItemID],
+        enabled: [ToolbarItemID]
+    ) -> WidenedLayout? {
+        guard !order.contains(id) else { return nil }
+        var newOrder = order
+        let insertIndex: Int
+        if let anchor = anchors.first(where: { newOrder.contains($0) }),
+           let anchorIndex = newOrder.firstIndex(of: anchor) {
+            insertIndex = newOrder.index(after: anchorIndex)
+        } else {
+            insertIndex = 0
+        }
+        newOrder.insert(id, at: insertIndex)
+        var newEnabled = enabled
+        if !newEnabled.contains(id) { newEnabled.append(id) }
+        return WidenedLayout(order: newOrder, enabled: newEnabled)
+    }
 }
