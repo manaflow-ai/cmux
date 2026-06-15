@@ -122,21 +122,22 @@ struct OpenRouterUsageClient: Sendable {
         guard !tokens.isEmpty else { return nil }
         return AgentUsageEvent(
             source: .openRouter,
-            timestamp: day,
+            // OpenRouter dates are UTC days; place the event at noon UTC so the
+            // aggregator's day-bucketing lands on the reported date.
+            timestamp: day.addingTimeInterval(12 * 60 * 60),
             model: item.model,
             tokens: tokens,
             recordedCostUSD: item.usage
         )
     }
 
-    /// Parses OpenRouter's `YYYY-MM-DD` activity dates at noon UTC, so the
-    /// day-bucketing in the aggregator lands on the reported date.
+    /// Parses OpenRouter's `YYYY-MM-DD` activity dates (UTC).
     private nonisolated(unsafe) static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
 
