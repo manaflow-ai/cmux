@@ -30,6 +30,14 @@ public enum CodexSessionResolver {
     /// so a heavy user's full history is never fully read on a single scan.
     private static let maxPeeks = 128
 
+    /// Returns the id of the newest Codex rollout whose recorded `cwd` matches
+    /// `cwd`, or `nil` when `cwd` is empty/unresolvable or no rollout matches.
+    ///
+    /// - Parameters:
+    ///   - cwd: The live process working directory; symlink-normalized before
+    ///     comparison so an aliased path still matches the rollout's `cwd`.
+    ///   - env: The process environment, read for a `CODEX_HOME` override.
+    ///   - fileManager: Injected for deterministic tests; defaults to `.default`.
     public static func inferredCodexSessionId(
         cwd: String?,
         env: [String: String],
@@ -84,6 +92,8 @@ public enum CodexSessionResolver {
         return nil
     }
 
+    /// The directory Codex writes rollouts under: `$CODEX_HOME/sessions` when
+    /// `CODEX_HOME` is set in `env`, otherwise `~/.codex/sessions`.
     public static func codexSessionsRoot(env: [String: String]) -> String {
         if let codexHome = normalizedValue(env["CODEX_HOME"]) {
             return (expandedPath(codexHome, env: env) as NSString).appendingPathComponent("sessions")
