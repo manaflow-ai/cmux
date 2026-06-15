@@ -19,8 +19,8 @@
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
+5553	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
-5115	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4920	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
@@ -28,8 +28,8 @@
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3903	cmuxTests/WindowAndDragTests.swift
+3734	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
-3672	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3055	Sources/Update/UpdateTitlebarAccessory.swift
@@ -120,8 +120,10 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 749	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 746	Sources/App/MenuBarExtraController.swift
+744	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
+726	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 725	Sources/RightSidebarPanelView.swift
 722	Packages/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -136,7 +138,6 @@
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
 688	cmuxTests/KeyboardShortcutContextTests.swift
-687	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
