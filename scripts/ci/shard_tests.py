@@ -7,15 +7,33 @@ Reads the JSON produced by:
       -test-enumeration-format json \
       -test-enumeration-output-path <file> test-without-building
 
-and prints the test identifiers assigned to one shard, one per line. The caller
-turns each line into an ``-only-testing:<id>`` argument.
+and prints the *class/suite* identifiers assigned to one shard, one per line.
+The caller turns each line into an ``-only-testing:<id>`` argument.
 
-Partitioning is deterministic: identifiers are sorted, then assigned
+Why shard at the class/suite level instead of per individual test:
+
+``xcodebuild test-without-building`` hangs — it produces no output and runs no
+tests until the job timeout — when handed on the order of a thousand
+``-only-testing:`` arguments. The per-test slice of this suite is ~1100
+selectors, and every shard timed out at 900s before launching a single test
+(while the full suite, run with *no* ``-only-testing`` arguments, and the
+focused regression gates, run with a handful, both work). Selecting whole
+classes/suites keeps each shard's argument list to ~115 selectors, which
+xcodebuild plans and launches normally.
+
+Class/suite granularity also makes coverage robust: a ``@Test(arguments:)``
+parameterized swift-testing case enumerates with a non-identifier leaf such as
+``testFoo(value:)``. Selecting the enclosing ``@Suite`` runs every case without
+ever having to parse — and possibly drop — that leaf. Class-level
+``-only-testing:cmuxTests/SomeSuite`` selectors drive swift-testing ``@Suite``
+types as well as XCTest classes.
+
+Partitioning is deterministic: class/suite identifiers are sorted, then assigned
 round-robin by index, so the union of all shards is exactly the full suite with
-no gaps or overlaps regardless of enumeration order. Sorting groups a class's
-methods together, and round-robin then spreads those consecutive (often
-similarly expensive app-host) methods evenly across shards, which balances the
-slow ``AppDelegateShortcutRoutingTests``-style classes without needing per-test
+no gaps or overlaps regardless of enumeration order. Sorting groups same-prefix
+(often same-subsystem, similarly expensive app-host) classes together and
+round-robin then spreads those neighbours across distinct shards, which balances
+the slow ``AppDelegateShortcutRoutingTests``-style classes without per-test
 timing data.
 """
 
@@ -39,40 +57,53 @@ def _collect(node: Any, out: list[str]) -> None:
             _collect(item, out)
 
 
-def _looks_like_identifier(text: str) -> bool:
-    """A flat test id is "Class/method" or "Target/Class/method" — no spaces."""
-    if "/" not in text or any(c.isspace() for c in text):
-        return False
-    parts = text.split("/")
-    if not (2 <= len(parts) <= 3):
-        return False
-    # Each component is an identifier, optionally with a "()" suffix on the
-    # leaf (swift-testing renders cases that way in some Xcode versions).
-    return all(part.replace("()", "").replace("_", "").isalnum() for part in parts if part)
+def _is_clean_component(text: str) -> bool:
+    """True for a class/suite/function name (alnum plus ``_`` and a ``()`` suffix)."""
+    return bool(text) and text.replace("()", "").replace("_", "").isalnum()
 
 
-def extract_identifiers(data: Any) -> list[str]:
-    """Return sorted, de-duplicated flat test identifiers."""
+def unit_of(ident: str, target_prefix: str | None) -> str | None:
+    """Map a flat test identifier to its class/suite ``-only-testing`` selector.
+
+    Flat identifiers look like ``[Target/]Class/method`` (XCTest) or
+    ``[Target/]Suite/case`` (swift-testing), where the ``method``/``case`` leaf
+    may be a parameterized token such as ``testFoo(value:)`` that is not itself
+    a clean identifier. Only the component *before* the leaf (the class/suite)
+    is inspected, so parameterized cases are grouped under their suite rather
+    than dropped.
+
+    Returns ``Target/Class`` with the target prefix re-applied, or ``None`` when
+    the string is not a test identifier (target name, file path, diagnostic).
+    """
+    if "/" not in ident:
+        return None
+    parts = ident.split("/")
+    # Drop a leading test-target component when the enumeration includes one.
+    # Different Xcode versions emit "Target/Class/method" or "Class/method";
+    # both must collapse to the same "Target/Class" selector.
+    if target_prefix and parts and parts[0] == target_prefix:
+        parts = parts[1:]
+    # A real flat identifier has at least "Class/method". A single remaining
+    # component is target/file/diagnostic noise (or a bare suite node, which
+    # also surfaces through its cases), so it is not a shardable unit.
+    if len(parts) < 2:
+        return None
+    unit = parts[0]
+    if not _is_clean_component(unit):
+        return None
+    return f"{target_prefix}/{unit}" if target_prefix else unit
+
+
+def extract_units(data: Any, target_prefix: str | None) -> tuple[list[str], dict[str, int]]:
+    """Return (sorted unique class/suite identifiers, per-unit enumerated-test count)."""
     raw: list[str] = []
     _collect(data, raw)
-    cleaned = {ident for ident in raw if _looks_like_identifier(ident)}
-    return sorted(cleaned)
-
-
-def normalize(identifiers: list[str], target_prefix: str | None) -> list[str]:
-    """Ensure each identifier carries the test-target prefix -only-testing wants."""
-    if not target_prefix:
-        return identifiers
-    prefix = target_prefix.rstrip("/") + "/"
-    normalized = []
-    for ident in identifiers:
-        # Flat identifiers are "Target/Class/method" (2 slashes). If the target
-        # is missing ("Class/method", 1 slash), prepend it.
-        if ident.count("/") < 2 and not ident.startswith(prefix):
-            normalized.append(prefix + ident)
-        else:
-            normalized.append(ident)
-    return normalized
+    counts: dict[str, int] = {}
+    for ident in raw:
+        unit = unit_of(ident, target_prefix)
+        if unit is not None:
+            counts[unit] = counts.get(unit, 0) + 1
+    return sorted(counts), counts
 
 
 def main(argv: list[str]) -> int:
@@ -83,12 +114,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--target-prefix",
         default=None,
-        help="test target to prepend when an identifier omits it (e.g. cmuxTests)",
+        help="test target component to strip/re-apply (e.g. cmuxTests)",
     )
     parser.add_argument(
         "--print-count",
         action="store_true",
-        help="print the total identifier count instead of a shard",
+        help="print the total class/suite count instead of a shard",
     )
     args = parser.parse_args(argv)
 
@@ -99,24 +130,28 @@ def main(argv: list[str]) -> int:
     with open(args.input, encoding="utf-8") as handle:
         data = json.load(handle)
 
-    identifiers = normalize(extract_identifiers(data), args.target_prefix)
-    if not identifiers:
-        print("ERROR: no test identifiers extracted from enumeration", file=sys.stderr)
+    units, counts = extract_units(data, args.target_prefix)
+    if not units:
+        print("ERROR: no test class/suite identifiers extracted from enumeration", file=sys.stderr)
         return 2
 
+    total_tests = sum(counts.values())
     if args.print_count:
-        print(len(identifiers))
+        print(len(units))
         return 0
 
     index = args.shard_index - 1
-    shard = [t for n, t in enumerate(identifiers) if n % args.shard_total == index]
+    shard = [unit for n, unit in enumerate(units) if n % args.shard_total == index]
+    shard_tests = sum(counts[unit] for unit in shard)
+    sample = ", ".join(units[:3])
     print(
         f"shard {args.shard_index}/{args.shard_total}: "
-        f"{len(shard)} of {len(identifiers)} tests",
+        f"{len(shard)} of {len(units)} classes "
+        f"(~{shard_tests} of {total_tests} enumerated tests); sample: {sample}",
         file=sys.stderr,
     )
-    for ident in shard:
-        print(ident)
+    for unit in shard:
+        print(unit)
     return 0
 
 

@@ -40,6 +40,9 @@ jobs:
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
+      - name: Validate test shard partitioning
+        run: python3 tests/test_shard_tests.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -376,15 +379,20 @@ jobs:
             -enumerate-tests -test-enumeration-style flat -test-enumeration-format json \
             -test-enumeration-output-path /tmp/cmux-test-enum.json \
             test-without-building
+          # --target-prefix cmuxTests strips/re-applies the test-target component
+          # so the emitted selectors are "cmuxTests/<Class>" regardless of whether
+          # the enumeration prints "cmuxTests/Class/method" or "Class/method".
           TOTAL=$(python3 scripts/ci/shard_tests.py --input /tmp/cmux-test-enum.json \
-            --shard-index "$CMUX_SHARD_INDEX" --shard-total "$CMUX_SHARD_TOTAL" --print-count)
+            --shard-index "$CMUX_SHARD_INDEX" --shard-total "$CMUX_SHARD_TOTAL" \
+            --target-prefix cmuxTests --print-count)
           python3 scripts/ci/shard_tests.py --input /tmp/cmux-test-enum.json \
             --shard-index "$CMUX_SHARD_INDEX" --shard-total "$CMUX_SHARD_TOTAL" \
+            --target-prefix cmuxTests \
             > /tmp/cmux-shard-tests.txt
           SHARD_COUNT=$(wc -l < /tmp/cmux-shard-tests.txt | tr -d ' ')
-          echo "Enumerated $TOTAL tests; shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL selected $SHARD_COUNT"
+          echo "Enumerated $TOTAL test classes/suites; shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL selected $SHARD_COUNT"
           if [ "$SHARD_COUNT" -eq 0 ]; then
-            echo "ERROR: shard selected 0 tests from $TOTAL enumerated" >&2
+            echo "ERROR: shard selected 0 classes from $TOTAL enumerated" >&2
             exit 1
           fi
 
@@ -508,11 +516,24 @@ jobs:
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
             # DerivedData was wiped to clear the corrupt SwiftPM state, so the
             # build products that test-without-building needs are gone. Re-resolve
-            # and rebuild for testing before retrying the suite.
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies
+            # and rebuild for testing before retrying the suite. Use the same
+            # 3-attempt backoff as the "Resolve Swift packages" step: the
+            # transient condition that corrupted the first run can recur, and a
+            # single re-resolve here would discard the retry it is meant to save.
+            for attempt in 1 2 3; do
+              if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -resolvePackageDependencies; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to resolve Swift packages after 3 attempts in retry path" >&2
+                exit 1
+              fi
+              echo "Retry-path package resolution failed on attempt $attempt, retrying..."
+              sleep $((attempt * 5))
+            done
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -528,11 +549,13 @@ jobs:
           fi
 
           # A shard must actually execute tests. If the -only-testing selectors
-          # matched nothing, every summary line reads "Executed 0 tests" while
-          # xcodebuild still exits 0, which would silently drop this shard's
-          # coverage. Require at least one non-zero "Executed N tests" line.
-          if ! echo "$OUTPUT" | grep -qE "Executed [1-9][0-9]* test"; then
-            echo "ERROR: shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} (selector format mismatch?)" >&2
+          # matched nothing, xcodebuild still exits 0, which would silently drop
+          # this shard's coverage. Require a non-zero count from at least one
+          # framework: XCTest prints "Executed N tests" and swift-testing prints
+          # "Test run with N tests" — a shard holding only swift-testing @Suites
+          # never emits the XCTest summary, so both must be accepted.
+          if ! echo "$OUTPUT" | grep -qE "Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test"; then
+            echo "ERROR: shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} classes (selector format mismatch?)" >&2
             exit 1
           fi
 
