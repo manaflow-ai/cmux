@@ -17,28 +17,64 @@ struct AccountIdentityCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
-                if let subtitle = subtitleText {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titleText)
+                        .font(.system(size: 13, weight: .medium))
+                    if let subtitle = subtitleText {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                Spacer(minLength: 12)
+                if flow?.isWorkingOnAuth == true {
+                    ProgressView().controlSize(.small)
+                }
+                Button(action: buttonAction) {
+                    Text(buttonTitle)
+                }
+                .controlSize(.small)
+                .disabled(flow?.isWorkingOnAuth == true)
             }
-            Spacer(minLength: 12)
-            if flow?.isWorkingOnAuth == true {
-                ProgressView().controlSize(.small)
+            if showSlowSignInFallback {
+                slowSignInFallback
             }
-            Button(action: buttonAction) {
-                Text(buttonTitle)
-            }
-            .controlSize(.small)
-            .disabled(flow?.isWorkingOnAuth == true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// The system sign-in window can hang without redirecting back. When the
+    /// host reports the attempt is slow and the user is still signed out, offer
+    /// to complete sign-in in their default browser instead of leaving them on
+    /// an indefinite spinner.
+    private var showSlowSignInFallback: Bool {
+        flow?.signInIsSlow == true && flow?.currentIdentity == nil
+    }
+
+    private var slowSignInFallback: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(String(
+                localized: "settings.account.signIn.slowHint",
+                defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
+            ))
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button {
+                flow?.openSignInInDefaultBrowser()
+            } label: {
+                Text(String(
+                    localized: "settings.account.signIn.openInBrowser",
+                    defaultValue: "Open in Browser"
+                ))
+            }
+            .controlSize(.small)
+            .fixedSize()
+        }
     }
 
     private var titleText: String {
