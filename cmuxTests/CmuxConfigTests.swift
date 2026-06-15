@@ -2299,6 +2299,60 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         XCTAssertThrowsError(try decode(json))
     }
+
+    func testDecodeDuplicateSurfaceTabBarMenuItemIdsThrows() {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "tools",
+              "type": "menu",
+              "menu": [
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "play" },
+                  "command": "npm run dev"
+                },
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "checkmark" },
+                  "command": "npm test"
+                }
+              ]
+            }
+          ],
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeSurfaceTabBarMenuItemCannotReuseTopLevelId() {
+        let json = """
+        {
+          "surfaceTabBarButtons": [
+            {
+              "id": "run",
+              "icon": { "type": "symbol", "name": "play" },
+              "command": "npm run dev"
+            },
+            {
+              "id": "tools",
+              "type": "menu",
+              "menu": [
+                {
+                  "id": "run",
+                  "icon": { "type": "symbol", "name": "checkmark" },
+                  "command": "npm test"
+                }
+              ]
+            }
+          ],
+          "commands": []
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
 }
 
 // MARK: - Command identity

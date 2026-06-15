@@ -28,14 +28,14 @@
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3908	cmuxTests/WindowAndDragTests.swift
-3747	Sources/CmuxConfig.swift
+3766	Sources/CmuxConfig.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3672	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3200	Sources/Update/UpdateTitlebarAccessory.swift
+2925	cmuxTests/CmuxConfigTests.swift
 2902	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
-2871	cmuxTests/CmuxConfigTests.swift
 2582	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift

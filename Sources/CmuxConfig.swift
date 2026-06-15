@@ -138,17 +138,36 @@ struct CmuxConfigFile: Codable, Sendable {
         codingPath: [CodingKey]
     ) throws -> [CmuxSurfaceTabBarButton] {
         var seen = Set<String>()
-        for button in buttons {
-            if !seen.insert(button.id).inserted {
-                throw DecodingError.dataCorrupted(
-                    DecodingError.Context(
-                        codingPath: codingPath,
-                        debugDescription: "surface tab bar buttons must not contain duplicate ids"
-                    )
-                )
-            }
+        for (index, button) in buttons.enumerated() {
+            try validateSurfaceTabBarButtonIDs(
+                button,
+                seen: &seen,
+                codingPath: codingPath + [MenuCodingKey(index: index)]
+            )
         }
         return buttons
+    }
+
+    private static func validateSurfaceTabBarButtonIDs(
+        _ button: CmuxSurfaceTabBarButton,
+        seen: inout Set<String>,
+        codingPath: [CodingKey]
+    ) throws {
+        if !seen.insert(button.id).inserted {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: codingPath,
+                    debugDescription: "surface tab bar buttons must not contain duplicate ids"
+                )
+            )
+        }
+        for (index, item) in (button.menu ?? []).enumerated() {
+            try validateSurfaceTabBarButtonIDs(
+                item.button,
+                seen: &seen,
+                codingPath: codingPath + [MenuCodingKey(index: index)]
+            )
+        }
     }
 }
 
