@@ -32,6 +32,7 @@ public struct ChatTranscriptListView: View {
     #if os(iOS)
     @State private var isAtBottom = true
     @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var isKeyboardRepinning = false
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -82,6 +83,11 @@ public struct ChatTranscriptListView: View {
             scrollContent
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
+                } action: { _, distanceFromBottom in
+                    updateBottomState(distanceFromBottom: distanceFromBottom, proxy: proxy)
+                }
                 // Composite key: a failed pending row pinned at the tail
                 // keeps `last?.id` stable while agent messages insert
                 // above it, so follow on count changes too.
@@ -99,9 +105,16 @@ public struct ChatTranscriptListView: View {
                 // stolen. Animated to ride the keyboard transition.
                 .onReceive(Self.keyboardWillChangePublisher) { _ in
                     guard isAtBottom else { return }
+                    isKeyboardRepinning = true
                     withAnimation(.snappy(duration: 0.25)) {
                         proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                     }
+                }
+                .onReceive(Self.keyboardDidChangePublisher) { _ in
+                    guard isKeyboardRepinning else { return }
+                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                    isAtBottom = true
+                    isKeyboardRepinning = false
                 }
                 .overlay(alignment: .bottomTrailing) {
                     // The pill's fade/scale is animated HERE, scoped by
@@ -168,6 +181,27 @@ public struct ChatTranscriptListView: View {
     private static let keyboardWillChangePublisher = NotificationCenter.default
         .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
         .map { _ in () }
+
+    /// Completes the keyboard pin after UIKit/SwiftUI have applied the final
+    /// keyboard and safe-area geometry. The `will` notification alone can fire
+    /// before the composer inset has settled, especially on device.
+    private static let keyboardDidChangePublisher = NotificationCenter.default
+        .publisher(for: UIResponder.keyboardDidChangeFrameNotification)
+        .map { _ in () }
+    #endif
+
+    #if os(iOS)
+    private func updateBottomState(distanceFromBottom: CGFloat, proxy: ScrollViewProxy) {
+        let atBottom = distanceFromBottom <= Self.atBottomThreshold
+        if isKeyboardRepinning {
+            if !atBottom {
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+            }
+            if !isAtBottom { isAtBottom = true }
+            return
+        }
+        if atBottom != isAtBottom { isAtBottom = atBottom }
+    }
     #endif
 
     private var isWorking: Bool {
@@ -235,20 +269,6 @@ public struct ChatTranscriptListView: View {
         )
         #if os(iOS)
         .scrollPosition($scrollPosition)
-        // At-bottom is read directly from the scroll geometry (the source of
-        // truth), not a sentinel view's visibility. `visibleRect.maxY` is the
-        // bottom of the visible content in content coordinates and already
-        // accounts for the composer/keyboard safe-area insets, so the distance
-        // to the content's end is inset-correct and updates on every scroll,
-        // keyboard transition, and content-size change. A forgiving threshold
-        // absorbs the small gap below the last row (padding + 1pt anchor) and
-        // lazy-height jitter.
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
-        } action: { _, distanceFromBottom in
-            let atBottom = distanceFromBottom <= Self.atBottomThreshold
-            if atBottom != isAtBottom { isAtBottom = atBottom }
-        }
         #endif
     }
 
