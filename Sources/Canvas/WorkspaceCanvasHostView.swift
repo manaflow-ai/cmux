@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import CmuxCanvasUI
+import CmuxSettingsUI
 
 /// SwiftUI host for a workspace's canvas layout.
 ///
@@ -17,6 +18,7 @@ struct WorkspaceCanvasHostView: View {
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let settingsRuntime: SettingsRuntime?
 
     var body: some View {
         CanvasRootRepresentable(
@@ -48,7 +50,8 @@ struct WorkspaceCanvasHostView: View {
                             workspace: workspace,
                             isWorkspaceVisible: isWorkspaceVisible,
                             portalPriority: portalPriority,
-                            appearance: appearance
+                            appearance: appearance,
+                            settingsRuntime: settingsRuntime
                         ),
                         panelId: panelId,
                         container: container,
@@ -80,27 +83,33 @@ struct WorkspaceCanvasHostView: View {
         workspace: Workspace?,
         isWorkspaceVisible: Bool,
         portalPriority: Int,
-        appearance: PanelAppearance
+        appearance: PanelAppearance,
+        settingsRuntime: SettingsRuntime?
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
             return .terminal(terminalPanel)
         }
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
-        let hosted = NSHostingView(rootView: AnyView(
-            CanvasHostedPanelContentView(
-                panel: panel,
-                workspaceId: workspaceId,
-                paneId: paneId,
-                isFocused: false,
-                isVisibleInUI: isWorkspaceVisible,
-                portalPriority: portalPriority,
-                appearance: appearance,
-                onRequestPanelFocus: { [weak workspace] in
-                    workspace?.focusPanel(panel.id)
-                }
-            )
-        ))
+        let content = CanvasHostedPanelContentView(
+            panel: panel,
+            workspaceId: workspaceId,
+            paneId: paneId,
+            isFocused: false,
+            isVisibleInUI: isWorkspaceVisible,
+            portalPriority: portalPriority,
+            appearance: appearance,
+            onRequestPanelFocus: { [weak workspace] in
+                workspace?.focusPanel(panel.id)
+            }
+        )
+        let rootView: AnyView
+        if let settingsRuntime {
+            rootView = AnyView(content.environment(\.settingsRuntime, settingsRuntime))
+        } else {
+            rootView = AnyView(content)
+        }
+        let hosted = NSHostingView(rootView: rootView)
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
