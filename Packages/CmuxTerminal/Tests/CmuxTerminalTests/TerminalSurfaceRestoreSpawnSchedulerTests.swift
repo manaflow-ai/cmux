@@ -75,6 +75,35 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         #expect(spawned == ids)
     }
 
+    @Test func twelveRestoredSurfaceBurstDrainsOneNativeSpawnPerCadence() async {
+        let delayer = ManualRestoreSpawnDelayer()
+        let scheduler = TerminalSurfaceRestoreSpawnScheduler(
+            interSpawnDelay: .milliseconds(125),
+            delayer: delayer
+        )
+        let ids = (0..<12).map { _ in UUID() }
+        var spawned: [UUID] = []
+
+        for id in ids {
+            scheduler.scheduleRestoredSurfaceSpawn(surfaceId: id) {
+                spawned.append(id)
+            }
+        }
+
+        await delayer.waitForDelayCount(1)
+        #expect(spawned == [ids[0]])
+
+        for expectedSpawnCount in 2...ids.count {
+            delayer.releaseNextDelay()
+            await waitForSpawnCount(expectedSpawnCount, spawned: { spawned.count })
+            #expect(spawned == Array(ids.prefix(expectedSpawnCount)))
+        }
+
+        await delayer.waitForDelayCount(ids.count)
+        delayer.releaseNextDelay()
+        #expect(spawned == ids)
+    }
+
     @Test func duplicateReadinessCallbacksForOneSurfaceCoalesce() async {
         let scheduler = TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero)
         let id = UUID()
