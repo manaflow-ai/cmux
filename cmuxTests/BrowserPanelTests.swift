@@ -645,6 +645,62 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
 
+    func testCloseDetachesPortalHostedWebViewImmediately() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = panel.webView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchorView = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        window.contentView = anchorView
+
+        BrowserWindowPortalRegistry.bind(
+            webView: webView,
+            to: anchorView,
+            visibleInUI: true
+        )
+        XCTAssertNotNil(webView.superview, "Test precondition: portal bind should host the web view")
+        XCTAssertNotNil(
+            panel.mediaPlaybackMessageHandler,
+            "Test precondition: binding should install the media playback handler"
+        )
+
+        panel.close()
+
+        XCTAssertNil(webView.superview, "Closing a browser panel must release the old WKWebView immediately")
+        XCTAssertNil(
+            panel.mediaPlaybackMessageHandler,
+            "Closing a browser panel must release the media playback message handler"
+        )
+    }
+
+    func testCloseToleratesAlreadyTornDownScriptHandlers() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = panel.webView
+        XCTAssertNotNil(
+            panel.reactGrabMessageHandler,
+            "Test precondition: binding should install the ReactGrab handler"
+        )
+        XCTAssertNotNil(
+            panel.mediaPlaybackMessageHandler,
+            "Test precondition: binding should install the media playback handler"
+        )
+
+        panel.teardownReactGrabMessageHandler(for: webView)
+        panel.teardownMediaPlaybackMessageHandler(for: webView)
+
+        XCTAssertNil(panel.reactGrabMessageHandler)
+        XCTAssertNil(panel.mediaPlaybackMessageHandler)
+
+        panel.close()
+
+        XCTAssertNil(panel.reactGrabMessageHandler)
+        XCTAssertNil(panel.mediaPlaybackMessageHandler)
+    }
+
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let schemePanel = BrowserPanel(

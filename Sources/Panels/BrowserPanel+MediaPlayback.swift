@@ -187,6 +187,19 @@ extension BrowserPanel {
         )
     }
 
+    func teardownMediaPlaybackMessageHandler(for webView: WKWebView) {
+        guard mediaPlaybackMessageHandler != nil else {
+            resetMediaPlaybackTracking()
+            return
+        }
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: mediaPlaybackMessageHandlerName,
+            contentWorld: Self.mediaPlaybackContentWorld
+        )
+        mediaPlaybackMessageHandler = nil
+        resetMediaPlaybackTracking()
+    }
+
     /// Applies a per-frame playback report from the injected hook, aggregating
     /// across the main frame and any iframes. Reports from a superseded webview
     /// generation are dropped.

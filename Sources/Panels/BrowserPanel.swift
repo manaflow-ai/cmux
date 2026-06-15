@@ -3282,6 +3282,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
     private var activeDownloadCount: Int = 0
+    /// Browser close is a one-shot resource teardown: it severs WebKit callbacks
+    /// and swaps the heavy page web view for an inert placeholder, so repeated
+    /// close requests from stale SwiftUI/AppKit teardown paths must be ignored.
+    private var isClosed = false
 
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
@@ -3961,6 +3965,48 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+    }
+
+    private func releaseWebViewForTeardown(_ targetWebView: WKWebView, reason: String) {
+        if let window = targetWebView.window,
+           Self.responderChainContains(window.firstResponder, target: targetWebView) {
+            window.makeFirstResponder(nil)
+        }
+
+        BrowserWindowPortalRegistry.detach(webView: targetWebView)
+        BrowserWindowPortalRegistry.discard(
+            webView: targetWebView,
+            source: reason,
+            preserveCurrentSuperview: false
+        )
+        targetWebView.stopLoading()
+        targetWebView.navigationDelegate = nil
+        targetWebView.uiDelegate = nil
+        targetWebView.configuration.userContentController.removeAllUserScripts()
+        teardownReactGrabMessageHandler(for: targetWebView)
+        teardownMediaPlaybackMessageHandler(for: targetWebView)
+
+        if let cmuxWebView = targetWebView as? CmuxWebView {
+            cmuxWebView.onContextMenuDownloadStateChanged = nil
+            cmuxWebView.onContextMenuOpenLinkInNewTab = nil
+            cmuxWebView.contextMenuCanMoveTabToNewWorkspace = nil
+            cmuxWebView.contextMenuMoveTabToNewWorkspace = nil
+            cmuxWebView.contextMenuLinkURLProvider = nil
+            cmuxWebView.contextMenuDefaultBrowserOpener = nil
+            cmuxWebView.allowsFirstResponderAcquisition = false
+        }
+
+        targetWebView.removeFromSuperview()
+    }
+
+    private func installClosedPlaceholderWebView() {
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+        replacement.allowsFirstResponderAcquisition = false
+        webViewInstanceID = UUID()
+        webView = replacement
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -5405,6 +5451,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        guard !isClosed else { return }
+        isClosed = true
+
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         refreshWebViewLifecycleState()
@@ -5427,17 +5476,30 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        webView.stopLoading()
+        let closedWebView = webView
+        releaseWebViewForTeardown(closedWebView, reason: "panel.close")
+        installClosedPlaceholderWebView()
+
         isMainFrameProvisionalNavigationActive = false
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
         navigationDelegate = nil
         uiDelegate = nil
+        downloadDelegate = nil
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        activeDownloadCount = 0
+        isDownloading = false
+        isLoading = false
+        estimatedProgress = 0
+        shouldRenderWebView = false
+        activePortalHostLease = nil
+        pendingDistinctPortalHostReplacementPaneId = nil
+        lockedPortalHost = nil
+        resetReactGrabState(reason: "panel.close")
     }
 
     // MARK: - Popup window management
