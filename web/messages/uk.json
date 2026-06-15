@@ -794,6 +794,10 @@
         "sidebar": {
           "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
         },
+        "fileExplorer": {
+          "description": "Налаштування провідника файлів (дерева файлів) у правій бічній панелі.",
+          "doubleClickAction": "Визначає, що відбувається під час подвійного клацання файлу в провіднику файлів (або натискання Return на результаті пошуку). `preview` відкриває вбудований перегляд файлів cmux (типова й історична поведінка). `defaultEditor` відкриває файл у типовій програмі macOS для цього типу файлів. `preferredEditor` відкриває через команду `app.preferredEditor`, а якщо її не задано, повертається до типової програми. Застосовується лише до файлів; каталоги завжди розгортаються/згортаються, а нелокальні (віддалені) провідники файлів завжди відкривають перегляд cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -805,6 +809,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Подвійне клацання файлу: preview (типово), defaultEditor (типова програма macOS) або preferredEditor (команда app.preferredEditor).",
       "shortcutsWhenIntro": "Необов'язкові контекстні предикати для кожної дії (клаузи when у стилі VS Code), індексовані за ідентифікатором дії cmux. Прив'язка спрацьовує — і конфліктує з іншою прив'язкою на тому самому натисканні — лише тоді, коли її клауза істинна. Пропустіть клаузу, щоб зберегти вбудований контекст дії. Словник клауз:",
       "shortcutsWhenBooleanKeys": "булеві ключі. Невідомий або відсутній ключ вважається false; також приймаються літерали true і false.",
       "shortcutsWhenTypedKeys": "типізовані ключі для порівнянь: активний режим правої бічної панелі (рядок) та кількість панелей і робочих просторів (цілі числа).",

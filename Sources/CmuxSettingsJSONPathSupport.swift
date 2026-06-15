@@ -426,6 +426,7 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]
 }

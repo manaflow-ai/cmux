@@ -794,6 +794,10 @@
         "sidebar": {
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
+        "fileExplorer": {
+          "description": "การตั้งค่าตัวสำรวจไฟล์ (แผนผังไฟล์) ในแถบด้านขวา",
+          "doubleClickAction": "กำหนดว่าการดับเบิลคลิกไฟล์ในตัวสำรวจไฟล์ (หรือกด Return บนผลการค้นหา) จะทำอะไร `preview` เปิดตัวอย่างไฟล์ในตัวของ cmux (ค่าเริ่มต้นและพฤติกรรมเดิม) `defaultEditor` เปิดด้วยแอปเริ่มต้นของ macOS สำหรับชนิดไฟล์นั้น `preferredEditor` เปิดด้วยคำสั่ง `app.preferredEditor` และถ้าไม่ได้ตั้งค่าไว้จะกลับไปใช้แอปเริ่มต้น มีผลกับไฟล์เท่านั้น; ไดเรกทอรีจะขยาย/ยุบเสมอ และตัวสำรวจไฟล์ที่ไม่ใช่ในเครื่อง (รีโมต) จะเปิดตัวอย่างของ cmux เสมอ"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -805,6 +809,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "ดับเบิลคลิกไฟล์: preview (ค่าเริ่มต้น), defaultEditor (แอปเริ่มต้นของ macOS) หรือ preferredEditor (คำสั่ง app.preferredEditor)",
       "shortcutsWhenIntro": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส when แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ การผูกจะทำงาน — และชนกับการผูกอื่นบนปุ่มเดียวกัน — เฉพาะเมื่อคลอสของมันเป็นจริงเท่านั้น หากไม่ระบุคลอส แอ็กชันจะใช้บริบทในตัวตามเดิม คำศัพท์ที่ใช้ในคลอส:",
       "shortcutsWhenBooleanKeys": "คีย์บูลีน คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false และยอมรับลิเทอรัล true กับ false ด้วย",
       "shortcutsWhenTypedKeys": "คีย์แบบมีชนิดสำหรับการเปรียบเทียบ: โหมดปัจจุบันของแถบด้านข้างขวา (สตริง) และจำนวนเพนกับเวิร์กสเปซ (จำนวนเต็ม)",

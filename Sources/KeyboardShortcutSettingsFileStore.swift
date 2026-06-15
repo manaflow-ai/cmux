@@ -383,6 +383,9 @@ final class CmuxSettingsFileStore {
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
+            parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -614,6 +617,22 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileExplorerSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section["doubleClickAction"]) {
+            if let action = FileExplorerDoubleClickAction(rawValue: raw) {
+                snapshot.managedUserDefaults[FileExplorerDoubleClickActionSettings.key] = .string(action.rawValue)
+            } else {
+                logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("doubleClickAction") {
+            logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
         }
     }
 

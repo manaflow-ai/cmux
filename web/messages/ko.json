@@ -794,6 +794,10 @@
         "sidebar": {
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },
+        "fileExplorer": {
+          "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",
+          "doubleClickAction": "파일 탐색기에서 파일을 더블클릭(또는 검색 결과에서 Return 키 입력)했을 때의 동작을 설정합니다. `preview`는 cmux 내장 파일 미리보기(기본값이자 기존 동작)를 엽니다. `defaultEditor`는 파일 형식의 macOS 기본 앱으로 엽니다. `preferredEditor`는 `app.preferredEditor` 명령으로 열고, 설정되지 않은 경우 기본 앱으로 대체합니다. 이 설정은 파일에만 적용되며, 디렉터리는 항상 펼치기/접기 동작을 하고, 로컬이 아닌(원격) 파일 탐색기는 항상 cmux 미리보기를 엽니다."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -805,6 +809,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "파일 더블클릭 동작: preview(기본값), defaultEditor(macOS 기본 앱) 또는 preferredEditor(app.preferredEditor 명령).",
       "shortcutsWhenIntro": "액션별 선택적 컨텍스트 조건자(VS Code 스타일 when 절)이며 cmux 액션 ID를 키로 사용합니다. 바인딩은 해당 절이 참일 때만 실행되고, 같은 키 입력의 다른 바인딩과도 그때만 충돌합니다. 절을 생략하면 액션의 기본 컨텍스트가 유지됩니다. 절에서 사용할 수 있는 어휘:",
       "shortcutsWhenBooleanKeys": "불리언 키. 알 수 없거나 존재하지 않는 키는 false로 평가되며, 리터럴 true와 false도 사용할 수 있습니다.",
       "shortcutsWhenTypedKeys": "비교용 타입 키: 오른쪽 사이드바의 활성 모드(문자열)와 패널 및 워크스페이스 개수(정수)입니다.",

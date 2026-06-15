@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34207	CLI/cmux.swift
 17914	Sources/AppDelegate.swift
-16819	Sources/ContentView.swift
+16814	Sources/ContentView.swift
 14682	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
 12223	Sources/Workspace.swift
@@ -22,7 +22,7 @@
 5522	cmuxTests/BrowserConfigTests.swift
 5113	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4921	Sources/cmuxApp.swift
-4460	Sources/Panels/FilePreviewPanel.swift
+4467	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
@@ -40,15 +40,15 @@
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2460	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
+2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2314	Sources/FileExplorerView.swift
 2259	Sources/TerminalWindowPortal.swift
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2062	Sources/SessionPersistence.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1915	Sources/KeyboardShortcutSettingsFileStore.swift
+1934	Sources/KeyboardShortcutSettingsFileStore.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1794	Sources/SessionIndexStore.swift
 1777	Sources/RestorableAgentSession.swift
