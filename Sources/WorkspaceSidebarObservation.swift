@@ -81,16 +81,16 @@ extension Workspace {
             $panelDirectories
         )
         let metadataFields = Publishers.CombineLatest4(
-            $statusEntries,
-            $metadataBlocks,
-            $logEntries,
-            $progress
+            sidebarMetadata.statusEntriesPublisher,
+            sidebarMetadata.metadataBlocksPublisher,
+            sidebarMetadata.logEntriesPublisher,
+            sidebarMetadata.progressPublisher
         )
         let gitFields = Publishers.CombineLatest4(
-            $gitBranch,
-            $panelGitBranches,
-            $pullRequest,
-            $panelPullRequests
+            sidebarMetadata.gitBranchPublisher,
+            sidebarMetadata.panelGitBranchesPublisher,
+            sidebarMetadata.pullRequestPublisher,
+            sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
             $remoteConfiguration,
