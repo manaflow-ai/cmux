@@ -35,7 +35,7 @@ extension TerminalSurface {
                 )
             }
             #else
-            let installOperation: @concurrent () async -> ClaudeCommandShim? = {
+            let installOperation: @Sendable () async -> ClaudeCommandShim? = {
                 [wrapperURL, surfaceId, temporaryDirectory] in
                 TerminalSurface.installClaudeCommandShimIfPossible(
                     wrapperURL: wrapperURL,
