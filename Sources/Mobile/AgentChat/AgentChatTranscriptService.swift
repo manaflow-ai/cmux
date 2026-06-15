@@ -110,6 +110,15 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID).map(\.descriptor)
     }
 
+    /// Lists raw session records for callers that must validate live
+    /// terminal bindings before exposing descriptors.
+    ///
+    /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
+    /// - Returns: Matching records, most recent first.
+    func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
+        registry.sessions(workspaceID: workspaceID)
+    }
+
     /// Adopts a Claude session cmux detected by terminal title but that
     /// never registered via a hook (e.g. launched through a shell wrapper
     /// that bypasses cmux's hook injection), so it gains a chat session and

@@ -22,7 +22,6 @@ public struct ChatTranscriptListView: View {
     private let actions: ChatRowActions
     private let onReachTop: () -> Void
     private let onRetryInitialLoad: () -> Void
-    private let bottomContentInset: CGFloat
 
     @Environment(\.chatTheme) private var theme
 
@@ -53,7 +52,6 @@ public struct ChatTranscriptListView: View {
         hasLoadedInitialHistory: Bool = true,
         initialLoadFailed: Bool = false,
         historyTruncatedAtHead: Bool = false,
-        bottomContentInset: CGFloat = 0,
         actions: ChatRowActions,
         onReachTop: @escaping () -> Void,
         onRetryInitialLoad: @escaping () -> Void = {}
@@ -65,7 +63,6 @@ public struct ChatTranscriptListView: View {
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
         self.initialLoadFailed = initialLoadFailed
         self.historyTruncatedAtHead = historyTruncatedAtHead
-        self.bottomContentInset = bottomContentInset
         self.actions = actions
         self.onReachTop = onReachTop
         self.onRetryInitialLoad = onRetryInitialLoad
@@ -85,8 +82,7 @@ public struct ChatTranscriptListView: View {
             onReachTop: onReachTop,
             onRetryInitialLoad: onRetryInitialLoad,
             isAtBottom: $isAtBottom,
-            scrollToBottomRequest: scrollToBottomRequest,
-            bottomContentInset: bottomContentInset
+            scrollToBottomRequest: scrollToBottomRequest
         )
         .overlay(alignment: .bottomTrailing) {
             Group {

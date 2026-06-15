@@ -833,6 +833,30 @@ struct ChatConversationStoreTests {
         #expect(Self.userProseTexts(store.rows) == [truncated])
     }
 
+    @Test("a transcript echo with a short stale prompt prefix still reconciles the pending row")
+    func stalePromptPrefixEchoReconciles() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await store.send(text: "not much u?")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+
+        let prefixedEcho = ChatMessage(
+            id: "echo-1",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "ynot much u?"))
+        )
+        await source.emit(.appended([prefixedEcho]))
+
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(Self.userProseTexts(store.rows) == ["ynot much u?"])
+    }
+
     @Test("an empty page at the Mac's cache head ends paging and flags head truncation")
     func emptyPageAtCacheHeadStopsPaging() async {
         let newest = (100..<104).map { Self.prose(seq: $0) }

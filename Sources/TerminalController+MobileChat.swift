@@ -57,7 +57,9 @@ extension TerminalController {
         if let workspaceID {
             adoptDetectedAgentSessions(workspaceID: workspaceID)
         }
-        let descriptors = service.sessionDescriptors(workspaceID: workspaceID)
+        let descriptors = service.sessionRecords(workspaceID: workspaceID)
+            .filter { mobileChatBindingIsCurrentAgent($0) }
+            .map(\.descriptor)
         let encoded = descriptors.compactMap { service.wirePayload($0) }
         return .ok(["sessions": encoded])
     }
@@ -173,7 +175,7 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let clearResult = terminalPanel.sendNamedKeyResult("ctrl+u")
+        let clearResult = mobileChatClearPrompt(terminalPanel)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
@@ -218,6 +220,18 @@ extension TerminalController {
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
+    }
+
+    /// Clears any stale text already sitting in the agent's terminal prompt
+    /// before the mobile chat prompt is pasted and submitted.
+    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
+        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
+        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
+            let result = terminalPanel.sendNamedKeyResult(keyName)
+            guard result.accepted else { return result }
+            latestAccepted = result
+        }
+        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -285,7 +299,8 @@ extension TerminalController {
             return nil
         }
         if let surfaceID = record.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingIsCurrentAgent(record) {
             return ["workspace_id": workspaceID, "surface_id": surfaceID]
         }
         #if DEBUG
@@ -293,7 +308,8 @@ extension TerminalController {
         #endif
         if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingIsCurrentAgent(refreshed) {
             return ["workspace_id": workspaceID, "surface_id": surfaceID]
         }
         #if DEBUG
@@ -311,6 +327,40 @@ extension TerminalController {
             return false
         }
         return true
+    }
+
+    /// Whether the record's bound terminal still appears to be the agent it
+    /// represents. This prevents a stale registry surface id from exposing a
+    /// chat toggle or routing prompts into a plain shell after a terminal was
+    /// restored/reused.
+    private func mobileChatBindingIsCurrentAgent(_ record: AgentChatSessionRecord) -> Bool {
+        guard let workspaceID = record.workspaceID,
+              let surfaceID = record.surfaceID,
+              let resolved = mobileResolveWorkspaceAndSurface(
+                  params: ["workspace_id": workspaceID, "surface_id": surfaceID],
+                  requireTerminal: true
+              ),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return false
+        }
+        let title = resolved.workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+        switch record.agentKind {
+        case .claude:
+            return TextBoxAgentDetection.isClaudeCode(context: context)
+                || normalizedTitle.contains("claude")
+                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
+        case .codex:
+            return TextBoxAgentDetection.codex.matches(context: context)
+                || normalizedTitle.contains("codex")
+        case .other(let source):
+            return !source.isEmpty && (
+                context.localizedCaseInsensitiveContains(source)
+                    || normalizedTitle.contains(source.lowercased())
+            )
+        }
     }
 
     private func mobileChatTerminalPanel(sessionID: String) -> TerminalPanel? {
