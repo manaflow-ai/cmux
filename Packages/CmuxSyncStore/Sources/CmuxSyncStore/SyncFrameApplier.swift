@@ -19,6 +19,7 @@ public actor SyncFrameApplier {
     private let now: @Sendable () -> Date
     private let maxBufferedRecords: Int
     private let maxQueuedDeltaRecords: Int
+    private let maxQueuedDeltaFrames: Int
 
     /// Per-collection in-flight snapshot: accumulated pages + the deltas that
     /// arrived during paging (queued, applied after the snapshot commits).
@@ -45,6 +46,12 @@ public actor SyncFrameApplier {
     /// presence-capped well under 10k) and a stalled-snapshot producer should be
     /// cut off sooner here than on the snapshot pages themselves.
     public static let defaultMaxQueuedDeltaRecords = 10_000
+    /// Default ceiling on the NUMBER of delta frames queued while a snapshot is
+    /// paging, independent of how many records each carries. Without this a
+    /// producer could hold a snapshot open and flood empty (`records: []`) deltas
+    /// forever: each grows `queuedDeltas` by one entry while contributing 0 to the
+    /// record bound, an unbounded-memory bypass. Both bounds are enforced.
+    public static let defaultMaxQueuedDeltaFrames = 10_000
 
     public init(
         store: any CmuxSyncStoring,
@@ -52,7 +59,8 @@ public actor SyncFrameApplier {
         sortKeyFor: @escaping @Sendable (SyncWireRecord) -> Double,
         now: @escaping @Sendable () -> Date = { Date() },
         maxBufferedRecords: Int = SyncFrameApplier.defaultMaxBufferedRecords,
-        maxQueuedDeltaRecords: Int = SyncFrameApplier.defaultMaxQueuedDeltaRecords
+        maxQueuedDeltaRecords: Int = SyncFrameApplier.defaultMaxQueuedDeltaRecords,
+        maxQueuedDeltaFrames: Int = SyncFrameApplier.defaultMaxQueuedDeltaFrames
     ) {
         self.store = store
         self.teamID = teamID
@@ -60,6 +68,7 @@ public actor SyncFrameApplier {
         self.now = now
         self.maxBufferedRecords = maxBufferedRecords
         self.maxQueuedDeltaRecords = maxQueuedDeltaRecords
+        self.maxQueuedDeltaFrames = maxQueuedDeltaFrames
     }
 
     /// The cursor to send in the next `sync.hello` for a collection.
@@ -165,18 +174,21 @@ public actor SyncFrameApplier {
     private func applyDeltaFrame(collection: String, rev: Int, records: [SyncWireRecord]) async throws -> Bool {
         if builds[collection] != nil {
             // Mid-paging: queue, do not apply yet (DESIGN.md §3.4). Bound the queue
-            // by total RETAINED RECORDS (not frame count) so a DO flooding deltas
-            // while it stalls a never-completing snapshot cannot grow client memory
-            // without limit; counting frames alone would let a single oversized
-            // multi-record delta (or many large ones) blow past the intended
-            // ceiling. Count already-queued records + this delta's records so the
-            // bound holds even on one oversized delta. On overflow drop the build
-            // and resync.
+            // on TWO independent axes so a producer that stalls a never-completing
+            // snapshot cannot grow client memory without limit:
+            //   1. total retained RECORDS — stops a single oversized multi-record
+            //      delta (or many large ones) from blowing past the ceiling that a
+            //      frame count alone would miss;
+            //   2. total FRAMES — stops a flood of empty (`records: []`) deltas,
+            //      each of which grows the queue by one entry while contributing 0
+            //      to the record bound (the record-only bound would never trip).
+            // On either overflow, drop the build and resync.
+            let queuedFrames = builds[collection]?.queuedDeltas.count ?? 0
             let queuedRecords = builds[collection]?.queuedDeltas.reduce(0) { $0 + $1.records.count } ?? 0
-            if queuedRecords + records.count > maxQueuedDeltaRecords {
+            if queuedFrames + 1 > maxQueuedDeltaFrames || queuedRecords + records.count > maxQueuedDeltaRecords {
                 builds[collection] = nil
                 throw SyncFrameParseError.malformed(
-                    "queued deltas for \(collection) exceeded \(maxQueuedDeltaRecords) records while snapshot never completed"
+                    "queued deltas for \(collection) exceeded the queue bound (frames \(maxQueuedDeltaFrames), records \(maxQueuedDeltaRecords)) while snapshot never completed"
                 )
             }
             builds[collection]?.queuedDeltas.append((rev: rev, records: records))
