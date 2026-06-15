@@ -267,11 +267,13 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
         .init(jsonKey: "kiroIntegration", defaultsKey: automation.kiroIntegration.userDefaultsKey),
+        .init(jsonKey: "workspaceAutoNaming", defaultsKey: automation.workspaceAutoNaming.userDefaultsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
+        .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
     ]
 }
 
@@ -397,6 +399,8 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.workspaceAutoNaming",
+        "automation.autoNamingAgent",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.ampIntegration",
