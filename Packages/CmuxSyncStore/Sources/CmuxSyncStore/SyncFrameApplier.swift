@@ -17,6 +17,8 @@ public actor SyncFrameApplier {
     private let teamID: String
     private let sortKeyFor: @Sendable (SyncWireRecord) -> Double
     private let now: @Sendable () -> Date
+    private let maxBufferedRecords: Int
+    private let maxQueuedDeltas: Int
 
     /// Per-collection in-flight snapshot: accumulated pages + the deltas that
     /// arrived during paging (queued, applied after the snapshot commits).
@@ -28,16 +30,30 @@ public actor SyncFrameApplier {
     }
     private var builds: [String: SnapshotBuild] = [:]
 
+    /// Default ceiling on records accumulated across snapshot pages before a
+    /// `complete` page arrives. The collection's record set is bounded server-side
+    /// (presence caps: 200 devices × 25 instances), so any value far above the
+    /// real cardinality only exists to stop a compromised/misbehaving DO from
+    /// streaming an endless run of `complete: false` pages (or flooding deltas
+    /// mid-paging) and driving unbounded client memory growth before any commit.
+    public static let defaultMaxBufferedRecords = 100_000
+    /// Default ceiling on deltas queued while a snapshot is still paging.
+    public static let defaultMaxQueuedDeltas = 10_000
+
     public init(
         store: any CmuxSyncStoring,
         teamID: String,
         sortKeyFor: @escaping @Sendable (SyncWireRecord) -> Double,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        maxBufferedRecords: Int = SyncFrameApplier.defaultMaxBufferedRecords,
+        maxQueuedDeltas: Int = SyncFrameApplier.defaultMaxQueuedDeltas
     ) {
         self.store = store
         self.teamID = teamID
         self.sortKeyFor = sortKeyFor
         self.now = now
+        self.maxBufferedRecords = maxBufferedRecords
+        self.maxQueuedDeltas = maxQueuedDeltas
     }
 
     /// The cursor to send in the next `sync.hello` for a collection.
@@ -102,6 +118,18 @@ public actor SyncFrameApplier {
         if build.snapshotRev != snapshotRev || build.epoch != epoch {
             build = SnapshotBuild(snapshotRev: snapshotRev, epoch: epoch)
         }
+        // Bound the buffer before appending: a malicious/compromised DO must not
+        // be able to drive unbounded client memory by streaming an endless run of
+        // `complete: false` pages. Drop the in-flight build and surface a malformed
+        // frame so the transport tears down and re-hellos (the same recovery path
+        // as any other structurally broken frame). Counted as pages-so-far + this
+        // page so the ceiling holds even on a single oversized page.
+        if build.records.count + records.count > maxBufferedRecords {
+            builds[collection] = nil
+            throw SyncFrameParseError.malformed(
+                "snapshot for \(collection) exceeded \(maxBufferedRecords) buffered records before completing"
+            )
+        }
         build.records.append(contentsOf: records)
         if !complete {
             builds[collection] = build
@@ -130,7 +158,16 @@ public actor SyncFrameApplier {
     /// queued during paging (committed later when the snapshot completes).
     private func applyDeltaFrame(collection: String, rev: Int, records: [SyncWireRecord]) async throws -> Bool {
         if builds[collection] != nil {
-            // Mid-paging: queue, do not apply yet (DESIGN.md §3.4).
+            // Mid-paging: queue, do not apply yet (DESIGN.md §3.4). Bound the queue
+            // so a DO flooding deltas while it stalls a never-completing snapshot
+            // cannot grow client memory without limit; on overflow drop the build
+            // and resync.
+            if (builds[collection]?.queuedDeltas.count ?? 0) >= maxQueuedDeltas {
+                builds[collection] = nil
+                throw SyncFrameParseError.malformed(
+                    "queued \(maxQueuedDeltas) deltas for \(collection) while snapshot never completed"
+                )
+            }
             builds[collection]?.queuedDeltas.append((rev: rev, records: records))
             return false
         }

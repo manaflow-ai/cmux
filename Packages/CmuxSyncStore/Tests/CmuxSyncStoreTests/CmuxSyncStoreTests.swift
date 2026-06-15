@@ -358,6 +358,49 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 3)
     }
 
+    @Test func snapshotPagingBufferIsBoundedAgainstEndlessIncompletePages() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Tiny ceiling so a compromised/misbehaving DO that streams an endless run
+        // of `complete: false` pages cannot grow client memory without limit: the
+        // applier must drop the in-flight build and surface a malformed frame so
+        // the transport tears down + re-hellos.
+        let applier = SyncFrameApplier(
+            store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() },
+            maxBufferedRecords: 2
+        )
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 9, epoch: 1, records: [
+            try deviceRecord(id: "dev-A", rev: 1), try deviceRecord(id: "dev-B", rev: 2),
+        ], complete: false))
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.snapshot(collection: COLL, snapshotRev: 9, epoch: 1, records: [
+                try deviceRecord(id: "dev-C", rev: 3),
+            ], complete: false))
+        }
+        // Build was dropped on overflow: nothing committed, cursor never advanced,
+        // so a fresh re-hello gets a clean snapshot.
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty)
+        #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
+    }
+
+    @Test func queuedDeltaBufferIsBoundedWhenSnapshotNeverCompletes() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let applier = SyncFrameApplier(
+            store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() },
+            maxQueuedDeltas: 2
+        )
+        // Open a snapshot that never completes, then flood deltas mid-paging.
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 9, epoch: 1, records: [], complete: false))
+        try await applier.apply(.delta(collection: COLL, rev: 10, records: [try deviceRecord(id: "dev-A", rev: 10)]))
+        try await applier.apply(.delta(collection: COLL, rev: 11, records: [try deviceRecord(id: "dev-B", rev: 11)]))
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.delta(collection: COLL, rev: 12, records: [try deviceRecord(id: "dev-C", rev: 12)]))
+        }
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty)
+        #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
+    }
+
     @Test func deltaOutsidePagingAppliesImmediately() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
