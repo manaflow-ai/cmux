@@ -637,7 +637,7 @@ enum NotesTreeStorage {
         guard (try? fm.createDirectory(atPath: root, withIntermediateDirectories: true)) != nil else { return }
         let recentLimit = 30
         let sorted = descriptors.sorted { $0.modified > $1.modified }
-        let recentIds = Set(sorted.prefix(recentLimit).map(\.sessionId))
+        let recentKeys = Set(sorted.prefix(recentLimit).map { sessionKey(agent: $0.agent, sessionId: $0.sessionId) })
 
         // Index existing session folders, pruning empty ones outside the recent
         // window (they hold no notes, so removal is lossless).
@@ -646,23 +646,25 @@ enum NotesTreeStorage {
             for name in names where !name.hasPrefix(".") {
                 let dir = (root as NSString).appendingPathComponent(name)
                 guard let marker = sessionMarker(inDirectory: dir) else { continue }
-                if marker.userCreated != true, !recentIds.contains(marker.sessionId), isEmptySessionFolder(dir) {
+                let key = sessionKey(agent: marker.agent, sessionId: marker.sessionId)
+                if marker.userCreated != true, !recentKeys.contains(key), isEmptySessionFolder(dir) {
                     try? fm.removeItem(atPath: dir)
                     continue
                 }
-                folderForSession[marker.sessionId] = dir
+                folderForSession[key] = dir
             }
         }
 
         for descriptor in sorted {
+            let key = sessionKey(agent: descriptor.agent, sessionId: descriptor.sessionId)
             let dir: String
-            if let existing = folderForSession[descriptor.sessionId] {
+            if let existing = folderForSession[key] {
                 dir = existing
-            } else if recentIds.contains(descriptor.sessionId) {
+            } else if recentKeys.contains(key) {
                 let name = sessionFolderName(descriptor: descriptor)
                 dir = uniquePath(inFolder: root, base: name, ext: nil)
                 guard (try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)) != nil else { continue }
-                folderForSession[descriptor.sessionId] = dir
+                folderForSession[key] = dir
             } else {
                 continue  // Older session with no notes — don't materialize.
             }
@@ -702,14 +704,16 @@ enum NotesTreeStorage {
     }
 
     /// Create (or reuse) a session folder for `descriptor` inside `folder`,
-    /// idempotent on `sessionId`. Used when a session is dragged into the tree
-    /// (from the Vault or another Notes session); sessions are user-curated, not
-    /// auto-materialized. Returns the folder path.
+    /// idempotent on agent + session id. Used when a session is dragged into
+    /// the tree (from the Vault or another Notes session); sessions are
+    /// user-curated, not auto-materialized. Returns the folder path.
     @discardableResult
     static func createSessionFolder(inFolder folder: String, descriptor: NotesSessionDescriptor) -> String? {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        if let existing = existingSessionFolder(inFolder: folder, sessionId: descriptor.sessionId) {
+        if let existing = existingSessionFolder(
+            inFolder: folder, agent: descriptor.agent, sessionId: descriptor.sessionId
+        ) {
             let marker = NotesSessionMarker(
                 agent: descriptor.agent,
                 sessionId: descriptor.sessionId,
@@ -738,14 +742,22 @@ enum NotesTreeStorage {
         return dir
     }
 
-    /// Find an existing session folder for `sessionId` directly inside `folder`.
-    private static func existingSessionFolder(inFolder folder: String, sessionId: String) -> String? {
+    /// Find an existing session folder for `agent` + `sessionId` directly inside `folder`.
+    private static func existingSessionFolder(inFolder folder: String, agent: String, sessionId: String) -> String? {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return nil }
         for name in names where !name.hasPrefix(".") {
             let dir = (folder as NSString).appendingPathComponent(name)
-            if let marker = sessionMarker(inDirectory: dir), marker.sessionId == sessionId { return dir }
+            if let marker = sessionMarker(inDirectory: dir),
+               marker.agent == agent,
+               marker.sessionId == sessionId {
+                return dir
+            }
         }
         return nil
+    }
+
+    private static func sessionKey(agent: String, sessionId: String) -> String {
+        "\(agent)\n\(sessionId)"
     }
 
     // MARK: Session marker refresh

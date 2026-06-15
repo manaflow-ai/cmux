@@ -1211,6 +1211,26 @@ import Testing
         #expect(fm.fileExists(atPath: (dotFolder as NSString).appendingPathComponent(".env")))
     }
 
+    @Test func syncSessionFoldersSeparatesSameSessionIdAcrossAgents() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let descriptors = [
+            NotesSessionDescriptor(agent: "claude", sessionId: "shared-id", title: "Shared", cwd: "/work", modified: 20),
+            NotesSessionDescriptor(agent: "codex", sessionId: "shared-id", title: "Shared", cwd: "/work", modified: 10),
+        ]
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: descriptors)
+        NotesTreeStorage.syncSessionFolders(inRoot: root, descriptors: descriptors)
+
+        let markers = (try fm.contentsOfDirectory(atPath: root)).compactMap { name -> NotesSessionMarker? in
+            let dir = (root as NSString).appendingPathComponent(name)
+            return NotesTreeStorage.sessionMarker(inDirectory: dir)
+        }
+        #expect(markers.count == 2)
+        #expect(Set(markers.map(\.agent)) == ["claude", "codex"])
+        #expect(Set(markers.map(\.sessionId)) == ["shared-id"])
+    }
+
     /// An open markdown panel must follow a Notes-tree relocation (exact file
     /// move, or a folder move above it) instead of flipping to
     /// "File unavailable" — regression for moved notes orphaning open viewers.

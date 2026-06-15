@@ -358,16 +358,20 @@ final class NotesTreeStore: ObservableObject {
         // Materialized user-created session folders keep their real disk
         // position.
         if !terminalNodeByAnchor.isEmpty {
-            var anchorBySessionId: [String: String] = [:]
+            var anchorBySessionKey: [String: String] = [:]
             for record in records {
-                if let anchor = record.surfaceAnchorId { anchorBySessionId[record.sessionId] = anchor }
+                if let anchor = record.surfaceAnchorId {
+                    anchorBySessionKey[Self.sessionKey(agent: record.agent, sessionId: record.sessionId)] = anchor
+                }
             }
             nodes.removeAll { node in
                 guard node.isVirtual,
                       let marker = node.kind.sessionMarker,
-                      let anchor = anchorBySessionId[marker.sessionId],
+                      let anchor = anchorBySessionKey[Self.sessionKey(agent: marker.agent, sessionId: marker.sessionId)],
                       let terminalNode = terminalNodeByAnchor[anchor] else { return false }
-                if terminalNode.kind.terminalMarker?.activeSession?.sessionId == marker.sessionId {
+                if let activeSession = terminalNode.kind.terminalMarker?.activeSession,
+                   Self.sessionKey(agent: activeSession.agent, sessionId: activeSession.sessionId) ==
+                    Self.sessionKey(agent: marker.agent, sessionId: marker.sessionId) {
                     return true
                 }
                 terminalNode.children = (terminalNode.children ?? []) + [node]
@@ -387,17 +391,21 @@ final class NotesTreeStore: ObservableObject {
 
         // Session lookup for nesting (virtual rows + materialized folders),
         // including rows already moved under a terminal.
-        var sessionNodeById: [String: NotesTreeNode] = [:]
+        var sessionNodeByKey: [String: NotesTreeNode] = [:]
         func indexSessions(_ nodes: [NotesTreeNode]) {
             for node in nodes {
-                if let marker = node.kind.sessionMarker { sessionNodeById[marker.sessionId] = node }
+                if let marker = node.kind.sessionMarker {
+                    sessionNodeByKey[Self.sessionKey(agent: marker.agent, sessionId: marker.sessionId)] = node
+                }
                 if let children = node.children { indexSessions(children) }
             }
         }
         indexSessions(nodes)
-        var sessionIdBySurfaceAnchor: [String: String] = [:]
+        var sessionKeyBySurfaceAnchor: [String: String] = [:]
         for record in records {
-            if let anchor = record.surfaceAnchorId { sessionIdBySurfaceAnchor[anchor] = record.sessionId }
+            if let anchor = record.surfaceAnchorId {
+                sessionKeyBySurfaceAnchor[anchor] = Self.sessionKey(agent: record.agent, sessionId: record.sessionId)
+            }
         }
 
         // This workspace's flat notes: nested under their pane's live terminal
@@ -413,11 +421,14 @@ final class NotesTreeStore: ObservableObject {
                 if let anchor = ref.surfaceAnchorId,
                    let terminalNode = terminalNodeByAnchor[anchor],
                    let activeSession = terminalNode.kind.terminalMarker?.activeSession,
-                   sessionIdBySurfaceAnchor[anchor] == activeSession.sessionId {
+                   sessionKeyBySurfaceAnchor[anchor] == Self.sessionKey(
+                        agent: activeSession.agent,
+                        sessionId: activeSession.sessionId
+                   ) {
                     terminalNode.children = (terminalNode.children ?? []) + [node]
                 } else if let anchor = ref.surfaceAnchorId,
-                          let sessionId = sessionIdBySurfaceAnchor[anchor],
-                          let sessionNode = sessionNodeById[sessionId] {
+                          let sessionKey = sessionKeyBySurfaceAnchor[anchor],
+                          let sessionNode = sessionNodeByKey[sessionKey] {
                     sessionNode.children = (sessionNode.children ?? []) + [node]
                 } else if let anchor = ref.surfaceAnchorId,
                           let terminalNode = terminalNodeByAnchor[anchor] {
@@ -428,7 +439,7 @@ final class NotesTreeStore: ObservableObject {
             }
         }
 
-        for sessionNode in sessionNodeById.values {
+        for sessionNode in sessionNodeByKey.values {
             sessionNode.children?.sort(by: nodeDisplayOrder)
         }
         for terminalNode in terminalNodes {
@@ -474,10 +485,12 @@ final class NotesTreeStore: ObservableObject {
         sessionRowLimit: Int
     ) -> [NotesTreeNode] {
         guard !records.isEmpty, !visibleSessionKeys.isEmpty else { return [] }
-        var materializedIds = Set<String>()
+        var materializedKeys = Set<String>()
         func collect(_ nodes: [NotesTreeNode]) {
             for node in nodes {
-                if let marker = node.kind.sessionMarker { materializedIds.insert(marker.sessionId) }
+                if let marker = node.kind.sessionMarker {
+                    materializedKeys.insert(Self.sessionKey(agent: marker.agent, sessionId: marker.sessionId))
+                }
                 if let children = node.children { collect(children) }
             }
         }
@@ -486,7 +499,8 @@ final class NotesTreeStore: ObservableObject {
             .filter { visibleSessionKeys.contains(Self.sessionKey(agent: $0.agent, sessionId: $0.sessionId)) }
             .prefix(sessionRowLimit)
             .compactMap { record in
-                guard !materializedIds.contains(record.sessionId) else { return nil }
+                guard !materializedKeys.contains(Self.sessionKey(agent: record.agent, sessionId: record.sessionId))
+                else { return nil }
                 let marker = NotesSessionMarker(
                     agent: record.agent,
                     sessionId: record.sessionId,
@@ -516,10 +530,12 @@ final class NotesTreeStore: ObservableObject {
         sessionRowLimit: Int
     ) -> [NotesTreeNode] {
         guard !records.isEmpty else { return [] }
-        var materializedIds = Set<String>()
+        var materializedKeys = Set<String>()
         func collect(_ nodes: [NotesTreeNode]) {
             for node in nodes {
-                if let marker = node.kind.sessionMarker { materializedIds.insert(marker.sessionId) }
+                if let marker = node.kind.sessionMarker {
+                    materializedKeys.insert(Self.sessionKey(agent: marker.agent, sessionId: marker.sessionId))
+                }
                 if let children = node.children { collect(children) }
             }
         }
@@ -528,7 +544,8 @@ final class NotesTreeStore: ObservableObject {
             .filter { !visibleSessionKeys.contains(Self.sessionKey(agent: $0.agent, sessionId: $0.sessionId)) }
             .prefix(sessionRowLimit)
             .compactMap { record in
-                guard !materializedIds.contains(record.sessionId) else { return nil }
+                guard !materializedKeys.contains(Self.sessionKey(agent: record.agent, sessionId: record.sessionId))
+                else { return nil }
                 let marker = NotesSessionMarker(
                     agent: record.agent,
                     sessionId: record.sessionId,
@@ -599,9 +616,10 @@ final class NotesTreeStore: ObservableObject {
     /// Add a session pointer as a real session folder in `folder` (or the
     /// workspace root). Used by drags (from the Vault, another Notes tree, or
     /// a virtual row) and by virtual-row materialization. Idempotent per
-    /// sessionId — re-adding the same session reuses its folder. Returns the
-    /// folder path. Only acted-on sessions get folders; the rest stay virtual,
-    /// so the tree never floods the repo's `.cmux/notes` with empty dirs.
+    /// agent + session id — re-adding the same session reuses its folder.
+    /// Returns the folder path. Only acted-on sessions get folders; the rest
+    /// stay virtual, so the tree never floods the repo's `.cmux/notes` with
+    /// empty dirs.
     @discardableResult
     func addSession(_ descriptor: NotesSessionDescriptor, intoFolder folder: String? = nil) -> String? {
         guard let target = try? ensureRoot(folder: folder) else { return nil }
@@ -613,7 +631,8 @@ final class NotesTreeStore: ObservableObject {
 
     /// Turn a virtual session row into a real session folder at the workspace
     /// root so notes can be filed under it (or content dropped into it).
-    /// Returns the folder path. Idempotent per sessionId via `addSession`.
+    /// Returns the folder path. Idempotent per agent + session id via
+    /// `addSession`.
     @discardableResult
     func materializeSession(_ marker: NotesSessionMarker) -> String? {
         addSession(
