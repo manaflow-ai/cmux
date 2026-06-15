@@ -65,6 +65,7 @@
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
@@ -801,15 +802,12 @@
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
-		A5001700A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
 		F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */; };
-		A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */; };
 		A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */; };
 		B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */; };
-		807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */; };
 		D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */; };
 		313585583035A1E685010A97 /* WindowKeyDownReplayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */; };
 		8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */; };
@@ -1002,6 +1000,7 @@
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -1654,15 +1653,12 @@
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
-		A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowAppearanceSnapshot.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
-		A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackdropController.swift; sourceTree = "<group>"; };
 		A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackgroundComposition.swift; sourceTree = "<group>"; };
 		B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeMetrics.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
-		0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowGlassEffect.swift; sourceTree = "<group>"; };
 		D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowInputRoutingContext.swift; sourceTree = "<group>"; };
 		81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowKeyDownReplayGuard.swift; sourceTree = "<group>"; };
 		B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowKeyDownReplayGuardTests.swift; sourceTree = "<group>"; };
@@ -2064,9 +2060,7 @@
 				C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */,
 				610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */,
 				A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */,
-				0B54144FA244A0B482D2903D /* WindowGlassEffect.swift */,
-				A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */,
-				A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */,
+				A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */,
 				A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
 				C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */,
@@ -3223,6 +3217,7 @@
 				A5001093 /* AppDelegate.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 				C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
@@ -3624,13 +3619,10 @@
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
-				A5001700A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift in Sources */,
-				A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
-				807E058A23061EFB70A1B7F8 /* WindowGlassEffect.swift in Sources */,
 				D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */,
 				313585583035A1E685010A97 /* WindowKeyDownReplayGuard.swift in Sources */,
 				606600020000000000000001 /* WindowTerminalHostViewHitTesting.swift in Sources */,

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import SwiftUI
@@ -49,10 +50,23 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
-func titlebarControlForegroundNSColor(
-    opacity: CGFloat,
-    appearance: WindowAppearanceSnapshot = .currentFromUserDefaults()
-) -> NSColor {
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let app = GhosttyApp.shared
+    let appearance = WindowAppearanceResolver(
+        terminalAppearance: WindowTerminalAppearanceSnapshot(
+            backgroundColor: app.defaultBackgroundColor,
+            backgroundOpacity: app.defaultBackgroundOpacity,
+            backgroundBlur: app.defaultBackgroundBlur,
+            usesHostLayerBackground: app.usesHostLayerBackground
+        )
+    ).currentFromUserDefaults(defaults: .standard, colorScheme: .dark)
+    return titlebarControlForegroundNSColor(
+        opacity: opacity,
+        appearance: appearance
+    )
+}
+
+func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
     cmuxReadableForegroundNSColor(
         on: appearance.compositedTerminalBackgroundColor,
         opacity: opacity

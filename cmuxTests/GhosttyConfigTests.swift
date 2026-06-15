@@ -1,4 +1,5 @@
 @preconcurrency import XCTest
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxBrowser
 import CmuxCore
@@ -1529,7 +1530,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(39.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
@@ -1544,7 +1545,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
