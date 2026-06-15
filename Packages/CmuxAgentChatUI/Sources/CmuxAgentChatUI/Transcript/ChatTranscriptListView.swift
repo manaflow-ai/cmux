@@ -1,9 +1,5 @@
 import CmuxAgentChat
 import SwiftUI
-#if os(iOS)
-import Combine
-import UIKit
-#endif
 
 /// The scrolling transcript: lazy rows, bottom-anchored auto-follow, an
 /// unread-aware scroll-to-bottom pill, and top-edge history paging.
@@ -31,8 +27,7 @@ public struct ChatTranscriptListView: View {
 
     #if os(iOS)
     @State private var isAtBottom = true
-    @State private var scrollPosition = ScrollPosition(idType: String.self)
-    @State private var isKeyboardRepinning = false
+    @State private var scrollToBottomRequest = 0
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -75,76 +70,34 @@ public struct ChatTranscriptListView: View {
 
     public var body: some View {
         #if os(iOS)
-        // ScrollViewReader (not ScrollPosition): `ScrollPosition.scrollTo`
-        // silently no-ops on this content (verified empirically on device
-        // geometry — offset never moved), which killed both the pill and
-        // tail-follow. The proxy + row-id path scrolls reliably.
-        ScrollViewReader { proxy in
-            scrollContent
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
-                } action: { _, distanceFromBottom in
-                    updateBottomState(distanceFromBottom: distanceFromBottom, proxy: proxy)
-                }
-                // Composite key: a failed pending row pinned at the tail
-                // keeps `last?.id` stable while agent messages insert
-                // above it, so follow on count changes too.
-                .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id, isWorking: isWorking)) {
-                    guard isAtBottom else { return }
-                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                }
-                // WhatsApp-style keyboard pinning: when the keyboard shows or
-                // hides while the user is at the bottom, re-pin the last rows
-                // above the composer instead of letting the rising accessory
-                // bar / keyboard cover them. `.defaultScrollAnchor(.bottom)`
-                // alone does not re-anchor on the keyboard safe-area change
-                // (the composer safeAreaInset absorbs it), so do it explicitly.
-                // Guarded by `isAtBottom` so a reading user's scroll is never
-                // stolen. Animated to ride the keyboard transition.
-                .onReceive(Self.keyboardWillChangePublisher) { _ in
-                    guard isAtBottom else { return }
-                    isKeyboardRepinning = true
-                    withAnimation(.snappy(duration: 0.25)) {
-                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        ChatTranscriptTableView(
+            rows: rows,
+            expandedIDs: expandedIDs,
+            agentState: agentState,
+            hasMoreHistory: hasMoreHistory,
+            hasLoadedInitialHistory: hasLoadedInitialHistory,
+            initialLoadFailed: initialLoadFailed,
+            historyTruncatedAtHead: historyTruncatedAtHead,
+            actions: actions,
+            onReachTop: onReachTop,
+            onRetryInitialLoad: onRetryInitialLoad,
+            isAtBottom: $isAtBottom,
+            scrollToBottomRequest: scrollToBottomRequest
+        )
+        .overlay(alignment: .bottomTrailing) {
+            Group {
+                if !isAtBottom {
+                    ChatScrollToBottomButton {
+                        isAtBottom = true
+                        scrollToBottomRequest += 1
                     }
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 8)
+                    .excludedFromKeyboardDismiss()
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
-                .onReceive(Self.keyboardDidChangePublisher) { _ in
-                    guard isKeyboardRepinning else { return }
-                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                    isAtBottom = true
-                    isKeyboardRepinning = false
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    // The pill's fade/scale is animated HERE, scoped by
-                    // `value: isAtBottom`, so only this overlay animates and the
-                    // list layout (LazyVStack) is never re-animated per frame
-                    // (that caused a prior 100% CPU scroll-up freeze).
-                    Group {
-                        if !isAtBottom {
-                            ChatScrollToBottomButton {
-                                // Scroll to the real bottom target, not the
-                                // last row. Aligning the last row itself to
-                                // the bottom can leave its lower half hidden
-                                // under the composer/safe-area inset.
-                                withAnimation(.snappy(duration: 0.3)) {
-                                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                                }
-                                // Optimistic immediate hide; the scroll-geometry
-                                // reader reconciles within a frame (and correctly
-                                // keeps the pill if the scroll genuinely didn't
-                                // reach the bottom).
-                                isAtBottom = true
-                            }
-                            .padding(.trailing, 12)
-                            .padding(.bottom, 8)
-                            .excludedFromKeyboardDismiss()
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                        }
-                    }
-                    .animation(.snappy(duration: 0.2), value: isAtBottom)
-                }
+            }
+            .animation(.snappy(duration: 0.2), value: isAtBottom)
         }
         #else
         ScrollViewReader { proxy in
@@ -158,51 +111,7 @@ public struct ChatTranscriptListView: View {
         #endif
     }
 
-    /// Tail-follow trigger identity; see the onChange comment. Includes
-    /// the typing indicator's presence (not a row) so an agent starting
-    /// work scrolls the indicator into view for at-bottom readers.
-    private struct FollowKey: Equatable {
-        let count: Int
-        let lastID: String?
-        let isWorking: Bool
-    }
-
     private static let bottomAnchorID = "chat.bottom.anchor"
-
-    /// Distance (pt) from the content's end within which the view counts as
-    /// "at bottom": absorbs the small gap below the last row (vertical padding
-    /// + the 1pt anchor) and lazy-height estimation jitter, while staying well
-    /// under one message row so a deliberate scroll-up still shows the pill.
-    private static let atBottomThreshold: CGFloat = 40
-
-    #if os(iOS)
-    /// Fires on every keyboard frame change (show, hide, height change), used
-    /// to re-pin the transcript bottom above the composer.
-    private static let keyboardWillChangePublisher = NotificationCenter.default
-        .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
-        .map { _ in () }
-
-    /// Completes the keyboard pin after UIKit/SwiftUI have applied the final
-    /// keyboard and safe-area geometry. The `will` notification alone can fire
-    /// before the composer inset has settled, especially on device.
-    private static let keyboardDidChangePublisher = NotificationCenter.default
-        .publisher(for: UIResponder.keyboardDidChangeFrameNotification)
-        .map { _ in () }
-    #endif
-
-    #if os(iOS)
-    private func updateBottomState(distanceFromBottom: CGFloat, proxy: ScrollViewProxy) {
-        let atBottom = distanceFromBottom <= Self.atBottomThreshold
-        if isKeyboardRepinning {
-            if !atBottom {
-                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-            }
-            if !isAtBottom { isAtBottom = true }
-            return
-        }
-        if atBottom != isAtBottom { isAtBottom = atBottom }
-    }
-    #endif
 
     private var isWorking: Bool {
         if case .working = agentState { return true }
@@ -267,9 +176,6 @@ public struct ChatTranscriptListView: View {
             \.chatBubbleMaxWidth,
             containerWidth > 0 ? containerWidth * theme.bubbleMaxWidthFraction : .infinity
         )
-        #if os(iOS)
-        .scrollPosition($scrollPosition)
-        #endif
     }
 
     @ViewBuilder
