@@ -5801,6 +5801,26 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
+    /// Whether remote listening-port discovery may run, derived from the global
+    /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
+    /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see
+    /// `SidebarWorkspaceAuxiliaryDetailVisibility.resolved`): when the ports
+    /// detail is not displayed there is nothing for the remote scans to
+    /// populate, so the backend ssh port-scan loop is suspended (issue #6123).
+    static func remotePortScanningEnabledFromSettings(defaults: UserDefaults = .standard) -> Bool {
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        let showsPorts = settings.value(for: catalog.sidebar.showPorts)
+        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
+        return showsPorts && !hidesAllDetails
+    }
+
+    /// Pushes the current remote port-scanning enablement to this workspace's
+    /// active remote session, if any. No-op for non-remote workspaces.
+    func applyRemotePortScanningEnabled(_ enabled: Bool) {
+        remoteSessionController?.updateRemotePortScanningEnabled(enabled)
+    }
+
     func listRemotePTYSessions() throws -> [[String: Any]] {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
@@ -6023,6 +6043,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
+        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()
         controller.start()
