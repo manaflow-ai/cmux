@@ -6,7 +6,7 @@ import Foundation
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
 /// codex: rollout filename containing the session id).
-struct AgentChatTranscriptResolver: Sendable {
+struct AgentChatTranscriptResolver {
     private let homeDirectory: URL
     private let fileManager: FileManager
 
