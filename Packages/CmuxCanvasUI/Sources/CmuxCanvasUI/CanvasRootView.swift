@@ -93,19 +93,11 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
-        minimapView.translatesAutoresizingMaskIntoConstraints = false
         minimapView.onCenterRequested = { [weak self] center in
             self?.setViewport(center: center, magnification: nil)
         }
         minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
         resetMinimapVisibility()
-        addSubview(minimapView, positioned: .above, relativeTo: scrollView)
-        NSLayoutConstraint.activate([
-            minimapView.widthAnchor.constraint(equalToConstant: 168),
-            minimapView.heightAnchor.constraint(equalToConstant: 112),
-            minimapView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            minimapView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
-        ])
 
         // Platform seam: clip-view bounds changes are how AppKit reports
         // scrolling; this drives the explicit pane lifecycle.
@@ -164,9 +156,9 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            removeCommandScrollMonitor()
+            removeCommandScrollMonitor(); detachMinimapOverlay()
         } else {
-            installCommandScrollMonitor()
+            installCommandScrollMonitor(); syncMinimapOverlayHost()
         }
     }
 

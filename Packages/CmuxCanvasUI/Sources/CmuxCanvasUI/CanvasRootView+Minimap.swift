@@ -38,6 +38,7 @@ extension CanvasRootView {
     }
 
     private func showMinimapTemporarily() {
+        syncMinimapOverlayHost()
         let shouldAnimateIn = minimapView.isHidden || minimapView.alphaValue < Self.minimapVisibleAlpha
         minimapView.isHidden = false
         if shouldAnimateIn {
