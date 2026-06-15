@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxBrowserHistory
 import CmuxSettings
 import Combine
 import WebKit
@@ -1388,13 +1389,7 @@ enum BrowserUserAgentSettings {
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
-    if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
-        return "com.cmuxterm.app.debug"
-    }
-    if bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.") {
-        return "com.cmuxterm.app.staging"
-    }
-    return bundleIdentifier
+    BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
 }
 
 func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
@@ -1418,54 +1413,10 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
 
-    struct Entry: Codable, Identifiable, Hashable {
-        let id: UUID
-        var url: String
-        var title: String?
-        var lastVisited: Date
-        var visitCount: Int
-        var typedCount: Int
-        var lastTypedAt: Date?
-
-        private enum CodingKeys: String, CodingKey {
-            case id
-            case url
-            case title
-            case lastVisited
-            case visitCount
-            case typedCount
-            case lastTypedAt
-        }
-
-        init(
-            id: UUID,
-            url: String,
-            title: String?,
-            lastVisited: Date,
-            visitCount: Int,
-            typedCount: Int = 0,
-            lastTypedAt: Date? = nil
-        ) {
-            self.id = id
-            self.url = url
-            self.title = title
-            self.lastVisited = lastVisited
-            self.visitCount = visitCount
-            self.typedCount = typedCount
-            self.lastTypedAt = lastTypedAt
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decode(UUID.self, forKey: .id)
-            url = try container.decode(String.self, forKey: .url)
-            title = try container.decodeIfPresent(String.self, forKey: .title)
-            lastVisited = try container.decode(Date.self, forKey: .lastVisited)
-            visitCount = try container.decode(Int.self, forKey: .visitCount)
-            typedCount = try container.decodeIfPresent(Int.self, forKey: .typedCount) ?? 0
-            lastTypedAt = try container.decodeIfPresent(Date.self, forKey: .lastTypedAt)
-        }
-    }
+    /// Persisted history record. Owned by `CmuxBrowserHistory`; this alias keeps
+    /// existing `BrowserHistoryStore.Entry` call sites byte-identical after the
+    /// value type moved into the package.
+    typealias Entry = BrowserHistoryEntry
 
     // Single source of truth for history. `private(set)` + `@MainActor` means
     // every mutation runs through this setter, so dropping the derived
@@ -1485,18 +1436,17 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
+    // Pure suggestion matching/scoring and persistence I/O live in
+    // `CmuxBrowserHistory`; the store owns only the @Published entry list, the
+    // first-load lifecycle, and the debounced-save scheduling.
+    private let suggestionEngine = BrowserHistorySuggestionEngine()
+    private let fileRepository = BrowserHistoryFileRepository()
+
     var isLoaded: Bool {
         didLoad
     }
 
-    private struct SuggestionCandidate {
-        let entry: Entry
-        let urlLower: String
-        let urlSansSchemeLower: String
-        let hostLower: String
-        let pathAndQueryLower: String
-        let titleLower: String
-    }
+    private typealias SuggestionCandidate = BrowserHistorySuggestionCandidate
 
     private struct ScoredSuggestion {
         let entry: Entry
@@ -1519,7 +1469,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     private func suggestionCandidates() -> [SuggestionCandidate] {
         if let cached = cachedSuggestionCandidates { return cached }
-        let built = entries.map(makeSuggestionCandidate)
+        let built = entries.map(suggestionEngine.candidate(for:))
         cachedSuggestionCandidates = built
         return built
     }
@@ -1537,17 +1487,7 @@ final class BrowserHistoryStore: ObservableObject {
 
         // Load synchronously on first access so the first omnibar query can use
         // persisted history immediately (important for deterministic UI behavior).
-        let data: Data
-        do {
-            data = try Data(contentsOf: fileURL)
-        } catch {
-            return
-        }
-
-        let decoded: [Entry]
-        do {
-            decoded = try JSONDecoder().decode([Entry].self, from: data)
-        } catch {
+        guard let decoded = fileRepository.loadSnapshot(from: fileURL) else {
             return
         }
 
@@ -1582,11 +1522,11 @@ final class BrowserHistoryStore: ObservableObject {
 
         let urlString = url.absoluteString
         guard urlString != "about:blank" else { return }
-        let normalizedKey = normalizedHistoryKey(url: url)
+        let normalizedKey = suggestionEngine.normalizedHistoryKey(url: url)
 
         if let idx = entries.firstIndex(where: {
             if $0.url == urlString { return true }
-            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+            return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
         }) {
             entries[idx].lastVisited = Date()
             entries[idx].visitCount += 1
@@ -1630,10 +1570,10 @@ final class BrowserHistoryStore: ObservableObject {
         guard urlString != "about:blank" else { return }
 
         let now = Date()
-        let normalizedKey = normalizedHistoryKey(url: url)
+        let normalizedKey = suggestionEngine.normalizedHistoryKey(url: url)
         if let idx = entries.firstIndex(where: {
             if $0.url == urlString { return true }
-            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+            return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
         }) {
             entries[idx].typedCount += 1
             entries[idx].lastTypedAt = now
@@ -1664,11 +1604,11 @@ final class BrowserHistoryStore: ObservableObject {
 
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return [] }
-        let queryTokens = tokenizeSuggestionQuery(q)
+        let queryTokens = suggestionEngine.tokenize(query: q)
         let now = Date()
 
         let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
-            guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
+            guard let score = suggestionEngine.score(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
             return ScoredSuggestion(entry: candidate.entry, score: score)
@@ -1722,7 +1662,7 @@ final class BrowserHistoryStore: ObservableObject {
 
             let urlString = parsedURL.absoluteString
             guard urlString != "about:blank" else { continue }
-            let normalizedKey = normalizedHistoryKey(url: parsedURL)
+            let normalizedKey = suggestionEngine.normalizedHistoryKey(url: parsedURL)
 
             let importedTitle = imported.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let importedLastVisited = imported.lastVisited
@@ -1733,7 +1673,7 @@ final class BrowserHistoryStore: ObservableObject {
             if let idx = entries.firstIndex(where: {
                 if $0.url == urlString { return true }
                 guard let normalizedKey else { return false }
-                return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+                return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
             }) {
                 var didMutate = false
                 if importedLastVisited > entries[idx].lastVisited {
@@ -1802,7 +1742,7 @@ final class BrowserHistoryStore: ObservableObject {
         saveTask = nil
         entries = []
         guard let fileURL else { return }
-        try? FileManager.default.removeItem(at: fileURL)
+        fileRepository.removeFile(at: fileURL)
     }
 
     func clearHistoryWithoutLoadingPersistedFile() {
@@ -1820,12 +1760,12 @@ final class BrowserHistoryStore: ObservableObject {
     @discardableResult
     func removeHistoryEntry(urlString: String) -> Bool {
         loadIfNeeded()
-        let normalized = normalizedHistoryKey(urlString: urlString)
+        let normalized = suggestionEngine.normalizedHistoryKey(urlString: urlString)
         let originalCount = entries.count
         entries.removeAll { entry in
             if entry.url == urlString { return true }
             guard let normalized else { return false }
-            return normalizedHistoryKey(urlString: entry.url) == normalized
+            return suggestionEngine.normalizedHistoryKey(urlString: entry.url) == normalized
         }
         let didRemove = entries.count != originalCount
         if didRemove {
@@ -1839,7 +1779,7 @@ final class BrowserHistoryStore: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         guard let fileURL else { return }
-        try? Self.persistSnapshot(entries, to: fileURL)
+        try? BrowserHistoryFileRepository.persist(entries, to: fileURL)
     }
 
     private func scheduleSave() {
@@ -1858,7 +1798,7 @@ final class BrowserHistoryStore: ObservableObject {
             if Task.isCancelled { return }
 
             do {
-                try Self.persistSnapshot(snapshot, to: fileURL)
+                try BrowserHistoryFileRepository.persist(snapshot, to: fileURL)
             } catch {
                 return
             }
@@ -1866,225 +1806,26 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     private func migrateLegacyTaggedHistoryFileIfNeeded(to targetURL: URL) {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: targetURL.path) else { return }
-        guard let legacyURL = Self.legacyTaggedHistoryFileURL(),
-              legacyURL != targetURL,
-              fm.fileExists(atPath: legacyURL.path) else {
-            return
-        }
-
-        do {
-            let dir = targetURL.deletingLastPathComponent()
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-            try fm.copyItem(at: legacyURL, to: targetURL)
-        } catch {
-            return
-        }
-    }
-
-    private func makeSuggestionCandidate(entry: Entry) -> SuggestionCandidate {
-        let urlLower = entry.url.lowercased()
-        let urlSansSchemeLower = stripHTTPSSchemePrefix(urlLower)
-        let components = URLComponents(string: entry.url)
-        let hostLower = components?.host?.lowercased() ?? ""
-        let path = (components?.percentEncodedPath ?? components?.path ?? "").lowercased()
-        let query = (components?.percentEncodedQuery ?? components?.query ?? "").lowercased()
-        let pathAndQueryLower: String
-        if query.isEmpty {
-            pathAndQueryLower = path
-        } else {
-            pathAndQueryLower = "\(path)?\(query)"
-        }
-        let titleLower = (entry.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return SuggestionCandidate(
-            entry: entry,
-            urlLower: urlLower,
-            urlSansSchemeLower: urlSansSchemeLower,
-            hostLower: hostLower,
-            pathAndQueryLower: pathAndQueryLower,
-            titleLower: titleLower
+        fileRepository.migrateLegacyFileIfNeeded(
+            legacyURL: Self.location()?.legacyTaggedHistoryFileURL,
+            to: targetURL
         )
     }
 
-    private func suggestionScore(
-        candidate: SuggestionCandidate,
-        query: String,
-        queryTokens: [String],
-        now: Date
-    ) -> Double? {
-        let queryIncludesScheme = query.hasPrefix("http://") || query.hasPrefix("https://")
-        let urlMatchValue = queryIncludesScheme ? candidate.urlLower : candidate.urlSansSchemeLower
-        let isSingleCharacterQuery = query.count == 1
-        if isSingleCharacterQuery {
-            let hasSingleCharStrongMatch =
-                candidate.hostLower.hasPrefix(query) ||
-                candidate.titleLower.hasPrefix(query) ||
-                urlMatchValue.hasPrefix(query)
-            guard hasSingleCharStrongMatch else { return nil }
-        }
-
-        let queryMatches =
-            urlMatchValue.contains(query) ||
-            candidate.hostLower.contains(query) ||
-            candidate.pathAndQueryLower.contains(query) ||
-            candidate.titleLower.contains(query)
-
-        let tokenMatches = !queryTokens.isEmpty && queryTokens.allSatisfy { token in
-            candidate.urlSansSchemeLower.contains(token) ||
-            candidate.hostLower.contains(token) ||
-            candidate.pathAndQueryLower.contains(token) ||
-            candidate.titleLower.contains(token)
-        }
-
-        guard queryMatches || tokenMatches else { return nil }
-
-        var score = 0.0
-
-        if urlMatchValue == query { score += 1200 }
-        if candidate.hostLower == query { score += 980 }
-        if candidate.hostLower.hasPrefix(query) { score += 680 }
-        if urlMatchValue.hasPrefix(query) { score += 560 }
-        if candidate.titleLower.hasPrefix(query) { score += 420 }
-        if candidate.pathAndQueryLower.hasPrefix(query) { score += 300 }
-
-        if candidate.hostLower.contains(query) { score += 210 }
-        if candidate.pathAndQueryLower.contains(query) { score += 165 }
-        if candidate.titleLower.contains(query) { score += 145 }
-
-        for token in queryTokens {
-            if candidate.hostLower == token { score += 260 }
-            else if candidate.hostLower.hasPrefix(token) { score += 170 }
-            else if candidate.hostLower.contains(token) { score += 110 }
-
-            if candidate.pathAndQueryLower.hasPrefix(token) { score += 80 }
-            else if candidate.pathAndQueryLower.contains(token) { score += 52 }
-
-            if candidate.titleLower.hasPrefix(token) { score += 74 }
-            else if candidate.titleLower.contains(token) { score += 48 }
-        }
-
-        // Blend recency and repeat visits so history feels closer to browser frecency.
-        let ageHours = max(0, now.timeIntervalSince(candidate.entry.lastVisited) / 3600)
-        let recencyScore = max(0, 110 - (ageHours / 3))
-        let frequencyScore = min(120, log1p(Double(max(1, candidate.entry.visitCount))) * 38)
-        let typedFrequencyScore = min(190, log1p(Double(max(0, candidate.entry.typedCount))) * 80)
-        let typedRecencyScore: Double
-        if let lastTypedAt = candidate.entry.lastTypedAt {
-            let typedAgeHours = max(0, now.timeIntervalSince(lastTypedAt) / 3600)
-            typedRecencyScore = max(0, 85 - (typedAgeHours / 4))
-        } else {
-            typedRecencyScore = 0
-        }
-        score += recencyScore + frequencyScore + typedFrequencyScore + typedRecencyScore
-
-        return score
-    }
-
-    private func stripHTTPSSchemePrefix(_ value: String) -> String {
-        if value.hasPrefix("https://") {
-            return String(value.dropFirst("https://".count))
-        }
-        if value.hasPrefix("http://") {
-            return String(value.dropFirst("http://".count))
-        }
-        return value
-    }
-
-    private func normalizedHistoryKey(url: URL) -> String? {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return nil }
-        return normalizedHistoryKey(components: &components)
-    }
-
-    private func normalizedHistoryKey(urlString: String) -> String? {
-        guard var components = URLComponents(string: urlString) else { return nil }
-        return normalizedHistoryKey(components: &components)
-    }
-
-    private func normalizedHistoryKey(components: inout URLComponents) -> String? {
-        guard let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              var host = components.host?.lowercased() else {
-            return nil
-        }
-
-        if host.hasPrefix("www.") {
-            host.removeFirst(4)
-        }
-
-        if (scheme == "http" && components.port == 80) ||
-            (scheme == "https" && components.port == 443) {
-            components.port = nil
-        }
-
-        let portPart: String
-        if let port = components.port {
-            portPart = ":\(port)"
-        } else {
-            portPart = ""
-        }
-
-        var path = components.percentEncodedPath
-        if path.isEmpty { path = "/" }
-        while path.count > 1, path.hasSuffix("/") {
-            path.removeLast()
-        }
-
-        let queryPart: String
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            queryPart = "?\(query.lowercased())"
-        } else {
-            queryPart = ""
-        }
-
-        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)"
-    }
-
-    private func tokenizeSuggestionQuery(_ query: String) -> [String] {
-        var tokens: [String] = []
-        var seen = Set<String>()
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
-        for raw in query.components(separatedBy: separators) {
-            let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else { continue }
-            guard !seen.contains(token) else { continue }
-            seen.insert(token)
-            tokens.append(token)
-        }
-        return tokens
-    }
-
-    nonisolated private static func defaultHistoryFileURL() -> URL? {
+    /// Builds the location resolver from the live Application Support directory
+    /// and process bundle identifier, or `nil` when Application Support is
+    /// unavailable (matching the prior `defaultHistoryFileURL` nil path).
+    nonisolated private static func location() -> BrowserHistoryLocation? {
         let fm = FileManager.default
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
         let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
-        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
-        let dir = appSupport.appendingPathComponent(namespace, isDirectory: true)
-        return dir.appendingPathComponent("browser_history.json", isDirectory: false)
+        return BrowserHistoryLocation(applicationSupportDirectory: appSupport, bundleIdentifier: bundleId)
     }
 
-    nonisolated private static func legacyTaggedHistoryFileURL() -> URL? {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
-        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
-        guard namespace != bundleId else { return nil }
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
-        return dir.appendingPathComponent("browser_history.json", isDirectory: false)
-    }
-
-    nonisolated private static func persistSnapshot(_ snapshot: [Entry], to fileURL: URL) throws {
-        let dir = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        let data = try encoder.encode(snapshot)
-        try data.write(to: fileURL, options: [.atomic])
+    nonisolated private static func defaultHistoryFileURL() -> URL? {
+        location()?.historyFileURL
     }
 
     nonisolated static func defaultHistoryFileURLForCurrentBundle() -> URL? {
@@ -2092,7 +1833,7 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     nonisolated static func normalizedBrowserHistoryNamespaceForBundleIdentifier(_ bundleIdentifier: String) -> String {
-        normalizedBrowserHistoryNamespace(bundleIdentifier: bundleIdentifier)
+        BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
     }
 }
 
