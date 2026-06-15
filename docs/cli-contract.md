@@ -110,6 +110,8 @@ Environment:
 | `new-split` | Split from a surface in a direction. |
 | `list-panes` | List panes in a workspace. |
 | `list-pane-surfaces` | List surfaces in a pane. |
+| `list-surfaces` | List surfaces across windows, workspaces, and panes. Defaults to all windows for SSH-friendly inspection. |
+| `list-terminals` | List terminal surfaces across windows, workspaces, and panes. Defaults to all windows for SSH-friendly inspection. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
 | `top` | Print process/resource usage for cmux windows, workspaces, panes, and surfaces. |
 | `focus-pane` | Focus a pane. |
@@ -493,6 +495,8 @@ the expected text without connecting to a cmux socket.
 - `cmux new-split --help` -> `Usage: cmux new-split`
 - `cmux list-panes --help` -> `Usage: cmux list-panes`
 - `cmux list-pane-surfaces --help` -> `Usage: cmux list-pane-surfaces`
+- `cmux list-surfaces --help` -> `Usage: cmux list-surfaces`
+- `cmux list-terminals --help` -> `Usage: cmux list-terminals`
 - `cmux tree --help` -> `Usage: cmux tree`
 - `cmux top --help` -> `Usage: cmux top`
 - `cmux focus-pane --help` -> `Usage: cmux focus-pane`
