@@ -733,6 +733,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
@@ -891,6 +897,18 @@
           "type": "string",
           "default": "",
           "description": "Custom path to the claude binary."
+        },
+        "workspaceAutoNaming": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
+          "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
+        },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
         "ripgrepBinaryPath": {
           "type": "string",
@@ -1115,6 +1133,22 @@
         }
       }
     },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "Right-sidebar file explorer (file tree) settings.",
+      "descriptionKey": "schemaDescriptions.fileExplorer.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleClickAction": {
+          "type": "string",
+          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "default": "preview",
+          "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
+        }
+      }
+    },
     "diffViewer": {
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",
@@ -1136,6 +1170,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},

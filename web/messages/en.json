@@ -861,7 +861,9 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
+          "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
+          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
@@ -899,11 +901,19 @@
         "fileEditor": {
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+        },
+        "fileExplorer": {
+          "description": "Right-sidebar file explorer (file tree) settings.",
+          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes."
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -911,6 +921,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
