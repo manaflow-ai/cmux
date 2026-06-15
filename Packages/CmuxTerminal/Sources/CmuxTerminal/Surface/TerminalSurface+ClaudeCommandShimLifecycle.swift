@@ -24,6 +24,7 @@ extension TerminalSurface {
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation (same effective body).
             let temporaryDirectory = FileManager.default.temporaryDirectory
+            #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> ClaudeCommandShim? = {
                 [wrapperURL, surfaceId, temporaryDirectory] in
                 TerminalSurface.installClaudeCommandShimIfPossible(
@@ -33,6 +34,17 @@ extension TerminalSurface {
                     fileManager: .default
                 )
             }
+            #else
+            let installOperation: @concurrent () async -> ClaudeCommandShim? = {
+                [wrapperURL, surfaceId, temporaryDirectory] in
+                TerminalSurface.installClaudeCommandShimIfPossible(
+                    wrapperURL: wrapperURL,
+                    surfaceId: surfaceId,
+                    temporaryDirectory: temporaryDirectory,
+                    fileManager: .default
+                )
+            }
+            #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             claudeCommandShimInstallTask = installTask
             claudeCommandShimCompletionTask = Task { @MainActor [weak self, weak view] in
