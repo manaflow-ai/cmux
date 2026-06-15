@@ -18,7 +18,7 @@ struct WorkspaceCanvasHostView: View {
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
-    let settingsRuntime: SettingsRuntime?
+    @Environment(\.settingsRuntime) private var settingsRuntime
 
     var body: some View {
         CanvasRootRepresentable(
@@ -103,13 +103,9 @@ struct WorkspaceCanvasHostView: View {
                 workspace?.focusPanel(panel.id)
             }
         )
-        let rootView: AnyView
-        if let settingsRuntime {
-            rootView = AnyView(content.environment(\.settingsRuntime, settingsRuntime))
-        } else {
-            rootView = AnyView(content)
-        }
-        let hosted = NSHostingView(rootView: rootView)
+        let hosted = NSHostingView(rootView: AnyView(
+            content.environment(\.settingsRuntime, settingsRuntime)
+        ))
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []

@@ -3,8 +3,6 @@ import Foundation
 import AppKit
 import CmuxFoundation
 import Bonsplit
-import CmuxFoundation
-import CmuxSettingsUI
 import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
@@ -178,7 +176,6 @@ struct WorkspaceContentView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsRuntime) private var settingsRuntime
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     private var isMinimalMode: Bool {
@@ -368,8 +365,7 @@ struct WorkspaceContentView: View {
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     portalPriority: workspacePortalPriority,
-                    appearance: appearance,
-                    settingsRuntime: settingsRuntime
+                    appearance: appearance
                 )
             } else {
                 bonsplitView
