@@ -4,7 +4,7 @@ public import SwiftUI
 /// An invisible `NSViewRepresentable` that resolves the sidebar list's
 /// enclosing `NSScrollView` for the SwiftUI layer and reports it back through
 /// `onResolve`, so callers can apply overlay-scroller configuration
-/// (`SidebarScrollViewConfigurator`).
+/// (``AppKit/NSScrollView/applySidebarOverlayScrollerConfiguration()``).
 public struct SidebarScrollViewResolver: NSViewRepresentable {
     /// Invoked with the resolved enclosing scroll view (or `nil` when none is
     /// reachable yet) on every resolution pass.

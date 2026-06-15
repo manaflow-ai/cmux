@@ -29,6 +29,95 @@ public struct TerminalLetterboxGeometry {
         return CGSize(width: containerW, height: containerH)
     }
 
+    /// The bottom occupancy reserved for the keyboard (when up) or the bottom
+    /// safe area (when the keyboard is down so the always-visible toolbar clears
+    /// the home indicator).
+    ///
+    /// Mirrors `GhosttySurfaceView.keyboardOccupancyInBounds`: the live keyboard
+    /// height takes priority, and only falls back to the safe-area inset when the
+    /// keyboard is fully down. Both inputs are clamped to be non-negative so a
+    /// transient negative inset cannot grow the reservation.
+    ///
+    /// - Parameters:
+    ///   - keyboardHeight: The keyboard overlap in points (0 when down).
+    ///   - bottomSafeAreaInset: The resolved bottom safe-area inset in points.
+    /// - Returns: The bottom occupancy in points.
+    public static func keyboardOccupancy(keyboardHeight: CGFloat, bottomSafeAreaInset: CGFloat) -> CGFloat {
+        keyboardHeight > 0 ? max(0, keyboardHeight) : max(0, bottomSafeAreaInset)
+    }
+
+    /// The terminal grid container size after reserving the whole bottom dock
+    /// (keyboard / safe area + composer band + persistent toolbar), in points.
+    ///
+    /// This is the host-testable form of `syncSurfaceGeometry`'s `reservedBottom`
+    /// + `containerH` math. It locks in the keyboard open/closed contract:
+    ///
+    /// - Keyboard DOWN (`keyboardHeight == 0`), chrome visible: the grid is the
+    ///   full bounds height minus the bottom safe area, the composer band, and
+    ///   the toolbar. With no composer/toolbar that is `bounds.height -
+    ///   bottomSafeAreaInset`.
+    /// - Keyboard UP (`keyboardHeight > 0`): the grid additionally loses the
+    ///   keyboard height (the safe-area fallback is NOT also subtracted; the
+    ///   keyboard already covers the home indicator).
+    /// - Chrome hidden (HIDE button): only an actual keyboard is reserved; the
+    ///   grid reclaims the toolbar, composer band, AND the bottom safe area.
+    ///
+    /// Because the keyboard-down height is derived purely from the CURRENT
+    /// `keyboardHeight` (0) and the passed safe-area inset, it cannot depend on a
+    /// stale prior keyboard value: once `keyboardHeight` returns to 0 the height
+    /// returns to full (minus only the steady-state chrome).
+    ///
+    /// - Parameters:
+    ///   - bounds: The host view bounds size in points.
+    ///   - keyboardHeight: The keyboard overlap in points (0 when down).
+    ///   - composerBandHeight: The open composer band height in points (0 closed).
+    ///   - toolbarHeight: The reserved persistent toolbar height in points.
+    ///   - bottomSafeAreaInset: The resolved bottom safe-area inset in points.
+    ///   - chromeHidden: True while the HIDE button has suppressed the dock.
+    /// - Returns: The grid container size in points.
+    public static func terminalContainerSize(
+        bounds: CGSize,
+        keyboardHeight: CGFloat,
+        composerBandHeight: CGFloat,
+        toolbarHeight: CGFloat,
+        bottomSafeAreaInset: CGFloat,
+        chromeHidden: Bool
+    ) -> CGSize {
+        let reservedBottom: CGFloat
+        if chromeHidden {
+            reservedBottom = max(0, keyboardHeight)
+        } else {
+            let occupancy = keyboardOccupancy(
+                keyboardHeight: keyboardHeight,
+                bottomSafeAreaInset: bottomSafeAreaInset
+            )
+            reservedBottom = max(0, composerBandHeight) + max(0, toolbarHeight) + occupancy
+        }
+        let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
+        let containerW = max(1, bounds.width)
+        let containerH = max(1, bounds.height - bottomInset)
+        return CGSize(width: containerW, height: containerH)
+    }
+
+    /// Resolve the bottom safe-area inset, preferring the view's own inset and
+    /// falling back to the window's when the view inset is zero (it can be zero
+    /// before the view is on a window, and STALE for one layout pass right after
+    /// the keyboard hides).
+    ///
+    /// Mirrors `GhosttySurfaceView.safeAreaInsetsBottom`. Factored out so the
+    /// "do not trust a zero view inset" rule is host-testable: passing a zero
+    /// (stale) view inset must return the window inset, not zero, so the
+    /// keyboard-down grid height does not briefly over-extend under the home
+    /// indicator and then snap back.
+    ///
+    /// - Parameters:
+    ///   - viewInset: The view's `safeAreaInsets.bottom` (may be a stale 0).
+    ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative).
+    /// - Returns: The inset to reserve in points.
+    public static func resolvedBottomSafeAreaInset(viewInset: CGFloat, windowInset: CGFloat) -> CGFloat {
+        viewInset > 0 ? viewInset : max(0, windowInset)
+    }
+
     /// The container size in device pixels for libghostty's `set_size`.
     ///
     /// Floors `container * scale` and clamps each axis to at least 1 pixel,

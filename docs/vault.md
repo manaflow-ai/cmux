@@ -69,5 +69,12 @@ OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits
 `resumeCommand` must include either `{{sessionId}}` or `{{sessionPath}}`, for
 example `pi --session {{sessionId}}`.
 
+`forkCommand` is optional and uses the same placeholders as `resumeCommand`. It
+is the argv template for forking (branching) a session into a new copy, for
+example `{{executable}} --session {{sessionId}} --fork`. Provide it only when the
+agent supports forking; when omitted, the right-click **Fork Conversation** item
+stays hidden for that agent (resume still works via `resumeCommand`). Pi and OMP
+ship with `{{executable}} --session {{sessionId}} --fork`.
+
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.
