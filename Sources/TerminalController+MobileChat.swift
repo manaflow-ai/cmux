@@ -89,12 +89,14 @@ extension TerminalController {
         let service = AgentChatTranscriptService.shared
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
             let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-            let title = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle).lowercased()
+            let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
+            let normalizedTitle = title.lowercased()
             // Claude is the case the wrapper-launched workflow hits; detect by
             // launch metadata (hook PID key / initial command) or the live
-            // terminal title claude sets ("✳ Claude Code").
+            // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
             let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-                || title.contains("claude")
+                || normalizedTitle.contains("claude")
+                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
             guard isClaude else { continue }
             let cwd = workspace.panelDirectories[panel.id]
                 ?? (panel.directory.isEmpty ? nil : panel.directory)
@@ -103,7 +105,8 @@ extension TerminalController {
             service.adoptDetectedClaudeSession(
                 workspaceID: workspaceID,
                 surfaceID: panel.id.uuidString,
-                workingDirectory: cwd
+                workingDirectory: cwd,
+                titleHint: title
             )
         }
     }

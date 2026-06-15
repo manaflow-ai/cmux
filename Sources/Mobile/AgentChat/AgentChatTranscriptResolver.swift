@@ -58,7 +58,8 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   unclaimed transcript, or `nil` when none is found.
     func newestClaudeTranscript(
         workingDirectory: String,
-        excludingSessionIDs: Set<String> = []
+        excludingSessionIDs: Set<String> = [],
+        titleHint: String? = nil
     ) -> (sessionID: String, path: String)? {
         // The home project dir is a junk drawer of every home-rooted claude
         // conversation, so newest-by-mtime there is almost never *this*
@@ -72,6 +73,7 @@ struct AgentChatTranscriptResolver: Sendable {
         // terminal still finds its /private/tmp transcript dir.
         let candidates = Self.cwdCandidates(workingDirectory)
             .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
+        let normalizedTitleHint = Self.normalizedClaudeTitle(titleHint)
         for cwd in candidates {
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
@@ -83,16 +85,34 @@ struct AgentChatTranscriptResolver: Sendable {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            let newest = entries
+            let transcriptCandidates = entries
                 .filter {
                     $0.pathExtension == "jsonl"
                         && !excludingSessionIDs.contains($0.deletingPathExtension().lastPathComponent)
                 }
-                .max { lhs, rhs in
-                    let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    return lDate < rDate
+                .map { url in
+                    (
+                        url: url,
+                        date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
+                        title: Self.claudeTranscriptTitle(at: url)
+                    )
                 }
+            let newest: URL?
+            if let normalizedTitleHint {
+                newest = transcriptCandidates
+                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint || $0.title == nil }
+                    .max { $0.date < $1.date }?
+                    .url
+            } else {
+                // A generic "Claude Code" title cannot identify one of several
+                // same-cwd sessions. Avoid stealing a transcript that already
+                // has a conversation title; a later title-change scan can bind
+                // it to the matching terminal.
+                newest = transcriptCandidates
+                    .filter { $0.title == nil }
+                    .max { $0.date < $1.date }?
+                    .url
+            }
             if let newest {
                 return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
             }
@@ -157,6 +177,39 @@ struct AgentChatTranscriptResolver: Sendable {
             if url.lastPathComponent.lowercased().contains(needle) {
                 return url.path
             }
+        }
+        return nil
+    }
+
+    private static func normalizedClaudeTitle(_ title: String?) -> String? {
+        guard var title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
+        }
+        while let first = title.first, !first.isLetter && !first.isNumber {
+            title.removeFirst()
+            title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let normalized = title.lowercased()
+        guard !normalized.isEmpty,
+              normalized != "claude code",
+              !normalized.hasPrefix("claude ·") else {
+            return nil
+        }
+        return normalized
+    }
+
+    private static func claudeTranscriptTitle(at url: URL) -> String? {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        for line in contents.split(separator: "\n") where line.contains(#""ai-title""#) {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] as? String == "ai-title" else {
+                continue
+            }
+            return object["aiTitle"] as? String
         }
         return nil
     }

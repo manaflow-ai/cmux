@@ -125,7 +125,8 @@ final class AgentChatTranscriptService {
     func adoptDetectedClaudeSession(
         workspaceID: String,
         surfaceID: String,
-        workingDirectory: String
+        workingDirectory: String,
+        titleHint: String? = nil
     ) -> Bool {
         let alreadyBound = registry.sessions(workspaceID: workspaceID)
             .contains { $0.surfaceID == surfaceID && $0.state != .ended }
@@ -147,7 +148,8 @@ final class AgentChatTranscriptService {
         // claudes in one directory each adopt a distinct conversation.
         guard let resolved = resolver.newestClaudeTranscript(
             workingDirectory: workingDirectory,
-            excludingSessionIDs: registry.claimedSessionIDs()
+            excludingSessionIDs: registry.claimedSessionIDs(),
+            titleHint: titleHint
         ) else {
             return false
         }
