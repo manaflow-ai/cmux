@@ -391,10 +391,11 @@ enum CmuxNoteStore {
             do {
                 _ = try deleteBodyIfPresent(atPath: path)
             } catch {
-                // The index is the durable source of truth. Once it no longer
-                // references the note, body-file cleanup is best effort so a
-                // cleanup failure cannot make the original delete fail after
-                // retries would already report "not found".
+                index.notes.insert(note, at: min(noteIndex, index.notes.count))
+                try? writeIndex(index, projectRoot: projectRoot)
+                // Keep the note reachable when body cleanup fails; callers can
+                // retry after fixing permissions or replacing a non-file body.
+                throw error
             }
             return true
         }

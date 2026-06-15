@@ -33,7 +33,7 @@
 3672	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3055	Sources/Update/UpdateTitlebarAccessory.swift
-2925	cmuxTests/CmuxConfigTests.swift
+2922	cmuxTests/CmuxConfigTests.swift
 2902	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
 2582	Sources/KeyboardShortcutSettings.swift
@@ -114,7 +114,7 @@
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 773	Sources/MainWindowFocusController.swift
-766	Sources/CmuxNoteStore.swift
+767	Sources/CmuxNoteStore.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 757	Sources/RightSidebarPanelView.swift
