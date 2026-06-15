@@ -97,6 +97,7 @@ public final class CanvasRootView: NSView {
         minimapView.onCenterRequested = { [weak self] center in
             self?.setViewport(center: center, magnification: nil)
         }
+        minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
         resetMinimapVisibility()
         addSubview(minimapView, positioned: .above, relativeTo: scrollView)
         NSLayoutConstraint.activate([
@@ -197,7 +198,7 @@ public final class CanvasRootView: NSView {
         zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
-        minimapView.onCenterRequested = nil
+        minimapView.onCenterRequested = nil; minimapView.onScrollWheel = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil

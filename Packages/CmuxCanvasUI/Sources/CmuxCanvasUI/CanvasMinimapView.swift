@@ -13,6 +13,7 @@ final class CanvasMinimapView: NSView {
     }
 
     var onCenterRequested: ((CGPoint) -> Void)?
+    var onScrollWheel: ((NSEvent) -> Void)?
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -46,6 +47,10 @@ final class CanvasMinimapView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         recenter(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        onScrollWheel?(event)
     }
 
     override func draw(_ dirtyRect: NSRect) {
