@@ -51,10 +51,15 @@ extension CMUXCLI {
         explicitPassword: String?,
         jsonOutput: Bool
     ) throws {
+        // Data commands (read and write settings/shortcuts) carry no focus
+        // intent, so they must not launch or activate the GUI the way the
+        // `settings open` path does. Connect without launching; if the app isn't
+        // running the connection fails with a clear error, which is correct for
+        // commands documented as requiring a running app.
         let client = try connectClient(
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            launchIfNeeded: true
+            launchIfNeeded: false
         )
         defer { client.close() }
 

@@ -152,6 +152,10 @@ public struct SettingsControlEngine: Sendable {
     /// secret override is attempted even if one fails (so a single unwritable
     /// backend can't leave the rest un-reset and stop midway). Any failures are
     /// collected and rethrown as one error after all resets are attempted.
+    ///
+    /// Like `set`/`unset`, this reverts the catalog-backed sources; a setting
+    /// *managed* in `cmux.json` (re-applied over UserDefaults on reload) is not
+    /// cleared from `cmux.json` here and must be removed there.
     public func resetAll() async throws {
         await stores.defaults.resetAll(catalog.all)
         var errors: [String] = []
