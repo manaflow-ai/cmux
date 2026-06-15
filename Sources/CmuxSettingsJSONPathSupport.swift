@@ -277,7 +277,7 @@ enum AutomationSettingsFileMapping {
 
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
-        .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettings.searchSuggestionsEnabledKey),
+        .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
