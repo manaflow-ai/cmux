@@ -30,6 +30,12 @@ enum ComposerDictationState: Equatable {
     /// request is in flight, while already listening, while stopping, or when the
     /// recognizer is unavailable.
     var canStart: Bool { self == .idle }
+
+    /// Whether a tap should cancel a start whose authorization is still resolving.
+    /// True only in ``requestingPermission``: a second tap there aborts the pending
+    /// start and returns to idle so recognition never begins, rather than being
+    /// ignored and letting the mic come on anyway when permission later resolves.
+    var canCancelPendingStart: Bool { self == .requestingPermission }
 }
 
 /// Pure text-merge for live dictation, factored out so it is host-testable

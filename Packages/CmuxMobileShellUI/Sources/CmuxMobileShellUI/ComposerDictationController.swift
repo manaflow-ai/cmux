@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import Foundation
+import Observation
 import Speech
 
 /// On-device voice dictation for the composer text field.
@@ -23,10 +24,11 @@ import Speech
 /// back to the main actor before touching any state, and captures `self` weakly
 /// to avoid a retain cycle through the recognition task.
 @MainActor
-final class ComposerDictationController: ObservableObject {
+@Observable
+final class ComposerDictationController {
     /// The current point in the dictation state machine. Drives the mic button's
     /// enabled/listening presentation.
-    @Published private(set) var state: ComposerDictationState = .idle
+    private(set) var state: ComposerDictationState = .idle
 
     /// The recognizer for the user's locale. `nil` when the locale is
     /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
@@ -66,7 +68,13 @@ final class ComposerDictationController: ObservableObject {
     /// user can toggle it off.
     var isAvailable: Bool { state != .unavailable }
 
-    /// Toggle dictation: start if idle, stop if already listening.
+    /// Toggle dictation: start if idle, stop if already listening, or cancel a
+    /// pending start if authorization is still resolving.
+    ///
+    /// A second tap while in ``ComposerDictationState/requestingPermission`` aborts
+    /// the pending start: the state returns to idle so the permission-completion
+    /// callback (which guards on `requestingPermission`) does not start the engine.
+    /// A later tap can then start dictation normally.
     ///
     /// - Parameters:
     ///   - existingText: The composer's current text, captured as the merge base.
@@ -75,9 +83,21 @@ final class ComposerDictationController: ObservableObject {
     func toggle(existingText: String, onText: @escaping (String) -> Void) {
         if state.isListening {
             stop()
+        } else if state.canCancelPendingStart {
+            cancelPendingStart()
         } else {
             start(existingText: existingText, onText: onText)
         }
+    }
+
+    /// Abort a start whose authorization has not resolved yet. Drops the captured
+    /// callback and returns to idle without touching the engine (none is running),
+    /// so the in-flight permission callback sees a non-`requestingPermission` state
+    /// and refuses to start. Safe to call only from `requestingPermission`.
+    private func cancelPendingStart() {
+        onText = nil
+        baseText = ""
+        state = .idle
     }
 
     /// Begin dictation: resolve authorization, then start the engine and stream
@@ -94,6 +114,11 @@ final class ComposerDictationController: ObservableObject {
         state = .requestingPermission
         requestAuthorization { [weak self] granted in
             guard let self else { return }
+            // A second tap may have cancelled (or otherwise moved on) while
+            // authorization resolved; if so this start is stale. Do nothing, so a
+            // cancel during the permission flow neither starts the engine nor
+            // overwrites the user's idle state with `unavailable`.
+            guard self.state == .requestingPermission else { return }
             guard granted else {
                 // Denied or restricted: a terminal rest state that disables the
                 // mic. The captured callback is dropped.
@@ -101,8 +126,6 @@ final class ComposerDictationController: ObservableObject {
                 self.state = .unavailable
                 return
             }
-            // A second tap (stop) may have landed while authorization resolved.
-            guard self.state == .requestingPermission else { return }
             self.beginRecognition()
         }
     }

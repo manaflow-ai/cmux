@@ -65,8 +65,10 @@ struct TerminalComposerView: View {
     @State private var stagingTask = StagingTaskBox()
     /// On-device voice dictation for the field. Owned here so its lifecycle is
     /// the composer's: it is torn down on send, focus loss, `onDisappear`, and a
-    /// terminal switch so the mic never stays hot after the user leaves.
-    @StateObject private var dictation = ComposerDictationController()
+    /// terminal switch so the mic never stays hot after the user leaves. An
+    /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
+    /// `state` it reads (mic button enabled/listening) automatically.
+    @State private var dictation = ComposerDictationController()
 
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store

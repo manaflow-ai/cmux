@@ -73,4 +73,28 @@ import Testing
         #expect(!state.canStart)
         #expect(!state.isListening)
     }
+
+    @Test func onlyRequestingPermissionCanCancelPendingStart() {
+        // A second tap while authorization is resolving cancels the pending start;
+        // every other state ignores cancellation (it has nothing to abort).
+        #expect(ComposerDictationState.requestingPermission.canCancelPendingStart)
+        #expect(!ComposerDictationState.idle.canCancelPendingStart)
+        #expect(!ComposerDictationState.listening.canCancelPendingStart)
+        #expect(!ComposerDictationState.stopping.canCancelPendingStart)
+        #expect(!ComposerDictationState.unavailable.canCancelPendingStart)
+    }
+
+    @Test func cancelAndStartAreMutuallyExclusivePerState() {
+        // A tap resolves to exactly one of start / cancel / neither, never both, so
+        // toggle's branching is unambiguous in every state.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(!(state.canStart && state.canCancelPendingStart))
+        }
+    }
 }
