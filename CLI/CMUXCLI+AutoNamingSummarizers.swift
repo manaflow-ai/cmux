@@ -10,6 +10,12 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) -> String? {
         let policy = AutoNamingEnvironmentPolicy()
+        // Generic agents (grok/opencode/pi/omp) need their OWN provider/cloud
+        // credentials to authenticate, so — unlike Codex's tight allowlist — we
+        // use the broad scrubbed env here. Exposure is bounded by running the
+        // summarizer with tools and network disabled (see the per-agent argv:
+        // --pure / --no-tools / --disable-web-search / --no-subagents), so the
+        // untrusted transcript text has no channel to exfiltrate those vars.
         var summarizerEnv = policy.summarizerEnvironment(from: env)
         summarizerEnv[def.disableEnvVar] = "1"
 
