@@ -12609,6 +12609,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
+            if !hasFocusedAddressBarInShortcutContext,
+               matchConfiguredShortcut(event: event, action: .quickOpenFile) {
+                let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                postCommandPaletteRequest(
+                    kind: .fileSearch,
+                    preferredWindow: targetWindow,
+                    source: "shortcut.quickOpenFile"
+                )
+                return true
+            }
+
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
                armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPalette]) {
                 return true
@@ -12617,6 +12628,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
                !hasFocusedAddressBarInShortcutContext,
                armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace]) {
+                return true
+            }
+
+            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+               !hasFocusedAddressBarInShortcutContext,
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [.quickOpenFile]) {
                 return true
             }
         }
@@ -12802,6 +12819,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+            return true
+        }
+
+        if !hasFocusedAddressBarInShortcutContext,
+           matchConfiguredShortcut(event: event, action: .quickOpenFile) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            postCommandPaletteRequest(
+                kind: .fileSearch,
+                preferredWindow: targetWindow,
+                source: "shortcut.quickOpenFile"
+            )
             return true
         }
 
