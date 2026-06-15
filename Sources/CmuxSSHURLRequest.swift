@@ -10,12 +10,21 @@ enum CmuxSSHURLParseError: Error, Equatable {
     case invalidPort
     case invalidIntegerParameter(String)
     case invalidHostKeyPolicy(String)
+    case invalidTransport(String)
     case invalidBooleanParameter(String)
     case conflictingDestinationParameters
     case conflictingTitleParameters
     case duplicateParameter(String)
     case unsupportedParameter(String)
     case multipleLinks
+}
+
+/// SSH client used to fulfill a deep-link connection. Mirrors the CLI's
+/// `--via` flag: `.openssh` is the default cmux relay pipeline; `.teleport`
+/// shells out to `tsh ssh` for a plain interactive session.
+enum CmuxSSHURLTransport: String, Equatable {
+    case openssh
+    case teleport
 }
 
 struct CmuxSSHURLRequest: Equatable {
@@ -32,9 +41,13 @@ struct CmuxSSHURLRequest: Equatable {
     let title: String?
     let sshOptions: [String]
     let noFocus: Bool
+    let transport: CmuxSSHURLTransport
 
     var cliArguments: [String] {
         var parts = ["ssh"]
+        if transport == .teleport {
+            parts += ["--via", "tsh"]
+        }
         if let port {
             parts += ["--port", String(port)]
         }
@@ -106,6 +119,7 @@ struct CmuxSSHURLRequest: Equatable {
             "server-alive-interval",
             "server-alive-count-max",
             "host-key-policy",
+            "via",
             "no-focus"
         ]
         var seenQueryNames = Set<String>()
@@ -180,6 +194,14 @@ struct CmuxSSHURLRequest: Equatable {
             return .failure(error)
         }
 
+        let transport: CmuxSSHURLTransport
+        switch parsedTransport(in: queryItems) {
+        case .success(let value):
+            transport = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
         let noFocus: Bool
         switch normalizedBooleanValue(named: "no-focus", in: queryItems) {
         case .success(let value):
@@ -195,7 +217,8 @@ struct CmuxSSHURLRequest: Equatable {
                 port: parsedPort,
                 title: title,
                 sshOptions: sshOptions,
-                noFocus: noFocus
+                noFocus: noFocus,
+                transport: transport
             )
         )
     }
@@ -218,7 +241,7 @@ struct CmuxSSHURLRequest: Equatable {
         }
 
         let queryItems = components.queryItems ?? []
-        let allowedQueryNames: Set<String> = ["title", "name", "no-focus"]
+        let allowedQueryNames: Set<String> = ["title", "name", "via", "no-focus"]
         var seenQueryNames = Set<String>()
         for item in queryItems {
             let name = item.name.lowercased()
@@ -283,6 +306,14 @@ struct CmuxSSHURLRequest: Equatable {
             }
         }
 
+        let transport: CmuxSSHURLTransport
+        switch parsedTransport(in: queryItems) {
+        case .success(let value):
+            transport = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
         let noFocus: Bool
         switch normalizedBooleanValue(named: "no-focus", in: queryItems) {
         case .success(let value):
@@ -298,9 +329,26 @@ struct CmuxSSHURLRequest: Equatable {
                 port: parsedPort,
                 title: title,
                 sshOptions: [],
-                noFocus: noFocus
+                noFocus: noFocus,
+                transport: transport
             )
         )
+    }
+
+    /// Maps the optional `via` query parameter to a transport. Defaults to
+    /// `.openssh`; accepts `ssh`/`openssh` and `tsh`/`teleport` (case-insensitive).
+    private static func parsedTransport(in queryItems: [URLQueryItem]) -> Result<CmuxSSHURLTransport, CmuxSSHURLParseError> {
+        guard let value = normalizedQueryValue(namedAnyOf: ["via"], in: queryItems) else {
+            return .success(.openssh)
+        }
+        switch value.lowercased() {
+        case "ssh", "openssh":
+            return .success(.openssh)
+        case "tsh", "teleport":
+            return .success(.teleport)
+        default:
+            return .failure(.invalidTransport("via"))
+        }
     }
 
     private static func standardSSHURLPort(in components: URLComponents) -> Result<Int?, CmuxSSHURLParseError> {

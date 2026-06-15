@@ -1012,6 +1012,11 @@ extension AppDelegate {
                 format: String(localized: "dialog.sshURL.error.invalidHostKeyPolicy", defaultValue: "The SSH link included an invalid host key policy for parameter: %@"),
                 parameter
             )
+        case .invalidTransport(let parameter):
+            return String(
+                format: String(localized: "dialog.sshURL.error.invalidTransport", defaultValue: "The SSH link included an invalid transport for parameter: %@. Use ssh or tsh."),
+                parameter
+            )
         case .invalidBooleanParameter(let parameter):
             return String(
                 format: String(localized: "dialog.sshURL.error.invalidBooleanParameter", defaultValue: "The SSH link included an invalid boolean value for parameter: %@"),
