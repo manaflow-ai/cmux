@@ -108,6 +108,21 @@ import Testing
         #expect(composite.composerCanSend(forTerminalID: "term-a") == false)
     }
 
+    @Test func signOutClearsPendingAttachments() {
+        let composite = Self.makeComposite()
+        // A previous account stages photo bytes on two terminals.
+        composite.addPendingAttachment(Self.bytes("a-img"), format: "png", forTerminalID: "term-a")
+        composite.addPendingAttachment(Self.bytes("b-img"), format: "png", forTerminalID: "term-b")
+
+        // Sign-out is the account-bound reset that wipes the previous user's
+        // unsent content (text drafts, etc.); the staged photo bytes must go too
+        // so a reused terminal id under the next account never resurfaces them.
+        composite.signOut()
+
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+        #expect(composite.pendingAttachments(forTerminalID: "term-b").isEmpty)
+    }
+
     @Test func submitKeepsAttachmentsWhenSendFails() async {
         let composite = Self.makeComposite()
         // No remoteClient is wired, so the image send fails (returns false). A

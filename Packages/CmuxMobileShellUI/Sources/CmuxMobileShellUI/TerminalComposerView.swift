@@ -367,7 +367,12 @@ struct TerminalComposerView: View {
                 // already-staged attachments stay, and the user can still send.
                 guard stagedBytes + prepared.data.count <= Self.maxTotalAttachmentBytes else { continue }
                 guard let id = store.addPendingAttachment(prepared.data, format: prepared.format, forTerminalID: terminalID) else { continue }
-                if let thumbnail = prepared.thumbnail {
+                // The off-main path hands back the downsampled thumbnail as
+                // Sendable PNG bytes; build the UIKit image here on the main
+                // actor (UIImage is not Sendable and must not cross the task
+                // boundary). A nil/undecodable thumbnail just leaves the chip's
+                // placeholder.
+                if let thumbnailData = prepared.thumbnail, let thumbnail = UIImage(data: thumbnailData) {
                     thumbnailCache.set(thumbnail, for: id)
                 }
                 stagedCount += 1
@@ -380,16 +385,21 @@ struct TerminalComposerView: View {
     }
 
     /// The off-main result of preparing one picked image: the encoded bytes to
-    /// send, their format hint, and the small chip thumbnail.
+    /// send, their format hint, and the small chip thumbnail as encoded PNG
+    /// bytes. Every field is `Sendable` value data so the whole struct can cross
+    /// the detached-task boundary; the chip's `UIImage` is built from
+    /// ``thumbnail`` on the main actor, never carried across that boundary.
     private struct PreparedAttachment: Sendable {
         var data: Data
         var format: String
-        var thumbnail: UIImage?
+        var thumbnail: Data?
     }
 
     /// Decode, re-encode (PNG, or JPEG over the per-image cap), and downsample a
     /// picked image's raw bytes off the main thread. Returns `nil` when the bytes
-    /// are not a decodable image.
+    /// are not a decodable image. The downsampled thumbnail is returned as PNG
+    /// bytes (Sendable), not a `UIImage`, so nothing UIKit-reference crosses back
+    /// to the main actor.
     private static func prepare(_ raw: Data) async -> PreparedAttachment? {
         await Task.detached(priority: .userInitiated) {
             guard let image = UIImage(data: raw) else { return nil }
@@ -397,7 +407,7 @@ struct TerminalComposerView: View {
             return PreparedAttachment(
                 data: encoded,
                 format: format,
-                thumbnail: downsampledThumbnail(from: raw)
+                thumbnail: downsampledThumbnailData(from: raw)
             )
         }.value
     }
@@ -418,9 +428,12 @@ struct TerminalComposerView: View {
     }
 
     /// Build a small downsampled thumbnail from the original encoded bytes via
-    /// ImageIO, which decodes only a reduced-size image instead of the full
-    /// raster. Returns `nil` if the bytes are not a decodable image.
-    private static func downsampledThumbnail(from data: Data) -> UIImage? {
+    /// ImageIO (which decodes only a reduced-size image instead of the full
+    /// raster) and re-encode it to PNG bytes, all off the main thread. Returns
+    /// `Data` rather than a `UIImage` so the result is `Sendable` and can cross
+    /// back to the main actor, where the chip's `UIImage` is built. Returns `nil`
+    /// if the bytes are not a decodable image or PNG encoding fails.
+    private static func downsampledThumbnailData(from data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -431,7 +444,18 @@ struct TerminalComposerView: View {
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             return nil
         }
-        return UIImage(cgImage: cgImage)
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            encoded as CFMutableData,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return encoded as Data
     }
 }
 

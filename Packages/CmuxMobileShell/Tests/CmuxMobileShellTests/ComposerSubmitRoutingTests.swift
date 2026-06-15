@@ -69,6 +69,37 @@ import Testing
         #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
     }
 
+    /// A second submit while the first is still awaiting an image RPC is rejected
+    /// by the re-entrancy guard, so the same staged attachments are NOT uploaded
+    /// twice (the Send button stays enabled mid-send because attachments clear
+    /// only on ack).
+    @Test func concurrentSubmitDoesNotDoubleUpload() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let termA = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("one"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "hello"
+
+        // Park the first image send, fire a SECOND submit while it is in flight
+        // (the double tap), then release the first. The guard must early-return
+        // the second so it never re-sends the still-staged attachment or text.
+        await router.setHoldFirstPasteImage(true)
+        let first = Task { await store.submitComposer() }
+        await router.awaitFirstPasteImageReached()
+        let second = Task { await store.submitComposer() }
+        await second.value
+        await router.releaseFirstPasteImage()
+        await first.value
+
+        let images = await router.recordedPasteImages()
+        let pastes = await router.recordedPastes()
+        #expect(images.map(\.surfaceID) == [termA], "the attachment must upload exactly once")
+        #expect(pastes.map(\.text) == ["hello"], "the text must paste exactly once")
+        #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
+    }
+
     /// A rejected image send keeps the remaining (and failed) attachments staged
     /// and does NOT submit the text, so the user can retry without losing photos.
     @Test func rejectedImageKeepsAttachmentsAndDoesNotSendText() async throws {

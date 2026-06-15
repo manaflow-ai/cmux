@@ -310,6 +310,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (the field is cleared only on ack), pasting the message to the agent
     /// twice. Not observed: it gates an async flow, not view state.
     @ObservationIgnored private var isSubmittingComposerInput = false
+    /// Guards the WHOLE composer submit (``submitComposer()``: images + text)
+    /// against re-entrancy. The Send button stays enabled while the first image
+    /// RPC awaits (attachments are cleared only on ack), so a second tap would
+    /// otherwise start another submit capturing the same still-staged
+    /// attachments and re-upload them. Distinct from
+    /// ``isSubmittingComposerInput`` (which guards only the inner text paste):
+    /// this spans the entire image-then-text run. Not observed: it gates an
+    /// async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposer = false
     /// Pending image attachments per terminal, keyed by terminal id so switching
     /// terminals keeps each draft's own attachments (mirroring how the text draft
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
@@ -754,6 +763,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
         pendingDraftSaveTextByTerminalID = [:]
+        // Drop every account's staged photo bytes for the same reason as the
+        // text drafts above: the pending attachments are this user's unsent
+        // content, and a reused terminal id under the next account must never
+        // surface the previous user's selected photos.
+        pendingAttachmentsByTerminalID = [:]
         // Per-terminal composer dismissals are this user's session UI state; the
         // next account starts with the default-open composer everywhere. Clear
         // the focus mirror BEFORE the selection resets below so the terminal
@@ -2834,6 +2848,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// instead of silently losing photos (matching the text-keep-on-failure
     /// semantics of ``submitComposerInput()``).
     public func submitComposer() async {
+        // Reject a re-entrant submit (e.g. a double tap on Send): the button
+        // stays enabled while the first image RPC awaits, and a second submit
+        // would capture the same still-staged attachments and re-upload them.
+        // Set/cleared on the main actor around the awaits, so no second call can
+        // slip past. A failed send keeps the attachments staged (below), so the
+        // user can retry once this flag clears.
+        guard !isSubmittingComposer else { return }
+        isSubmittingComposer = true
+        defer { isSubmittingComposer = false }
         guard let workspaceID = selectedWorkspace?.id,
               let submittedTerminalID = selectedTerminalID else {
             // No target: fall back to the text-only path, which is itself a no-op

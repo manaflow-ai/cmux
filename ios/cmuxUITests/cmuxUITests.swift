@@ -986,8 +986,6 @@ final class cmuxUITests: XCTestCase {
         static let hideButton = "terminal.inputAccessory.hideChrome"
         /// The growing message field inside the composer band.
         static let field = "MobileComposerField"
-        /// The chevron-down inside the composer band that dismisses the composer.
-        static let bandClose = "MobileComposerClose"
         /// Surface-side live dock-state probe (`key=value;…`).
         static let surfaceProbe = "MobileComposerDockProbe"
         /// Store-side source-of-truth probe (`key=value;…`).
@@ -1153,16 +1151,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(baseline["fieldFocused"], "0", "default-open must not focus the field. \(baseline)")
         assertDockCoherent(in: app, cycle: 0)
 
-        // Dismiss the default-open composer via the band's chevron so the loop
-        // below exercises the explicit open→close cycle from a closed dock.
-        app.buttons[Composer.bandClose].tap()
-        waitForDock(in: app, describe: "baseline: chevron dismissed the default-open composer") {
+        let composeButton = app.buttons[Composer.composeButton]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 6))
+
+        // Dismiss the default-open composer via the accessory toolbar's compose
+        // toggle so the loop below exercises the explicit open→close cycle from a
+        // closed dock. (The band's chevron was replaced by the attach button, so
+        // close now runs through the toolbar toggle.) The default-open composer
+        // is UNFOCUSED, so the first tap reveals + focuses it; the second resolves
+        // `close` once it holds first responder.
+        composeButton.tap()
+        waitForDock(in: app, describe: "baseline: reveal focuses the default-open composer") {
+            $0["composerActive"] == "1" && $0["fieldFocused"] == "1"
+        }
+        composeButton.tap()
+        waitForDock(in: app, describe: "baseline: compose toggle dismissed the default-open composer") {
             $0["composerActive"] == "0"
         }
         assertDockCoherent(in: app, cycle: 0)
-
-        let composeButton = app.buttons[Composer.composeButton]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 6))
 
         for cycle in 1...10 {
             // OPEN: tap compose → reducer should resolve `open`, store presents,
