@@ -85,6 +85,44 @@ import Testing
         #expect(!url.absoluteString.contains("100.64.1.10"))
     }
 
+    @Test func attachURLPreservesTokenAndExpiryForTunneledTickets() throws {
+        let expiry = Date(timeIntervalSince1970: 4_000_000_000)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace:1",
+            terminalID: "terminal:1",
+            macDeviceID: "mac-mini",
+            macDisplayName: "Mac mini",
+            macUserID: "user-1",
+            routes: [
+                try CmxAttachRoute(
+                    id: "tailscale",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "100.64.1.10", port: 58_465),
+                    priority: 10
+                ),
+            ],
+            expiresAt: expiry,
+            authToken: "ticket-secret"
+        )
+        let tunneled = try CmxSSHTunneledAttachTicket(ticket: ticket, localPort: 49_321)
+
+        let payload = try payloadData(from: tunneled.attachURL())
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(CmxAttachTicket.self, from: payload)
+
+        #expect(decoded.authToken == "ticket-secret")
+        #expect(decoded.expiresAt == expiry)
+        #expect(decoded.routes == [
+            try CmxAttachRoute(
+                id: "ssh_tunnel",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 49_321),
+                priority: 0
+            ),
+        ])
+    }
+
     private func macTicket(routes: [CmxAttachRoute]) throws -> CmxAttachTicket {
         try CmxAttachTicket(
             workspaceID: "",
@@ -93,5 +131,18 @@ import Testing
             macDisplayName: "Mac mini",
             routes: routes
         )
+    }
+
+    private func payloadData(from url: URL) throws -> Data {
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let payload = try #require(components.queryItems?.first { $0.name == "payload" }?.value)
+        var base64 = payload
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = base64.count % 4
+        if padding > 0 {
+            base64.append(String(repeating: "=", count: 4 - padding))
+        }
+        return try #require(Data(base64Encoded: base64))
     }
 }

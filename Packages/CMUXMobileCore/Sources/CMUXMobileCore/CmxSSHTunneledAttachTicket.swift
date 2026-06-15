@@ -80,7 +80,14 @@ public extension CmxAttachTicket {
         if let pairingURL = CmxPairingQRCode().encode(self), let url = URL(string: pairingURL) {
             return url
         }
-        let data = try CmxAttachTicketCompactCoder().encode(self)
+        let data: Data
+        if authToken != nil || expiresAt != nil {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            data = try encoder.encode(self)
+        } else {
+            data = try CmxAttachTicketCompactCoder().encode(self)
+        }
         let payload = Self.base64URLEncode(data)
         guard let url = URL(string: "cmux-ios://attach?v=\(version)&payload=\(payload)") else {
             throw CmxAttachTicketAttachURLError.invalidURL

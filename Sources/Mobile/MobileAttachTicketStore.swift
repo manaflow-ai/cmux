@@ -65,7 +65,7 @@ final class MobileAttachTicketStore {
     func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
         var payload: [String: Any] = [
             "ticket": try Self.jsonObject(ticket),
-            "attach_url": try attachURL(for: ticket).absoluteString,
+            "attach_url": try ticket.attachURL().absoluteString,
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
         // `expires_at` describes the minted attach token's lifetime (tickets
@@ -126,32 +126,6 @@ final class MobileAttachTicketStore {
             record.createdTerminalIDs.insert(terminalID)
         }
         recordsByAuthToken[authToken] = record
-    }
-
-    private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
-        // drops the QR several versions, so the code scans faster.
-        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
-            return url
-        }
-        // Fallback for tickets the minimal grammar cannot express (workspace-
-        // scoped, custom routes, loopback-only dev tickets): the compact
-        // short-key v1 payload. The full ticket (including the token) still
-        // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoder().encode(ticket)
-        let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-        return url
     }
 
     private func pruneExpired(now: Date) {
