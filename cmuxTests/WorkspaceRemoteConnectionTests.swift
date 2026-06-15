@@ -907,7 +907,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteStatusPayloadIncludesRemoteMacTunnelMetadata() throws {
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
-            attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49321",
             forwardTarget: "100.102.73.120:61848",
             remoteWindowID: "33333333-3333-3333-3333-333333333333"
@@ -935,7 +934,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let payload = workspace.remoteStatusPayload()
         let remoteMac = try XCTUnwrap(payload["remote_mac"] as? [String: Any])
 
-        XCTAssertEqual(remoteMac["attach_url"] as? String, tunnel.attachURL)
+        XCTAssertNil(remoteMac["attach_url"])
         XCTAssertEqual(remoteMac["local_endpoint"] as? String, tunnel.localEndpoint)
         XCTAssertEqual(remoteMac["forward_target"] as? String, tunnel.forwardTarget)
         XCTAssertEqual(remoteMac["remote_window_id"] as? String, tunnel.remoteWindowID)
@@ -1599,7 +1598,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testRemoteTerminalSessionEndPreservesRemoteMacTunnelWorkspace() throws {
         let workspace = Workspace()
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
-            attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49324",
             forwardTarget: "127.0.0.1:22"
         ))
@@ -1629,7 +1627,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(workspace.remoteConfiguration?.remoteMacTunnel, tunnel)
         let remoteMac = try XCTUnwrap(workspace.remoteStatusPayload()["remote_mac"] as? [String: Any])
-        XCTAssertEqual(remoteMac["attach_url"] as? String, tunnel.attachURL)
+        XCTAssertNil(remoteMac["attach_url"])
         XCTAssertEqual(remoteMac["local_endpoint"] as? String, tunnel.localEndpoint)
         XCTAssertEqual(remoteMac["forward_target"] as? String, tunnel.forwardTarget)
     }

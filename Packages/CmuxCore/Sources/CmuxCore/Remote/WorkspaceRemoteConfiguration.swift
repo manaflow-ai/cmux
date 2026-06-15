@@ -215,7 +215,6 @@ extension WorkspaceRemoteConfiguration {
 }
 
 public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
-    public let attachURL: String
     public let localHost: String
     public let localPort: Int
     public let remoteHost: String
@@ -224,15 +223,13 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
     public let remoteWindowID: String?
 
     public init?(
-        attachURL: String?,
         localHost: String?,
         localPort: Int?,
         remoteHost: String?,
         remotePort: Int?,
         remoteWindowID: String? = nil
     ) {
-        guard let attachURL = Self.normalizedString(attachURL),
-              let localHost = Self.normalizedHost(localHost),
+        guard let localHost = Self.normalizedHost(localHost),
               let localPort,
               (1...65535).contains(localPort),
               let remoteHost = Self.normalizedHost(remoteHost),
@@ -240,7 +237,6 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
               (1...65535).contains(remotePort) else {
             return nil
         }
-        self.attachURL = attachURL
         self.localHost = localHost
         self.localPort = localPort
         self.remoteHost = remoteHost
@@ -249,7 +245,6 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
     }
 
     public init?(
-        attachURL: String?,
         localEndpoint: String?,
         forwardTarget: String?,
         remoteWindowID: String? = nil
@@ -257,7 +252,6 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
         let local = Self.splitHostPort(localEndpoint)
         let remote = Self.splitHostPort(forwardTarget)
         self.init(
-            attachURL: attachURL,
             localHost: local?.host,
             localPort: local?.port,
             remoteHost: remote?.host,

@@ -103,7 +103,6 @@ extension CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat,
             decorateConfigureParams: { params in
-                params["remote_mac_attach_url"] = attachURL
                 params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
                 params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
                 params["remote_mac_window_id"] = remoteWindow.id

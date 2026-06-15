@@ -6,12 +6,12 @@
 16668	Sources/ContentView.swift
 14801	Sources/TerminalController.swift
 13358	Sources/Panels/BrowserPanel.swift
-12332	Sources/Workspace.swift
+12331	Sources/Workspace.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7925	Sources/Panels/BrowserPanelView.swift
-7460	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7458	cmuxTests/WorkspaceRemoteConnectionTests.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/GhosttyConfigTests.swift
@@ -30,7 +30,7 @@
 3903	cmuxTests/WindowAndDragTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3672	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
-3420	cmuxTests/TabManagerSessionSnapshotTests.swift
+3418	cmuxTests/TabManagerSessionSnapshotTests.swift
 3397	Sources/CmuxConfig.swift
 3055	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
@@ -111,7 +111,7 @@
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 773	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
-762	Sources/TerminalController+ControlWorkspaceContext.swift
+761	Sources/TerminalController+ControlWorkspaceContext.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
@@ -204,8 +204,8 @@
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
-505	CLI/CMUXCLI+RemoteMac.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
+504	CLI/CMUXCLI+RemoteMac.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
 502	Packages/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift

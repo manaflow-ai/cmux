@@ -5580,7 +5580,6 @@ final class Workspace: Identifiable, ObservableObject {
             payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
             if let remoteMacTunnel = remoteConfiguration.remoteMacTunnel {
                 var remoteMac: [String: Any] = [
-                    "attach_url": remoteMacTunnel.attachURL,
                     "local_endpoint": remoteMacTunnel.localEndpoint,
                     "forward_target": remoteMacTunnel.forwardTarget,
                 ]

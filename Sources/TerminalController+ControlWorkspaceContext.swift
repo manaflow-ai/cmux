@@ -553,7 +553,6 @@ extension TerminalController: ControlWorkspaceContext {
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let remoteMacTunnel = WorkspaceRemoteMacTunnel(
-            attachURL: v2RawString(params, "remote_mac_attach_url"),
             localEndpoint: v2RawString(params, "remote_mac_local_endpoint"),
             forwardTarget: v2RawString(params, "remote_mac_forward_target"),
             remoteWindowID: v2RawString(params, "remote_mac_window_id")

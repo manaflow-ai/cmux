@@ -17,7 +17,6 @@ struct SessionRemoteWorkspaceSnapshotTests {
             relayPort: 7000,
             persistentDaemonSlot: "slot",
             remoteMacTunnel: WorkspaceRemoteMacTunnel(
-                attachURL: "cmux-ios://attach?v=1&payload=test",
                 localEndpoint: "127.0.0.1:49321",
                 forwardTarget: "100.102.73.120:61848",
                 remoteWindowID: "33333333-3333-3333-3333-333333333333"

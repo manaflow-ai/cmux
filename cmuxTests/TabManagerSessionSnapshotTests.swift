@@ -3209,7 +3209,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
     func testSessionRemoteWorkspaceSnapshotRestoresRemoteMacTunnelForReconnect() throws {
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
-            attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49321",
             forwardTarget: "100.102.73.120:61848",
             remoteWindowID: "33333333-3333-3333-3333-333333333333"
@@ -3242,7 +3241,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Mac Tunnel")
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
-            attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49325",
             forwardTarget: "127.0.0.1:22",
             remoteWindowID: "33333333-3333-3333-3333-333333333333"
