@@ -6933,16 +6933,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     func testCanForkAgentConversationFromPanelReturnsTrueForRestoredClaudeSnapshot() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertFalse(
-            workspace.canForkAgentConversationFromPanel(panelId),
-            "Vanilla shell tab without an agent snapshot should not advertise fork"
-        )
+        XCTAssertFalse(workspace.canForkAgentConversationFromPanel(panelId))
 
         workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: panelId)
-        XCTAssertTrue(
-            workspace.canForkAgentConversationFromPanel(panelId),
-            "Tab hosting a restored Claude snapshot should advertise fork"
-        )
+        XCTAssertTrue(workspace.canForkAgentConversationFromPanel(panelId))
     }
 
     func testCanForkAgentConversationFromPanelReturnsFalseForUnknownPanel() {
@@ -6952,27 +6946,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkConversationContextMenuAvailabilityUsesProcessDetectedLiveIndex() throws {
         let workspace = Workspace()
-        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: sourcePanelId)
-        let snapshot = makeForkableCodexSnapshot()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
         let index = SharedLiveAgentIndex.loadIndexForRefresh(
             homeDirectory: FileManager.default.temporaryDirectory.path,
-            fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [
-                key: (
-                    snapshot: snapshot,
-                    updatedAt: 123,
-                    processIDs: Set([4_242]),
-                    sessionIDSource: .explicit
-                ),
-            ]
+            detectedSnapshots: [key: (makeForkableCodexSnapshot(), 123, Set([4_242]), .explicit)]
         )
 
-        XCTAssertTrue(
-            workspace.canForkAgentConversationFromPanel(sourcePanelId, liveAgentIndex: index),
-            "A process-detected Codex session should make the tab context menu expose Fork Conversation."
-        )
+        XCTAssertTrue(workspace.canForkAgentConversationFromPanel(panelId, liveAgentIndex: index))
     }
 
     func testForkConversationDefaultSettingFallsBackToRight() throws {
@@ -6980,21 +6962,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
-            .right,
-            "Missing setting should use the product default"
-        )
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .right)
 
         defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
         XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .newTab)
 
         defaults.set("unsupported", forKey: AgentConversationForkDefaultSettings.key)
-        XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
-            .right,
-            "Invalid settings file values should fall back to the product default"
-        )
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .right)
     }
 
     func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() throws {

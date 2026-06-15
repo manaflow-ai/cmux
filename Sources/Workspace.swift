@@ -2274,21 +2274,10 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// Process-wide, event-driven cache of `RestorableAgentSessionIndex` results, used by the
-/// right-click "Fork Conversation" availability check and the close-history undo snapshot.
-/// Loading runs disk reads plus process scans that can take 350ms-1.8s on large agent
-/// histories, far too expensive to do synchronously on the main actor, so reloads run on a
-/// `Task.detached(priority: .utility)` and callers read the cached snapshot synchronously.
-///
-/// Freshness is driven by a watcher on the hook-store directory (`~/.cmuxterm`), which the
-/// `cmux hooks` CLI writes when an agent session starts or updates. The cache reloads
-/// shortly after an actual change (coalesced + rate-limited) and otherwise idles, with a
-/// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
-/// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
-///
-/// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
-/// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
-/// snapshot on the same frame.
+/// Process-wide cache for fork availability and close-history snapshots.
+/// Loading does disk reads plus process scans, so refreshes run off-main and menu callers
+/// read the cached snapshot synchronously. A hook-store watcher provides freshness and
+/// `ObservableObject` lets workspaces re-render when the cache changes.
 @MainActor
 final class SharedLiveAgentIndex: ObservableObject {
     static let shared = SharedLiveAgentIndex()
@@ -2318,37 +2307,35 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
+    /// Heavy loader for refresh tasks. Call off-main; menu paths should read the cache.
     nonisolated static func loadIndexForRefresh(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
         detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry]? = nil
     ) -> RestorableAgentSessionIndex {
-        let resolvedRegistry = registry ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let resolvedDetectedSnapshots = detectedSnapshots ?? RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: resolvedRegistry,
+        let resolvedRegistry = registry ?? CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory,
             fileManager: fileManager
         )
         return RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
-            detectedSnapshots: resolvedDetectedSnapshots
+            detectedSnapshots: detectedSnapshots ?? RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: resolvedRegistry,
+                fileManager: fileManager
+            )
         )
     }
 
-    /// Current cached index. Never blocks. Used by the close-history undo snapshot so
-    /// closing a tab does not pay the synchronous `RestorableAgentSessionIndex.load()`
-    /// cost on the main thread. The directory watcher keeps this current; stale tolerance
-    /// is fine because restore/resume re-reads transcripts from disk and only uses the
-    /// cached snapshot's session identity, not the live PID set.
+    /// Current cached index. Never blocks.
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
     }
 
-    /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
-    /// long fallback TTL. The watcher, not this TTL, is the primary freshness path.
+    /// Start the watcher and refresh if the cache has aged past the fallback TTL.
     func scheduleRefreshIfStale() {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil else { return }
@@ -2363,13 +2350,10 @@ final class SharedLiveAgentIndex: ObservableObject {
         deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
-                // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
-                // for load(); everything else should read SharedLiveAgentIndex.shared).
+                // agent-index-load-ok: off-main cache loader.
                 Self.loadIndexForRefresh()
             }.value
             guard let self else { return }
-            // Assigning to `@Published` fires objectWillChange, which subscribed
-            // workspaces forward as their own objectWillChange so SwiftUI re-renders.
             self.index = newIndex
             self.loadedAt = Date()
             self.refreshTask = nil
@@ -2408,26 +2392,13 @@ final class SharedLiveAgentIndex: ObservableObject {
             .hookStoreFileURL()
             .deletingLastPathComponent()
             .path
-        // Ensure the hook-store directory exists so the watcher installs at launch and
-        // observes the very first hook write. On a fresh/cleaned install it would
-        // otherwise not exist yet, the watcher would not install, and the first agent's
-        // session could stay invisible behind the fallback TTL. This is cmux's own state
-        // directory (the `cmux hooks` CLI writes here too), so creating it empty is benign.
+        // Create cmux's own hook directory so first-run sessions are watchable immediately.
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let fd = open(dir, O_EVTONLY)
         guard fd >= 0 else {
-            // Directory still unavailable (e.g. permissions); retried on the next
-            // scheduleRefreshIfStale() (sidebar render / close).
             return
         }
-        // A directory-level kqueue source reports entry changes (create/delete/rename) but
-        // not in-place data writes to an existing child file. That is sufficient here
-        // because every hook-store write is atomic (write-temp + rename, e.g.
-        // ClaudeHookSessionStore.saveUnlocked uses `.write(options: .atomic)`), so each
-        // update lands as a rename into this directory and fires the source. This matches
-        // cmux's existing CmuxConfig watcher, which relies on the same atomic-write
-        // invariant. The 60s fallback TTL backstops anything a future non-atomic writer
-        // to ~/.cmuxterm might add.
+        // Hook writes are atomic renames, so directory write/link/rename events are enough.
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .link, .rename],
@@ -2439,10 +2410,6 @@ final class SharedLiveAgentIndex: ObservableObject {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        // The watcher may have just been installed after `~/.cmuxterm` first appeared
-        // (first run / cleaned state); any hook writes before this moment were unobserved
-        // and an earlier empty load may have stamped a "fresh" loadedAt that would
-        // suppress the fallback-TTL reload. Force a catch-up reload now.
         if refreshTask == nil {
             startReload()
         } else {
@@ -10621,11 +10588,7 @@ final class Workspace: Identifiable, ObservableObject {
         ])
     }
 
-    /// Synchronous availability check used by the tab right-click context menu to decide
-    /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
-    /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
-    /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// Right-click menu availability. Probe-required agents stay command-palette-only.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
         canForkAgentConversationFromPanel(
             panelId,
@@ -10648,16 +10611,8 @@ final class Workspace: Identifiable, ObservableObject {
         ) == .supportedWithoutProbe
     }
 
-    /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
-    /// (filled on session restore / hibernation), then falls back to the process-wide
-    /// `SharedLiveAgentIndex`. The shared index loads the on-disk hook session store off the
-    /// main actor (it runs `sysctl(KERN_PROCARGS2)` per live record for live-PID filtering,
-    /// which is too expensive to do synchronously during SwiftUI menu evaluation) and a
-    /// single load serves every workspace. The Workspace subscribes to the shared store's
-    /// `objectWillChange` in its initializer so that when a refresh lands, this workspace's
-    /// own `objectWillChange` fires, ContentView re-renders, and bonsplit's TabBarView re-
-    /// evaluates the menu state on the same frame — Fork Conversation appears the moment
-    /// the index is loaded without requiring a second right-click.
+    /// Snapshot used by the right-click fork path. Prefers restored snapshots, then the
+    /// shared live index, which refreshes off-main and invalidates the workspace on changes.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         forkableAgentSnapshot(
             forPanelId: panelId,
