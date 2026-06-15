@@ -71,6 +71,31 @@ struct CodexSessionResolverTests {
         #expect(CodexSessionResolver().inferredCodexSessionId(cwd: realCwd.path, env: env) == "symlink-session")
     }
 
+    @Test("Degrades to nil (no crash) when cwd sits past the head-read cap")
+    func toleratesCwdBeyondHeadCap() throws {
+        // The resolver caps the head read so a huge rollout is cheap to peek,
+        // relying on codex emitting id/cwd ahead of the multi-KB base_instructions.
+        // If a rollout ever pushes cwd past that cap (e.g. a future field-ordering
+        // change), resolution must fail safe — return nil, never crash or hang —
+        // so Fork Conversation simply hides rather than forking a wrong session.
+        let root = tempRoot("beyond-cap")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        let cwd = try makeDir(root.appendingPathComponent("repo", isDirectory: true))
+        let dir = codexHome.appendingPathComponent("sessions/2026/06/15", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // A >16KB neutral field precedes cwd in the first JSONL line, so cwd falls
+        // outside the head window. The padding contains no "cwd" key.
+        let padding = String(repeating: "x", count: 32 * 1024)
+        let firstLine = #"{"type":"session_meta","payload":{"id":"deep","base_instructions":"\#(padding)","cwd":"\#(cwd.path)"}}"#
+        let fileURL = dir.appendingPathComponent("rollout-2026-06-15T00-00-00-deep.jsonl", isDirectory: false)
+        try (firstLine + "\n").data(using: .utf8)!.write(to: fileURL)
+
+        let env = ["CODEX_HOME": codexHome.path]
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: cwd.path, env: env) == nil)
+    }
+
     // MARK: - Fixtures
 
     private func tempRoot(_ tag: String) -> URL {
