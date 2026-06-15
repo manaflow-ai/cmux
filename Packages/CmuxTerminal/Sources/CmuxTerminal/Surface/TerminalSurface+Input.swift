@@ -101,6 +101,36 @@ extension TerminalSurface {
         return .sent
     }
 
+    /// Clears the visible screen while preserving scrollback, then asks the shell
+    /// to repaint a fresh prompt.
+    ///
+    /// Feeds ED mode 22 (`ESC [ 22 J` — the Kitty `scroll_complete` extension)
+    /// through Ghostty's PTY-output parser: the current screen is scrolled into
+    /// scrollback and the active area is erased, so all history is kept. This is
+    /// the less-destructive sibling of the `clear_screen` binding action, which
+    /// also wipes scrollback. A form-feed (`0x0C`, Ctrl-L) is then delivered to the
+    /// PTY so the shell repaints its prompt at the top — mirroring Ghostty's own
+    /// `Termio.clearScreen(history: false)` at-a-prompt path.
+    ///
+    /// - Returns: `true` when the sequence reached a live surface; `false` when no
+    ///   live surface is available or the child process has exited.
+    @MainActor
+    @discardableResult
+    public func clearScreenKeepingScrollback() -> Bool {
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "clearScreenKeepingScrollback") else {
+            return false
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        // ESC [ 22 J — scroll the active screen into scrollback, then erase the display.
+        writeProcessOutputData(Data([0x1b, 0x5b, 0x32, 0x32, 0x4a]), to: liveSurface)
+        // Ctrl-L (form-feed) so the shell redraws a fresh prompt at the top, matching
+        // Ghostty's clearScreen behavior at a prompt. Harmless when no shell is reading.
+        if let formFeed = pendingKeyEvent(for: "ctrl-l") {
+            sendKeyEvent(surface: liveSurface, keycode: formFeed.keycode, mods: formFeed.mods)
+        }
+        return true
+    }
+
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {

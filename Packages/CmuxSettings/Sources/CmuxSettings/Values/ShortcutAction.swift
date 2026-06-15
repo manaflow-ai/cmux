@@ -70,6 +70,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
+    /// Clears the focused terminal's visible screen while preserving scrollback.
+    case clearScreenKeepScrollback
 
     // MARK: Panes
     case focusLeft
@@ -176,7 +178,8 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
+             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
@@ -251,7 +254,7 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal:
+        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
@@ -345,6 +348,8 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .clearScreenKeepScrollback:
+            return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"

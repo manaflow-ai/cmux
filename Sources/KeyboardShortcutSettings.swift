@@ -116,6 +116,7 @@ enum KeyboardShortcutSettings {
         case focusTextBoxInput
         case attachTextBoxFile
         case sendCtrlFToTerminal
+        case clearScreenKeepScrollback
 
         // Panes / splits
         case focusLeft
@@ -234,6 +235,7 @@ enum KeyboardShortcutSettings {
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+            case .clearScreenKeepScrollback: return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -472,6 +474,12 @@ enum KeyboardShortcutSettings {
                 // opt in via Settings; it stays reachable through the command palette and
                 // the `send_key ctrl-f` socket command.
                 return .unbound
+            case .clearScreenKeepScrollback:
+                // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K
+                // (clear_screen), which also wipes scrollback. Shift+K is unbound in
+                // both Ghostty defaults and cmux, and sits next to the full-clear
+                // chord. Rebindable in Settings → Keyboard Shortcuts.
+                return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
