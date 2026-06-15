@@ -21,6 +21,7 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 final class BrowserHiddenWebViewDiscardManager {
     struct BlockerSnapshot {
         let isClosing: Bool
+        let isProtectedByWorkspaceVisibility: Bool
         let isVisibleInUI: Bool
         let shouldRenderWebView: Bool
         let hasPendingRemoteNavigation: Bool
@@ -38,6 +39,48 @@ final class BrowserHiddenWebViewDiscardManager {
         let hasPopups: Bool
         let isCapturingMedia: Bool
         let isPlayingMedia: Bool
+
+        init(
+            isClosing: Bool,
+            isProtectedByWorkspaceVisibility: Bool = false,
+            isVisibleInUI: Bool,
+            shouldRenderWebView: Bool,
+            hasPendingRemoteNavigation: Bool,
+            hasCurrentURL: Bool,
+            isLoading: Bool,
+            webViewIsLoading: Bool,
+            hasActiveMainFrameProvisionalNavigation: Bool,
+            isDownloading: Bool,
+            activeDownloadCount: Int,
+            preferredDeveloperToolsVisible: Bool,
+            isDeveloperToolsVisible: Bool,
+            isElementFullscreenActive: Bool,
+            isReactGrabActive: Bool,
+            isVisualAutomationCaptureActive: Bool,
+            hasPopups: Bool,
+            isCapturingMedia: Bool,
+            isPlayingMedia: Bool
+        ) {
+            self.isClosing = isClosing
+            self.isProtectedByWorkspaceVisibility = isProtectedByWorkspaceVisibility
+            self.isVisibleInUI = isVisibleInUI
+            self.shouldRenderWebView = shouldRenderWebView
+            self.hasPendingRemoteNavigation = hasPendingRemoteNavigation
+            self.hasCurrentURL = hasCurrentURL
+            self.isLoading = isLoading
+            self.webViewIsLoading = webViewIsLoading
+            self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
+            self.isDownloading = isDownloading
+            self.activeDownloadCount = activeDownloadCount
+            self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
+            self.isDeveloperToolsVisible = isDeveloperToolsVisible
+            self.isElementFullscreenActive = isElementFullscreenActive
+            self.isReactGrabActive = isReactGrabActive
+            self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
+            self.hasPopups = hasPopups
+            self.isCapturingMedia = isCapturingMedia
+            self.isPlayingMedia = isPlayingMedia
+        }
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
@@ -71,6 +114,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if isSystemSleeping { blockers.append("system_sleeping") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
+        if snapshot.isProtectedByWorkspaceVisibility { blockers.append("workspace_visible") }
         if snapshot.isVisibleInUI { blockers.append("visible") }
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }

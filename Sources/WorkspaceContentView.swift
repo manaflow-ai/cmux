@@ -335,6 +335,7 @@ struct WorkspaceContentView: View {
             updateAgentHibernationPresentationVisibility()
         }
         .onDisappear {
+            workspace.setWorkspacePresentationVisible(false)
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
@@ -626,6 +627,7 @@ struct WorkspaceContentView: View {
     }
 
     private func updateAgentHibernationPresentationVisibility() {
+        workspace.setWorkspacePresentationVisible(isWorkspaceVisible)
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
 

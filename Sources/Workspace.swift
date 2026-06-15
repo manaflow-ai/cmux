@@ -3646,6 +3646,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var workspacePresentationVisible = false
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -9863,6 +9864,12 @@ final class Workspace: Identifiable, ObservableObject {
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
     }
 
+    func setWorkspacePresentationVisible(_ isVisible: Bool) {
+        guard workspacePresentationVisible != isVisible else { return }
+        workspacePresentationVisible = isVisible
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.presentationVisibility")
+    }
+
     // MARK: - Utility
 
     /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
@@ -10592,6 +10599,10 @@ final class Workspace: Identifiable, ObservableObject {
         return renderedVisiblePanelIdsForCurrentLayout()
     }
 
+    private func presentationVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        workspacePresentationVisible ? renderedVisiblePanelIdsForCurrentLayout() : []
+    }
+
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
@@ -10655,15 +10666,29 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        let visiblePanelIds = presentationVisiblePanelIdsForCurrentLayout()
         var didChange = false
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
-            if browserPanel.canvasInlineHostingActive { continue }
+            if browserPanel.canvasInlineHostingActive {
+                if browserPanel.setWorkspaceVisibilityProtectsHiddenWebViewDiscard(
+                    false,
+                    reason: "canvasInline.\(reason)"
+                ) {
+                    didChange = true
+                }
+                continue
+            }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            if browserPanel.setWorkspaceVisibilityProtectsHiddenWebViewDiscard(
+                shouldBeVisible,
+                reason: reason
+            ) {
+                didChange = true
+            }
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
             if shouldBeVisible {
@@ -10718,7 +10743,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func browserPortalVisibilityNeedsFollowUp() -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        let visiblePanelIds = presentationVisiblePanelIdsForCurrentLayout()
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
@@ -10739,6 +10764,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         return false
     }
+
+#if DEBUG
+    func debugBrowserPortalVisibilityNeedsFollowUpForTesting() -> Bool {
+        browserPortalVisibilityNeedsFollowUp()
+    }
+#endif
 
     private func scheduleMovedTerminalRefresh(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
