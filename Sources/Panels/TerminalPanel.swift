@@ -3,6 +3,7 @@ import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxSplitPaneLayout
 import CmuxTerminal
 
 struct AgentHibernationPanelState {

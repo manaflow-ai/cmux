@@ -96,8 +96,7 @@
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
-892	Sources/WorkspaceContentView.swift
-878	Sources/Panels/TerminalPanel.swift
+879	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 859	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
@@ -106,6 +105,7 @@
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
+782	Sources/WorkspaceContentView.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 773	Sources/MainWindowFocusController.swift

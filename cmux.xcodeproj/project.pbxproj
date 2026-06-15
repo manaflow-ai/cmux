@@ -271,6 +271,7 @@
 		A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
 		B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
+		5917A1000000000000000003 /* CmuxSplitPaneLayout in Frameworks */ = {isa = PBXBuildFile; productRef = 5917A1000000000000000002 /* CmuxSplitPaneLayout */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
 		C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */; };
@@ -1803,6 +1804,7 @@
 				C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */,
 				C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */,
 				A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */,
+				5917A1000000000000000003 /* CmuxSplitPaneLayout in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
 				C750500000000000000000A3 /* CmuxTerminal in Frameworks */,
@@ -2841,6 +2843,7 @@
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
 				E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
+				5917A1000000000000000002 /* CmuxSplitPaneLayout */,
 				E3B7A3000000000000000112 /* CmuxWorkspaceCore */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
@@ -3034,6 +3037,7 @@
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
 				E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */,
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
+				5917A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxSplitPaneLayout" */,
 				E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
@@ -4575,6 +4579,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxPanes;
 		};
+		5917A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxSplitPaneLayout" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxSplitPaneLayout;
+		};
 		E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxWorkspaceCore;
@@ -4848,6 +4856,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */;
 			productName = CmuxPanes;
+		};
+		5917A1000000000000000002 /* CmuxSplitPaneLayout */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5917A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxSplitPaneLayout" */;
+			productName = CmuxSplitPaneLayout;
 		};
 		E3B7A3000000000000000112 /* CmuxWorkspaceCore */ = {
 			isa = XCSwiftPackageProductDependency;
