@@ -824,7 +824,7 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -1764,7 +1764,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
+        ShortcutHintModifierPolicy().isCurrentWindow(
             hostWindowNumber: hostWindow?.windowNumber,
             hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
             eventWindowNumber: eventWindow?.windowNumber,
@@ -1773,8 +1773,8 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
-              ShortcutHintModifierPolicy.isCurrentWindow(
+        guard ShortcutHintModifierPolicy().shouldShowCommandHints(for: modifierFlags),
+              ShortcutHintModifierPolicy().isCurrentWindow(
                 hostWindowNumber: hostWindow?.windowNumber,
                 hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
                 eventWindowNumber: eventWindow?.windowNumber,
@@ -1795,8 +1795,8 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
-                  ShortcutHintModifierPolicy.isCurrentWindow(
+            guard ShortcutHintModifierPolicy().shouldShowCommandHints(for: NSEvent.modifierFlags),
+                  ShortcutHintModifierPolicy().isCurrentWindow(
                     hostWindowNumber: self.hostWindow?.windowNumber,
                     hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
                     eventWindowNumber: nil,
