@@ -726,7 +726,14 @@ extension ControlCommandCoordinator {
         guard let workspaceID = resolution.workspaceID else {
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
         }
-        return workspaceRemoteResult(context?.controlReconnectWorkspaceRemote(workspaceID: workspaceID))
+        let surfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), surfaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        return workspaceRemoteResult(context?.controlReconnectWorkspaceRemote(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        ))
     }
 
     /// `workspace.remote.foreground_auth_ready` — arm/continue a pending connect.

@@ -783,12 +783,10 @@ private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebVi
     return nil
 }
 
-// Lifted to `CmuxFoundation.WorkspaceMountPolicy` / `MountedWorkspacePresentation`
-// / `MountedWorkspacePresentationPolicy` (ContentView decomposition). These
-// typealiases keep call sites byte-identical.
-typealias WorkspaceMountPolicy = CmuxFoundation.WorkspaceMountPolicy
+// Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
+// (ContentView decomposition). These typealiases keep call sites short.
+typealias WorkspaceMountPlan = CmuxFoundation.WorkspaceMountPlan
 typealias MountedWorkspacePresentation = CmuxFoundation.MountedWorkspacePresentation
-typealias MountedWorkspacePresentationPolicy = CmuxFoundation.MountedWorkspacePresentationPolicy
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
@@ -1788,7 +1786,7 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let presentation = MountedWorkspacePresentationPolicy.resolve(
+                    let presentation = MountedWorkspacePresentation.resolve(
                         isSelectedWorkspace: isSelectedWorkspace,
                         isRetiringWorkspace: isRetiringWorkspace
                     )
@@ -2777,12 +2775,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
-            let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
+            let tabId = SidebarDragLifecycleNotification().tabId(from: notification)
             sidebarDraggedTabId = tabId
 #if DEBUG
             cmuxDebugLog(
                 "sidebar.dragState.content tab=\(debugShortWorkspaceId(tabId)) " +
-                "reason=\(SidebarDragLifecycleNotification.reason(from: notification))"
+                "reason=\(SidebarDragLifecycleNotification().reason(from: notification))"
             )
 #endif
         })
@@ -3171,19 +3169,19 @@ struct ContentView: View {
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
-            ? WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-            : WorkspaceMountPolicy.maxMountedWorkspaces
+            ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+            : WorkspaceMountPlan.maxMountedWorkspaces
         let selectedCount = effectiveSelectedId == nil ? 0 : 1
         let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
-        mountedWorkspaceIds = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        mountedWorkspaceIds = WorkspaceMountPlan(
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
             pinnedIds: pinnedIds,
             orderedTabIds: orderedTabIds,
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
-        )
+        ).mountedWorkspaceIds
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
         for workspace in currentTabs {
@@ -9672,7 +9670,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     ) {
         sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-        alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+        alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
@@ -10424,7 +10422,7 @@ struct VerticalTabsSidebar: View {
             forDraggedWorkspaceId: dragState.draggedTabId,
             usesTopLevelRows: dragState.dropIndicatorUsesTopLevelRows
         )
-        return SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+        return SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             lastTabId: reorderIds.last
@@ -10668,7 +10666,7 @@ struct VerticalTabsSidebar: View {
             #if DEBUG
             SidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
             #endif
-            SidebarDragLifecycleNotification.postStateDidChange(
+            SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,
                 reason: "sidebar_appear"
             )
@@ -10685,13 +10683,13 @@ struct VerticalTabsSidebar: View {
             #if DEBUG
             SidebarDragStateRegistry.unregister(windowId: windowId)
             #endif
-            SidebarDragLifecycleNotification.postStateDidChange(
+            SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,
                 reason: "sidebar_disappear"
             )
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
-            SidebarDragLifecycleNotification.postStateDidChange(
+            SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: newDraggedTabId,
                 reason: "drag_state_change"
             )
@@ -10706,7 +10704,7 @@ struct VerticalTabsSidebar: View {
                 // a simulated drag is in flight.
                 if !dragState.isSimulated {
                     dragFailsafeMonitor.start {
-                        SidebarDragLifecycleNotification.postClearRequest(reason: $0)
+                        SidebarDragLifecycleNotification().postClearRequest(reason: $0)
                     }
                 }
                 return
@@ -10717,7 +10715,7 @@ struct VerticalTabsSidebar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
             guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
-            let reason = SidebarDragLifecycleNotification.reason(from: notification)
+            let reason = SidebarDragLifecycleNotification().reason(from: notification)
 #if DEBUG
             cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
@@ -12034,7 +12032,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         let renderItems = renderContext.workspaceRenderItems
-        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
+        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner().shouldCollectWorkspaceDropTargets(
             draggedTabId: dragState.draggedTabId,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
         )
@@ -12206,7 +12204,7 @@ struct VerticalTabsSidebar: View {
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
-        let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+        let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
             live: liveShowsModifierShortcutHints,
             currentTabId: tab.id,
             frozenTabId: frozenShortcutHintsTabId,
@@ -12229,7 +12227,7 @@ struct VerticalTabsSidebar: View {
         // unchanged skip re-render when drag state moves.
         let isBeingDragged = dragState.draggedTabId == tab.id
         let sidebarReorderIds = renderContext.sidebarReorderIds
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: tab.id,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
@@ -12242,7 +12240,7 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
@@ -12351,7 +12349,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
 
     func start(onRequestClear: @escaping (String) -> Void) {
         self.onRequestClear = onRequestClear
-        if SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+        if SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
             isLeftMouseButtonDown: CGEventSource.buttonState(
                 .combinedSessionState,
                 button: .left
@@ -12380,7 +12378,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
         }
         if localMouseMonitor == nil {
             localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                if SidebarDragFailsafePolicy.shouldRequestClear(forMouseEventType: event.type) {
+                if SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) {
                     self?.requestClearSoon(reason: "mouse_up_failsafe")
                 }
                 return event
@@ -12388,7 +12386,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
         }
         if globalMouseMonitor == nil {
             globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                guard SidebarDragFailsafePolicy.shouldRequestClear(forMouseEventType: event.type) else { return }
+                guard SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) else { return }
                 Task { @MainActor [weak self] in
                     self?.requestClearSoon(reason: "mouse_up_failsafe")
                 }
@@ -12467,7 +12465,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        let shouldReset = SidebarOutsideDropResetPolicy.shouldResetDrag(
+        let shouldReset = SidebarOutsideDropResetPolicy().shouldResetDrag(
             draggedTabId: draggedTabId,
             hasSidebarDragPayload: hasSidebarPayload
         )
@@ -12506,7 +12504,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.dropOutside.perform tab=\(debugShortSidebarTabId(draggedTabId))")
 #endif
-        SidebarDragLifecycleNotification.postClearRequest(reason: "outside_sidebar_drop")
+        SidebarDragLifecycleNotification().postClearRequest(reason: "outside_sidebar_drop")
         return true
     }
 
@@ -12623,7 +12621,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     }
 
     private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
+        ShortcutHintModifierPolicy().isCurrentWindow(
             hostWindowNumber: hostWindow?.windowNumber,
             hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
             eventWindowNumber: eventWindow?.windowNumber,
@@ -13270,10 +13268,10 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
+    /// Factory invoked from `body` with a stable drop-hit height. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
+    /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
+    let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -13290,8 +13288,9 @@ struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State var metadataRowsExpanded = false
+    @State var metadataBlocksExpanded = false
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13466,17 +13465,12 @@ struct TabItemView: View, Equatable {
     }
 
     private var remoteWorkspaceSidebarText: String? {
-        // Keep the SSH row visible while auto-reconnect is suspended even if
-        // every remote terminal session already died — it hosts the manual
-        // Reconnect affordance.
-        guard tab.hasActiveRemoteTerminalSessions || tab.remoteConnectionState == .suspended else {
-            return nil
-        }
+        guard tab.isRemoteWorkspace else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedTarget, !trimmedTarget.isEmpty {
             return trimmedTarget
         }
-        return String(localized: "sidebar.remote.subtitleFallback", defaultValue: "SSH workspace")
+        return String(localized: "sidebar.remote.subtitleFallback", defaultValue: "Remote workspace")
     }
 
     private var copyableSidebarSSHError: String? {
@@ -13521,18 +13515,6 @@ struct TabItemView: View, Equatable {
             return String(localized: "remote.status.disconnected", defaultValue: "Disconnected")
         case .suspended:
             return String(localized: "remote.status.suspended", defaultValue: "Unreachable")
-        }
-    }
-
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
         }
     }
 
@@ -13627,10 +13609,17 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
+        let titleLineLimit = settings.wrapsWorkspaceTitles
+            ? SidebarWorkspaceRowDropMetrics.maxWrappedTitleLines
+            : 1
+        let dropTargetHeight = workspaceDropTargetHeight(
+            snapshot: workspaceSnapshot,
+            effectiveSubtitle: effectiveSubtitle
+        )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
-            SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
+            SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
         )
 
@@ -13657,7 +13646,7 @@ struct TabItemView: View, Equatable {
                 Text(workspaceSnapshot.title)
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
+                    .lineLimit(titleLineLimit)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -13670,10 +13659,7 @@ struct TabItemView: View, Equatable {
                 // row. (Matches the group-header plus-button pattern.)
                 if canCloseWorkspace {
                     Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
+                        closeWorkspace(method: "button")
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: scaledFontSize(9), weight: .medium))
@@ -13715,6 +13701,7 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        isExpanded: $metadataRowsExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13726,6 +13713,7 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
+                        isExpanded: $metadataBlocksExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13959,7 +13947,6 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
-        .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -13967,10 +13954,7 @@ struct TabItemView: View, Equatable {
         }
         .overlay {
             MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
+                closeWorkspace(method: "middleClick")
             }
         }
         .overlay(alignment: .top) {
@@ -13984,26 +13968,13 @@ struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
-            guard let request = workspaceFinderDirectoryOpenRequest else { return }
-            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
-            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
-            workspaceFinderDirectoryOpenRequest = nil
+            await openPendingFinderDirectoryRequest()
         }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
         ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=immediate " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
+            refreshWorkspaceSnapshotAfterObservation(source: "immediate")
         }
         .onReceive(
             tab.sidebarObservationPublisher
@@ -14013,24 +13984,14 @@ struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
+            refreshWorkspaceSnapshotAfterObservation(source: "debounced")
         }
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(dropTargetHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -14066,7 +14027,7 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
             current: workspaceSnapshotStorage,
@@ -14448,7 +14409,7 @@ struct TabItemView: View, Equatable {
 
         let workspaceIds = tabManager.tabs.map(\.id)
         let shiftAnchorIndex = isShift
-            ? SidebarWorkspaceSelectionSyncPolicy.shiftClickAnchorIndex(
+            ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
                 existingAnchorIndex: lastSidebarSelectionIndex,
                 selectedWorkspaceIds: selectedTabIds,
                 focusedWorkspaceId: tabManager.selectedTabId,
@@ -14495,7 +14456,7 @@ struct TabItemView: View, Equatable {
             selectedTabIds = [tab.id]
         }
 
-        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceClick(
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
             isShiftClick: isShift,
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
@@ -14577,7 +14538,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.connected",
-                    defaultValue: "SSH connected to %@"
+                    defaultValue: "Remote connected to %@"
                 ),
                 locale: .current,
                 target
@@ -14586,7 +14547,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.connecting",
-                    defaultValue: "SSH connecting to %@"
+                    defaultValue: "Remote connecting to %@"
                 ),
                 locale: .current,
                 target
@@ -14595,7 +14556,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.reconnecting",
-                    defaultValue: "SSH reconnecting to %@"
+                    defaultValue: "Remote reconnecting to %@"
                 ),
                 locale: .current,
                 target
@@ -14605,7 +14566,7 @@ struct TabItemView: View, Equatable {
                 return String(
                     format: String(
                         localized: "sidebar.remote.help.errorWithDetail",
-                        defaultValue: "SSH error for %@: %@"
+                        defaultValue: "Remote error for %@: %@"
                     ),
                     locale: .current,
                     target,
@@ -14615,7 +14576,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.error",
-                    defaultValue: "SSH error for %@"
+                    defaultValue: "Remote error for %@"
                 ),
                 locale: .current,
                 target
@@ -14624,7 +14585,7 @@ struct TabItemView: View, Equatable {
             return String(
                 format: String(
                     localized: "sidebar.remote.help.disconnected",
-                    defaultValue: "SSH disconnected from %@"
+                    defaultValue: "Remote disconnected from %@"
                 ),
                 locale: .current,
                 target
@@ -14690,7 +14651,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended,
+            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
+                || tab.remoteConnectionState == .disconnected,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
@@ -15154,7 +15116,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     let fontScale: CGFloat
 
     var body: some View {
-        let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(markdown)
+        let renderedMarkdown = SidebarMarkdownRenderer(markdown: markdown).workspaceDescription
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
@@ -15165,6 +15127,7 @@ private struct SidebarWorkspaceDescriptionText: View {
         .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
+        .lineLimit(SidebarWorkspaceRowDropMetrics.maxDescriptionLines)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
@@ -15211,14 +15174,12 @@ private struct SidebarWorkspaceDescriptionText: View {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
+    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -15249,8 +15210,10 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+        guard !isExpanded, entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit else {
+            return entries
+        }
+        return Array(entries.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit))
     }
 
     private var helpText: String {
@@ -15262,7 +15225,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
+        entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit
     }
 }
 
@@ -15367,14 +15330,12 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
+    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedBlockLimit = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -15404,12 +15365,14 @@ private struct SidebarMetadataMarkdownBlocks: View {
     }
 
     private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
-        return Array(blocks.prefix(collapsedBlockLimit))
+        guard !isExpanded, blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit else {
+            return blocks
+        }
+        return Array(blocks.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit))
     }
 
     private var shouldShowToggle: Bool {
-        blocks.count > collapsedBlockLimit
+        blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit
     }
 }
 
@@ -15437,6 +15400,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         }
         .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
+        .lineLimit(SidebarWorkspaceRowDropMetrics.maxMetadataBlockLines)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
@@ -15821,7 +15785,7 @@ struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        guard let targetIndex = SidebarDropPlanner.targetIndex(
+        guard let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
             indicator: dragState.dropIndicator,
@@ -15849,7 +15813,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         let selectionBeforeReorder = selectedTabIds
-        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy.anchorWorkspaceId(
+        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
             existingAnchorIndex: lastSidebarSelectionIndex,
             liveWorkspaceIds: tabManager.tabs.map(\.id)
         )
@@ -15924,7 +15888,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             // Recompute against the live destination so the tier base reflects
             // workspaces inserted by the previous tier.
             let topLevelIds = crossWindowTopLevelTabIds()
-            let slot = SidebarDropPlanner.crossWindowInsertion(
+            let slot = SidebarDropPlanner().crossWindowInsertion(
                 targetTabId: crossWindowTopLevelTarget(),
                 draggedIsPinned: isPinnedTier,
                 indicator: dragState.dropIndicator,
@@ -15982,7 +15946,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             targetWorkspaceId: targetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
-        let nextIndicator = SidebarDropPlanner.indicator(
+        let nextIndicator = SidebarDropPlanner().indicator(
             draggedTabId: dragState.draggedTabId,
             targetTabId: targetTabId,
             tabIds: tabIds,
@@ -16008,7 +15972,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         let draggedIsPinned = dragState.foreignDraggedIsPinned ?? false
         // Plan in top-level space so the indicator lands on the same group/pin
         // boundary `attachWorkspace` will normalize the dropped workspace to.
-        let nextIndicator = SidebarDropPlanner.crossWindowInsertion(
+        let nextIndicator = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: crossWindowTopLevelTarget(),
             draggedIsPinned: draggedIsPinned,
             indicator: nil,
@@ -16039,13 +16003,13 @@ struct SidebarTabDropDelegate: DropDelegate {
         preferredAnchorWorkspaceId: UUID?
     ) {
         let liveWorkspaceIds = tabManager.tabs.map(\.id)
-        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
             previousSelectionIds: previousSelectionIds,
             liveWorkspaceIds: liveWorkspaceIds,
             fallbackSelectedWorkspaceId: tabManager.selectedTabId
         )
         selectedTabIds = nextSelectionIds
-        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceReorder(
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceReorder(
             preferredAnchorWorkspaceId: preferredAnchorWorkspaceId,
             selectedWorkspaceIds: nextSelectionIds,
             focusedWorkspaceId: tabManager.selectedTabId,
@@ -16126,7 +16090,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
 
     private func plannedDropIndicator(for info: DropInfo) -> SidebarDropIndicator? {
         let workspaceIds = orderedRows.map(\.workspaceId)
-        return SidebarDropPlanner.indicator(
+        return SidebarDropPlanner().indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetWorkspaceId,
             tabIds: workspaceIds,
@@ -16231,7 +16195,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 
     private func updateDropIndicator() {
         let workspaceIds = orderedRows.map(\.workspaceId)
-        let nextIndicator = SidebarDropPlanner.indicator(
+        let nextIndicator = SidebarDropPlanner().indicator(
             draggedTabId: draggedTabId,
             targetTabId: nil,
             tabIds: workspaceIds,
@@ -16244,7 +16208,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     private func insertionPositionForEndMove(draggedWorkspaceId: UUID) -> Int? {
         let workspaceIds = orderedRows.map(\.workspaceId)
         guard workspaceIds.contains(draggedWorkspaceId) else { return nil }
-        guard SidebarDropPlanner.indicator(
+        guard SidebarDropPlanner().indicator(
             draggedTabId: draggedWorkspaceId,
             targetTabId: nil,
             tabIds: workspaceIds,
@@ -16737,4 +16701,3 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         }
     }
 }
-
