@@ -2,7 +2,7 @@ import CmuxAgentChat
 import SwiftUI
 
 #Preview("Chat — full fixture") {
-    let (messages, descriptor) = ChatFixtureConversation.make()
+    let (messages, descriptor) = ChatFixtureConversation().make()
     let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
     let store = ChatConversationStore(descriptor: descriptor, source: source)
     NavigationStack {
