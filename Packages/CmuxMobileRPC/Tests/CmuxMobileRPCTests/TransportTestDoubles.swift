@@ -43,6 +43,24 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
 
 struct MissingTestStackAccessToken: Error {}
 
+/// A transport whose `connect()` always fails, modeling an unreachable route.
+/// Used to prove the session never reports a host send when the channel never
+/// came up (issue #6084).
+actor ConnectFailingTransport: CmxByteTransport {
+    struct ConnectFailed: Error {}
+
+    func connect() async throws { throw ConnectFailed() }
+    func receive() async throws -> Data? { nil }
+    func send(_ data: Data) async throws {}
+    func close() async {}
+}
+
+struct ConnectFailingTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        ConnectFailingTransport()
+    }
+}
+
 /// Async-safe one-shot boolean flag used to observe task progress in tests.
 actor AsyncFlag {
     private var value = false

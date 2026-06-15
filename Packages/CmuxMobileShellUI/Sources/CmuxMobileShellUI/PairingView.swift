@@ -18,6 +18,11 @@ struct PairingView: View {
     /// (for example "Check that both devices are on the same Tailscale"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
+    /// Per-gate (network / authentication / trust) status of the current pairing
+    /// attempt, shown as individual check marks. Rendered only after the user
+    /// starts a pairing attempt from this screen with the current route inputs, so
+    /// a background reconnect never surfaces a stale checklist here.
+    let pairingChecklist: MobilePairingChecklist?
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
@@ -35,6 +40,9 @@ struct PairingView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
+    /// Route inputs captured when the user starts pairing from this screen, so
+    /// editing the host, port, or QR/link value hides any prior attempt result.
+    @State private var startedPairingInputSignature: PairingInputSignature?
     @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
     @FocusState private var focusedField: AddDeviceField?
@@ -173,6 +181,15 @@ struct PairingView: View {
                     }
                 }
 
+                if showsChecklist, let pairingChecklist {
+                    Section {
+                        PairingChecklistRows(checklist: pairingChecklist)
+                    } header: {
+                        Text(L10n.string("mobile.pairing.checklist.title", defaultValue: "Connection status"))
+                    }
+                    .accessibilityIdentifier("MobilePairingChecklist")
+                }
+
                 if let errorText {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
@@ -264,15 +281,30 @@ struct PairingView: View {
         }
     }
 
-    private var errorText: String? {
-        validationError ?? connectionError
+    /// Whether to show the network / authentication / trust checklist. Only for
+    /// an attempt the user started on this screen with the current route inputs,
+    /// and never alongside a local form-validation error (which supersedes a prior
+    /// attempt's result).
+    private var showsChecklist: Bool {
+        validationError == nil
+            && startedPairingInputSignature == currentPairingInputSignature
+            && pairingChecklist != nil
     }
 
-    /// The guidance line only belongs to a connection error. A local validation
-    /// error (bad host/port) is self-explanatory and has no store-side guidance,
-    /// so suppress the connection guidance while a validation error is showing.
+    private var errorText: String? {
+        if let validationError { return validationError }
+        // When the checklist is showing it carries the connection failure inline
+        // on the gate that failed, so don't also surface it as a separate banner.
+        if showsChecklist { return nil }
+        return connectionError
+    }
+
+    /// The guidance line only belongs to a surfaced connection-error banner. A
+    /// local validation error (bad host/port) is self-explanatory, and when the
+    /// checklist is showing it carries the guidance on the failed gate, so
+    /// suppress the banner guidance in both cases.
     private var errorGuidanceText: String? {
-        guard validationError == nil else { return nil }
+        guard validationError == nil, !showsChecklist else { return nil }
         return connectionErrorGuidance
     }
 
@@ -310,6 +342,14 @@ struct PairingView: View {
         return String(format: format, email)
     }
 
+    private var currentPairingInputSignature: PairingInputSignature {
+        PairingInputSignature(
+            pairingCode: pairingCode.trimmingCharacters(in: .whitespacesAndNewlines),
+            host: host.trimmingCharacters(in: .whitespacesAndNewlines),
+            port: port.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
     private func pair() {
         validationError = nil
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -344,6 +384,7 @@ struct PairingView: View {
         let taskID = UUID()
         pairingTaskID = taskID
         isPairing = true
+        startedPairingInputSignature = currentPairingInputSignature
         let task = Task { @MainActor in
             defer {
                 if pairingTaskID == taskID {
@@ -362,4 +403,10 @@ private enum AddDeviceField: Hashable {
     case name
     case host
     case port
+}
+
+private struct PairingInputSignature: Equatable {
+    let pairingCode: String
+    let host: String
+    let port: String
 }
