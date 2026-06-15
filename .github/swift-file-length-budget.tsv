@@ -116,9 +116,9 @@
 754	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
-745	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
+735	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift

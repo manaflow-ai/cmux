@@ -12,12 +12,13 @@ import CmuxTerminal
 /// Behavior coverage for the "Clear Screen (Keep Scrollback)" action
 /// (`TerminalSurface.clearScreenKeepingScrollback()`, default ⌘⇧K).
 ///
-/// Unlike Ghostty's `clear_screen` (⌘K), which erases scrollback too, this action
-/// feeds ED mode 22 (`ESC [ 22 J`) so the visible screen scrolls into scrollback
-/// and the active area is cleared while all history is preserved. The test drives a
-/// real Ghostty surface running a controlled program, fills the active screen and
-/// the scrollback with unique markers, performs the clear, and asserts the active
-/// area was cleared while every marker survives in the full screen + scrollback.
+/// Unlike Ghostty's `clear_screen` (⌘K), which also erases scrollback, this action
+/// clears the visible screen while keeping history. It does so by delivering Ctrl-L
+/// (form-feed, `0x0c`) to the running program as ordinary keyboard input — never by
+/// injecting an erase sequence behind the program's back — so it is safe inside
+/// full-screen TUIs and lets the shell + Ghostty's native `^L` handling preserve
+/// scrollback. The test drives a real Ghostty surface running a controlled program
+/// that captures raw PTY input and asserts the form-feed byte is what reaches it.
 @MainActor
 @Suite
 struct TerminalClearScreenKeepScrollbackTests {
@@ -29,80 +30,71 @@ struct TerminalClearScreenKeepScrollbackTests {
     }
 
     @Test
-    func clearScreenKeepScrollbackClearsActiveScreenButPreservesScrollback() throws {
-        let uid = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        // Distinct, collision-proof markers: A is scrolled up into scrollback, B is
-        // left on the active (visible) screen before the clear.
-        let scrollbackMarker = "CMUXSCROLLBACK\(uid)"
-        let activeMarker = "CMUXACTIVE\(uid)"
+    func clearScreenKeepScrollbackDeliversFormFeedToForegroundProgram() throws {
+        let readyMarker = "CMUX_CLEAR_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let captureMarker = "CMUX_CLEAR_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
 
-        // Run a controlled program (not the login shell) so the screen contents are
-        // deterministic: print A, scroll it well past the active area with blank
-        // lines, print B on the active screen, then block on stdin via `cat` so the
-        // child stays alive (clearing requires a live, non-exited process).
+        // A controlled program (not the login shell) that puts the PTY in raw mode and
+        // echoes whatever bytes it receives as hex. Ctrl-L must arrive as the single
+        // form-feed byte 0x0c, exactly as a real keypress would deliver it.
         let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-clear-keep-scrollback-\(uid).sh")
+            .appendingPathComponent("cmux-clear-keep-scrollback-\(UUID().uuidString).py")
         let script = """
-        printf '%s\\n' '\(scrollbackMarker)'
-        i=0
-        while [ $i -lt 80 ]; do printf '\\n'; i=$((i+1)); done
-        printf '%s\\n' '\(activeMarker)'
-        exec cat
+        import os
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        sys.stdout.write("\(readyMarker)\\n")
+        sys.stdout.flush()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            data = bytearray()
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and len(data) < 4:
+                if select.select([sys.stdin], [], [], 0.05)[0]:
+                    data.extend(os.read(fd, 16))
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
         """
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: scriptURL) }
 
         let hosted = try makeHostedTerminalWindow(
-            initialCommand: "/bin/sh \(shellSingleQuoted(scriptURL.path))"
+            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
         )
         defer { hosted.window.orderOut(nil) }
 
         // Headless CI runners can fail to initialize a Metal-backed Ghostty surface.
-        // Without a live surface there is nothing to clear or read, so skip the
-        // byte-level assertions there (mirrors GhosttyDECCKMArrowKeyTests).
+        // Without a live surface there is nothing to deliver input to, so skip the
+        // byte-level assertion there (mirrors GhosttyDECCKMArrowKeyTests).
         guard hosted.surface.hasLiveSurface else { return }
 
-        // Wait until the program has printed both markers (B implies the run reached
-        // the active screen and scrolled A into history).
-        let beforeScreen = try waitForTerminalText(from: hosted, pointTag: GHOSTTY_POINT_SCREEN) {
-            $0.contains(scrollbackMarker) && $0.contains(activeMarker)
-        }
-        try #require(beforeScreen.contains(scrollbackMarker))
-        try #require(beforeScreen.contains(activeMarker))
+        let readyText = try waitForTerminalText(from: hosted) { $0.contains(readyMarker) }
+        #expect(readyText.contains(readyMarker), "capture harness should become ready")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        let beforeActive = try readTerminalText(from: hosted, pointTag: GHOSTTY_POINT_ACTIVE)
-        #expect(
-            beforeActive.contains(activeMarker),
-            "active marker must be on the visible screen before clearing"
-        )
-        #expect(
-            !beforeActive.contains(scrollbackMarker),
-            "scrollback marker must already be in history (not the active area) before clearing"
-        )
-
-        // Perform the keep-scrollback clear (ED mode 22 via process-output + Ctrl-L).
         #expect(
             hosted.surface.clearScreenKeepingScrollback(),
-            "keep-scrollback clear should reach the live surface"
+            "keep-scrollback clear should deliver the keystroke to the live surface"
         )
 
-        // ESC[22J is applied synchronously by the PTY-output parser, so read back
-        // immediately. The Ctrl-L prompt redraw is delivered to the PTY asynchronously
-        // and does not affect scrollback, so it cannot perturb these assertions.
-        let afterActive = try readTerminalText(from: hosted, pointTag: GHOSTTY_POINT_ACTIVE)
-        let afterScreen = try readTerminalText(from: hosted, pointTag: GHOSTTY_POINT_SCREEN)
+        let captureText = try waitForTerminalText(from: hosted, timeout: 5) {
+            $0.contains(captureMarker)
+        }
+        let markerRange = try #require(captureText.range(of: "\(captureMarker)="))
+        let hexCharacters = Set("0123456789abcdefABCDEF")
+        let capturedHex = String(captureText[markerRange.upperBound...].prefix { hexCharacters.contains($0) })
 
         #expect(
-            !afterActive.contains(activeMarker),
-            "the active screen must be cleared by the keep-scrollback clear"
-        )
-        #expect(
-            afterScreen.contains(activeMarker),
-            "the just-cleared screen contents must be scrolled into scrollback, not erased"
-        )
-        #expect(
-            afterScreen.contains(scrollbackMarker),
-            "pre-existing scrollback must be preserved by the keep-scrollback clear"
+            capturedHex == "0c",
+            "Clear Screen (Keep Scrollback) must deliver a single Ctrl-L form-feed (0x0c), not an erase sequence injected behind the program's back; got \(capturedHex)"
         )
     }
 
@@ -147,19 +139,16 @@ struct TerminalClearScreenKeepScrollbackTests {
         )
     }
 
-    private func readTerminalText(
-        from terminal: HostedTerminalWindow,
-        pointTag: ghostty_point_tag_e
-    ) throws -> String {
+    private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
         let runtimeSurface = try #require(terminal.surface.surface)
         let topLeft = ghostty_point_s(
-            tag: pointTag,
+            tag: GHOSTTY_POINT_SURFACE,
             coord: GHOSTTY_POINT_COORD_TOP_LEFT,
             x: 0,
             y: 0
         )
         let bottomRight = ghostty_point_s(
-            tag: pointTag,
+            tag: GHOSTTY_POINT_SURFACE,
             coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
             x: 0,
             y: 0
@@ -182,16 +171,15 @@ struct TerminalClearScreenKeepScrollbackTests {
 
     private func waitForTerminalText(
         from terminal: HostedTerminalWindow,
-        pointTag: ghostty_point_tag_e,
         timeout: TimeInterval = 5,
         matching predicate: (String) -> Bool
     ) throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var latest = try readTerminalText(from: terminal, pointTag: pointTag)
+        var latest = try readTerminalText(from: terminal)
         while Date() < deadline {
             if predicate(latest) { return latest }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            latest = try readTerminalText(from: terminal, pointTag: pointTag)
+            latest = try readTerminalText(from: terminal)
         }
         return latest
     }

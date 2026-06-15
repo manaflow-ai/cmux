@@ -715,7 +715,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func clearScreenKeepingScrollback() -> Bool {
-        guard !isAgentHibernated else { return false }
+        resumeForExplicitInputIfNeeded()
         return surface.clearScreenKeepingScrollback()
     }
 
