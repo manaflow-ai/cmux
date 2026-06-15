@@ -13,8 +13,11 @@ public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeS
     private let interSpawnDelay: Duration
     private let delayer: any TerminalSurfaceRestoreSpawnDelaying
     private var pending: [(surfaceId: UUID, operation: @MainActor () -> Void)] = []
+    private var pendingHead = 0
     private var queuedSurfaceIds: Set<UUID> = []
-    private var drainTask: Task<Void, Never>?
+    private var isDraining = false
+    private var drainStartTask: Task<Void, Never>?
+    private var scheduledDelay: (any TerminalSurfaceRestoreSpawnDelayCancelling)?
 
     /// Creates a scheduler for restored terminal native spawns.
     ///
@@ -24,7 +27,7 @@ public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeS
     ///   - delayer: The delay primitive; tests inject a manual implementation.
     public init(
         interSpawnDelay: Duration = TerminalSurfaceRestoreSpawnScheduler.defaultInterSpawnDelay,
-        delayer: any TerminalSurfaceRestoreSpawnDelaying = ContinuousTerminalSurfaceRestoreSpawnDelayer()
+        delayer: any TerminalSurfaceRestoreSpawnDelaying = RunLoopTerminalSurfaceRestoreSpawnDelayer()
     ) {
         self.interSpawnDelay = interSpawnDelay
         self.delayer = delayer
@@ -38,23 +41,51 @@ public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeS
         guard !queuedSurfaceIds.contains(surfaceId) else { return }
         queuedSurfaceIds.insert(surfaceId)
         pending.append((surfaceId: surfaceId, operation: operation))
-        guard drainTask == nil else { return }
+        guard !isDraining, drainStartTask == nil else { return }
 
-        drainTask = Task { @MainActor [weak self] in
-            await self?.drain()
+        drainStartTask = Task { @MainActor [weak self] in
+            self?.beginDraining()
         }
     }
 
-    private func drain() async {
-        while !pending.isEmpty {
-            let next = pending.removeFirst()
+    private func beginDraining() {
+        drainStartTask = nil
+        guard !isDraining else { return }
+        guard pendingHead < pending.count else { return }
+        isDraining = true
+        drainNextReadySpawn()
+    }
+
+    private func drainNextReadySpawn() {
+        while pendingHead < pending.count {
+            let next = pending[pendingHead]
+            pendingHead += 1
             queuedSurfaceIds.remove(next.surfaceId)
             next.operation()
 
-            if !pending.isEmpty, interSpawnDelay > .zero {
-                await delayer.delay(for: interSpawnDelay)
+            if interSpawnDelay > .zero {
+                schedulePostSpawnCooldown()
+                return
             }
         }
-        drainTask = nil
+        finishDraining()
+    }
+
+    private func schedulePostSpawnCooldown() {
+        scheduledDelay = delayer.scheduleDelay(for: interSpawnDelay) { [weak self] in
+            guard let self else { return }
+            self.scheduledDelay = nil
+            if self.pendingHead < self.pending.count {
+                self.drainNextReadySpawn()
+            } else {
+                self.finishDraining()
+            }
+        }
+    }
+
+    private func finishDraining() {
+        pending.removeAll(keepingCapacity: true)
+        pendingHead = 0
+        isDraining = false
     }
 }

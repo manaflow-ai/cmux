@@ -5,21 +5,25 @@ import Testing
 import CmuxTerminalCore
 @testable import CmuxTerminal
 
-private actor ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
+@MainActor
+private final class ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
     private var delayCount = 0
-    private var delayContinuations: [CheckedContinuation<Void, Never>] = []
+    private var delayOperations: [@MainActor () -> Void] = []
+    private var delayOperationHead = 0
     private var countContinuations: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
-    func delay(for duration: Duration) async {
+    func scheduleDelay(
+        for duration: Duration,
+        operation: @escaping @MainActor () -> Void
+    ) -> any TerminalSurfaceRestoreSpawnDelayCancelling {
         _ = duration
         delayCount += 1
         let count = delayCount
         for waiter in countContinuations.removeValue(forKey: count) ?? [] {
             waiter.resume()
         }
-        await withCheckedContinuation { continuation in
-            delayContinuations.append(continuation)
-        }
+        delayOperations.append(operation)
+        return ManualRestoreSpawnDelay()
     }
 
     func waitForDelayCount(_ count: Int) async {
@@ -30,9 +34,16 @@ private actor ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
     }
 
     func releaseNextDelay() {
-        guard !delayContinuations.isEmpty else { return }
-        delayContinuations.removeFirst().resume()
+        guard delayOperationHead < delayOperations.count else { return }
+        let operation = delayOperations[delayOperationHead]
+        delayOperationHead += 1
+        operation()
     }
+}
+
+@MainActor
+private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCancelling {
+    func cancel() {}
 }
 
 @MainActor
@@ -55,11 +66,11 @@ private actor ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
         await delayer.waitForDelayCount(1)
         #expect(spawned == [ids[0]])
 
-        await delayer.releaseNextDelay()
+        delayer.releaseNextDelay()
         await delayer.waitForDelayCount(2)
         #expect(spawned == [ids[0], ids[1]])
 
-        await delayer.releaseNextDelay()
+        delayer.releaseNextDelay()
         await waitForSpawnCount(3, spawned: { spawned.count })
         #expect(spawned == ids)
     }
@@ -78,6 +89,33 @@ private actor ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
 
         await waitForSpawnCount(1, spawned: { spawned.count })
         #expect(spawned == ["first"])
+    }
+
+    @Test func laterReadinessDuringCooldownStillWaitsForDelay() async {
+        let delayer = ManualRestoreSpawnDelayer()
+        let scheduler = TerminalSurfaceRestoreSpawnScheduler(
+            interSpawnDelay: .milliseconds(125),
+            delayer: delayer
+        )
+        let ids = (0..<2).map { _ in UUID() }
+        var spawned: [UUID] = []
+
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[0]) {
+            spawned.append(ids[0])
+        }
+
+        await delayer.waitForDelayCount(1)
+        #expect(spawned == [ids[0]])
+
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[1]) {
+            spawned.append(ids[1])
+        }
+
+        #expect(spawned == [ids[0]])
+
+        delayer.releaseNextDelay()
+        await waitForSpawnCount(2, spawned: { spawned.count })
+        #expect(spawned == ids)
     }
 
     @Test func restorePacedTerminalSurfaceQueuesNativeCreationBeforeGhosttyWork() {
