@@ -124,13 +124,27 @@ public struct SettingsControlEngine: Sendable {
         try await unset(id)
     }
 
-    /// Clears every override, reverting the whole catalog to defaults. Best-effort
-    /// across backends: UserDefaults overrides are dropped in one batch, then
-    /// JSON and secret overrides are cleared.
+    /// Clears every override, reverting the whole catalog to defaults.
+    ///
+    /// Best-effort across backends, which cannot be a single transaction:
+    /// UserDefaults overrides are dropped in one batch, then **every** JSON and
+    /// secret override is attempted even if one fails (so a single unwritable
+    /// backend can't leave the rest un-reset and stop midway). Any failures are
+    /// collected and rethrown as one error after all resets are attempted.
     public func resetAll() async throws {
         await stores.defaults.resetAll(catalog.all)
+        var errors: [String] = []
         for descriptor in descriptors where descriptor.backend != .userDefaults {
-            try await descriptor.reset(in: stores)
+            do {
+                try await descriptor.reset(in: stores)
+            } catch {
+                errors.append("\(descriptor.id): \(error.localizedDescription)")
+            }
+        }
+        if !errors.isEmpty {
+            throw SettingsControlError.storage(
+                "reset --all could not clear every override: \(errors.joined(separator: "; "))"
+            )
         }
     }
 
