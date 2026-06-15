@@ -19,6 +19,10 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    /// Close this workspace on the Mac. When `nil` (older Macs without the
+    /// `workspace.close.v1` capability, or previews) the close affordance is
+    /// hidden from the top-bar menu. Mirrors the workspace list's gating.
+    let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -26,6 +30,10 @@ struct WorkspaceDetailView: View {
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    /// Drives the destructive close-workspace confirmation dialog launched from
+    /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
+    /// attached to the detail view across menu open/close cycles.
+    @State private var isConfirmingClose = false
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -82,6 +90,10 @@ struct WorkspaceDetailView: View {
                 terminalPickerToolbarButton
             }
         }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
     }
     #endif
 
@@ -191,6 +203,10 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
         #if canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
@@ -277,6 +293,18 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        if closeWorkspace != nil {
+            Section {
+                Button(role: .destructive, action: requestCloseWorkspaceFromMenu) {
+                    Label(
+                        L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
+                        systemImage: "xmark.square"
+                    )
+                }
+                .accessibilityIdentifier("MobileCloseWorkspaceMenuItem")
+            }
         }
 
         #if canImport(UIKit)
@@ -476,6 +504,17 @@ struct WorkspaceDetailView: View {
     private func createWorkspaceFromToolbar() {
         dismissTerminalKeyboardForChrome()
         createWorkspace()
+    }
+
+    /// Arms the close-workspace confirmation. The actual close runs only after
+    /// the user confirms, matching the workspace list's destructive-action UX.
+    private func requestCloseWorkspaceFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        isConfirmingClose = true
+    }
+
+    private func confirmCloseWorkspaceFromMenu() {
+        closeWorkspace?(workspace.id)
     }
 
     private func createTerminalFromToolbar() {
