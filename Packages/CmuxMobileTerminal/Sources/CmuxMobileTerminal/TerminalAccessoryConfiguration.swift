@@ -5,12 +5,12 @@ import Observation
 /// User-editable configuration of the terminal input-accessory bar: which
 /// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s.
 ///
-/// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘), the zoom
+/// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘ ⇧), the zoom
 /// controls, paste, the shipped insertable shortcuts (Esc, Tab, arrows, the agent
 /// launchers, …), and any custom actions, all ordered and toggled together and
-/// keyed by ``ToolbarItemID``. (The ⇧ key and the trailing "customize" control
-/// are the only structural exceptions; ⇧ is never surfaced as a bar button and
-/// the customize control is a fixed affordance, not an action.)
+/// keyed by ``ToolbarItemID``. (The composer toggle and the trailing "customize"
+/// control are the only structural exceptions; the composer is pinned outside the
+/// scroll view and the customize control is a fixed affordance, not an action.)
 ///
 /// This is the single source of truth for that region. It persists to
 /// `UserDefaults`, is `@Observable` for the SwiftUI editor, and posts
@@ -89,9 +89,32 @@ public final class TerminalAccessoryConfiguration {
         let savedOrder: [ToolbarItemID]
         let savedEnabled: [ToolbarItemID]?
         if let v3Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
-            savedOrder = v3Order.compactMap(ToolbarItemID.init(storageKey:))
-            savedEnabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
+            let order = v3Order.compactMap(ToolbarItemID.init(storageKey:))
+            let enabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
+            // ⇧ became user-configurable after the v3 schema shipped, so a layout
+            // persisted under the v3 keys has no record of it and a naive load
+            // would leave it hidden. Fold ⇧ in next to the other modifiers and
+            // show it — once, keyed off ⇧'s absence from the saved order — so an
+            // existing install surfaces it like a fresh one. Once ⇧ is persisted
+            // into the order it is present on every later launch, so the fold
+            // becomes a no-op and a user who then hides ⇧ keeps it hidden.
+            if let folded = migration.foldingNewlyConfigurable(
+                TerminalInputAccessoryAction.shift.itemID,
+                after: [
+                    TerminalInputAccessoryAction.command.itemID,
+                    TerminalInputAccessoryAction.alternate.itemID,
+                    TerminalInputAccessoryAction.control.itemID,
+                ],
+                order: order,
+                enabled: enabled ?? order
+            ) {
+                savedOrder = folded.order
+                savedEnabled = folded.enabled
+            } else {
+                savedOrder = order
+                savedEnabled = enabled
+            }
         } else if let v2Order = defaults.array(forKey: Self.legacyV2OrderDefaultsKey) as? [String] {
             let widened = migration.widenedToV3(
                 order: v2Order.compactMap(ToolbarItemID.init(storageKey:)),

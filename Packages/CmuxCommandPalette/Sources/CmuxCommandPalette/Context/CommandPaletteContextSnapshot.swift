@@ -10,27 +10,27 @@ public struct CommandPaletteContextSnapshot {
     public init() {}
 
     /// Sets a boolean context value.
-    public mutating func setBool(_ key: String, _ value: Bool) {
-        boolValues[key] = value
+    public mutating func setBool(_ key: CommandPaletteContextKeys, _ value: Bool) {
+        boolValues[key.rawValue] = value
     }
 
     /// Sets a string context value; nil or empty removes the key.
-    public mutating func setString(_ key: String, _ value: String?) {
+    public mutating func setString(_ key: CommandPaletteContextKeys, _ value: String?) {
         guard let value, !value.isEmpty else {
-            stringValues.removeValue(forKey: key)
+            stringValues.removeValue(forKey: key.rawValue)
             return
         }
-        stringValues[key] = value
+        stringValues[key.rawValue] = value
     }
 
     /// Reads a boolean context value (false when absent).
-    public func bool(_ key: String) -> Bool {
-        boolValues[key] ?? false
+    public func bool(_ key: CommandPaletteContextKeys) -> Bool {
+        boolValues[key.rawValue] ?? false
     }
 
     /// Reads a string context value.
-    public func string(_ key: String) -> String? {
-        stringValues[key]
+    public func string(_ key: CommandPaletteContextKeys) -> String? {
+        stringValues[key.rawValue]
     }
 
     /// Order-insensitive fingerprint over all context values, used to detect
