@@ -2,32 +2,6 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
-extension AgentLaunchCommandSnapshot {
-    init(
-        processDetectedLauncher launcher: String,
-        executablePath: String?,
-        arguments: [String],
-        workingDirectory: String?,
-        environment: [String: String]
-    ) {
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: launcher)
-        if launcher == "opencode",
-           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !path.isEmpty {
-            selectedEnvironment["PATH"] = path
-        }
-        self.init(
-            launcher: launcher,
-            executablePath: executablePath,
-            arguments: arguments,
-            workingDirectory: workingDirectory,
-            environment: selectedEnvironment.isEmpty ? nil : selectedEnvironment,
-            capturedAt: nil,
-            source: "process"
-        )
-    }
-}
-
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
@@ -70,8 +44,17 @@ extension RestorableAgentSessionIndex {
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
             fileManager: fileManager,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: processArgumentsProvider
         )
+        for (key, value) in processDetectedCodexSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: processArgumentsProvider
+        ) {
+            resolved[key] = value
+        }
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -224,7 +207,8 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         fileManager: FileManager,
-        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -243,7 +227,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
