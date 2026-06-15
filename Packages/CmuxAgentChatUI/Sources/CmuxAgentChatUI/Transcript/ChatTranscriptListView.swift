@@ -27,7 +27,7 @@ public struct ChatTranscriptListView: View {
 
     #if os(iOS)
     @State private var isAtBottom = true
-    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var scrollToBottomRequest = 0
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -70,53 +70,34 @@ public struct ChatTranscriptListView: View {
 
     public var body: some View {
         #if os(iOS)
-        // ScrollViewReader (not ScrollPosition): `ScrollPosition.scrollTo`
-        // silently no-ops on this content (verified empirically on device
-        // geometry — offset never moved), which killed both the pill and
-        // tail-follow. The proxy + row-id path scrolls reliably.
-        ScrollViewReader { proxy in
-            scrollContent
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-                // Composite key: a failed pending row pinned at the tail
-                // keeps `last?.id` stable while agent messages insert
-                // above it, so follow on count changes too.
-                .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id, isWorking: isWorking)) {
-                    guard isAtBottom else { return }
-                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    // The pill's fade/scale is animated HERE, scoped by
-                    // `value: isAtBottom`, so only this overlay animates. The
-                    // visibility callback must NOT wrap the `isAtBottom` write
-                    // in `withAnimation`: that animated the enclosing body
-                    // (which rebuilds the LazyVStack) every frame, and while
-                    // scrolling the bottom anchor's visibility oscillates
-                    // across the 0.5 threshold, so the animated re-layout
-                    // re-fired the callback and never converged -> 100% CPU
-                    // hang on scroll-up (user-reported freeze).
-                    Group {
-                        if !isAtBottom {
-                            ChatScrollToBottomButton {
-                                // Scroll to the last row id (reliably scrollable;
-                                // the zero-height bottom anchor alone no-ops),
-                                // animated so it glides instead of jumping.
-                                withAnimation(.snappy(duration: 0.3)) {
-                                    if let lastID = rows.last?.id {
-                                        proxy.scrollTo(lastID, anchor: .bottom)
-                                    } else {
-                                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                                    }
-                                }
-                            }
-                            .padding(.trailing, 12)
-                            .padding(.bottom, 8)
-                            .excludedFromKeyboardDismiss()
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                        }
+        ChatTranscriptTableView(
+            rows: rows,
+            expandedIDs: expandedIDs,
+            agentState: agentState,
+            hasMoreHistory: hasMoreHistory,
+            hasLoadedInitialHistory: hasLoadedInitialHistory,
+            initialLoadFailed: initialLoadFailed,
+            historyTruncatedAtHead: historyTruncatedAtHead,
+            actions: actions,
+            onReachTop: onReachTop,
+            onRetryInitialLoad: onRetryInitialLoad,
+            isAtBottom: $isAtBottom,
+            scrollToBottomRequest: scrollToBottomRequest
+        )
+        .overlay(alignment: .bottomTrailing) {
+            Group {
+                if !isAtBottom {
+                    ChatScrollToBottomButton {
+                        isAtBottom = true
+                        scrollToBottomRequest += 1
                     }
-                    .animation(.snappy(duration: 0.2), value: isAtBottom)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 8)
+                    .excludedFromKeyboardDismiss()
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
+            }
+            .animation(.snappy(duration: 0.2), value: isAtBottom)
         }
         #else
         ScrollViewReader { proxy in
@@ -128,15 +109,6 @@ public struct ChatTranscriptListView: View {
                 }
         }
         #endif
-    }
-
-    /// Tail-follow trigger identity; see the onChange comment. Includes
-    /// the typing indicator's presence (not a row) so an agent starting
-    /// work scrolls the indicator into view for at-bottom readers.
-    private struct FollowKey: Equatable {
-        let count: Int
-        let lastID: String?
-        let isWorking: Bool
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
@@ -182,37 +154,18 @@ public struct ChatTranscriptListView: View {
                     ChatTypingIndicatorView(agentState: agentState)
                         .padding(.top, theme.intraGroupSpacing)
                 }
-                // Fixed trailing anchor, doing double duty: a stable
-                // scroll target for tail-follow (scrolling to the last
-                // row's id undershoots from lazy height estimation), and a
-                // semantic at-bottom detector — its materialization is the
-                // truth, where scroll-geometry inset math proved
-                // unreliable across inset configurations.
+                // Fixed trailing anchor: a stable scroll target for
+                // tail-follow, the pill, and keyboard re-pin. It owns the
+                // final bottom breathing room so `scrollTo(bottomAnchorID)`
+                // lands at the true content end, not halfway through the last
+                // visible row.
                 Color.clear
-                    .frame(height: 1)
+                    .frame(height: 9)
                     .id(Self.bottomAnchorID)
-                    #if os(iOS)
-                    // Visibility, not lazy materialization: onAppear fires
-                    // anywhere in the LazyVStack's prepared region (up to a
-                    // viewport beyond the screen), which would hide the
-                    // pill and steal scroll while the user reads.
-                    .onScrollVisibilityChange(threshold: 0.5) { visible in
-                        // Set state WITHOUT animation. The pill's appearance is
-                        // animated by `.animation(value: isAtBottom)` scoped to
-                        // the overlay above, so the list layout is untouched.
-                        // Wrapping this write in `withAnimation` animated the
-                        // enclosing body (which rebuilds the LazyVStack) on every
-                        // frame; mid-scroll the anchor's visibility oscillates
-                        // across the 0.5 threshold, so the animated re-layout
-                        // re-fired this callback and never converged -> a 100%
-                        // CPU hang on scroll-up (user-reported freeze).
-                        isAtBottom = visible
-                    }
-                    #endif
             }
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -223,9 +176,6 @@ public struct ChatTranscriptListView: View {
             \.chatBubbleMaxWidth,
             containerWidth > 0 ? containerWidth * theme.bubbleMaxWidthFraction : .infinity
         )
-        #if os(iOS)
-        .scrollPosition($scrollPosition)
-        #endif
     }
 
     @ViewBuilder
