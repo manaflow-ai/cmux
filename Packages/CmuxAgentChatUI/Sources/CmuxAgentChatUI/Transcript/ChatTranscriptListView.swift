@@ -100,19 +100,18 @@ public struct ChatTranscriptListView: View {
                 .onReceive(Self.keyboardWillChangePublisher) { _ in
                     guard isAtBottom else { return }
                     withAnimation(.snappy(duration: 0.25)) {
-                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                        if let lastID = rows.last?.id {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        } else {
+                            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                        }
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     // The pill's fade/scale is animated HERE, scoped by
-                    // `value: isAtBottom`, so only this overlay animates. The
-                    // visibility callback must NOT wrap the `isAtBottom` write
-                    // in `withAnimation`: that animated the enclosing body
-                    // (which rebuilds the LazyVStack) every frame, and while
-                    // scrolling the bottom anchor's visibility oscillates
-                    // across the 0.5 threshold, so the animated re-layout
-                    // re-fired the callback and never converged -> 100% CPU
-                    // hang on scroll-up (user-reported freeze).
+                    // `value: isAtBottom`, so only this overlay animates and the
+                    // list layout (LazyVStack) is never re-animated per frame
+                    // (that caused a prior 100% CPU scroll-up freeze).
                     Group {
                         if !isAtBottom {
                             ChatScrollToBottomButton {
@@ -126,12 +125,10 @@ public struct ChatTranscriptListView: View {
                                         proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                                     }
                                 }
-                                // Engage at-bottom immediately: scrolling to the
-                                // last row's id lands above the 1pt bottom anchor,
-                                // so its visibility callback may not fire and the
-                                // pill would otherwise linger until a manual nudge.
-                                // The tap IS a request to be at the bottom, so set
-                                // it directly (and re-engage tail-follow).
+                                // Optimistic immediate hide; the scroll-geometry
+                                // reader reconciles within a frame (and correctly
+                                // keeps the pill if the scroll genuinely didn't
+                                // reach the bottom).
                                 isAtBottom = true
                             }
                             .padding(.trailing, 12)
@@ -165,6 +162,12 @@ public struct ChatTranscriptListView: View {
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
+
+    /// Distance (pt) from the content's end within which the view counts as
+    /// "at bottom": absorbs the small gap below the last row (vertical padding
+    /// + the 1pt anchor) and lazy-height estimation jitter, while staying well
+    /// under one message row so a deliberate scroll-up still shows the pill.
+    private static let atBottomThreshold: CGFloat = 40
 
     #if os(iOS)
     /// Fires on every keyboard frame change (show, hide, height change), used
@@ -215,33 +218,15 @@ public struct ChatTranscriptListView: View {
                     ChatTypingIndicatorView(agentState: agentState)
                         .padding(.top, theme.intraGroupSpacing)
                 }
-                // Fixed trailing anchor, doing double duty: a stable
-                // scroll target for tail-follow (scrolling to the last
-                // row's id undershoots from lazy height estimation), and a
-                // semantic at-bottom detector — its materialization is the
-                // truth, where scroll-geometry inset math proved
-                // unreliable across inset configurations.
+                // Fixed trailing anchor: a stable scroll target for
+                // tail-follow, the pill, and keyboard re-pin. At-bottom is no
+                // longer derived from this view's visibility (it sits at the
+                // composer/keyboard safe-area boundary and under-reported as
+                // "visible", desyncing the pill and the keyboard guard);
+                // `isAtBottom` now comes from the scroll geometry below.
                 Color.clear
                     .frame(height: 1)
                     .id(Self.bottomAnchorID)
-                    #if os(iOS)
-                    // Visibility, not lazy materialization: onAppear fires
-                    // anywhere in the LazyVStack's prepared region (up to a
-                    // viewport beyond the screen), which would hide the
-                    // pill and steal scroll while the user reads.
-                    .onScrollVisibilityChange(threshold: 0.5) { visible in
-                        // Set state WITHOUT animation. The pill's appearance is
-                        // animated by `.animation(value: isAtBottom)` scoped to
-                        // the overlay above, so the list layout is untouched.
-                        // Wrapping this write in `withAnimation` animated the
-                        // enclosing body (which rebuilds the LazyVStack) on every
-                        // frame; mid-scroll the anchor's visibility oscillates
-                        // across the 0.5 threshold, so the animated re-layout
-                        // re-fired this callback and never converged -> a 100%
-                        // CPU hang on scroll-up (user-reported freeze).
-                        isAtBottom = visible
-                    }
-                    #endif
             }
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)
@@ -258,6 +243,20 @@ public struct ChatTranscriptListView: View {
         )
         #if os(iOS)
         .scrollPosition($scrollPosition)
+        // At-bottom is read directly from the scroll geometry (the source of
+        // truth), not a sentinel view's visibility. `visibleRect.maxY` is the
+        // bottom of the visible content in content coordinates and already
+        // accounts for the composer/keyboard safe-area insets, so the distance
+        // to the content's end is inset-correct and updates on every scroll,
+        // keyboard transition, and content-size change. A forgiving threshold
+        // absorbs the small gap below the last row (padding + 1pt anchor) and
+        // lazy-height jitter.
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            max(0, geometry.contentSize.height - geometry.visibleRect.maxY)
+        } action: { _, distanceFromBottom in
+            let atBottom = distanceFromBottom <= Self.atBottomThreshold
+            if atBottom != isAtBottom { isAtBottom = atBottom }
+        }
         #endif
     }
 
