@@ -47,37 +47,59 @@ extension SettingsControlEngine {
 
         var bindings = await currentShortcutBindings()
 
-        if !proposed.isUnbound, !force {
-            // Two bindings only truly conflict when their keystrokes collide AND
-            // their focus contexts can coexist without priority routing resolving
-            // the overlap — matching the app's router and Settings UI, so
-            // context-separated bindings (browser-only vs markdown-only) are not
-            // falsely rejected.
-            let whenClauses = await currentShortcutWhenClauses()
-            let actionWhen = effectiveWhenClause(action, whenClauses)
-            for other in ShortcutAction.allCases where other != action {
-                let otherBinding = effectiveBinding(other, overrides: bindings)
-                guard otherBinding.conflicts(
-                    with: proposed,
-                    selfUsesNumberedDigitMatching: other.usesNumberedDigitMatching,
-                    otherUsesNumberedDigitMatching: action.usesNumberedDigitMatching
-                ) else { continue }
-                let otherWhen = effectiveWhenClause(other, whenClauses)
-                guard ShortcutWhenClause.bindingsCollide(
-                    otherWhen, lhsHasPriority: other.hasPriorityShortcutRouting,
-                    actionWhen, rhsHasPriority: action.hasPriorityShortcutRouting
-                ) else { continue }
+        // Find every action whose effective binding truly collides: keystrokes
+        // overlap AND focus contexts can coexist without priority routing
+        // resolving the overlap (matching the app's router / Settings UI, so
+        // context-separated bindings like browser-only vs markdown-only are not
+        // falsely flagged).
+        let conflicts = await conflictingActions(with: proposed, for: action, in: bindings)
+        if !conflicts.isEmpty {
+            guard force else {
                 throw SettingsControlError.shortcutConflict(
                     action: actionID,
-                    conflictingAction: other.rawValue,
+                    conflictingAction: conflicts[0].rawValue,
                     binding: proposed.configIdentifier
                 )
+            }
+            // `--force` reassigns the keystroke: unbind the losing actions so the
+            // running app routes the stroke to this action alone (leaving two
+            // actions on one stroke would make the new binding silently not fire).
+            for losing in conflicts {
+                bindings[losing.rawValue] = .unbound
             }
         }
 
         bindings[action.rawValue] = proposed
         try await writeShortcutBindings(bindings)
         return shortcutRow(action, overrides: bindings)
+    }
+
+    /// The actions whose effective binding collides with `proposed` for `action`,
+    /// honoring numbered-digit matching, focus context, and priority routing.
+    private func conflictingActions(
+        with proposed: StoredShortcut,
+        for action: ShortcutAction,
+        in bindings: [String: StoredShortcut]
+    ) async -> [ShortcutAction] {
+        guard !proposed.isUnbound else { return [] }
+        let whenClauses = await currentShortcutWhenClauses()
+        let actionWhen = effectiveWhenClause(action, whenClauses)
+        var result: [ShortcutAction] = []
+        for other in ShortcutAction.allCases where other != action {
+            let otherBinding = effectiveBinding(other, overrides: bindings)
+            guard otherBinding.conflicts(
+                with: proposed,
+                selfUsesNumberedDigitMatching: other.usesNumberedDigitMatching,
+                otherUsesNumberedDigitMatching: action.usesNumberedDigitMatching
+            ) else { continue }
+            let otherWhen = effectiveWhenClause(other, whenClauses)
+            guard ShortcutWhenClause.bindingsCollide(
+                otherWhen, lhsHasPriority: other.hasPriorityShortcutRouting,
+                actionWhen, rhsHasPriority: action.hasPriorityShortcutRouting
+            ) else { continue }
+            result.append(other)
+        }
+        return result
     }
 
     /// Clears an action's override, reverting to its default binding.

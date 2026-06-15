@@ -162,10 +162,13 @@ public struct SettingsControlEngine: Sendable {
             }
             return .int(int)
         case .double:
-            guard let double = Double(raw.trimmingCharacters(in: .whitespaces)) else {
+            // Reject non-finite spellings (`nan`, `inf`): they are not valid JSON
+            // and would break the socket response / `--json` / export after being
+            // written, matching the config-file path's finite-number rule.
+            guard let double = Double(raw.trimmingCharacters(in: .whitespaces)), double.isFinite else {
                 throw SettingsControlError.invalidValue(
                     key: descriptor.id,
-                    reason: "expected a number, got '\(raw)'"
+                    reason: "expected a finite number, got '\(raw)'"
                 )
             }
             return .double(double)

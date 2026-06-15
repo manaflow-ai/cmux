@@ -343,6 +343,34 @@ struct SettingsControlEngineTests {
         #expect(forced.binding == "cmd+ctrl+9")
     }
 
+    @Test func shortcutForceUnbindsConflictingAction() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+
+        _ = try await engine.shortcutSet("openSettings", combo: "cmd+ctrl+opt+7", force: true)
+        // Forcing the same keystroke onto another action reassigns it: the loser
+        // is unbound so the running app routes the stroke to newTab alone.
+        let row = try await engine.shortcutSet("newTab", combo: "cmd+ctrl+opt+7", force: true)
+        #expect(row.binding == "cmd+opt+ctrl+7")
+
+        let openSettings = try await engine.shortcutGet("openSettings")
+        #expect(openSettings.binding == "none")
+        #expect(openSettings.isOverridden)
+    }
+
+    @Test func rejectsNonFiniteDouble() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let doubleID = try #require(harness.engine.descriptors.first { $0.valueType == .double }?.id)
+        for bad in ["nan", "inf", "-inf"] {
+            await #expect(throws: SettingsControlError.self) {
+                try await harness.engine.set(doubleID, rawValue: bad)
+            }
+        }
+        #expect(try await harness.engine.get(doubleID).isOverridden == false)
+    }
+
     @Test func shortcutRejectsUnknownActionAndBadCombo() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }
