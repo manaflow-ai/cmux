@@ -65,6 +65,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
+    let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted once per
     /// app session by the composition root so every runtime startup path uses
     /// the same immutable workspace port range.
@@ -194,6 +195,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
+    var restoredRuntimeSurfaceStartQueued = false
+    var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
@@ -346,6 +349,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
@@ -370,6 +374,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.rendererRealization = dependencies.rendererRealization
         self.hibernationRecorder = dependencies.hibernationRecorder
         self.runtimeTeardown = dependencies.runtimeTeardown
+        self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey

@@ -373,7 +373,7 @@ extension TerminalSurface {
             let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
             if let view = self.attachedView, view.window != nil {
-                self.createSurface(for: view)
+                self.createSurface(for: view, source: .normal)
             } else {
                 self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
             }
@@ -512,9 +512,9 @@ extension TerminalSurface {
                 self.claudeCommandShimInstallTask = nil
                 guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
                 if let view, view.window != nil {
-                    self.createSurface(for: view)
+                    self.createSurface(for: view, source: .normal)
                 } else if let attachedView = self.attachedView, attachedView.window != nil {
-                    self.createSurface(for: attachedView)
+                    self.createSurface(for: attachedView, source: .normal)
                 } else {
                     self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
                 }
@@ -526,6 +526,11 @@ extension TerminalSurface {
 
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing) {
+        createSurface(for: view, source: .normal)
+    }
+
+    @MainActor
+    private func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
             logDebugEvent(
@@ -536,6 +541,10 @@ extension TerminalSurface {
                 "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
             )
 #endif
+            return
+        }
+        if shouldPaceRuntimeSurfaceCreation(source: source) {
+            enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
         let claudeShimState = claudeCommandShimStateForSurface(view: view)
@@ -816,6 +825,9 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        if source == .scheduledRestore {
+            requiresRestoreSpawnPacing = false
+        }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
         // A freshly created runtime surface always owns a live (non-defunct)
         // swap chain, so it is realized. Reset the flag in case this object's
@@ -916,4 +928,33 @@ extension TerminalSurface {
         )
 #endif
     }
+
+    @MainActor
+    private func shouldPaceRuntimeSurfaceCreation(source: RuntimeSurfaceCreationSource) -> Bool {
+        guard requiresRestoreSpawnPacing else { return false }
+        guard source == .normal else { return false }
+        guard surface == nil else { return false }
+        return true
+    }
+
+    @MainActor
+    private func enqueueRestoredRuntimeSurfaceCreation(for view: any TerminalSurfaceNativeViewing) {
+        guard !restoredRuntimeSurfaceStartQueued else { return }
+        restoredRuntimeSurfaceStartQueued = true
+        let surfaceId = id
+        restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(surfaceId: surfaceId) { [weak self, weak view] in
+            guard let self else { return }
+            self.restoredRuntimeSurfaceStartQueued = false
+            guard self.allowsRuntimeSurfaceCreation() else { return }
+            guard self.surface == nil else { return }
+            guard let view, view.window != nil else { return }
+            guard self.attachedView === view else { return }
+            self.createSurface(for: view, source: .scheduledRestore)
+        }
+    }
+}
+
+private enum RuntimeSurfaceCreationSource {
+    case normal
+    case scheduledRestore
 }
