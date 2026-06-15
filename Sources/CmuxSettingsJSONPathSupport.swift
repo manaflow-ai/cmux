@@ -144,6 +144,8 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.workspaceAutoNaming",
+        "automation.autoNamingAgent",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.ampIntegration",
@@ -173,6 +175,7 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]
 }

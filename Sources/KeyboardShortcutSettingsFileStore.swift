@@ -383,6 +383,9 @@ final class CmuxSettingsFileStore {
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
+            parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -688,6 +691,22 @@ final class CmuxSettingsFileStore {
         }
     }
 
+    private func parseFileExplorerSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section["doubleClickAction"]) {
+            if let action = FileExplorerDoubleClickAction(rawValue: raw) {
+                snapshot.managedUserDefaults[FileExplorerDoubleClickActionSettings.key] = .string(action.rawValue)
+            } else {
+                logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("doubleClickAction") {
+            logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
+        }
+    }
+
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -921,6 +940,14 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeCustomClaudePath.userDefaultsKey] = .string(raw)
         }
+        if let value = jsonBool(section["workspaceAutoNaming"]) {
+            snapshot.managedUserDefaults[AutomationCatalogSection().workspaceAutoNaming.userDefaultsKey] = .bool(value)
+        }
+        if let raw = jsonString(section["autoNamingAgent"]) {
+            // Open string (any agent slug, or "auto"); the catalog/CLI resolve
+            // unknown values by falling back to each session's own agent.
+            snapshot.managedUserDefaults[AutomationCatalogSection().autoNamingAgent.userDefaultsKey] = .string(raw)
+        }
         if let raw = jsonString(section["ripgrepBinaryPath"]) {
             snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
         }
@@ -967,28 +994,30 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let browserSearchSettings = BrowserSearchSettingsStore()
+
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchEngineKey] = .string(engine.rawValue)
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.searchEngineKey] = .string(engine.rawValue)
         }
         if let raw = jsonString(section["customSearchEngineName"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineNameKey] = .string(
-                BrowserSearchSettings.normalizedCustomSearchEngineName(raw)
-                    ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineNameKey] = .string(
+                browserSearchSettings.normalizedCustomSearchEngineName(raw)
+                    ?? BrowserSearchSettingsStore.defaultCustomSearchEngineName
             )
         }
         if let raw = jsonString(section["customSearchEngineURLTemplate"]) {
-            if BrowserSearchSettings.isValidSearchURLTemplate(raw) {
-                snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineURLTemplateKey] = .string(raw)
+            if browserSearchSettings.isValidSearchURLTemplate(raw) {
+                snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineURLTemplateKey] = .string(raw)
             } else {
                 logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
             }
         }
         if let value = jsonBool(section["showSearchSuggestions"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.searchSuggestionsEnabledKey] = .bool(value)
         }
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
