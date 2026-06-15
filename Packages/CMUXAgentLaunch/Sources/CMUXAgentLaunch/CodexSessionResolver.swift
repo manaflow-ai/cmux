@@ -1,0 +1,144 @@
+import CMUXAgentVault
+import Foundation
+
+/// Resolves a Codex session id from disk for a live, hook-less codex process,
+/// given only its working directory and environment. Codex writes one rollout
+/// file per session under `$CODEX_HOME/sessions` (default `~/.codex/sessions`),
+/// date-sharded as `YYYY/MM/DD/rollout-<ts>-<id>.jsonl`. The first JSONL line is
+/// a `session_meta` record carrying `payload.id` and `payload.cwd` (both appear
+/// before the very large `base_instructions`, so a small head read suffices).
+///
+/// Used by live-process detection (Sources/VaultAgentProcessScanner.swift) so a
+/// CMUX-scoped codex process that cmux never recorded a hook for can still be
+/// resumed/forked. Resolution is the newest rollout whose `cwd` matches; callers
+/// gate this behind a single-process-per-cwd guard so an ambiguous cwd never
+/// forks the wrong conversation.
+public enum CodexSessionResolver {
+    private struct Candidate {
+        let sessionId: String
+        let modified: Date
+    }
+
+    private struct SessionMeta {
+        let sessionId: String
+        let cwd: String
+    }
+
+    /// id + cwd sit in the first few hundred bytes of the first line, ahead of
+    /// the multi-KB `base_instructions`; cap the head read so a huge rollout is
+    /// cheap to peek (we only need the early fields).
+    private static let headByteCap = 16 * 1024
+
+    public static func inferredCodexSessionId(
+        cwd: String?,
+        env: [String: String],
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let normalizedCwd = RovoDevIndex.normalizedPath(cwd), !normalizedCwd.isEmpty else {
+            return nil
+        }
+        let rootURL = URL(fileURLWithPath: codexSessionsRoot(env: env), isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        var candidates: [Candidate] = []
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "jsonl",
+                  fileURL.lastPathComponent.hasPrefix("rollout-"),
+                  let meta = peekSessionMeta(url: fileURL),
+                  let metaCwd = RovoDevIndex.normalizedPath(meta.cwd),
+                  metaCwd == normalizedCwd else {
+                continue
+            }
+            let modified = RovoDevIndex.contentModificationDate(ofRegularFile: fileURL) ?? .distantPast
+            candidates.append(Candidate(sessionId: meta.sessionId, modified: modified))
+        }
+
+        candidates.sort {
+            if $0.modified == $1.modified {
+                // Codex ids are time-ordered (ULID-like); descending id keeps
+                // equal mtimes stable while preferring the newer session.
+                return $0.sessionId > $1.sessionId
+            }
+            return $0.modified > $1.modified
+        }
+        return candidates.first?.sessionId
+    }
+
+    public static func codexSessionsRoot(env: [String: String]) -> String {
+        if let codexHome = normalizedValue(env["CODEX_HOME"]) {
+            return (expandedPath(codexHome, env: env) as NSString).appendingPathComponent("sessions")
+        }
+        let home = normalizedValue(env["HOME"]) ?? NSHomeDirectory()
+        return (home as NSString).appendingPathComponent(".codex/sessions")
+    }
+
+    // MARK: - Session meta peek
+
+    private static func peekSessionMeta(url: URL) -> SessionMeta? {
+        guard let head = readHead(url: url, byteCap: headByteCap) else { return nil }
+        // Only the first JSONL line is the `session_meta`. On small files the
+        // full line is present (JSON-parse it); on real files `base_instructions`
+        // overflows the head cap, so fall back to regex over the early bytes,
+        // where `id` and `cwd` always live.
+        let firstLine = head.firstIndex(of: "\n").map { String(head[..<$0]) } ?? head
+        if let data = firstLine.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (object["type"] as? String) == "session_meta",
+           let payload = object["payload"] as? [String: Any],
+           let id = nonEmpty(payload["id"] as? String),
+           let cwd = nonEmpty(payload["cwd"] as? String) {
+            return SessionMeta(sessionId: id, cwd: cwd)
+        }
+        guard let id = firstCapture(in: firstLine, pattern: #""id"\s*:\s*"([^"\\]+)""#),
+              let cwd = firstCapture(in: firstLine, pattern: #""cwd"\s*:\s*"([^"\\]+)""#) else {
+            return nil
+        }
+        return SessionMeta(sessionId: id, cwd: cwd)
+    }
+
+    private static func readHead(url: URL, byteCap: Int) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: byteCap)) ?? Data()
+        guard !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+    }
+
+    private static func firstCapture(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > 1,
+              let captured = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return nonEmpty(String(text[captured]))
+    }
+
+    // MARK: - Path helpers
+
+    private static func normalizedValue(_ raw: String?) -> String? {
+        nonEmpty(raw?.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func expandedPath(_ path: String, env: [String: String]) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
+            return (trimmed as NSString).expandingTildeInPath
+        }
+        let home = normalizedValue(env["HOME"]) ?? NSHomeDirectory()
+        guard trimmed != "~" else { return home }
+        return (home as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
+    }
+}

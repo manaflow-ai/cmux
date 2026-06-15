@@ -1471,6 +1471,60 @@ struct RestorableAgentSessionIndex: Sendable {
             .replacingOccurrences(of: ".", with: "-")
     }
 
+    /// Resolves the newest Claude transcript session id for `cwd` (honoring an
+    /// optional `CLAUDE_CONFIG_DIR`), reusing the exact config-root + project-dir
+    /// lookup the hook-store path uses. Used by live-process detection so a
+    /// hook-less `claude` process (e.g. launched via `sr claude`, bypassing the
+    /// cmux wrapper) still yields a fork-able session id.
+    static func newestClaudeSessionId(
+        forCwd cwd: String,
+        configDir: String?,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let normalizedCwd = normalizedNonEmptyValue(cwd) else { return nil }
+        let environment = normalizedNonEmptyValue(configDir).map { ["CLAUDE_CONFIG_DIR": $0] }
+        let record = RestorableAgentHookSessionRecord(
+            sessionId: "",
+            workspaceId: "",
+            surfaceId: "",
+            cwd: normalizedCwd,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: environment.map {
+                AgentLaunchCommandSnapshot(
+                    launcher: nil,
+                    executablePath: nil,
+                    arguments: [],
+                    workingDirectory: normalizedCwd,
+                    environment: $0,
+                    capturedAt: nil,
+                    source: nil
+                )
+            },
+            isRestorable: nil,
+            agentLifecycle: nil,
+            updatedAt: 0
+        )
+        let lookup = ClaudeTranscriptLookupCache(homeDirectory: homeDirectory, fileManager: fileManager)
+        let encoded = encodeClaudeProjectDir(normalizedCwd)
+        var projectDirs: [String] = []
+        var seen: Set<String> = []
+        for root in lookup.configRoots(for: record) {
+            let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            let projectDir = (projectsRoot as NSString).appendingPathComponent(encoded)
+            let standardized = (projectDir as NSString).standardizingPath
+            if seen.insert(standardized).inserted {
+                projectDirs.append(standardized)
+            }
+        }
+        return newestClaudeSiblingTranscript(
+            in: projectDirs,
+            excludingSessionId: "",
+            fileManager: fileManager
+        )?.sessionId
+    }
+
     private static func claudeTranscriptFileExists(
         configRoot: String,
         projectDirName: String,
