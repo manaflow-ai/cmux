@@ -156,7 +156,6 @@ final class cmuxUITests: XCTestCase {
 
         let composeButton = app.buttons[Composer.composeButton]
         let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
-        let bandClose = app.buttons[Composer.bandClose]
 
         // Fuzz loop: each iteration interleaves the focus/dismiss, tap, composer,
         // and pinch paths in a slightly different order so the geometry sync and
@@ -178,11 +177,12 @@ final class cmuxUITests: XCTestCase {
             surface.tap()
             // 5. Pinch the other way with the keyboard down.
             surface.pinch(withScale: 0.3, velocity: -8.0)
-            // 6. Every few cycles, close the composer band entirely, then it is
-            //    reopened by the compose tap at the top of the next cycle. This
-            //    drives the composer-band-height reservation in and out under load.
-            if cycle % 3 == 0, bandClose.exists, bandClose.isHittable {
-                bandClose.tap()
+            // 6. Every few cycles, toggle the composer via the compose control
+            //    (close/refocus), then the compose tap at the top of the next
+            //    cycle drives it the other way. This drives the composer-band-
+            //    height reservation in and out under load.
+            if cycle % 3 == 0, composeButton.exists, composeButton.isHittable {
+                composeButton.tap()
             }
             // The app must survive every cycle, not just the end (a mid-loop
             // watchdog hang would otherwise be reported only at teardown).
