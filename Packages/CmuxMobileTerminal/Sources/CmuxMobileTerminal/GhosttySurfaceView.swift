@@ -1492,6 +1492,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///     band. Gating the re-focus on `keyboardHeight > 0` makes both directions
     ///     correct.
     ///   No sleep / `asyncAfter`: the `become` is issued synchronously here.
+    /// The Monokai background used as the chrome fallback before the Mac's theme
+    /// is known (matches the launch ghostty config and the bar's default fill).
+    private static let monokaiChromeBackground = UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+    /// The last inherited chrome background hex, so a repeated apply is a no-op.
+    private var inheritedChromeBackgroundHex: String?
+
+    /// Drive the surrounding chrome (the input-accessory bar and the pre-output
+    /// snapshot placeholder) from the Mac's inherited terminal background so the
+    /// phone matches the Mac's Ghostty theme. The live terminal surface itself
+    /// already tracks the background through the replayed OSC 11 in its byte
+    /// stream; this only colors the UIKit chrome around it. `nil` (no frame seen
+    /// yet, or an unparseable color) keeps the built-in Monokai fallback.
+    public func applyInheritedChromeBackground(hex: String?) {
+        guard hex != inheritedChromeBackgroundHex else { return }
+        inheritedChromeBackgroundHex = hex
+        let color = hex.flatMap(Self.chromeColor(fromHex:))
+        inputProxy.applyBarBackgroundColor(color)
+        // Recolor the pre-output placeholder so the very first paint already
+        // matches; once output arrives the placeholder is hidden anyway.
+        snapshotFallbackView.backgroundColor = color ?? Self.monokaiChromeBackground
+    }
+
+    /// Parse a `#RRGGBB` (or `RRGGBB`) hex string into a UIColor, or `nil` when it
+    /// is not a valid 6-digit hex color.
+    private static func chromeColor(fromHex hex: String) -> UIColor? {
+        var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("#") { value.removeFirst() }
+        guard value.count == 6, let raw = UInt32(value, radix: 16) else { return nil }
+        return UIColor(
+            red: CGFloat((raw >> 16) & 0xFF) / 255.0,
+            green: CGFloat((raw >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(raw & 0xFF) / 255.0,
+            alpha: 1.0
+        )
+    }
+
     public func setComposerActive(_ active: Bool) {
         guard composerActive != active else { return }
         composerActive = active

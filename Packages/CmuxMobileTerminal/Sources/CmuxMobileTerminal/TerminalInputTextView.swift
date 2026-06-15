@@ -73,6 +73,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// (when the keyboard is up) and show-keyboard (when down) via
     /// ``setKeyboardShown(_:)``.
     private weak var dismissButton: UIButton?
+    /// The accessory bar's background fill, recolored to the Mac's inherited
+    /// terminal background via ``applyBarBackgroundColor(_:)``. Held weakly so it
+    /// can be recolored after the lazy bar is built; `nil` before the bar exists.
+    private weak var accessoryBarBackgroundView: UIView?
+    /// The inherited terminal background to fill the bar with, or `nil` to use the
+    /// built-in Monokai fallback. Persisted so a value set before the bar is built
+    /// (or before a rebuild) is reapplied when the background view appears.
+    private var inheritedBarBackgroundColor: UIColor?
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
@@ -262,8 +270,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.monokaiBarColor
+        // Default to the Monokai fallback; recolored to the Mac's inherited
+        // terminal background once a render-grid frame carries one (see
+        // `applyBarBackgroundColor`). Held weakly so a later inherited color
+        // can be reapplied to this exact view.
+        backgroundView.backgroundColor = inheritedBarBackgroundColor ?? Self.monokaiBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
@@ -556,6 +569,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         applyModifierPresentation()
         terminalAccessoryToolbar.setNeedsLayout()
         terminalAccessoryToolbar.layoutIfNeeded()
+    }
+
+    /// Fill the accessory bar with the Mac's inherited terminal background so the
+    /// chrome matches the Mac's Ghostty theme. `nil` restores the built-in Monokai
+    /// fallback. Set-on-change and idempotent; persists so a bar rebuilt later
+    /// reapplies it.
+    func applyBarBackgroundColor(_ color: UIColor?) {
+        guard color != inheritedBarBackgroundColor else { return }
+        inheritedBarBackgroundColor = color
+        accessoryBarBackgroundView?.backgroundColor = color ?? Self.monokaiBarColor
     }
 
     func updateModifierLabels(isMacRemote: Bool) {

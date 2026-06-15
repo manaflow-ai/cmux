@@ -596,6 +596,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    /// The Mac's resolved terminal default background (`#RRGGBB`) per surface,
+    /// recorded from full render-grid frames so the phone's surrounding chrome
+    /// (the composer/input-accessory bar) matches the Mac's inherited theme
+    /// instead of a hardcoded Monokai. Only updated when a frame actually carries
+    /// a background (deltas omit it), so the last known value survives across
+    /// deltas. Read via ``inheritedTerminalBackground(surfaceID:)``.
+    private var inheritedTerminalBackgroundBySurfaceID: [String: String] = [:]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -5127,6 +5134,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
 
+    /// Record the Mac's resolved default terminal background for `surfaceID` from
+    /// a render-grid frame.
+    ///
+    /// A nil background means two different things depending on `frame.full`:
+    /// a delta simply omits the field (the established value must persist), but a
+    /// full snapshot that carries no background is authoritative — the Mac's
+    /// configured default background was removed or no longer resolves, so the
+    /// chrome must fall back. Distinguish them so a theme change that drops the
+    /// background actually reverts the chrome instead of leaving a stale color.
+    func recordInheritedTerminalBackground(from frame: MobileTerminalRenderGridFrame) {
+        if let background = frame.terminalBackground {
+            inheritedTerminalBackgroundBySurfaceID[frame.surfaceID] = background
+        } else if frame.full {
+            inheritedTerminalBackgroundBySurfaceID.removeValue(forKey: frame.surfaceID)
+        }
+    }
+
+    /// The Mac's resolved default terminal background (`#RRGGBB`) the phone's
+    /// chrome should inherit for `surfaceID`, or `nil` if none has been seen yet
+    /// (keep the built-in fallback). Drives the composer/input-accessory bar so
+    /// the phone's chrome matches the Mac's theme instead of a hardcoded Monokai.
+    public func inheritedTerminalBackground(surfaceID: String) -> String? {
+        inheritedTerminalBackgroundBySurfaceID[surfaceID]
+    }
+
     private func registerTerminalOutput(
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
@@ -5149,6 +5181,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
+        inheritedTerminalBackgroundBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops

@@ -32,6 +32,11 @@ extension GhosttyApp {
         GhosttyConfig.invalidateLoadCache()
         // Do not post .ghosttyConfigDidReload here. Its observers read the
         // app-scoped GhosttyApp.config, which this surface-only path leaves
-        // unchanged to avoid desyncing the app and other surfaces.
+        // unchanged to avoid desyncing the app and other surfaces. The mobile
+        // inherited theme is derived from the app-wide GhosttyConfig.load() and
+        // is the same for every surface, so it is intentionally NOT invalidated
+        // from this surface-only hook: a genuine global theme/config change fires
+        // .ghosttyConfigDidReload (handled by MobileTerminalRenderObserver), and
+        // a surface-only reload leaves the app-wide theme unchanged.
     }
 }

@@ -138,6 +138,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
                     await surfaceView.processOutputAndWait(chunk.data)
+                    // The frame whose bytes were just applied may have carried the
+                    // Mac's inherited terminal background (recorded in the store as
+                    // the full frame was delivered). Push it into the surrounding
+                    // chrome so the input-accessory bar matches the Mac's theme.
+                    // Set-on-change inside the surface, so a no-op chunk is cheap.
+                    surfaceView.applyInheritedChromeBackground(
+                        hex: store.inheritedTerminalBackground(surfaceID: surfaceID)
+                    )
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken

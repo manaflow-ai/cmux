@@ -12,18 +12,28 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
-        deliverTerminalOutput(
+        let delivered = deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
                 replaceable: frame.isReplaceableViewportPatchForMobileDelivery
             ),
             surfaceID: surfaceID
         )
+        // Record the Mac's inherited theme background so the phone's chrome (the
+        // composer/input-accessory bar) can match it, but ONLY for a frame that
+        // was actually accepted into the surface's output stream. A late replay
+        // that arrives after the surface unregistered is dropped by
+        // `deliverTerminalOutput`; recording it anyway would repopulate the
+        // per-surface background that `unregisterTerminalOutput` just cleared and
+        // leave the chrome stale on a later remount.
+        guard delivered else { return }
+        recordInheritedTerminalBackground(from: frame)
     }
 
-    private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) {
+    @discardableResult
+    private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) -> Bool {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
-              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
@@ -32,6 +42,7 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(data: immediate.bytes, streamToken: streamToken)
             )
         }
+        return true
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.
