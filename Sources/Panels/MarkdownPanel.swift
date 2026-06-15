@@ -548,12 +548,25 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isSaving = true
         activeSaveGeneration = generation
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-        let fileURL = URL(fileURLWithPath: filePath)
+        let savePath = (filePath as NSString).standardizingPath
+        let fileURL = URL(fileURLWithPath: savePath)
         let encoding = textEncoding
 
-        let task = Task { [weak self, currentContent, fileURL, encoding, generation] in
+        let task = Task { [weak self, currentContent, fileURL, encoding, generation, savePath] in
             let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
+            guard (self.filePath as NSString).standardizingPath == savePath else {
+                self.activeSaveGeneration = nil
+                self.isSaving = false
+                self.isDirty = true
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+                if self.isClosed {
+                    _ = self.saveTextContent()
+                } else {
+                    self.scheduleAutoSaveIfNeeded()
+                }
+                return
+            }
             self.activeSaveGeneration = nil
             self.isSaving = false
             switch result {
