@@ -14,7 +14,7 @@ public final class CanvasRootView: NSView {
     let model: CanvasModel
     let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
-    let minimapClock: any Clock<Duration>
+    let minimapAutoHideScheduler: CanvasMinimapAutoHideScheduler
     /// Pre-localized text for the Command+scroll discovery hint.
     let commandScrollHintText: String
     let scrollView: CanvasScrollView
@@ -37,7 +37,6 @@ public final class CanvasRootView: NSView {
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     var commandScrollMonitor: Any?
-    var minimapHideTask: Task<Void, Never>?
     /// Debounced settle after option+scroll zoom (which, unlike a trackpad
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.
@@ -79,7 +78,7 @@ public final class CanvasRootView: NSView {
         self.callbacks = callbacks
         self.commandScrollHintText = commandScrollHintText
         self.themeProvider = themeProvider
-        self.minimapClock = minimapClock
+        self.minimapAutoHideScheduler = CanvasMinimapAutoHideScheduler(clock: minimapClock)
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
         applyTheme()

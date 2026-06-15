@@ -32,38 +32,29 @@ extension CanvasRootView {
     }
 
     func resetMinimapVisibility() {
-        minimapHideTask?.cancel()
-        minimapHideTask = nil
+        minimapAutoHideScheduler.cancel()
         minimapView.alphaValue = 0
         minimapView.isHidden = true
     }
 
     private func showMinimapTemporarily() {
-        minimapHideTask?.cancel()
+        let shouldAnimateIn = minimapView.isHidden || minimapView.alphaValue < Self.minimapVisibleAlpha
         minimapView.isHidden = false
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            minimapView.animator().alphaValue = Self.minimapVisibleAlpha
+        if shouldAnimateIn {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                minimapView.animator().alphaValue = Self.minimapVisibleAlpha
+            }
+        } else {
+            minimapView.alphaValue = Self.minimapVisibleAlpha
         }
-
-        let clock = minimapClock
-        let delay = Self.minimapAutoHideDelay
-        minimapHideTask = Task { [weak self, clock, delay] in
-            do {
-                try await clock.sleep(for: delay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.hideMinimap(animated: true)
-            }
+        minimapAutoHideScheduler.schedule { [weak self] in
+            self?.hideMinimap(animated: true)
         }
     }
 
     private func hideMinimap(animated: Bool) {
-        minimapHideTask?.cancel()
-        minimapHideTask = nil
+        minimapAutoHideScheduler.cancel()
         guard !minimapView.isHidden || minimapView.alphaValue != 0 else { return }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
