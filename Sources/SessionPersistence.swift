@@ -1601,6 +1601,8 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     /// Relative path under `.cmux/` for indexed notes, e.g. `notes/<note-id>.md`.
     /// Legacy slug notes omit this and restore through `noteSlug`.
     var noteBodyPath: String? = nil
+    /// Display title from the indexed note record, preserved for restored tabs.
+    var noteTitle: String? = nil
 }
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {

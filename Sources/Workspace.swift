@@ -566,7 +566,8 @@ extension Workspace {
                 displayMode: markdownPanel.displayMode,
                 noteSlug: markdownPanel.noteSlug,
                 noteID: markdownPanel.noteID,
-                noteBodyPath: markdownPanel.noteBodyPath
+                noteBodyPath: markdownPanel.noteBodyPath,
+                noteTitle: markdownPanel.noteTitle
             )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -1822,7 +1823,8 @@ extension Workspace {
                 markdownPanel.markAsProjectNote(
                     slug: slug,
                     id: snapshotMarkdown.noteID,
-                    bodyPath: snapshotMarkdown.noteBodyPath
+                    bodyPath: snapshotMarkdown.noteBodyPath,
+                    title: snapshotMarkdown.noteTitle
                 )
             }
             if let displayMode = snapshotMarkdown.displayMode {

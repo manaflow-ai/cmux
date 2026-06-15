@@ -1051,13 +1051,37 @@ final class NotesTreeStore: ObservableObject {
         return target
     }
 
-    /// Delete an index-owned flat note through the flat store so the body and
-    /// its index record/attachments go together — trashing only the body file
-    /// would leave `cmux note list` showing a note whose `read` fails.
+    /// Delete an index-owned flat note through the tree UI: remove the index
+    /// record, move the body to Trash, and restore the record if Trash fails.
+    /// Trashing only the body file would leave `cmux note list` showing a note
+    /// whose `read` fails.
     func deleteFlatNote(path: String) {
-        guard let projectRoot else { return }
-        if let record = indexedNoteRecord(path: path) {
-            _ = try? CmuxNoteStore.delete(slug: record.slug, projectRoot: projectRoot)
+        guard let projectRoot,
+              indexedNoteRecord(path: path) != nil else {
+            reload()
+            return
+        }
+        let target = (path as NSString).standardizingPath
+        let removedRecords: [CmuxNoteRecord]
+        do {
+            removedRecords = try CmuxNoteStore.removeRecords(
+                underAbsolutePath: target,
+                projectRoot: projectRoot
+            )
+        } catch {
+            reload()
+            return
+        }
+        guard !removedRecords.isEmpty else {
+            reload()
+            return
+        }
+        do {
+            try FileManager.default.trashItem(at: URL(fileURLWithPath: target), resultingItemURL: nil)
+        } catch {
+            try? CmuxNoteStore.restoreRecords(removedRecords, projectRoot: projectRoot)
+            reload()
+            return
         }
         reload()
     }
