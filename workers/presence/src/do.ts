@@ -28,11 +28,29 @@ import {
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   resolveSubscribeDeadline,
+  routesEqual,
   shouldPrune,
   type HeartbeatInput,
   type PresenceEvent,
   type PresenceInstance,
 } from "./core";
+import { parseHello, type SyncServerFrame } from "./sync";
+import {
+  gcTombstones,
+  markBackfillDone,
+  nextTombstoneGcTime,
+  readBackfillDone,
+  resolveHelloFrames,
+  type SyncStorage,
+} from "./syncStorage";
+import {
+  DEVICES_COLLECTION,
+  groupInstancesByDevice,
+  ownersFromList,
+  reconcileDeviceRecords,
+  reconcileSingleDevice,
+  type DeviceRecord,
+} from "./syncDevices";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -43,6 +61,10 @@ const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
 /** Combined WebSocket + SSE subscriber cap per team. */
 const MAX_SUBSCRIBERS_PER_TEAM = 64;
+/** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
+ * Client-controlled input on a live DO, so it is bounded before JSON.parse to
+ * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
+const MAX_SYNC_HELLO_BYTES = 4096;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
  * buffer (the client stopped consuming); prevents a stalled reader from
  * pinning unbounded memory on every 15s heartbeat tick. */
@@ -62,6 +84,23 @@ interface SseSubscriber {
 
 interface WsAttachment {
   expiresAt: number;
+  /** Sync collections this socket subscribed to via `sync.hello`. Absent/empty
+   * for legacy presence-only clients, which must NEVER receive sync frames (the
+   * presence decoder throws on unknown message types). Persisted on the socket
+   * attachment so it survives DO hibernation. */
+  syncCollections?: string[];
+}
+
+/** Whether a socket has subscribed to a given sync collection. A legacy
+ * presence-only socket (no `sync.hello`) returns false, so sync frames are never
+ * broadcast to a client that cannot parse them. */
+function wsSyncCollections(ws: WebSocket): string[] {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return Array.isArray(attachment?.syncCollections) ? attachment.syncCollections : [];
+  } catch {
+    return [];
+  }
 }
 
 function wsExpiresAt(ws: WebSocket): number {
@@ -160,8 +199,88 @@ export class TeamPresence extends DurableObject {
     const { instance, events } = applyHeartbeat(existing, beat, now);
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
+    // Project ONLY this device's presence change onto the synced device-list
+    // collection (DESIGN.md §5.2), and ONLY when the heartbeat could have changed
+    // list-shape. The common case — a `seen` tick on an already-known instance
+    // whose identity/routes are unchanged — can never alter the device record
+    // (which carries no per-tick `lastSeenAt`), so we skip the sync storage work
+    // entirely on those beats. That keeps steady-state heartbeating at zero extra
+    // storage ops per tick instead of a prefix-list + owner read + compare every
+    // ~15s per instance. A new instance, an owner pin, or a routes/identity
+    // change still projects. Additive: old DO instances simply skip all of this.
+    // BEST-EFFORT and isolated: a sync failure (DO storage hiccup, bad stored
+    // payload) must NEVER fail the presence heartbeat RPC — presence already
+    // succeeded above, and the additive sync layer cannot be allowed to turn the
+    // live heartbeat endpoint into 5xx for existing hosts (DESIGN.md §5).
+    if (this.heartbeatMayChangeListShape(existing, instance, owner.pin, events)) {
+      try {
+        await this.syncOneDevice(beat.deviceId, now);
+      } catch (err) {
+        console.error("sync projection failed (heartbeat); presence unaffected", err);
+      }
+    }
     await this.ensureAlarmFor(instance);
     return this.heartbeatOk(teamId, instance);
+  }
+
+  /** Whether a heartbeat could have changed a device's synced list-shape, so the
+   * common steady-state `seen` tick skips sync reconciliation. List-shape can
+   * change on: a new instance (`!existing`), an owner pin, an identity change
+   * (platform/displayName), a routes change, or a re-add (`online`). A pure
+   * `seen` tick with unchanged identity and routes cannot. Routes are compared
+   * directly (not just via the `routes` event) because a stopping goodbye emits
+   * only an `offline` event yet can still carry new routes (e.g. an empty set);
+   * relying on the event type alone would leave the synced record's routes
+   * stale until a much later alarm pass. */
+  private heartbeatMayChangeListShape(
+    existing: PresenceInstance | undefined,
+    instance: PresenceInstance,
+    ownerPinned: boolean,
+    events: readonly PresenceEvent[],
+  ): boolean {
+    if (existing === undefined) return true;      // new instance (tag added)
+    if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
+    if (existing.platform !== instance.platform) return true;
+    if (existing.displayName !== instance.displayName) return true;
+    if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
+    // `online` means the instance came back (a re-add into the list). A pure
+    // `seen` event with unchanged identity and routes is the no-op case.
+    return events.some((e) => e.type === "online");
+  }
+
+  /** Reconcile a single device's sync record from its current instances + owner.
+   * The heartbeat hot path: O(instances on this device), not O(team). */
+  private async syncOneDevice(deviceId: string, nowMs: number): Promise<void> {
+    const instances = [...(await this.ctx.storage.list<PresenceInstance>({
+      prefix: `${INSTANCE_PREFIX}${deviceId}:`,
+    })).values()];
+    const owner = await this.ctx.storage.get<string>(ownerKey(deviceId));
+    const delta = await reconcileSingleDevice(this.syncStorage(), deviceId, instances, owner, nowMs);
+    if (delta !== null) this.broadcastSync(delta);
+  }
+
+  /** Reconcile the WHOLE `devices` collection against the full presence state.
+   * Used by the alarm path only, where timeouts/prunes can change multiple
+   * devices at once (and a pruned device's last instance must be tombstoned).
+   * O(team), acceptable on the periodic alarm, not on every heartbeat. */
+  private async syncDeviceRecords(nowMs: number): Promise<void> {
+    const instances = await this.allInstances();
+    const owners = await this.ctx.storage.list<string>({ prefix: OWNER_PREFIX });
+    const deltas = await reconcileDeviceRecords(
+      this.syncStorage(),
+      groupInstancesByDevice(instances),
+      ownersFromList(owners),
+      nowMs,
+    );
+    for (const delta of deltas) this.broadcastSync(delta);
+  }
+
+  /** The DO's storage narrowed to the `SyncStorage` subset the sync layer uses.
+   * `DurableObjectStorage` is a structural superset (its get/put/delete/list
+   * cover the four methods `SyncStorage` declares), so this is a safe widening
+   * to the narrower interface; the single cast is here, not scattered. */
+  private syncStorage(): SyncStorage {
+    return this.ctx.storage as unknown as SyncStorage;
   }
 
   async snapshot(teamId: string): Promise<string> {
@@ -239,8 +358,132 @@ export class TeamPresence extends DurableObject {
     });
   }
 
-  // The subscribe stream is one-way; inbound WS messages are ignored.
-  override async webSocketMessage(): Promise<void> {}
+  // The presence subscribe stream is push-only, but sync rides the same socket:
+  // a client sends `sync.hello` after connect to subscribe to collections with
+  // the cursors it already holds, and the DO replies with a snapshot or catch-up
+  // delta per collection (DESIGN.md §3.2). Any other inbound message (including
+  // from an old client that never sends sync) is ignored, so this stays
+  // backward-compatible with the one-way presence transport.
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (wsExpiresAt(ws) <= Date.now()) return;
+    // Bound the inbound message BEFORE parsing: this is client-controlled input
+    // on the live presence DO, so an unbounded JSON.parse would be a
+    // resource-exhaustion vector. A well-formed `sync.hello` is tiny (a handful
+    // of short collection names + integer cursors), so a small cap is ample;
+    // `parseHello` also bounds the collection list count defensively. A
+    // too-large frame is dropped silently like any other non-hello message.
+    const byteLength = typeof message === "string"
+      ? message.length // chars; ASCII JSON, so ~bytes, and an over-count only tightens the cap
+      : message.byteLength;
+    if (byteLength > MAX_SYNC_HELLO_BYTES) return;
+    let body: unknown;
+    try {
+      body = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+    } catch {
+      return; // not JSON; ignore
+    }
+    const hello = parseHello(body);
+    if (hello === null) return; // not a sync.hello; ignore
+    await this.handleSyncHello(ws, hello.collections);
+  }
+
+  /** Answer a `sync.hello`: for each subscribed collection decide snapshot vs
+   * delta from the GC floor and send the frames over this socket. Phase 1 only
+   * serves the `devices` collection; an unknown collection name yields an empty
+   * delta (the client simply gets nothing for it). */
+  private async handleSyncHello(
+    ws: WebSocket,
+    collections: { name: string; cursor: number; epoch?: number }[],
+  ): Promise<void> {
+    // A socket may subscribe to each collection ONCE per connection. A repeated
+    // `sync.hello` for an already-subscribed collection is ignored: it would
+    // otherwise let an authenticated member spam tiny hellos and force repeated
+    // full-snapshot serialization + DO storage scans (a resource-exhaustion
+    // vector). To resubscribe/resync, the client reconnects (the protocol is
+    // snapshot-first on connect, so a reconnect is the supported resync path).
+    const already = new Set(wsSyncCollections(ws));
+    const subscribed: string[] = [];
+    for (const { name, cursor, epoch } of collections) {
+      if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
+      if (already.has(name)) continue;            // duplicate hello; reconnect to resync
+      // Mark as seen IMMEDIATELY so a hello that repeats the same collection name
+      // N times within one message does the backfill + snapshot/delta serialization
+      // only once. Without this, the per-connection guard only dedups across
+      // separate hellos, and N duplicates in one hello still amplify into N
+      // storage scans + N snapshot serializations (a resource-exhaustion vector).
+      already.add(name);
+      subscribed.push(name);
+      // Rollout backfill: an existing DO has `inst:*` presence but no
+      // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
+      // after this code deploys). If a client subscribes before the projection
+      // is complete, it would get a partial/empty snapshot, hiding currently-
+      // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
+      // `head === 0`: a single device's change makes the head nonzero while
+      // other devices that only `seen`-heartbeat remain unprojected, so head !=0
+      // is not proof the projection is complete. Reconcile the whole presence map
+      // once, then mark backfill done. Additive and idempotent.
+      if (!(await readBackfillDone(this.syncStorage(), name))) {
+        await this.syncDeviceRecords(Date.now());
+        await markBackfillDone(this.syncStorage(), name);
+      }
+      const resolved = await resolveHelloFrames<DeviceRecord>(
+        this.syncStorage(),
+        name,
+        cursor,
+        undefined,
+        epoch ?? 0,
+      );
+      if (resolved.mode === "snapshot") {
+        for (const page of resolved.pages) this.sendSync(ws, page);
+      } else if (resolved.delta !== null) {
+        this.sendSync(ws, resolved.delta);
+      }
+    }
+    // Mark this socket as sync-subscribed so future delta broadcasts reach it.
+    // A legacy presence-only client never sends a hello, so its attachment keeps
+    // `syncCollections` absent and it never receives a sync frame (its presence
+    // decoder would throw on the unknown type). Preserve the deadline.
+    if (subscribed.length > 0) {
+      const expiresAt = wsExpiresAt(ws);
+      const existing = wsSyncCollections(ws);
+      const merged = [...new Set([...existing, ...subscribed])];
+      try {
+        ws.serializeAttachment({ expiresAt, syncCollections: merged } satisfies WsAttachment);
+      } catch {
+        // attachment write failed; the socket is likely gone
+      }
+    }
+  }
+
+  /** Send one sync frame to one socket, deadline-checked like presence. */
+  private sendSync(ws: WebSocket, frame: SyncServerFrame): void {
+    if (wsExpiresAt(ws) <= Date.now()) return;
+    try {
+      ws.send(JSON.stringify(frame));
+    } catch {
+      // Socket already gone; hibernation cleans it up.
+    }
+  }
+
+  /** Broadcast a sync frame ONLY to sockets that subscribed to its collection
+   * via `sync.hello`. A legacy presence-only socket has no `syncCollections` on
+   * its attachment and is skipped, so a list-shape heartbeat never breaks an old
+   * client whose presence decoder throws on unknown message types. WS only; SSE
+   * is presence-only for now. */
+  private broadcastSync(frame: SyncServerFrame): void {
+    const collection = frame.collection;
+    const now = Date.now();
+    const json = JSON.stringify(frame);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsExpiresAt(ws) <= now) continue;
+      if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
+      try {
+        ws.send(json);
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+  }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     try {
@@ -267,8 +510,25 @@ export class TeamPresence extends DurableObject {
       }
     }
     this.broadcast(events);
+    // Project the (possibly mutated) presence state onto the synced device-list
+    // collection: a prune that removed a device's last instance tombstones it
+    // here, leaving the list (DESIGN.md §5.2). Then GC expired tombstones and
+    // raise the resync floor (DESIGN.md §3.5). BEST-EFFORT and isolated: a sync
+    // failure must not abort the alarm before it reschedules / closes expired
+    // subscribers, which are the presence-critical alarm duties (DESIGN.md §5).
+    let tombGc: number | null = null;
+    try {
+      await this.syncDeviceRecords(now);
+      await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
+      // Include the next tombstone-GC deadline so a fully-offline team (no
+      // instances left to schedule a heartbeat-driven alarm) still wakes to GC
+      // its tombstones and advance the GC floor (DESIGN.md §3.5).
+      tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+    } catch (err) {
+      console.error("sync projection/GC failed (alarm); presence unaffected", err);
+    }
     this.closeExpiredSubscribers(now);
-    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline()]
+    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]
       .filter((value): value is number => value !== null);
     if (candidates.length > 0) {
       await this.ctx.storage.setAlarm(Math.max(Math.min(...candidates), now + 1000));

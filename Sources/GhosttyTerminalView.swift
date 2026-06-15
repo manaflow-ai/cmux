@@ -7,9 +7,13 @@ import CmuxTerminalEngine
 import CmuxTerminalServices
 import CmuxTerminalCopyMode
 import CmuxSocketControl
+import CmuxFileOpen
+import CmuxSettings
+import CmuxTestSupport
 import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine
@@ -378,6 +382,9 @@ class GhosttyApp {
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
+    /// The process-wide paced native-surface creation queue for session restore.
+    @MainActor
+    static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
     /// Snapshotted once per app session so all workspaces use consistent values.
     static let terminalSessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
@@ -401,6 +408,8 @@ class GhosttyApp {
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
+        restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
+        runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
         scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
@@ -501,7 +510,17 @@ class GhosttyApp {
             func completeClipboardRequest(with text: String) {
                 let finish = {
                     guard callbackContext.runtimeSurface == requestSurface else { return }
-                    text.withCString { ptr in
+                    // Remote tmux mirror panes need tmux to bracket the paste
+                    // because the local manual-I/O surface cannot know the
+                    // remote pane's bracketed-paste mode.
+                    let handledByMirror = !text.isEmpty && MainActor.assumeIsolated {
+                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                            surfaceId: callbackContext.surfaceId,
+                            text: text
+                        ) ?? false
+                    }
+                    let completionText = handledByMirror ? "" : text
+                    completionText.withCString { ptr in
                         ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
                     }
                     callbackContext.terminalSurface?.noteClipboardReadCompleted()
@@ -1879,7 +1898,7 @@ class GhosttyApp {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        CmuxGhosttyConfigPathResolver.loadConfigURLs(
+        CmuxGhosttyConfigPathResolver().loadConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory,
             fileManager: fileManager
@@ -3465,7 +3484,7 @@ class GhosttyApp {
                 return false
             }
             #if DEBUG
-            if CmuxUITestCapture.appendLineIfConfigured(
+            if UITestCaptureSink().appendLineIfConfigured(
                 envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
@@ -4546,14 +4565,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return surface
         }
         guard window != nil else { return nil }
-        terminalSurface?.attachToView(self)
+        terminalSurface?.attachToViewForInputDemand(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
         return surface
     }
 
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
-        terminalSurface?.requestBackgroundSurfaceStartIfNeeded()
+        terminalSurface?.requestInputDemandSurfaceStartIfNeeded()
 #if DEBUG
         cmuxDebugLog(
             "focus.input_recovery surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -6159,7 +6178,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
                 envKey: "CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"
             ) { payload in
                 payload["suppressed_command_hover_count"] = (payload["suppressed_command_hover_count"] as? Int ?? 0) + 1
@@ -6462,7 +6481,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
     }
 
     /// Check if the word under the mouse cursor resolves to an existing file/directory
@@ -6894,7 +6913,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return resolution
         }
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
     }
 
@@ -7220,8 +7239,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func canSplitCurrentSurface() -> Bool {
+        guard let surfaceId = terminalSurface?.id else { return false }
+        // Mirror panes are not workspace panels, but their split command routes
+        // to tmux and the resulting layout change rebuilds the mirrored panes.
+        if AppDelegate.shared?.remoteTmuxController.isMirrorPaneSurface(surfaceId) == true {
+            return true
+        }
         guard let tabId,
-              let surfaceId = terminalSurface?.id,
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
@@ -7240,8 +7264,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func splitCurrentSurface(direction: SplitDirection) -> Bool {
+        guard let surfaceId = terminalSurface?.id else { return false }
+        // Remote tmux mirror pane: never fall through to a local split. The tmux
+        // command either reaches the live stream, or the action reports false.
+        if let controller = AppDelegate.shared?.remoteTmuxController,
+           controller.isMirrorPaneSurface(surfaceId) {
+            return controller.handleMirrorSplitRequested(surfaceId: surfaceId, vertical: !direction.isHorizontal)
+        }
         guard let tabId,
-              let surfaceId = terminalSurface?.id,
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
             return false
@@ -7594,10 +7624,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
+                    guard let surface = self?.terminalSurface else { return }
+                    // Mirror panes need tmux paste-buffer so dropped image paths
+                    // arrive as a real bracketed paste in the remote pane.
+                    let handledByMirror = MainActor.assumeIsolated {
+                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                            surfaceId: surface.id,
+                            text: text
+                        ) ?? false
+                    }
+                    if handledByMirror { return }
                     // Use the text/paste path (ghostty_surface_text) instead of the key event
                     // path (ghostty_surface_key) so bracketed paste mode is triggered and the
                     // insertion is instant, matching upstream Ghostty behaviour.
-                    self?.terminalSurface?.sendText(text)
+                    surface.sendText(text)
                 }
                 if Thread.isMainThread {
                     send()

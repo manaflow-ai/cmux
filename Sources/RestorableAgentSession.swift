@@ -328,7 +328,9 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
               ),
               !argv.isEmpty else {
             return nil
@@ -477,7 +479,9 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -535,6 +539,17 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId, "--fork"] + preserved
+        case .custom:
+            // Custom Vault agents fork via their registration's `forkCommand`
+            // template (nil when the agent has no fork capability).
+            guard let customRegistration else { return nil }
+            let arguments = customForkArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
         default:
             return nil
         }
@@ -546,7 +561,41 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(registration.resumeCommand)
+        customTemplateArguments(
+            template: registration.resumeCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    /// Builds the fork argv from a custom agent's `forkCommand` template, or
+    /// returns empty when the agent declares no fork capability.
+    private static func customForkArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
+        return customTemplateArguments(
+            template: forkCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private static func customTemplateArguments(
+        template: String,
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(template)
         guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,
@@ -1469,6 +1518,60 @@ struct RestorableAgentSessionIndex: Sendable {
         // sent dotted paths to the wrong project directory.
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
+    }
+
+    /// Resolves the newest Claude transcript session id for `cwd` (honoring an
+    /// optional `CLAUDE_CONFIG_DIR`), reusing the exact config-root + project-dir
+    /// lookup the hook-store path uses. Used by live-process detection so a
+    /// hook-less `claude` process (e.g. launched via `sr claude`, bypassing the
+    /// cmux wrapper) still yields a fork-able session id.
+    static func newestClaudeSessionId(
+        forCwd cwd: String,
+        configDir: String?,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let normalizedCwd = normalizedNonEmptyValue(cwd) else { return nil }
+        let environment = normalizedNonEmptyValue(configDir).map { ["CLAUDE_CONFIG_DIR": $0] }
+        let record = RestorableAgentHookSessionRecord(
+            sessionId: "",
+            workspaceId: "",
+            surfaceId: "",
+            cwd: normalizedCwd,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: environment.map {
+                AgentLaunchCommandSnapshot(
+                    launcher: nil,
+                    executablePath: nil,
+                    arguments: [],
+                    workingDirectory: normalizedCwd,
+                    environment: $0,
+                    capturedAt: nil,
+                    source: nil
+                )
+            },
+            isRestorable: nil,
+            agentLifecycle: nil,
+            updatedAt: 0
+        )
+        let lookup = ClaudeTranscriptLookupCache(homeDirectory: homeDirectory, fileManager: fileManager)
+        let encoded = encodeClaudeProjectDir(normalizedCwd)
+        var projectDirs: [String] = []
+        var seen: Set<String> = []
+        for root in lookup.configRoots(for: record) {
+            let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            let projectDir = (projectsRoot as NSString).appendingPathComponent(encoded)
+            let standardized = (projectDir as NSString).standardizingPath
+            if seen.insert(standardized).inserted {
+                projectDirs.append(standardized)
+            }
+        }
+        return newestClaudeSiblingTranscript(
+            in: projectDirs,
+            excludingSessionId: "",
+            fileManager: fileManager
+        )?.sessionId
     }
 
     private static func claudeTranscriptFileExists(

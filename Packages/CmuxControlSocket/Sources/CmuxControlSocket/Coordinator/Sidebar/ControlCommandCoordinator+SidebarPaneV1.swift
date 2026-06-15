@@ -179,15 +179,21 @@ extension ControlCommandCoordinator {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
         }
 
-        guard let newPanelID = sidebarContext?.controlSidebarCreatePaneSplit(
+        switch sidebarContext?.controlSidebarCreatePaneSplit(
             isBrowser: isBrowser,
             orientationIsHorizontal: direction.isHorizontal,
             insertFirst: direction.insertFirst,
             url: url
-        ) else {
+        ) ?? .failed {
+        case .created(let newPanelID):
+            return "OK \(newPanelID.uuidString)"
+        case .routedToRemote:
+            return "OK routed-to-remote-tmux"
+        case .mirrorInsertFirstRejected:
+            return "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
+        case .failed:
             return "ERROR: Failed to create pane"
         }
-        return "OK \(newPanelID.uuidString)"
     }
 
     // MARK: - New / close surface
@@ -229,6 +235,8 @@ extension ControlCommandCoordinator {
             return "ERROR: Pane not found"
         case .created(let id):
             return "OK \(id.uuidString)"
+        case .routedToRemote:
+            return "OK routed-to-remote-tmux"
         }
     }
 
