@@ -2240,7 +2240,7 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
-        XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchSettings.defaultSearchEngine.rawValue)
+        XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
     }
 
     /// Already-canonical, in-range values must be left untouched (no clobbering of

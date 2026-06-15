@@ -1,4 +1,5 @@
 internal import CmuxFoundation
+internal import Darwin
 public import Foundation
 #if DEBUG
 internal import CMUXDebugLog
@@ -21,17 +22,18 @@ internal import CMUXDebugLog
 public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// Test observation seam (package tests only): invoked right after the
     /// stdout/stderr capture readers are installed, with the pipe read
-    /// handles. The capture-survives-teardown regression test closes them to
-    /// prove `run` still completes; production constructs the runner without
-    /// a hook.
-    let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Void)?
+    /// handles. Return `true` when the hook closes both handles, so the
+    /// runner will not close already-closed `FileHandle` instances again.
+    /// The capture-survives-teardown regression test uses that to prove
+    /// `run` still completes; production constructs the runner without a hook.
+    let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
     }
 
-    init(readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Void)?) {
+    init(readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?) {
         self.readHandlesDidInstall = readHandlesDidInstall
     }
 
@@ -93,21 +95,24 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.terminationHandler = { _ in
             exitSemaphore.signal()
         }
-        // Snapshot the descriptors on the calling thread, while the handles
-        // are guaranteed open, and drain the raw descriptors. The contract
-        // (pinned by the capture-survives-teardown test) is that closing the
-        // read handles mid-run must not break the run: a closed FileHandle's
-        // `fileDescriptor` accessor raises an uncatchable ObjC exception,
-        // whereas `read(2)` on a closed descriptor fails cleanly with EBADF
-        // and lands in the captured readError, exactly like any other
-        // mid-drain read failure. The handles stay alive until
-        // `finishCaptureAndCloseReadHandles` (every exit path), so the
-        // descriptors cannot be recycled under the readers.
-        let stdoutDescriptor = stdoutHandle.fileDescriptor
-        let stderrDescriptor = stderrHandle.fileDescriptor
+        // Duplicate the descriptors on the calling thread, while the handles
+        // are guaranteed open, and drain the duplicates. The contract (pinned
+        // by the capture-survives-teardown test) is that closing the read
+        // handles mid-run must not break or cross-wire capture: a closed
+        // FileHandle's fd number can be recycled by another process, but the
+        // duplicated fd remains attached to this pipe until the reader closes it.
+        let stdoutDescriptor = try duplicateReadDescriptor(stdoutHandle.fileDescriptor)
+        let stderrDescriptor: Int32
+        do {
+            stderrDescriptor = try duplicateReadDescriptor(stderrHandle.fileDescriptor)
+        } catch {
+            _ = Darwin.close(stdoutDescriptor)
+            throw error
+        }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stdoutDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stdoutDescriptor)
             captureQueue.sync {
                 captureState.stdoutData = result.data
@@ -117,21 +122,24 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stderrDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stderrDescriptor)
             captureQueue.sync {
                 captureState.stderrData = result.data
                 captureState.stderrReadError = result.readError
             }
         }
-        readHandlesDidInstall?(stdoutHandle, stderrHandle)
+        let readHandlesClosedByInstallHook = readHandlesDidInstall?(stdoutHandle, stderrHandle) ?? false
 
         var didFinishCapture = false
         func finishCaptureAndCloseReadHandles() {
             guard !didFinishCapture else { return }
             didFinishCapture = true
             captureGroup.wait()
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
+            if !readHandlesClosedByInstallHook {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
             if let stdoutReadError = captureState.stdoutReadError {
                 debugLog(
                     "remote.proc.stdoutReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -220,6 +228,14 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         ([URL(fileURLWithPath: executable).lastPathComponent] + arguments)
             .map(\.shellSingleQuoted)
             .joined(separator: " ")
+    }
+
+    private func duplicateReadDescriptor(_ fileDescriptor: Int32) throws -> Int32 {
+        let duplicate = Darwin.dup(fileDescriptor)
+        guard duplicate >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return duplicate
     }
 
     private func debugLog(_ message: @autoclosure () -> String) {

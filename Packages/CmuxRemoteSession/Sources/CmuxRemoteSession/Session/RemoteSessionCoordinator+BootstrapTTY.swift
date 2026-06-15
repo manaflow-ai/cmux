@@ -10,6 +10,10 @@ extension RemoteSessionCoordinator {
     static let bootstrapRemoteTTYRetryLimit = 8
 
     func requestBootstrapRemoteTTYIfNeededLocked() {
+        // The bootstrap TTY is resolved only to TTY-scope the port scans, so
+        // when port scanning is disabled there is no reason to spawn ssh for
+        // it (issue #6123). Re-enabling re-requests it.
+        guard remotePortScanningEnabled else { return }
         guard !bootstrapRemoteTTYResolved else { return }
         guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
         if !remotePortScanTTYNames.isEmpty {
@@ -49,6 +53,7 @@ extension RemoteSessionCoordinator {
 
     func scheduleBootstrapRemoteTTYRetryLocked() {
         guard !isStopping else { return }
+        guard remotePortScanningEnabled else { return }
         guard daemonReady else { return }
         guard !bootstrapRemoteTTYResolved else { return }
         guard remotePortScanTTYNames.isEmpty else { return }
