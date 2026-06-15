@@ -4,8 +4,47 @@ import Foundation
 /// word segments with exact/prefix/contains/initialism/stitched-prefix and
 /// single-edit fallbacks. Pure logic; scores are deterministic for a given
 /// query/candidate pair.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum CommandPaletteFuzzyMatcher {
+///
+/// A matcher is a value object bound to one prepared query: construct it with
+/// `init(query:)` (or an already-prepared query) and score candidates through
+/// the instance methods. The preparation/normalization building blocks remain
+/// `static` factories on the value types they produce, per the foundation
+/// helper conventions.
+public struct CommandPaletteFuzzyMatcher {
+    /// The prepared query this matcher scores candidates against.
+    public let preparedQuery: PreparedQuery
+
+    /// Prepares `query` for matching.
+    public init(query: String) {
+        self.preparedQuery = Self.preparedQuery(query)
+    }
+
+    /// Binds an already-prepared query.
+    public init(preparedQuery: PreparedQuery) {
+        self.preparedQuery = preparedQuery
+    }
+
+    /// Scores `candidate` against this matcher's query; nil when it does not
+    /// match.
+    public func score(candidate: String) -> Int? {
+        Self.score(query: preparedQuery.normalizedText, candidate: candidate)
+    }
+
+    /// Scores `preparedCandidate` against this matcher's query.
+    public func score(preparedCandidate: PreparedCandidateText) -> Int? {
+        Self.score(preparedQuery: preparedQuery, preparedCandidate: preparedCandidate)
+    }
+
+    /// Candidate character indices matched by this matcher's query.
+    public func matchCharacterIndices(in candidate: String) -> Set<Int> {
+        Self.matchCharacterIndices(preparedQuery: preparedQuery, candidate: candidate)
+    }
+
+    /// Candidate character indices matched against a prepared candidate.
+    public func matchCharacterIndices(in preparedCandidate: PreparedCandidateText) -> Set<Int> {
+        Self.matchCharacterIndices(preparedQuery: preparedQuery, preparedCandidate: preparedCandidate)
+    }
+
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 
     /// Half-open `[start, end)` character range of one word in a candidate.

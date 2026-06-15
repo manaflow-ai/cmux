@@ -13,13 +13,14 @@ public enum ShortcutHintModifierActivation {
         for modifierFlags: NSEvent.ModifierFlags,
         defaults: UserDefaults = .standard
     ) -> Bool {
+        let policy = ShortcutHintModifierPolicy(defaults: defaults)
         switch self {
         case .commandOrControl:
-            return ShortcutHintModifierPolicy.shouldShowHints(for: modifierFlags, defaults: defaults)
+            return policy.shouldShowHints(for: modifierFlags)
         case .commandOnly:
-            return ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags, defaults: defaults)
+            return policy.shouldShowCommandHints(for: modifierFlags)
         case .controlOnly:
-            return ShortcutHintModifierPolicy.shouldShowControlHints(for: modifierFlags, defaults: defaults)
+            return policy.shouldShowControlHints(for: modifierFlags)
         }
     }
 }

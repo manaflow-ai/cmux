@@ -1,8 +1,8 @@
 public import AppKit
 
 /// Resolves the sidebar list's enclosing `NSScrollView` for the SwiftUI layer
-/// (``SidebarScrollViewResolver``), which applies
-/// ``SidebarScrollViewConfigurator``'s overlay configuration through
+/// (``SidebarScrollViewResolver``), which applies the overlay configuration in
+/// ``AppKit/NSScrollView/applySidebarOverlayScrollerConfiguration()`` through
 /// `onResolve`.
 public final class SidebarScrollViewResolverView: NSView {
     /// Invoked with the resolved enclosing scroll view (or `nil`) after each
