@@ -905,6 +905,7 @@ final class NotesTreeStore: ObservableObject {
     func newNote(inFolder folder: String? = nil) -> String? {
         guard let target = try? ensureRoot(folder: folder) else { return nil }
         let path = try? NotesTreeStorage.newNote(inFolder: target)
+        if let path { reflectCreatedPath(path, kind: .note) }
         reload()
         return path
     }
@@ -914,8 +915,60 @@ final class NotesTreeStore: ObservableObject {
     func newFolder(inFolder folder: String? = nil) -> String? {
         guard let target = try? ensureRoot(folder: folder) else { return nil }
         let path = try? NotesTreeStorage.newFolder(inFolder: target)
+        if let path { reflectCreatedPath(path, kind: .folder) }
         reload()
         return path
+    }
+
+    private func reflectCreatedPath(_ path: String, kind: NotesTreeKind) {
+        guard let root = resolvedRootPath else { return }
+        let standardizedRoot = (root as NSString).standardizingPath
+        let standardizedPath = (path as NSString).standardizingPath
+        guard NotesTreeStorage.isWithin(child: standardizedPath, orEqualTo: standardizedRoot) else {
+            return
+        }
+        let parentPath = (standardizedPath as NSString).deletingLastPathComponent
+        let node = NotesTreeNode(
+            name: (standardizedPath as NSString).lastPathComponent,
+            path: standardizedPath,
+            kind: kind,
+            children: kind.isDirectory ? [] : nil
+        )
+
+        if parentPath == standardizedRoot {
+            Self.upsertCreatedNode(node, into: &rootNodes)
+            contentRevision &+= 1
+            return
+        }
+        guard let parent = Self.findNode(path: parentPath, in: rootNodes),
+              parent.kind.isDirectory else { return }
+        var children = parent.children ?? []
+        Self.upsertCreatedNode(node, into: &children)
+        parent.children = children
+        contentRevision &+= 1
+    }
+
+    private static func upsertCreatedNode(_ node: NotesTreeNode, into nodes: inout [NotesTreeNode]) {
+        if let index = nodes.firstIndex(where: { $0.path == node.path }) {
+            nodes[index] = node
+        } else {
+            nodes.append(node)
+        }
+        nodes.sort(by: nodeDisplayOrder)
+    }
+
+    private static func findNode(path: String, in nodes: [NotesTreeNode]) -> NotesTreeNode? {
+        let target = (path as NSString).standardizingPath
+        for node in nodes {
+            if (node.path as NSString).standardizingPath == target {
+                return node
+            }
+            if let children = node.children,
+               let match = findNode(path: target, in: children) {
+                return match
+            }
+        }
+        return nil
     }
 
     /// Rename a note/folder in place. Confined to the project's `.cmux/notes`

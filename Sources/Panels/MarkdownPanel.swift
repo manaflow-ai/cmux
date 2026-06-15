@@ -412,11 +412,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 let encoding = textEncoding
                 let finalContent = textView?.string ?? textContent
                 let inFlight = activeSaveTask
+                let requiresTrustedNoteWrite = behavesAsNote
                 Task.detached(priority: .utility) {
                     _ = await inFlight?.value
-                    _ = await FilePreviewTextSaver.save(
-                        content: finalContent, to: fileURL, encoding: encoding
-                    )
+                    if requiresTrustedNoteWrite {
+                        _ = await FilePreviewTextSaver.saveTrustedWorkspaceNote(
+                            content: finalContent, to: fileURL, encoding: encoding
+                        )
+                    } else {
+                        _ = await FilePreviewTextSaver.save(
+                            content: finalContent, to: fileURL, encoding: encoding
+                        )
+                    }
                 }
             }
         }
@@ -552,8 +559,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let fileURL = URL(fileURLWithPath: savePath)
         let encoding = textEncoding
 
-        let task = Task { [weak self, currentContent, fileURL, encoding, generation, savePath] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        let requiresTrustedNoteWrite = behavesAsNote
+        let task = Task {
+            [weak self, currentContent, fileURL, encoding, generation, savePath, requiresTrustedNoteWrite] in
+            let result: FilePreviewTextSaver.Result
+            if requiresTrustedNoteWrite {
+                result = await FilePreviewTextSaver.saveTrustedWorkspaceNote(
+                    content: currentContent, to: fileURL, encoding: encoding
+                )
+            } else {
+                result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+            }
             guard let self, self.activeSaveGeneration == generation else { return }
             guard (self.filePath as NSString).standardizingPath == savePath else {
                 self.activeSaveGeneration = nil

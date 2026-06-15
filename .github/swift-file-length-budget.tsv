@@ -22,7 +22,7 @@
 5526	cmuxTests/BrowserConfigTests.swift
 5113	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4920	Sources/cmuxApp.swift
-4476	Sources/Panels/FilePreviewPanel.swift
+4603	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 3954	cmuxTests/WindowAndDragTests.swift
@@ -69,7 +69,7 @@
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1366	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
-1305	Sources/NotesTreeStore.swift
+1358	Sources/NotesTreeStore.swift
 1292	Packages/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1285	cmuxTests/NotesTreeStorageTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
@@ -123,9 +123,9 @@
 753	cmuxTests/RestorableAgentHookProviderResumeTests.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
+743	Sources/Panels/MarkdownPanel.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
-727	Sources/Panels/MarkdownPanel.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
