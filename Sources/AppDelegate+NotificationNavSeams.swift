@@ -106,12 +106,23 @@ extension AppDelegate: MainWindowContextResolving {
 }
 
 extension AppDelegate: UnreadWorkspaceTargeting {
+    /// Resolves a workspace for unread-jump operations, falling back to the
+    /// active tab manager when the window-context registry has not populated yet
+    /// (early startup / VM timing). `workspaceFor(tabId:)` only consults
+    /// registered/recoverable routes, so without this fallback the panel
+    /// resolution and unread-clear would no-op for exactly the ids that
+    /// `activeWorkspaceIdsForUnreadJump` supplies. Mirrors the legacy fallback,
+    /// which operated on the concrete `tabManager.tabs` workspace directly.
+    private func unreadJumpWorkspace(forTabId tabId: UUID) -> Workspace? {
+        workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId })
+    }
+
     func preferredUnreadPanelIdForJump(workspaceId: UUID) -> UUID? {
-        workspaceFor(tabId: workspaceId)?.preferredUnreadPanelIdForJump()
+        unreadJumpWorkspace(forTabId: workspaceId)?.preferredUnreadPanelIdForJump()
     }
 
     func shouldTriggerManualUnreadJumpFlash(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let workspace = workspaceFor(tabId: workspaceId) else { return false }
+        guard let workspace = unreadJumpWorkspace(forTabId: workspaceId) else { return false }
         return workspace.manualUnreadPanelIds.contains(panelId) ||
             workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
             (notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false) ||
@@ -119,11 +130,11 @@ extension AppDelegate: UnreadWorkspaceTargeting {
     }
 
     func triggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        workspaceFor(tabId: workspaceId)?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        unreadJumpWorkspace(forTabId: workspaceId)?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 
     func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
-        workspaceFor(tabId: workspaceId)?.clearUnreadAfterJump(panelId: panelId)
+        unreadJumpWorkspace(forTabId: workspaceId)?.clearUnreadAfterJump(panelId: panelId)
     }
 }
 
