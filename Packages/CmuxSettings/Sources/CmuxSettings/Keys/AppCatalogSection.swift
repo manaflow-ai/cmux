@@ -20,6 +20,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appIconMode"
     )
 
+    /// Optional macOS window title template. Empty preserves the default
+    /// active-workspace title behavior.
+    public let windowTitleTemplate = DefaultsKey<String>(
+        id: "app.windowTitleTemplate",
+        defaultValue: "",
+        userDefaultsKey: "windowTitleTemplate"
+    )
+
     public let menuBarOnly = DefaultsKey<Bool>(
         id: "app.menuBarOnly",
         defaultValue: false,
@@ -73,9 +81,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openSupportedFilesInCmux"
     )
 
+    /// Default `true` matches the runtime cmd-click router (legacy
+    /// `CmdClickMarkdownRouteSettings.defaultValue`); the catalog briefly
+    /// said `false`, which made the Settings toggle display OFF for users
+    /// who never changed it while the route was actually active.
     public let openMarkdownInCmuxViewer = DefaultsKey<Bool>(
         id: "app.openMarkdownInCmuxViewer",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
@@ -176,6 +188,19 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.systemWideHotkeyEnabled",
         defaultValue: false,
         userDefaultsKey: "systemWideHotkey.enabled"
+    )
+
+    /// Shared, cross-tag default display that DEBUG cmux builds open new
+    /// windows on, identified by the display's `localizedName` (e.g.
+    /// `"LG HDR 4K"`). Empty means the system default placement.
+    ///
+    /// JSON-backed (`JSONKey`) on purpose: `cmux.json` lives at a fixed path
+    /// shared by every bundle id, so one value is honored by every tagged dev
+    /// build and every launch path. `UserDefaults` is per-bundle and would not
+    /// be shared. Release builds never read it.
+    public let devWindowDisplay = JSONKey<String>(
+        id: "app.devWindowDisplay",
+        defaultValue: ""
     )
 
     public init() {}

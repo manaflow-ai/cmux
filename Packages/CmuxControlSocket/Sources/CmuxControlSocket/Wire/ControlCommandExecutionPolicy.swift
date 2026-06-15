@@ -41,6 +41,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "auth.status",
+        "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",
@@ -58,6 +59,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.attach_ticket.create",
         "system.top",
         "system.memory",
+        // `workspace.env` is a read that resolves a workspace and copies its
+        // env dictionary behind a `v2MainSync` hop, so it runs on the worker
+        // lane like the other workspace reads below.
+        "workspace.env",
         "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
@@ -72,6 +77,55 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // Browser methods that evaluate page JavaScript (or wait on it) run on
+        // the socket worker: on the main actor they block SwiftUI updates for
+        // their full duration, and on a not-yet-mounted webview that is a
+        // starvation deadlock (the JS can't run until SwiftUI mounts the
+        // webview, which can't happen while the handler holds the main
+        // thread). UI/model access inside the handlers stays on main via
+        // v2MainSync.
+        "browser.navigate",
+        "browser.back",
+        "browser.forward",
+        "browser.reload",
+        "browser.snapshot",
+        "browser.eval",
+        "browser.wait",
+        "browser.click",
+        "browser.dblclick",
+        "browser.hover",
+        "browser.focus",
+        "browser.type",
+        "browser.fill",
+        "browser.press",
+        "browser.keydown",
+        "browser.keyup",
+        "browser.check",
+        "browser.uncheck",
+        "browser.select",
+        "browser.scroll",
+        "browser.scroll_into_view",
+        "browser.get.text",
+        "browser.get.html",
+        "browser.get.value",
+        "browser.get.attr",
+        "browser.get.count",
+        "browser.get.box",
+        "browser.get.styles",
+        "browser.is.visible",
+        "browser.is.enabled",
+        "browser.is.checked",
+        "browser.find.role",
+        "browser.find.text",
+        "browser.find.label",
+        "browser.find.placeholder",
+        "browser.find.alt",
+        "browser.find.title",
+        "browser.find.testid",
+        "browser.find.first",
+        "browser.find.last",
+        "browser.find.nth",
+        "browser.highlight",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main

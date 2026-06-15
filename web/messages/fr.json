@@ -673,7 +673,57 @@
       "automatic": "Automatique",
       "paneIdSocket": "ID du panneau (API socket)",
       "panelIdInternal": "ID du panel (interne)",
-      "metaTitle": "Concepts"
+      "metaTitle": "Concepts",
+      "workspaceGroups": "Groupes d'espaces de travail",
+      "workspaceGroupsDesc": "Regroupez des espaces de travail liés dans des sections nommées et repliables de la barre latérale. Chaque groupe est détenu par un espace de travail d'ancrage et peut être épinglé, renommé et doté de sa propre icône et couleur. De nouveaux espaces de travail peuvent être créés directement à l'intérieur d'un groupe depuis son en-tête.",
+      "workspaceGroupsLink": "Lire le guide complet des groupes d'espaces de travail"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Groupes d'espaces de travail",
+      "metaDescription": "Imbriquez des espaces de travail dans des sections nommées et repliables dans la barre latérale de cmux. Le modèle d'ancrage, la création et la gestion d'un groupe, et la CLI workspace-group.",
+      "title": "Groupes d'espaces de travail",
+      "intro": "Les groupes d'espaces de travail vous permettent d'imbriquer des espaces de travail dans des sections nommées et repliables de la barre latérale. Chaque groupe possède un espace de travail d'ancrage implicite, un bouton + personnalisable pour créer de nouveaux espaces de travail à l'intérieur, et des actions par clic droit pour renommer, épingler, dégrouper et modifier sa configuration.",
+      "concepts": "Concepts",
+      "anchorTitle": "Espace de travail d'ancrage",
+      "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
+      "anchorNew": "Les ancrages sont toujours flambant neufs lorsqu'un groupe est créé. Ils ne sont jamais promus à partir d'un espace de travail existant. Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via le CLI sans --cwd.",
+      "anchorClose": "Fermer l'espace de travail d'ancrage dissout le groupe : tous les autres membres deviennent des espaces de travail dégroupés et restent dans la liste des onglets. Rien n'est fermé hormis l'ancrage lui-même. L'application affiche une boîte de dialogue de confirmation avec une bascule « Ne plus demander » avant que cela ne se produise.",
+      "identityTitle": "Identité du groupe",
+      "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
+      "pinningTitle": "Épinglage",
+      "pinningDesc": "Les groupes peuvent être épinglés indépendamment des épinglages d'espaces de travail individuels. Les lignes de premier niveau épinglées, qu'il s'agisse d'espaces de travail individuels ou de groupes, restent au-dessus des lignes non épinglées. Au sein de chaque niveau, les groupes et les espaces de travail conservent l'ordre dans lequel vous les faites glisser.",
+      "layoutIntro": "La barre latérale dispose les lignes de premier niveau de haut en bas :",
+      "layoutItem1": "Lignes de premier niveau épinglées (espaces de travail et groupes).",
+      "layoutItem2": "Lignes de premier niveau non épinglées (espaces de travail et groupes).",
+      "creatingTitle": "Créer un groupe",
+      "creatingIntro": "Un groupe se crée de deux manières : par un raccourci clavier ou par le menu contextuel d’un workspace. Les deux insèrent un nouveau workspace d’ancrage au-dessus de la sélection et déplacent les workspaces sélectionnés dans le groupe. Une fois le groupe créé, vous le gérez et y ajoutez des workspaces depuis l’en-tête du groupe (voir Gérer un groupe ci-dessous).",
+      "keyboardTitle": "Depuis le clavier ({shortcut})",
+      "keyboardDesc": "Sélectionnez deux espaces de travail ou plus dans la barre latérale, puis appuyez sur {shortcut}. Un nouvel espace de travail d'ancrage est inséré au-dessus de la sélection et tous les espaces de travail sélectionnés deviennent des enfants. Le groupe est automatiquement nommé Group 1, Group 2, et ainsi de suite — renommez-le à tout moment via le menu contextuel de l'en-tête.",
+      "keyboardNote": "{shortcut} entre en conflit avec le raccourci par défaut de React Grab. Le gestionnaire de groupe ne consomme l'accord que lorsqu'il existe une multi-sélection explicite d'au moins deux espaces de travail dans la barre latérale, de sorte que React Grab se déclenche toujours en sélection unique et dans les contextes navigateur ou terminal. Réaffectez-le dans Réglages → Clavier si vous préférez que les deux ne partagent pas une touche.",
+      "keyboardSingle": "Les groupes à onglet unique ne sont pas créés depuis le raccourci. Utilisez pour cela l'entrée Nouveau groupe depuis cet espace de travail du menu contextuel de l'espace de travail.",
+      "contextMenuTitle": "Depuis un menu contextuel d'espace de travail",
+      "contextMenuDesc": "Faites un clic droit sur n'importe quel espace de travail dans la barre latérale et choisissez Nouveau groupe depuis cet espace de travail, ou Nouveau groupe depuis la sélection lorsque plusieurs espaces de travail sont sélectionnés. Cela utilise le même comportement de nommage automatique que le raccourci.",
+      "managingTitle": "Gérer un groupe",
+      "managingIntro": "Une fois le groupe créé, le menu contextuel de son en-tête et le bouton + de l’en-tête vous permettent de gérer le groupe et d’y ajouter des workspaces. Aucune de ces actions ne crée de nouveau groupe.",
+      "headerMenuTitle": "Depuis le menu contextuel de l'en-tête de groupe",
+      "headerMenuDesc": "Faites un clic droit sur l'en-tête d'un groupe existant pour Renommer le groupe…, Épingler le groupe / Désépingler le groupe, Modifier la configuration du groupe… (qui ouvre ~/.config/cmux/cmux.json), Ouvrir la documentation des groupes, Dissocier (conserver les espaces de travail), et Supprimer le groupe (fermer les espaces de travail). La suppression est destructive et demande une confirmation ; la dissociation conserve les espaces de travail et supprime simplement le conteneur.",
+      "plusButtonTitle": "Depuis le bouton + sur un en-tête de groupe",
+      "plusButtonDesc": "Survolez l'en-tête d'un groupe pour faire apparaître un bouton + à la fin. Cliquez dessus pour créer un nouvel espace de travail dans le groupe au répertoire de travail d'ancrage. Faites un clic droit dessus pour Nouvel espace de travail dans le groupe, Modifier la configuration du groupe…, et Ouvrir la documentation des groupes.",
+      "plusButtonNote": "Appuyer sur {shortcut} lorsque l'espace de travail actif est un ancrage ou un membre de groupe crée également le nouvel espace de travail à l'intérieur de ce groupe. Le placement par défaut est After current : depuis un membre de groupe ordinaire, le nouvel espace de travail se place juste après le membre actif, et depuis l'ancrage ou l'en-tête, il se place en haut du groupe.",
+      "cliTitle": "CLI",
+      "cliDesc": "Toutes les opérations de groupe sont scriptables avec les sous-commandes cmux workspace-group. La forme avec trait d'union est livrée en premier ; une fois que l'espace de noms de commandes plus large cmux workspace sera disponible, cmux workspace group deviendra la forme canonique, la forme avec trait d'union étant conservée comme alias pour toujours.",
+      "cliSubcommandsTitle": "Sous-commandes",
+      "cliCreateNote": "create renvoie un identifiant de groupe (workspace_group:N par défaut). Passez --json pour la charge utile structurée complète.",
+      "cliFlagsNote": "Passez une valeur vide à set-color ou set-icon pour effacer la couleur ou l'icône du groupe. delete est irréversible : il ferme chaque espace de travail membre.",
+      "cliExamplesTitle": "Exemples",
+      "cliExampleGroup": "Regrouper les espaces de travail actuellement sélectionnés sous un nom :",
+      "cliExampleNew": "Créer un nouvel espace de travail à l'intérieur d'un groupe existant, par exemple connecté à un script de worktree :",
+      "cliExampleList": "Lister les groupes dans la fenêtre active :",
+      "configTitle": "Configuration",
+      "configNote": "La configuration par groupe se trouve sous la clé workspaceGroups dans ~/.config/cmux/cmux.json, indexée par le répertoire de travail du workspace d'ancrage. Consultez la référence de configuration pour connaître les clés prises en charge, y compris le placement global des nouveaux workspaces ainsi que la couleur, l'icône, le placement et les actions du menu contextuel par répertoire.",
+      "configLinkText": "référence de configuration workspaceGroups",
+      "persistenceTitle": "Persistance",
+      "persistenceDesc": "Le nom du groupe, l'ancrage, l'état d'épinglage, l'état de repliement, la couleur et l'icône sont enregistrés avec vos espaces de travail et restaurés entre les lancements. L'appartenance à un groupe est stockée sur chaque espace de travail."
     },
     "configuration": {
       "title": "Configuration",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Active les hooks d’intégration cmux pour Amp. Lorsqu’ils sont désactivés, le plugin fourni reste inactif sans avoir besoin d’être supprimé.",
-          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
+          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed.",
+          "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
+          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
+          "windowTitleTemplate": "Modèle facultatif pour le titre NSWindow. Vide, il conserve le comportement de titre par défaut existant de cmux, y compris le repli sur le répertoire courant. Espaces réservés pris en charge : '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+        },
+        "fileExplorer": {
+          "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
+          "doubleClickAction": "Ce que fait un double-clic (ou l’appui sur Return dans un résultat de recherche) sur un fichier dans l’explorateur de fichiers. `preview` ouvre l’aperçu de fichier intégré à cmux (comportement par défaut et historique). `defaultEditor` ouvre le fichier avec l’app macOS par défaut pour ce type de fichier. `preferredEditor` ouvre avec la commande `app.preferredEditor`, avec repli vers l’app par défaut lorsqu’aucune commande n’est définie. S’applique uniquement aux fichiers ; les dossiers se développent/se replient toujours, et les explorateurs de fichiers non locaux (distants) ouvrent toujours l’aperçu cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
+          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Double-clic sur un fichier : preview (par défaut), defaultEditor (app macOS par défaut) ou preferredEditor (commande app.preferredEditor).",
+      "shortcutsWhenIntro": "Prédicats de contexte facultatifs par action (clauses when de style VS Code), indexés par identifiant d'action cmux. Une liaison ne se déclenche — et n'entre en conflit avec une autre liaison sur la même frappe — que lorsque sa clause est vraie. Omettez la clause pour conserver le contexte intégré de l'action. Le vocabulaire des clauses :",
+      "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
+      "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",
+      "shortcutsWhenOperators": "opérateurs booléens, comparaisons typées, correspondance par expression régulière et appartenance à une liste. Les comparaisons lient plus fort que && et ||.",
+      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :"
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -864,6 +934,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Les surfaces sont des onglets à l'intérieur d'un panneau.",
         "splitPanes": "Panneaux divisés",
+        "canvas": "Canevas",
+        "canvasBlurb": "Un mode de disposition 2D libre où les panneaux flottent sur un canevas infini et déplaçable. Les commandes d'alignement et de répartition sont disponibles depuis la palette de commandes.",
         "browser": "Navigateur",
         "notifications": "Notifications",
         "find": "Recherche",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Premiers pas",
       "concepts": "Concepts",
+      "workspaceGroups": "Groupes d'espaces de travail",
       "configuration": "Configuration",
       "sessionRestore": "Restauration de session",
       "customCommands": "Commandes personnalisées",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Télécharger l’icône claire",
     "downloadDark": "Télécharger l’icône sombre",
     "brandPage": "Ressources de marque"
+  },
+  "afterSignIn": {
+    "title": "Connecté à cmux",
+    "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
+    "button": "Retourner à cmux"
   }
 }

@@ -673,7 +673,57 @@
       "automatic": "Automatisk",
       "paneIdSocket": "Panel-ID (socket-API)",
       "panelIdInternal": "Panel-ID (intern)",
-      "metaTitle": "Konsepter"
+      "metaTitle": "Konsepter",
+      "workspaceGroups": "Arbeidsområdegrupper",
+      "workspaceGroupsDesc": "Grupper relaterte arbeidsområder i sammenleggbare navngitte seksjoner i sidefeltet. Hver gruppe eies av et ankerarbeidsområde og kan festes, gis nytt navn og få sitt eget ikon og farge. Nye arbeidsområder kan opprettes direkte inne i en gruppe fra gruppens overskrift.",
+      "workspaceGroupsLink": "Les hele veiledningen om arbeidsområdegrupper"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Arbeidsområdegrupper",
+      "metaDescription": "Nest arbeidsområder i sammenleggbare, navngitte seksjoner i cmux-sidefeltet. Ankermodellen, hvordan du oppretter og administrerer en gruppe, og workspace-group-CLI-en.",
+      "title": "Arbeidsområdegrupper",
+      "intro": "Arbeidsområdegrupper lar deg nøste arbeidsområder inn i sammenleggbare navngitte seksjoner i sidefeltet. Hver gruppe har et implisitt ankerarbeidsområde, en tilpassbar +-knapp for å opprette nye arbeidsområder inne i den, og handlinger ved høyreklikk for å gi nytt navn, feste, oppheve gruppering og redigere konfigurasjonen.",
+      "concepts": "Konsepter",
+      "anchorTitle": "Ankerarbeidsområde",
+      "anchorDesc": "Hver gruppe eies av nøyaktig ett arbeidsområde kalt ankeret. Gruppeoverskriften i sidefeltet er ankerets representasjon — det finnes ingen egen rad for det. Å klikke på navneområdet i overskriften gir fokus til ankerets paneler; å klikke på vinkelpilen veksler sammenlegging.",
+      "anchorNew": "Ankere er alltid helt nye når en gruppe opprettes. De forfremmes aldri fra et eksisterende arbeidsområde. Ankerets arbeidskatalog arves fra det første valgte arbeidsområdet når du grupperer et utvalg, eller fra det aktive arbeidsområdet når du oppretter via CLI-en uten --cwd.",
+      "anchorClose": "Å lukke ankerarbeidsområdet oppløser gruppen: alle andre medlemmer blir til ugrupperte arbeidsområder og forblir i fanelisten. Ingenting lukkes bortsett fra selve ankeret. Appen viser en bekreftelsesdialog med en «Ikke spør igjen»-bryter før dette skjer.",
+      "identityTitle": "Gruppeidentitet",
+      "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri tilpasset farge. Disse er uavhengige av ankerarbeidsområdets egne tilpasninger. Ankerets farge og ikon hentes fra gruppen ved opprettelse, men de kan avvike etterpå.",
+      "pinningTitle": "Festing",
+      "pinningDesc": "Grupper kan festes uavhengig av festing av enkeltarbeidsområder. Festede rader på øverste nivå, enten det er enkeltarbeidsområder eller grupper, holder seg over ikke-festede rader. Innenfor hvert nivå beholder grupper og arbeidsområder rekkefølgen du drar dem inn i.",
+      "layoutIntro": "Sidefeltet plasserer rader på øverste nivå ovenfra og ned:",
+      "layoutItem1": "Festede rader på øverste nivå (arbeidsområder og grupper).",
+      "layoutItem2": "Ikke-festede rader på øverste nivå (arbeidsområder og grupper).",
+      "creatingTitle": "Opprette en gruppe",
+      "creatingIntro": "En gruppe opprettes på en av to måter: med en hurtigtast eller en hurtigmeny for arbeidsområde. Begge setter inn et nytt anker-arbeidsområde over utvalget og flytter de valgte arbeidsområdene inn i gruppen. Når en gruppe finnes, administrerer du den og legger til arbeidsområder i den fra gruppeoverskriften (se Administrere en gruppe nedenfor).",
+      "keyboardTitle": "Fra tastaturet ({shortcut})",
+      "keyboardDesc": "Velg to eller flere arbeidsområder i sidefeltet, og trykk deretter {shortcut}. Et nytt ankerarbeidsområde settes inn over utvalget, og alle valgte arbeidsområder blir til underordnede. Gruppen navngis automatisk Group 1, Group 2 og så videre — gi den nytt navn når som helst via kontekstmenyen i overskriften.",
+      "keyboardNote": "{shortcut} kolliderer med React Grabs standard. Gruppebehandleren forbruker bare tastekombinasjonen når det finnes et eksplisitt flervalg på minst to arbeidsområder i sidefeltet, så React Grab utløses fortsatt ved enkeltvalg og i nettleser- eller terminalkontekster. Bind den om i Innstillinger → Tastatur dersom du heller ikke vil at de to skal dele en tast.",
+      "keyboardSingle": "Grupper med én fane opprettes ikke fra snarveien. Bruk oppføringen New Group from Workspace i arbeidsområdets kontekstmeny for det.",
+      "contextMenuTitle": "Fra en kontekstmeny for arbeidsområde",
+      "contextMenuDesc": "Høyreklikk på et hvilket som helst arbeidsområde i sidefeltet og velg New Group from Workspace, eller New Group from Selection når flere arbeidsområder er valgt. Dette bruker den samme automatiske navngivingen som snarveien.",
+      "managingTitle": "Administrere en gruppe",
+      "managingIntro": "Når en gruppe finnes, lar hurtigmenyen i overskriften og +-knappen på overskriften deg administrere gruppen og legge til arbeidsområder i den. Ingen av dem oppretter en ny gruppe.",
+      "headerMenuTitle": "Fra kontekstmenyen for gruppeoverskriften",
+      "headerMenuDesc": "Høyreklikk på en eksisterende gruppeoverskrift for Rename Group…, Pin Group / Unpin Group, Edit Group Config… (som åpner ~/.config/cmux/cmux.json), Open Workspace Groups Docs, Ungroup (Keep Workspaces) og Delete Group (Close Workspaces). Sletting er destruktiv og ber om bekreftelse; oppdeling beholder arbeidsområdene og fjerner bare beholderen.",
+      "plusButtonTitle": "Fra +-knappen på en gruppeoverskrift",
+      "plusButtonDesc": "Hold pekeren over en gruppeoverskrift for å vise en avsluttende +-knapp. Klikk på den for å opprette et nytt arbeidsområde i gruppen i ankerarbeidskatalogen. Høyreklikk på den for New Workspace in Group, Edit Group Config… og Open Workspace Groups Docs.",
+      "plusButtonNote": "Å trykke {shortcut} mens det aktive arbeidsområdet er et gruppeanker eller -medlem oppretter også det nye arbeidsområdet inne i den gruppen. Standardplasseringen er After current: fra et vanlig gruppemedlem havner det nye arbeidsområdet rett etter det aktive medlemmet, og fra ankeret eller overskriften havner det øverst i gruppen.",
+      "cliTitle": "CLI",
+      "cliDesc": "Alle gruppeoperasjoner kan skriptes med cmux workspace-group underkommandoene. Formen med bindestrek leveres først; når det bredere cmux workspace kommandonavnerommet kommer, blir cmux workspace group den kanoniske formen, mens formen med bindestrek beholdes som et alias for alltid.",
+      "cliSubcommandsTitle": "Underkommandoer",
+      "cliCreateNote": "create returnerer et gruppehåndtak (workspace_group:N som standard). Send --json for hele den strukturerte nyttelasten.",
+      "cliFlagsNote": "Gi set-color eller set-icon en tom verdi for å fjerne gruppens farge eller ikon. delete kan ikke angres: den lukker alle medlemsarbeidsområder.",
+      "cliExamplesTitle": "Eksempler",
+      "cliExampleGroup": "Grupper de for øyeblikket valgte arbeidsområdene under et navn:",
+      "cliExampleNew": "Opprett et nytt arbeidsområde inne i en eksisterende gruppe, for eksempel koblet til et worktree-skript:",
+      "cliExampleList": "List grupper i det fokuserte vinduet:",
+      "configTitle": "Konfigurasjon",
+      "configNote": "Konfigurasjon per gruppe ligger under nøkkelen workspaceGroups i ~/.config/cmux/cmux.json, indeksert etter arbeidskatalogen til anker-arbeidsområdet. Se konfigurasjonsreferansen for de støttede nøklene, inkludert global plassering av nye arbeidsområder samt farge, ikon, plassering og hurtigmenyhandlinger per katalog.",
+      "configLinkText": "workspaceGroups konfigurasjonsreferanse",
+      "persistenceTitle": "Persistens",
+      "persistenceDesc": "Gruppenavn, anker, festetilstand, sammenleggingstilstand, farge og ikon lagres sammen med arbeidsområdene dine og gjenopprettes på tvers av oppstart. Gruppemedlemskap lagres på hvert arbeidsområde."
     },
     "configuration": {
       "title": "Konfigurasjon",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
-          "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
+          "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
+          "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
+          "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+        },
+        "fileExplorer": {
+          "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
+          "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
+          "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dobbeltklikk på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
+      "shortcutsWhenIntro": "Valgfrie kontekstpredikater per handling (VS Code-lignende when-klausuler), indeksert etter cmux-handlings-id. En binding utløses bare — og kolliderer bare med en annen binding på samme tastetrykk — når klausulen er sann. Utelat klausulen for å beholde handlingens innebygde kontekst. Klausulenes vokabular:",
+      "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
+      "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",
+      "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-treff og listemedlemskap. Sammenligninger binder tettere enn && og ||.",
+      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:"
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",
@@ -864,6 +934,8 @@
         "surfaces": "Overflater",
         "surfacesBlurb": "Overflater er faner inne i et panel.",
         "splitPanes": "Delte paneler",
+        "canvas": "Lerret",
+        "canvasBlurb": "En fri 2D-oppsettmodus der ruter flyter på et uendelig lerret som kan panoreres. Justerings- og fordelingskommandoer er tilgjengelige fra kommandopaletten.",
         "browser": "Nettleser",
         "notifications": "Varsler",
         "find": "Finn",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Kom i gang",
       "concepts": "Konsepter",
+      "workspaceGroups": "Arbeidsområdegrupper",
       "configuration": "Konfigurasjon",
       "sessionRestore": "Sesjongjenoppretting",
       "customCommands": "Egendefinerte kommandoer",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Last ned lyst ikon",
     "downloadDark": "Last ned mørkt ikon",
     "brandPage": "Merkevareressurser"
+  },
+  "afterSignIn": {
+    "title": "Logget på cmux",
+    "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
+    "button": "Gå tilbake til cmux"
   }
 }

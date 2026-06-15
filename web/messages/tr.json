@@ -673,7 +673,57 @@
       "automatic": "Otomatik",
       "paneIdSocket": "Panel ID (socket API)",
       "panelIdInternal": "Panel ID (dahili)",
-      "metaTitle": "Kavramlar"
+      "metaTitle": "Kavramlar",
+      "workspaceGroups": "Çalışma Alanı Grupları",
+      "workspaceGroupsDesc": "İlgili çalışma alanlarını kenar çubuğunda daraltılabilir, adlandırılmış bölümler halinde gruplayın. Her grup bir bağlantı (anchor) çalışma alanına aittir; sabitlenebilir, yeniden adlandırılabilir ve kendi simgesi ile rengine sahip olabilir. Yeni çalışma alanları doğrudan bir grubun başlığından grubun içinde oluşturulabilir.",
+      "workspaceGroupsLink": "Çalışma Alanı Grupları kılavuzunun tamamını okuyun"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Çalışma Alanı Grupları",
+      "metaDescription": "Çalışma alanlarını cmux kenar çubuğunda daraltılabilir adlandırılmış bölümler halinde gruplandırın. Çapa modeli, bir grubun nasıl oluşturulup yönetileceği ve workspace-group CLI.",
+      "title": "Çalışma Alanı Grupları",
+      "intro": "Çalışma alanı grupları, çalışma alanlarını kenar çubuğunda daraltılabilir, adlandırılmış bölümler halinde iç içe yerleştirmenize olanak tanır. Her grubun örtük bir bağlantı (anchor) çalışma alanı, içinde yeni çalışma alanları oluşturmak için özelleştirilebilir bir + düğmesi ve yeniden adlandırma, sabitleme, grubu çözme ile yapılandırmasını düzenleme için sağ tıklama eylemleri vardır.",
+      "concepts": "Kavramlar",
+      "anchorTitle": "Bağlantı (anchor) çalışma alanı",
+      "anchorDesc": "Her grup, bağlantı (anchor) adı verilen tam olarak bir çalışma alanına aittir. Kenar çubuğundaki grup başlığı, bağlantının temsilidir; onun için ayrı bir satır yoktur. Başlık adı alanına tıklamak bağlantının panellerini odaklar; çevron simgesine tıklamak ise daraltmayı açıp kapatır.",
+      "anchorNew": "Bir grup oluşturulduğunda bağlantılar her zaman yepyenidir. Mevcut bir çalışma alanından asla yükseltilmezler. Bağlantının çalışma dizini, bir seçim gruplanırken seçilen ilk çalışma alanından ya da CLI üzerinden --cwd olmadan oluşturulurken etkin çalışma alanından devralınır.",
+      "anchorClose": "Bağlantı çalışma alanını kapatmak grubu dağıtır: diğer her üye gruplanmamış bir çalışma alanı haline gelir ve sekmeler listesinde kalır. Bağlantının kendisi dışında hiçbir şey kapatılmaz. Uygulama bu gerçekleşmeden önce \"Bir daha sorma\" geçişine sahip bir onay penceresi gösterir.",
+      "identityTitle": "Grup kimliği",
+      "identityDesc": "Bir grubun adı, bir simgesi (bir SF Symbol, varsayılan olarak folder.fill) ve isteğe bağlı bir özel rengi vardır. Bunlar bağlantı çalışma alanının kendi özelleştirmelerinden bağımsızdır. Bağlantının rengi ve simgesi oluşturma sırasında gruptan alınır, ancak sonrasında farklılaşabilirler.",
+      "pinningTitle": "Sabitleme",
+      "pinningDesc": "Gruplar, tek tek çalışma alanı sabitlemelerinden bağımsız olarak sabitlenebilir. Sabitlenmiş üst düzey satırlar, ister tek tek çalışma alanları ister gruplar olsun, sabitlenmemiş satırların üzerinde kalır. Her katman içinde gruplar ve çalışma alanları, onları sürüklediğiniz sırayı korur.",
+      "layoutIntro": "Kenar çubuğu, üst düzey satırları yukarıdan aşağıya doğru düzenler:",
+      "layoutItem1": "Sabitlenmiş üst düzey satırlar (çalışma alanları ve gruplar).",
+      "layoutItem2": "Sabitlenmemiş üst düzey satırlar (çalışma alanları ve gruplar).",
+      "creatingTitle": "Bir grup oluşturma",
+      "creatingIntro": "Bir grup iki yoldan biriyle oluşturulur: klavye kısayolu veya bir workspace bağlam menüsü. Her ikisi de seçimin üzerine yeni bir çapa workspace ekler ve seçili workspace’leri gruba taşır. Bir grup oluşturulduktan sonra, onu grup başlığından yönetir ve ona workspace eklersiniz (aşağıdaki Bir grubu yönetme bölümüne bakın).",
+      "keyboardTitle": "Klavyeden ({shortcut})",
+      "keyboardDesc": "Kenar çubuğunda iki veya daha fazla çalışma alanı seçin, ardından {shortcut} tuşlarına basın. Seçimin üzerine yeni bir bağlantı çalışma alanı eklenir ve seçilen tüm çalışma alanları alt öğeler haline gelir. Grup otomatik olarak Group 1, Group 2 ve bu şekilde adlandırılır; başlık bağlam menüsü aracılığıyla istediğiniz zaman yeniden adlandırın.",
+      "keyboardNote": "{shortcut}, React Grab'in varsayılanıyla çakışır. Grup işleyicisi yalnızca kenar çubuğunda en az iki çalışma alanından oluşan açık bir çoklu seçim olduğunda bu tuş bileşimini tüketir, bu nedenle React Grab tek seçimde ve tarayıcı ya da terminal bağlamlarında hâlâ çalışır. İkisinin bir tuşu paylaşmasını istemiyorsanız Ayarlar → Klavye bölümünden yeniden atayın.",
+      "keyboardSingle": "Tek sekmeli gruplar kısayoldan oluşturulmaz. Bunun için çalışma alanı bağlam menüsündeki Bu çalışma alanından yeni grup girişini kullanın.",
+      "contextMenuTitle": "Bir çalışma alanı bağlam menüsünden",
+      "contextMenuDesc": "Kenar çubuğundaki herhangi bir çalışma alanına sağ tıklayın ve Bu çalışma alanından yeni grup öğesini seçin veya birden fazla çalışma alanı seçiliyken Seçimden yeni grup öğesini seçin. Bu, kısayolla aynı otomatik adlandırma davranışını kullanır.",
+      "managingTitle": "Bir grubu yönetme",
+      "managingIntro": "Bir grup oluşturulduktan sonra, başlığının bağlam menüsü ve başlıktaki + düğmesi grubu yönetmenize ve ona workspace eklemenize olanak tanır. İkisi de yeni bir grup oluşturmaz.",
+      "headerMenuTitle": "Grup başlığı bağlam menüsünden",
+      "headerMenuDesc": "Mevcut bir grup başlığına sağ tıklayarak Grubu yeniden adlandır…, Grubu sabitle / Grubu sabitlemekten çıkar, Grup yapılandırmasını düzenle… (~/.config/cmux/cmux.json dosyasını açar), Çalışma alanı grupları belgelerini aç, Grubu çöz (çalışma alanlarını koru) ve Grubu sil (çalışma alanlarını kapat) seçeneklerine erişebilirsiniz. Silme işlemi yıkıcıdır ve onay ister; grubu çözmek çalışma alanlarını korur ve yalnızca kapsayıcıyı kaldırır.",
+      "plusButtonTitle": "Grup başlığındaki + düğmesinden",
+      "plusButtonDesc": "Sonda bir + düğmesini görüntülemek için bir grup başlığının üzerine gelin. Çapa çalışma dizininde grupta yeni bir çalışma alanı oluşturmak için ona tıklayın. Grupta yeni çalışma alanı, Grup yapılandırmasını düzenle… ve Çalışma alanı grupları belgelerini aç için ona sağ tıklayın.",
+      "plusButtonNote": "Etkin çalışma alanı bir grup bağlantısı ya da üyesiyken {shortcut} tuşlarına basmak da yeni çalışma alanını o grubun içinde oluşturur. Varsayılan yerleşim After current şeklindedir: sıradan bir grup üyesinden yeni çalışma alanı etkin üyenin hemen ardına yerleşir, bağlantıdan ya da başlıktan ise grubun en üstüne yerleşir.",
+      "cliTitle": "CLI",
+      "cliDesc": "Tüm grup işlemleri cmux workspace-group alt komutlarıyla betiklenebilir. Tireli biçim önce kullanıma sunulur; daha geniş cmux workspace komut ad alanı geldiğinde cmux workspace group standart biçim hâline gelir ve tireli biçim sonsuza dek takma ad olarak korunur.",
+      "cliSubcommandsTitle": "Alt komutlar",
+      "cliCreateNote": "create bir grup tutamacı döndürür (varsayılan olarak workspace_group:N). Tam yapılandırılmış yük için --json geçirin.",
+      "cliFlagsNote": "Grubun rengini veya simgesini temizlemek için set-color ya da set-icon öğesine boş bir değer geçirin. delete geri alınamaz: her üye çalışma alanını kapatır.",
+      "cliExamplesTitle": "Örnekler",
+      "cliExampleGroup": "Şu anda seçili çalışma alanlarını bir ad altında gruplayın:",
+      "cliExampleNew": "Mevcut bir grubun içinde, örneğin bir worktree betiğine bağlı yeni bir çalışma alanı oluşturun:",
+      "cliExampleList": "Odaktaki penceredeki grupları listeleyin:",
+      "configTitle": "Yapılandırma",
+      "configNote": "Her gruba özel yapılandırma, ~/.config/cmux/cmux.json içindeki workspaceGroups anahtarı altında, çapa workspace'in çalışma dizinine göre anahtarlanmış olarak bulunur. Genel yeni workspace yerleşimi ile dizin başına renk, simge, yerleşim ve bağlam menüsü eylemleri dâhil olmak üzere desteklenen anahtarlar için yapılandırma referansına bakın.",
+      "configLinkText": "workspaceGroups yapılandırma referansı",
+      "persistenceTitle": "Kalıcılık",
+      "persistenceDesc": "Grup adı, bağlantı, sabitleme durumu, daraltma durumu, renk ve simge çalışma alanlarınızla birlikte kaydedilir ve başlatmalar arasında geri yüklenir. Grup üyeliği her çalışma alanında saklanır."
     },
     "configuration": {
       "title": "Yapılandırma",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Amp için cmux entegrasyon kancalarını etkinleştirir. Devre dışı bırakıldığında, paketlenmiş eklenti kaldırılmaya gerek kalmadan etkin olmayan durumda kalır.",
-          "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+          "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar.",
+          "workspaceAutoNaming": "Ajan konuşma içeriğinden çalışma alanlarının ve sekmelerin yapay zekâ ile otomatik adlandırılması (isteğe bağlı). Etkinleştirildiğinde cmux, desteklenen ajan oturumlarını her ajanın kendi ikili dosyasını kullanarak kısa başlıklara özetler; elle yapılan yeniden adlandırmalar her zaman önceliklidir.",
+          "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz."
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
+          "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
+        },
+        "fileExplorer": {
+          "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
+          "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
+          "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Bir dosyaya çift tıklama: preview (varsayılan), defaultEditor (macOS varsayılan uygulaması) veya preferredEditor (app.preferredEditor komutu).",
+      "shortcutsWhenIntro": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı when koşulları), cmux eylem kimliğiyle anahtarlanır. Bir atama yalnızca koşulu sağlandığında tetiklenir ve aynı tuş vuruşundaki başka bir atamayla yalnızca o zaman çakışır. Eylemin yerleşik bağlamını korumak için koşulu atlayın. Koşul söz varlığı:",
+      "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",
+      "shortcutsWhenTypedKeys": "karşılaştırmalar için türlü anahtarlar: sağ kenar çubuğunun etkin modu (dize) ile bölme ve çalışma alanı sayıları (tamsayılar).",
+      "shortcutsWhenOperators": "boolean işleçler, türlü karşılaştırmalar, düzenli ifade eşleşmesi ve liste üyeliği. Karşılaştırmalar && ve || işleçlerinden daha sıkı bağlanır.",
+      "shortcutsWhenExample": "Örneğin bu ayar, sağ kenar çubuğu odaklı olmadığı sürece Ctrl+1–9 ile çalışma alanlarını seçer (Ctrl+1–5'i kenar çubuğunun mod değiştiricisine bırakır) ve çalışma alanında birden çok bölme varken yüzey seçimini Bul kenar çubuğuyla sınırlar:"
     },
     "customCommands": {
       "title": "Özel Komutlar",
@@ -864,6 +934,8 @@
         "surfaces": "Yüzeyler",
         "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
         "splitPanes": "Bölünmüş Paneller",
+        "canvas": "Kanvas",
+        "canvasBlurb": "Bölmelerin sonsuz, kaydırılabilir bir kanvas üzerinde serbestçe durduğu 2B düzen modu. Hizalama ve dağıtma komutlarına komut paletinden erişilebilir.",
         "browser": "Tarayıcı",
         "notifications": "Bildirimler",
         "find": "Bul",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Başlarken",
       "concepts": "Kavramlar",
+      "workspaceGroups": "Çalışma Alanı Grupları",
       "configuration": "Yapılandırma",
       "sessionRestore": "Oturum geri yükleme",
       "customCommands": "Özel Komutlar",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Açık simgeyi indir",
     "downloadDark": "Koyu simgeyi indir",
     "brandPage": "Marka varlıkları"
+  },
+  "afterSignIn": {
+    "title": "cmux oturumu açıldı",
+    "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
+    "button": "cmux’a dön"
   }
 }

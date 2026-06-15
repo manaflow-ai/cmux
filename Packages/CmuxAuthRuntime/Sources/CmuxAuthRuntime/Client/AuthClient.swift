@@ -60,6 +60,45 @@ public protocol AuthClient: Sendable {
     ///   - anchor: The presentation-anchor provider for the auth UI.
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws
 
-    /// Clear the persisted Stack session (tokens) for the current device.
-    func signOut() async throws
+    /// The access token exactly as stored, with no freshness check and no
+    /// network refresh (unlike ``accessToken()``, which may mint a new token
+    /// over the network when the stored one looks stale).
+    ///
+    /// For capturing the credentials a best-effort server-side teardown needs
+    /// before ``clearLocalSession()`` destroys them; never blocks on
+    /// connectivity.
+    func storedAccessToken() async -> String?
+
+    /// Clear the locally persisted session (tokens) without any network call.
+    /// The device is signed out once this returns, regardless of connectivity.
+    func clearLocalSession() async
+
+    /// Clear the locally persisted session only while the stored refresh
+    /// token still equals `refreshToken`: an atomic compare-and-clear at the
+    /// token store. For stale-session cleanup that can race a fresh sign-in's
+    /// store write; a store that changed owners after the cleanup decision is
+    /// left alone. User-intent sign-out keeps using the unconditional
+    /// ``clearLocalSession()``.
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async
+
+    /// Revoke the server-side session the captured token pair authenticates,
+    /// without touching local token storage (the local session is typically
+    /// already cleared by ``clearLocalSession()`` when this runs).
+    ///
+    /// Best-effort by contract: callers bound it with a deadline and log
+    /// failures rather than letting revocation gate sign-out.
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws
+
+    /// A likely-valid access token for an explicit captured token pair,
+    /// resolved through an ephemeral store that never touches local token
+    /// storage: the captured access token when still fresh, else one freshly
+    /// minted from the captured refresh token.
+    ///
+    /// For the sign-out teardown: the raw capture can hold an expired access
+    /// token (or none on a refresh-only store), and the cmux API
+    /// authenticates with the Bearer + refresh header pair, so the bounded
+    /// best-effort teardown needs a usable access token even though the local
+    /// session is already cleared. Best-effort: returns `nil` when no token
+    /// could be resolved (offline, dead server).
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String?
 }

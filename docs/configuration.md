@@ -2,6 +2,29 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `app.windowTitleTemplate`
+
+Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
+
+```json
+{
+  "app": {
+    "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}"
+  }
+}
+```
+
+Supported placeholders:
+
+- `{windowId}`: the persisted per-window UUID.
+- `{windowToken}`: the first 8 characters of the persisted window UUID.
+- `{activeWorkspace}`: the active workspace title, falling back to the default title when the workspace title is blank.
+- `{activeDirectory}`: the active workspace's current directory.
+- `{defaultTitle}`: the title cmux would have used without a template.
+- `{appName}`: `cmux`.
+
+For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.
+
 ## `app.confirmQuit`
 
 Controls when cmux asks before quitting:
@@ -43,6 +66,20 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `automation.workspaceAutoNaming`
+
+Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.
+
+```json
+{
+  "automation": {
+    "workspaceAutoNaming": true
+  }
+}
+```
+
+Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
 ## `diffViewer.defaultLayout`
 

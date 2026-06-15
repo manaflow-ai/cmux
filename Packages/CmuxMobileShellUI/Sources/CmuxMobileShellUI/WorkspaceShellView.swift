@@ -47,6 +47,19 @@ struct WorkspaceShellView: View {
             }
             compactNavigationPath = [selectedWorkspaceID]
         }
+        // A notification-tap deep link must actually navigate, not just mark a
+        // selection: on the compact stack an empty path ignores selection
+        // changes by design (the attach-time auto-selection must not yank the
+        // user off the home list), so the deep link carries an explicit
+        // one-shot push intent. Consumed on change and on mount in case the
+        // request landed before this view appeared.
+        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
+            guard request != nil else { return }
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        .onAppear {
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
             MobileConnectionRecoveryBanner(store: store, signOut: signOut)
@@ -57,18 +70,24 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                previewLineLimit: displaySettings.workspacePreviewLineCount,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                setUnread: setWorkspaceUnreadClosure,
+                closeWorkspace: closeWorkspaceClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -92,8 +111,11 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            guard let selectedWorkspaceID = path.last,
-                  store.selectedWorkspaceID != selectedWorkspaceID else {
+            guard let selectedWorkspaceID = path.last else {
+                return
+            }
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            guard store.selectedWorkspaceID != selectedWorkspaceID else {
                 return
             }
             store.selectedWorkspaceID = selectedWorkspaceID
@@ -111,18 +133,24 @@ struct WorkspaceShellView: View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
                 workspaces: store.workspaces,
+                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                previewLineLimit: displaySettings.workspacePreviewLineCount,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
+                refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                setUnread: setWorkspaceUnreadClosure,
+                closeWorkspace: closeWorkspaceClosure,
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -135,6 +163,19 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+        }
+    }
+
+    /// Apply (and clear) a pending deep-link navigation intent. On the compact
+    /// stack this pushes the workspace; on the split layout the store's
+    /// selection already presents the detail column, so consuming just clears
+    /// the request so a later size-class change cannot replay a stale push.
+    private func consumeDeeplinkNavigationRequestIfNeeded() {
+        guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
+        guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
+        guard usesCompactStack else { return }
+        if compactNavigationPath.last != workspaceID {
+            compactNavigationPath = [workspaceID]
         }
     }
 
@@ -161,6 +202,40 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceReadStateActions else { return nil }
+        let store = store
+        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
+    }
+
+    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCloseActions else { return nil }
+        let store = store
+        return { id in Task { await store.closeWorkspace(id: id) } }
+    }
+
+    /// Pull-to-refresh closure for the workspace list. Awaits the store's real
+    /// `mobile.workspace.list` re-sync so the system refresh spinner reflects the
+    /// actual round-trip. Captures `store` as a local so the closure (not a store
+    /// reference) is what crosses into the `List`-hosting view.
+    private var refreshWorkspacesClosure: @Sendable () async -> Void {
+        let store = store
+        return { await store.refreshWorkspaces() }
+    }
+
+    /// Group collapse/expand closure. Present when the Mac advertises
+    /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
+    /// emits groups in the workspace list also handles collapse/expand (both
+    /// shipped together), and the capability flag arrives via a separate
+    /// `mobile.host.status` call that can lag or fail without making the
+    /// already-received groups read-only. Older Macs emit no groups, so this
+    /// stays `nil` and the list renders flat.
+    private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
     }
 
     private func createWorkspaceInCompactStack() {

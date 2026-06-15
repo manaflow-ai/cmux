@@ -673,7 +673,57 @@
       "automatic": "Automatycznie",
       "paneIdSocket": "ID panelu (socket API)",
       "panelIdInternal": "ID panelu (wewnętrzny)",
-      "metaTitle": "Koncepcje"
+      "metaTitle": "Koncepcje",
+      "workspaceGroups": "Grupy workspace'ów",
+      "workspaceGroupsDesc": "Grupuj powiązane workspace'y w zwijane, nazwane sekcje w pasku bocznym. Każda grupa należy do kotwicowego workspace'a i może zostać przypięta, zmieniona nazwa oraz otrzymać własną ikonę i kolor. Nowe workspace'y można tworzyć bezpośrednio wewnątrz grupy z poziomu jej nagłówka.",
+      "workspaceGroupsLink": "Przeczytaj pełny przewodnik po grupach workspace'ów"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Grupy workspace'ów",
+      "metaDescription": "Zagnieżdżaj przestrzenie robocze w zwijanych, nazwanych sekcjach na pasku bocznym cmux. Model kotwicy, sposób tworzenia grupy i zarządzania nią oraz interfejs CLI workspace-group.",
+      "title": "Grupy workspace'ów",
+      "intro": "Grupy workspace'ów pozwalają zagnieżdżać workspace'y w zwijanych, nazwanych sekcjach w pasku bocznym. Każda grupa ma niejawny kotwicowy workspace, konfigurowalny przycisk + do tworzenia nowych workspace'ów w jej wnętrzu oraz akcje dostępne po kliknięciu prawym przyciskiem do zmiany nazwy, przypinania, rozgrupowywania i edycji jej konfiguracji.",
+      "concepts": "Koncepty",
+      "anchorTitle": "Kotwicowy workspace",
+      "anchorDesc": "Każda grupa należy do dokładnie jednego workspace'a zwanego kotwicą. Nagłówek grupy w pasku bocznym jest reprezentacją kotwicy — nie ma dla niej osobnego wiersza. Kliknięcie obszaru nazwy w nagłówku ustawia fokus na panelach kotwicy; kliknięcie strzałki przełącza zwinięcie.",
+      "anchorNew": "Kotwice są zawsze całkowicie nowe w momencie utworzenia grupy. Nigdy nie są awansowane z istniejącego workspace'a. Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a przy grupowaniu zaznaczenia lub z aktywnego workspace'a przy tworzeniu za pomocą CLI bez --cwd.",
+      "anchorClose": "Zamknięcie kotwicowego workspace'a rozwiązuje grupę: każdy pozostały członek staje się niezgrupowanym workspace'em i pozostaje na liście kart. Nic poza samą kotwicą nie jest zamykane. Przed tym aplikacja wyświetla okno potwierdzenia z przełącznikiem „Nie pytaj ponownie”.",
+      "identityTitle": "Tożsamość grupy",
+      "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
+      "pinningTitle": "Przypinanie",
+      "pinningDesc": "Grupy można przypinać niezależnie od przypięć poszczególnych workspace'ów. Przypięte wiersze najwyższego poziomu, niezależnie od tego, czy są to pojedyncze workspace'y, czy grupy, pozostają nad wierszami nieprzypiętymi. W obrębie każdego poziomu grupy i workspace'y zachowują kolejność, w jakiej je przeciągniesz.",
+      "layoutIntro": "Pasek boczny układa wiersze najwyższego poziomu od góry do dołu:",
+      "layoutItem1": "Przypięte wiersze najwyższego poziomu (workspace'y i grupy).",
+      "layoutItem2": "Nieprzypięte wiersze najwyższego poziomu (workspace'y i grupy).",
+      "creatingTitle": "Tworzenie grupy",
+      "creatingIntro": "Grupę można utworzyć na jeden z dwóch sposobów: za pomocą skrótu klawiszowego lub menu kontekstowego workspace’u. Oba wstawiają nowy workspace kotwiczący nad zaznaczeniem i przenoszą zaznaczone workspace’y do grupy. Gdy grupa już istnieje, zarządzasz nią i dodajesz do niej workspace’y z nagłówka grupy (zobacz Zarządzanie grupą poniżej).",
+      "keyboardTitle": "Z klawiatury ({shortcut})",
+      "keyboardDesc": "Zaznacz dwa lub więcej workspace'ów w pasku bocznym, a następnie naciśnij {shortcut}. Nad zaznaczeniem zostaje wstawiony nowy kotwicowy workspace, a wszystkie zaznaczone workspace'y stają się jego elementami podrzędnymi. Grupa otrzymuje automatyczną nazwę Group 1, Group 2 i tak dalej — możesz ją zmienić w dowolnej chwili z menu kontekstowego nagłówka.",
+      "keyboardNote": "{shortcut} koliduje z domyślnym skrótem React Grab. Obsługa grup wykorzystuje ten akord tylko wtedy, gdy w pasku bocznym istnieje jawne wielokrotne zaznaczenie co najmniej dwóch workspace'ów, więc React Grab nadal działa przy pojedynczym zaznaczeniu oraz w kontekście przeglądarki lub terminala. Zmień przypisanie w Ustawienia → Klawiatura, jeśli wolisz, aby te dwie funkcje nie współdzieliły klawisza.",
+      "keyboardSingle": "Grupy jednokartowe nie są tworzone za pomocą skrótu. W tym celu użyj pozycji „Nowa grupa z przestrzeni” w menu kontekstowym przestrzeni roboczej.",
+      "contextMenuTitle": "Z menu kontekstowego workspace'a",
+      "contextMenuDesc": "Kliknij prawym przyciskiem dowolną przestrzeń roboczą na pasku bocznym i wybierz „Nowa grupa z przestrzeni” lub „Nowa grupa z zaznaczenia”, gdy zaznaczono wiele przestrzeni roboczych. Wykorzystuje to to samo automatyczne nazewnictwo co skrót.",
+      "managingTitle": "Zarządzanie grupą",
+      "managingIntro": "Gdy grupa już istnieje, menu kontekstowe jej nagłówka oraz przycisk + w nagłówku umożliwiają zarządzanie grupą i dodawanie do niej workspace’ów. Żadne z nich nie tworzy nowej grupy.",
+      "headerMenuTitle": "Z menu kontekstowego nagłówka grupy",
+      "headerMenuDesc": "Kliknij prawym przyciskiem nagłówek istniejącej grupy, aby uzyskać dostęp do „Zmień nazwę grupy…”, „Przypnij grupę / Odepnij grupę”, „Edytuj konfigurację grupy…” (które otwiera ~/.config/cmux/cmux.json), „Otwórz dokumentację grup przestrzeni”, „Rozgrupuj (zachowaj przestrzenie)” oraz „Usuń grupę (zamknij przestrzenie)”. Usuwanie jest destrukcyjne i wymaga potwierdzenia; rozgrupowanie zachowuje przestrzenie robocze i jedynie usuwa kontener.",
+      "plusButtonTitle": "Z przycisku + na nagłówku grupy",
+      "plusButtonDesc": "Najedź na nagłówek grupy, aby odsłonić końcowy przycisk +. Kliknij go, aby utworzyć nową przestrzeń roboczą w grupie w katalogu roboczym kotwicy. Kliknij go prawym przyciskiem, aby uzyskać dostęp do „Nowa przestrzeń w grupie”, „Edytuj konfigurację grupy…” oraz „Otwórz dokumentację grup przestrzeni”.",
+      "plusButtonNote": "Naciśnięcie {shortcut}, gdy aktywny workspace jest kotwicą lub członkiem grupy, również tworzy nowy workspace wewnątrz tej grupy. Domyślne umiejscowienie to After current: z poziomu zwykłego członka grupy nowy workspace pojawia się tuż za aktywnym członkiem, a z poziomu kotwicy lub nagłówka pojawia się na górze grupy.",
+      "cliTitle": "CLI",
+      "cliDesc": "Wszystkie operacje na grupach można skryptować za pomocą podkomend cmux workspace-group. Forma z łącznikiem pojawia się jako pierwsza; gdy tylko pojawi się szersza przestrzeń nazw poleceń cmux workspace, cmux workspace group stanie się formą kanoniczną, a forma z łącznikiem zostanie na zawsze zachowana jako alias.",
+      "cliSubcommandsTitle": "Podpolecenia",
+      "cliCreateNote": "create zwraca uchwyt grupy (domyślnie workspace_group:N). Przekaż --json, aby uzyskać pełny, ustrukturyzowany ładunek.",
+      "cliFlagsNote": "Przekaż do set-color lub set-icon pustą wartość, aby wyczyścić kolor lub ikonę grupy. delete jest nieodwracalne: zamyka każdą przestrzeń roboczą należącą do grupy.",
+      "cliExamplesTitle": "Przykłady",
+      "cliExampleGroup": "Zgrupuj aktualnie zaznaczone workspace'y pod jedną nazwą:",
+      "cliExampleNew": "Utwórz nowy workspace wewnątrz istniejącej grupy, na przykład powiązany ze skryptem worktree:",
+      "cliExampleList": "Wyświetl listę grup w aktywnym oknie:",
+      "configTitle": "Konfiguracja",
+      "configNote": "Konfiguracja poszczególnych grup znajduje się pod kluczem workspaceGroups w ~/.config/cmux/cmux.json, indeksowana według katalogu roboczego kotwicowego workspace. Obsługiwane klucze, w tym globalne rozmieszczanie nowych workspace oraz kolor, ikonę, rozmieszczenie i akcje menu kontekstowego dla poszczególnych katalogów, znajdziesz w dokumentacji konfiguracji.",
+      "configLinkText": "dokumentacja konfiguracji workspaceGroups",
+      "persistenceTitle": "Trwałość",
+      "persistenceDesc": "Nazwa grupy, kotwica, stan przypięcia, stan zwinięcia, kolor i ikona są zapisywane razem z Twoimi workspace'ami i przywracane między uruchomieniami. Przynależność do grupy jest przechowywana w każdym workspace'ie."
     },
     "configuration": {
       "title": "Konfiguracja",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Włącza haki integracji cmux dla Amp. Po wyłączeniu dołączona wtyczka pozostaje nieaktywna bez konieczności jej usuwania.",
-          "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed."
+          "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed.",
+          "workspaceAutoNaming": "Opcjonalne automatyczne nazywanie przestrzeni roboczych i kart przez AI na podstawie treści rozmów agenta. Po włączeniu cmux podsumowuje obsługiwane sesje agentów w krótkie tytuły przy użyciu własnego pliku binarnego każdego agenta; ręczne zmiany nazw zawsze mają pierwszeństwo.",
+          "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje."
         },
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
+          "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
+        },
+        "fileExplorer": {
+          "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
+          "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dwukrotne kliknięcie pliku: preview (domyślne), defaultEditor (domyślna aplikacja macOS) albo preferredEditor (polecenie app.preferredEditor).",
+      "shortcutsWhenIntro": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule when w stylu VS Code), indeksowane identyfikatorem akcji cmux. Przypisanie uruchamia się — i koliduje z innym przypisaniem tego samego skrótu — tylko wtedy, gdy jego klauzula jest spełniona. Pomiń klauzulę, aby zachować wbudowany kontekst akcji. Słownictwo klauzul:",
+      "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
+      "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",
+      "shortcutsWhenOperators": "operatory logiczne, porównania typowane, dopasowanie wyrażeniem regularnym i przynależność do listy. Porównania wiążą mocniej niż && i ||.",
+      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:"
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",
@@ -864,6 +934,8 @@
         "surfaces": "Surface'y",
         "surfacesBlurb": "Surface'y to karty wewnątrz panelu.",
         "splitPanes": "Dzielone panele",
+        "canvas": "Kanwa",
+        "canvasBlurb": "Swobodny tryb układu 2D, w którym panele unoszą się na nieskończonej, przesuwalnej kanwie. Polecenia wyrównania i rozmieszczania są dostępne z palety poleceń.",
         "browser": "Przeglądarka",
         "notifications": "Powiadomienia",
         "find": "Znajdź",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Szybki start",
       "concepts": "Koncepty",
+      "workspaceGroups": "Grupy workspace'ów",
       "configuration": "Konfiguracja",
       "sessionRestore": "Przywracanie sesji",
       "customCommands": "Niestandardowe polecenia",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Pobierz jasną ikonę",
     "downloadDark": "Pobierz ciemną ikonę",
     "brandPage": "Zasoby marki"
+  },
+  "afterSignIn": {
+    "title": "Zalogowano do cmux",
+    "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
+    "button": "Wróć do cmux"
   }
 }

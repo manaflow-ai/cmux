@@ -22,6 +22,7 @@ struct SignInView: View {
     @State private var isGoogleSigningIn = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
+    @State private var signInTask: Task<Void, Never>?
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
 
@@ -78,7 +79,7 @@ struct SignInView: View {
                 brandHeader
 
                 Button {
-                    Task {
+                    signInTask = Task {
                         await signInWithApple()
                     }
                 } label: {
@@ -95,7 +96,7 @@ struct SignInView: View {
                 .accessibilityIdentifier("signin.apple")
 
                 Button {
-                    Task {
+                    signInTask = Task {
                         await signInWithGoogle()
                     }
                 } label: {
@@ -133,7 +134,7 @@ struct SignInView: View {
 
                     Button {
                         let autofocusCodeOnSuccess = isEmailFocused
-                        Task {
+                        signInTask = Task {
                             await sendCode(autofocusCodeOnSuccess: autofocusCodeOnSuccess)
                         }
                     } label: {
@@ -150,6 +151,8 @@ struct SignInView: View {
                 if let error {
                     errorText(error)
                 }
+
+                cancelSignInButton
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)
@@ -176,7 +179,7 @@ struct SignInView: View {
                 }
 
                 GlassInputPill(height: 60, alignment: .center) {
-                    TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "000000"), text: $code)
+                    TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "ABC123"), text: $code)
                         .textFieldStyle(.plain)
                         .mobileOneTimeCodeInput()
                         .multilineTextAlignment(.center)
@@ -187,7 +190,7 @@ struct SignInView: View {
                             case let .assign(normalizedCode):
                                 code = normalizedCode
                             case .verify:
-                                Task {
+                                signInTask = Task {
                                     await verifyCode()
                                 }
                             case .none:
@@ -208,8 +211,10 @@ struct SignInView: View {
                     errorText(error)
                 }
 
+                cancelSignInButton
+
                 Button {
-                    Task {
+                    signInTask = Task {
                         await verifyCode()
                     }
                 } label: {
@@ -243,6 +248,24 @@ struct SignInView: View {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
     }
 
+    /// Escape hatch while a sign-in flow is in flight: cancels the running
+    /// task, which tears down any presented system auth sheet and ends the
+    /// loading state silently (no error). Without this, a stuck flow left the
+    /// whole screen disabled with no way out.
+    @ViewBuilder
+    private var cancelSignInButton: some View {
+        if isAuthInProgress {
+            Button {
+                signInTask?.cancel()
+            } label: {
+                Text(L10n.string("mobile.signIn.cancel", defaultValue: "Cancel"))
+                    .font(.subheadline)
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("signin.cancel")
+        }
+    }
+
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
         error = nil
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
@@ -256,6 +279,10 @@ struct SignInView: View {
                 showCodeEntry = true
             }
         } catch {
+            if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
+                return
+            }
             shouldAutofocusCode = false
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
@@ -270,6 +297,10 @@ struct SignInView: View {
         do {
             try await authManager.verifyCode(code)
         } catch {
+            if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
+                return
+            }
             self.error = detailedErrorMessage(error)
             code = ""
             analytics.capture("ios_sign_in_failed", [
@@ -328,8 +359,20 @@ struct SignInView: View {
     }
 
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
-    /// (enums only — never the error text or the user's email).
+    /// (enums only, never the error text or the user's email).
     private static func signInFailureReason(_ error: Error) -> String {
+        if let authError = error as? AuthError {
+            switch authError {
+            case .timedOut:
+                return "timeout"
+            case .offline:
+                return "offline"
+            case .networkError:
+                return "network"
+            default:
+                break
+            }
+        }
         if let stackError = error as? StackAuthErrorProtocol {
             switch stackError.code {
             case "VERIFICATION_CODE_ERROR", "INVALID_OTP", "INVALID_TOTP_CODE":

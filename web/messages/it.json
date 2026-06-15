@@ -673,7 +673,57 @@
       "automatic": "Automatico",
       "paneIdSocket": "ID pannello (API socket)",
       "panelIdInternal": "ID panel (interno)",
-      "metaTitle": "Concetti"
+      "metaTitle": "Concetti",
+      "workspaceGroups": "Gruppi di workspace",
+      "workspaceGroupsDesc": "Raggruppa i workspace correlati in sezioni nominate e comprimibili nella barra laterale. Ogni gruppo è di proprietà di un workspace di ancoraggio e può essere fissato, rinominato e dotato di un'icona e di un colore propri. Nuovi workspace possono essere generati direttamente all'interno di un gruppo dalla sua intestazione.",
+      "workspaceGroupsLink": "Leggi la guida completa ai Gruppi di workspace"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Gruppi di workspace",
+      "metaDescription": "Annida le aree di lavoro in sezioni con nome comprimibili nella barra laterale di cmux. Il modello di ancoraggio, come creare e gestire un gruppo e la CLI workspace-group.",
+      "title": "Gruppi di workspace",
+      "intro": "I gruppi di workspace ti permettono di annidare i workspace in sezioni nominate e comprimibili nella barra laterale. Ogni gruppo ha un workspace di ancoraggio implicito, un pulsante + personalizzabile per generare nuovi workspace al suo interno, e azioni del clic destro per rinominare, fissare, separare e modificare la sua configurazione.",
+      "concepts": "Concetti",
+      "anchorTitle": "Workspace di ancoraggio",
+      "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
+      "anchorNew": "Gli ancoraggi sono sempre completamente nuovi quando viene creato un gruppo. Non vengono mai promossi da un workspace esistente. La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite il CLI senza --cwd.",
+      "anchorClose": "Chiudere il workspace di ancoraggio dissolve il gruppo: ogni altro membro diventa un workspace non raggruppato e rimane nell'elenco dei tab. Non viene chiuso nulla oltre all'ancoraggio stesso. L'app mostra una finestra di conferma con un interruttore \"Non chiedere più\" prima che ciò avvenga.",
+      "identityTitle": "Identità del gruppo",
+      "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
+      "pinningTitle": "Fissaggio",
+      "pinningDesc": "I gruppi possono essere fissati indipendentemente dai fissaggi dei singoli workspace. Le righe di primo livello fissate, siano esse singoli workspace o gruppi, restano sopra le righe non fissate. All'interno di ciascun livello, i gruppi e i workspace mantengono l'ordine in cui li trascini.",
+      "layoutIntro": "La barra laterale dispone le righe di primo livello dall'alto verso il basso:",
+      "layoutItem1": "Righe di primo livello fissate (workspace e gruppi).",
+      "layoutItem2": "Righe di primo livello non fissate (workspace e gruppi).",
+      "creatingTitle": "Creare un gruppo",
+      "creatingIntro": "Un gruppo si crea in uno di due modi: con una scorciatoia da tastiera o dal menu contestuale di un workspace. Entrambi inseriscono un nuovo workspace di ancoraggio sopra la selezione e spostano i workspace selezionati nel gruppo. Una volta creato il gruppo, lo gestisci e vi aggiungi workspace dall’intestazione del gruppo (vedi Gestire un gruppo più avanti).",
+      "keyboardTitle": "Dalla tastiera ({shortcut})",
+      "keyboardDesc": "Seleziona due o più workspace nella barra laterale, poi premi {shortcut}. Un nuovo workspace di ancoraggio viene inserito sopra la selezione e tutti i workspace selezionati diventano figli. Il gruppo viene nominato automaticamente Group 1, Group 2, e così via — rinominalo in qualsiasi momento tramite il menu contestuale dell'intestazione.",
+      "keyboardNote": "{shortcut} entra in conflitto con la combinazione predefinita di React Grab. Il gestore del gruppo consuma la combinazione solo quando c'è una multi-selezione esplicita di almeno due workspace nella barra laterale, quindi React Grab si attiva comunque in selezione singola e nei contesti del browser o del terminale. Riassegnalo in Impostazioni → Tastiera se preferisci che i due non condividano un tasto.",
+      "keyboardSingle": "I gruppi a scheda singola non vengono creati dalla scorciatoia. A tale scopo, usa la voce Nuovo gruppo da quest’area di lavoro nel menu contestuale dell'area di lavoro.",
+      "contextMenuTitle": "Da un menu contestuale del workspace",
+      "contextMenuDesc": "Fai clic con il tasto destro su qualsiasi area di lavoro nella barra laterale e scegli Nuovo gruppo da quest’area di lavoro, oppure Nuovo gruppo dalla selezione quando sono selezionate più aree di lavoro. Questo usa lo stesso comportamento di denominazione automatica della scorciatoia.",
+      "managingTitle": "Gestire un gruppo",
+      "managingIntro": "Una volta creato il gruppo, il menu contestuale della sua intestazione e il pulsante + sull’intestazione ti permettono di gestire il gruppo e aggiungervi workspace. Nessuno dei due crea un nuovo gruppo.",
+      "headerMenuTitle": "Dal menu contestuale dell'intestazione del gruppo",
+      "headerMenuDesc": "Fai clic con il tasto destro sull'intestazione di un gruppo esistente per accedere a Rinomina gruppo…, Fissa gruppo / Sblocca gruppo, Modifica configurazione gruppo… (che apre ~/.config/cmux/cmux.json), Apri documentazione dei gruppi, Dividi gruppo (mantieni aree di lavoro) ed Elimina gruppo (chiudi aree di lavoro). L'eliminazione è distruttiva e richiede conferma; la divisione mantiene le aree di lavoro e rimuove soltanto il contenitore.",
+      "plusButtonTitle": "Dal pulsante + sull'intestazione di un gruppo",
+      "plusButtonDesc": "Passa il puntatore sull'intestazione di un gruppo per rivelare un pulsante + alla fine. Fai clic su di esso per creare una nuova area di lavoro nel gruppo nella directory di lavoro di ancoraggio. Fai clic con il tasto destro su di esso per accedere a Nuova area di lavoro nel gruppo, Modifica configurazione gruppo… e Apri documentazione dei gruppi.",
+      "plusButtonNote": "Premendo {shortcut} mentre il workspace attivo è un ancoraggio o un membro di un gruppo si crea anch'esso il nuovo workspace all'interno di quel gruppo. Il posizionamento predefinito è After current: da un normale membro del gruppo il nuovo workspace finisce subito dopo il membro attivo, e dall'ancoraggio o dall'intestazione finisce in cima al gruppo.",
+      "cliTitle": "CLI",
+      "cliDesc": "Tutte le operazioni sui gruppi sono automatizzabili tramite i sottocomandi cmux workspace-group. La forma con il trattino viene rilasciata per prima; una volta disponibile il più ampio spazio dei nomi dei comandi cmux workspace, cmux workspace group diventerà la forma canonica, mentre la forma con il trattino sarà mantenuta come alias per sempre.",
+      "cliSubcommandsTitle": "Sottocomandi",
+      "cliCreateNote": "create restituisce un handle del gruppo (workspace_group:N per impostazione predefinita). Passa --json per il payload strutturato completo.",
+      "cliFlagsNote": "Passa a set-color o set-icon un valore vuoto per cancellare il colore o l'icona del gruppo. delete è irreversibile: chiude ogni area di lavoro membro.",
+      "cliExamplesTitle": "Esempi",
+      "cliExampleGroup": "Raggruppa i workspace attualmente selezionati sotto un nome:",
+      "cliExampleNew": "Avvia un nuovo workspace all'interno di un gruppo esistente, per esempio collegato a uno script di worktree:",
+      "cliExampleList": "Elenca i gruppi nella finestra a fuoco:",
+      "configTitle": "Configurazione",
+      "configNote": "La configurazione per gruppo si trova sotto la chiave workspaceGroups in ~/.config/cmux/cmux.json, indicizzata in base alla directory di lavoro del workspace di ancoraggio. Consulta il riferimento di configurazione per le chiavi supportate, inclusi il posizionamento globale dei nuovi workspace e il colore, l'icona, il posizionamento e le azioni del menu contestuale per directory.",
+      "configLinkText": "riferimento di configurazione di workspaceGroups",
+      "persistenceTitle": "Persistenza",
+      "persistenceDesc": "Il nome del gruppo, l'ancoraggio, lo stato di fissaggio, lo stato di compressione, il colore e l'icona vengono salvati insieme ai tuoi workspace e ripristinati tra gli avvii. L'appartenenza a un gruppo è memorizzata su ciascun workspace."
     },
     "configuration": {
       "title": "Configurazione",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Abilita gli hook di integrazione cmux per Amp. Se disabilitato, il plugin in bundle rimane inattivo senza dover essere rimosso.",
-          "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed."
+          "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed.",
+          "workspaceAutoNaming": "Denominazione automatica opzionale di workspace e schede tramite IA dal contenuto delle conversazioni dell'agente. Se attivata, cmux riassume le sessioni degli agenti supportati in titoli brevi usando il binario di ciascun agente; le rinomine manuali hanno sempre la precedenza.",
+          "autoNamingAgent": "Quale agente genera i nomi automatici per ogni sessione. «auto» (predefinito) nomina ogni sessione con il proprio agente; qualsiasi slug di agente (claude, codex, grok, opencode, pi, omp, …) sostituisce la denominazione per tutte le sessioni, anche quelle di altri agenti. Gli agenti non utilizzabili o non installati ricorrono all'agente della sessione, così la denominazione non si interrompe mai."
         },
         "app": {
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
+          "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
+        },
+        "fileExplorer": {
+          "description": "Impostazioni dell’esplora file (albero dei file) nella barra laterale destra.",
+          "doubleClickAction": "Definisce cosa succede quando fai doppio clic (o premi Return su un risultato di ricerca) su un file nell’esplora file. `preview` apre l’anteprima file integrata di cmux (comportamento predefinito e storico). `defaultEditor` apre il file con l’app macOS predefinita per quel tipo di file. `preferredEditor` apre con il comando `app.preferredEditor`, ricadendo sull’app predefinita quando non è impostato. Si applica solo ai file; le cartelle si espandono/chiudono sempre e gli esplora file non locali (remoti) aprono sempre l’anteprima di cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Doppio clic su un file: preview (predefinito), defaultEditor (app macOS predefinita) o preferredEditor (comando app.preferredEditor).",
+      "shortcutsWhenIntro": "Predicati di contesto opzionali per azione (clausole when in stile VS Code), indicizzati per id azione cmux. Un'associazione si attiva — ed entra in conflitto con un'altra associazione sulla stessa pressione — solo quando la sua clausola è vera. Ometti la clausola per mantenere il contesto integrato dell'azione. Il vocabolario delle clausole:",
+      "shortcutsWhenBooleanKeys": "chiavi booleane. Una chiave sconosciuta o assente vale false; sono accettati anche i letterali true e false.",
+      "shortcutsWhenTypedKeys": "chiavi tipizzate per i confronti: la modalità attiva della barra laterale destra (stringa) e i conteggi di riquadri e spazi di lavoro (interi).",
+      "shortcutsWhenOperators": "operatori booleani, confronti tipizzati, corrispondenza regex e appartenenza a liste. I confronti legano più strettamente di && e ||.",
+      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:"
     },
     "customCommands": {
       "title": "Comandi personalizzati",
@@ -864,6 +934,8 @@
         "surfaces": "Superfici",
         "surfacesBlurb": "Le superfici sono tab all'interno di un pannello.",
         "splitPanes": "Pannelli divisi",
+        "canvas": "Canvas",
+        "canvasBlurb": "Una modalità di layout 2D libera in cui i riquadri fluttuano su un canvas infinito e scorrevole. I comandi di allineamento e distribuzione sono disponibili dalla palette dei comandi.",
         "browser": "Browser",
         "notifications": "Notifiche",
         "find": "Ricerca",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Per iniziare",
       "concepts": "Concetti",
+      "workspaceGroups": "Gruppi di workspace",
       "configuration": "Configurazione",
       "sessionRestore": "Ripristino sessione",
       "customCommands": "Comandi personalizzati",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Scarica icona chiara",
     "downloadDark": "Scarica icona scura",
     "brandPage": "Asset del brand"
+  },
+  "afterSignIn": {
+    "title": "Accesso a cmux effettuato",
+    "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
+    "button": "Torna a cmux"
   }
 }

@@ -673,7 +673,57 @@
       "automatic": "Automatisk",
       "paneIdSocket": "Panel-ID (socket API)",
       "panelIdInternal": "Panel-ID (internt)",
-      "metaTitle": "Koncepter"
+      "metaTitle": "Koncepter",
+      "workspaceGroups": "Workspace-grupper",
+      "workspaceGroupsDesc": "Saml relaterede workspaces i sammenklappelige navngivne sektioner i sidebaren. Hver gruppe ejes af et anker-workspace og kan fastgøres, omdøbes og få sit eget ikon og farve. Nye workspaces kan oprettes direkte inde i en gruppe fra dens header.",
+      "workspaceGroupsLink": "Læs den fulde Workspace Groups-guide"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Workspace-grupper",
+      "metaDescription": "Indlejr workspaces i sammenklappelige, navngivne sektioner i cmux-sidebjælken. Ankermodellen, hvordan du opretter og administrerer en gruppe, og workspace-group-CLI'en.",
+      "title": "Workspace-grupper",
+      "intro": "Workspace groups lader dig indlejre workspaces i sammenklappelige navngivne sektioner i sidebaren. Hver gruppe har et implicit anker-workspace, en tilpasselig +-knap til at oprette nye workspaces inde i den og højrekliks-handlinger til at omdøbe, fastgøre, opdele og redigere dens konfiguration.",
+      "concepts": "Koncepter",
+      "anchorTitle": "Anker-workspace",
+      "anchorDesc": "Hver gruppe ejes af præcis ét workspace kaldet ankeret. Gruppens header i sidebaren er ankerets repræsentation — der er ingen separat række til det. Klik på headerens navneområde fokuserer ankerets paneler; klik på chevronen skifter sammenklapning til/fra.",
+      "anchorNew": "Ankere er altid helt nye, når en gruppe oprettes. De forfremmes aldrig fra et eksisterende workspace. Ankerets arbejdsmappe nedarves fra det første valgte workspace, når en markering grupperes, eller fra det aktive workspace, når der oprettes via CLI'en uden --cwd.",
+      "anchorClose": "Lukning af anker-workspacet opløser gruppen: alle andre medlemmer bliver ugrupperede workspaces og forbliver i fanelisten. Intet andet end selve ankeret lukkes. Appen viser en bekræftelsesdialog med en \"Spørg ikke igen\"-kontakt, før dette sker.",
+      "identityTitle": "Gruppeidentitet",
+      "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri brugerdefineret farve. Disse er uafhængige af anker-workspacets egne tilpasninger. Ankerets farve og ikon udledes fra gruppen ved oprettelse, men de kan afvige bagefter.",
+      "pinningTitle": "Fastgørelse",
+      "pinningDesc": "Grupper kan fastgøres uafhængigt af individuelle workspace-fastgørelser. Fastgjorte rækker på øverste niveau, hvad enten det er individuelle workspaces eller grupper, forbliver over ufastgjorte rækker. Inden for hvert niveau bevarer grupper og workspaces den rækkefølge, du trækker dem ind i.",
+      "layoutIntro": "Sidebaren placerer rækker på øverste niveau fra top til bund:",
+      "layoutItem1": "Fastgjorte rækker på øverste niveau (workspaces og grupper).",
+      "layoutItem2": "Ufastgjorte rækker på øverste niveau (workspaces og grupper).",
+      "creatingTitle": "Oprettelse af en gruppe",
+      "creatingIntro": "En gruppe oprettes på en af to måder: via en tastaturgenvej eller en workspace-kontekstmenu. Begge indsætter et nyt anker-workspace over markeringen og flytter de markerede workspaces ind i gruppen. Når en gruppe findes, administrerer du den og tilføjer workspaces til den fra gruppens overskrift (se Administration af en gruppe nedenfor).",
+      "keyboardTitle": "Fra tastaturet ({shortcut})",
+      "keyboardDesc": "Vælg to eller flere workspaces i sidebaren, og tryk derefter på {shortcut}. Et nyt anker-workspace indsættes over markeringen, og alle valgte workspaces bliver børn. Gruppen navngives automatisk Group 1, Group 2 og så videre — omdøb den når som helst via headerens kontekstmenu.",
+      "keyboardNote": "{shortcut} kolliderer med React Grabs standard. Gruppehåndteringen forbruger kun akkorden, når der er en eksplicit multimarkering af mindst to workspaces i sidebaren, så React Grab udløses stadig ved enkeltmarkering og i browser- eller terminalkontekster. Genbind den i Indstillinger → Tastatur, hvis du hellere vil have, at de to ikke deler en tast.",
+      "keyboardSingle": "Grupper med en enkelt fane oprettes ikke via genvejen. Brug i stedet menupunktet Ny gruppe fra arbejdsområde i workspace-kontekstmenuen.",
+      "contextMenuTitle": "Fra en workspace-kontekstmenu",
+      "contextMenuDesc": "Højreklik på et hvilket som helst workspace i sidebjælken, og vælg Ny gruppe fra arbejdsområde, eller Ny gruppe fra valg, når flere workspaces er valgt. Dette bruger samme automatiske navngivning som genvejen.",
+      "managingTitle": "Administration af en gruppe",
+      "managingIntro": "Når en gruppe findes, kan du via kontekstmenuen i dens overskrift og +-knappen på overskriften administrere gruppen og tilføje workspaces til den. Ingen af dem opretter en ny gruppe.",
+      "headerMenuTitle": "Fra gruppeheaderens kontekstmenu",
+      "headerMenuDesc": "Højreklik på en eksisterende gruppeoverskrift for at få Omdøb gruppe…, Fastgør gruppe / Frigør gruppe, Rediger gruppekonfiguration… (som åbner ~/.config/cmux/cmux.json), Åbn dokumentation for arbejdsområde-grupper, Opdel gruppe (behold arbejdsområder) og Slet gruppe (luk arbejdsområder). Sletning er destruktiv og beder om bekræftelse; opdeling beholder dine workspaces og fjerner blot beholderen.",
+      "plusButtonTitle": "Fra +-knappen på en gruppeheader",
+      "plusButtonDesc": "Hold musemarkøren over en gruppeoverskrift for at få vist en efterstillet +-knap. Klik på den for at oprette et nyt workspace i gruppen i ankerarbejdsmappen. Højreklik på den for at få Nyt arbejdsområde i gruppen, Rediger gruppekonfiguration… og Åbn dokumentation for arbejdsområde-grupper.",
+      "plusButtonNote": "Tryk på {shortcut}, mens det aktive workspace er et gruppeanker eller -medlem, opretter også det nye workspace inde i den gruppe. Standardplaceringen er After current: fra et almindeligt gruppemedlem lander det nye workspace lige efter det aktive medlem, og fra ankeret eller headeren lander det øverst i gruppen.",
+      "cliTitle": "CLI",
+      "cliDesc": "Alle gruppeoperationer kan scriptes med cmux workspace-group underkommandoerne. Formen med bindestreg udgives først; når det bredere cmux workspace kommandonavnerum lander, bliver cmux workspace group den kanoniske form, mens formen med bindestreg bevares som et alias for altid.",
+      "cliSubcommandsTitle": "Underkommandoer",
+      "cliCreateNote": "create returnerer et gruppehandle (workspace_group:N som standard). Send --json for den fulde strukturerede payload.",
+      "cliFlagsNote": "Giv set-color eller set-icon en tom værdi for at rydde gruppens farve eller ikon. delete kan ikke fortrydes: den lukker alle medlems-workspaces.",
+      "cliExamplesTitle": "Eksempler",
+      "cliExampleGroup": "Gruppér de aktuelt valgte workspaces under et navn:",
+      "cliExampleNew": "Opret et nyt workspace inde i en eksisterende gruppe, for eksempel forbundet til et worktree-script:",
+      "cliExampleList": "Vis grupper i det fokuserede vindue:",
+      "configTitle": "Konfiguration",
+      "configNote": "Konfiguration pr. gruppe findes under nøglen workspaceGroups i ~/.config/cmux/cmux.json, indekseret efter ankerets workspace-arbejdsmappe. Se konfigurationsreferencen for de understøttede nøgler, herunder global placering af nye workspaces samt farve, ikon, placering og genvejsmenuhandlinger pr. mappe.",
+      "configLinkText": "workspaceGroups konfigurationsreference",
+      "persistenceTitle": "Persistens",
+      "persistenceDesc": "Gruppenavn, anker, fastgørelsestilstand, sammenklapningstilstand, farve og ikon gemmes sammen med dine workspaces og genoprettes på tværs af opstarter. Gruppemedlemskab gemmes på hvert workspace."
     },
     "configuration": {
       "title": "Konfiguration",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Aktivér cmux-integrationskroge for Amp. Når deaktiveret, forbliver det medfølgende plugin inaktivt uden at skulle fjernes.",
-          "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri."
+          "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
+          "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
+          "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler."
         },
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
+          "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
+        },
+        "fileExplorer": {
+          "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
+          "doubleClickAction": "Bestemmer, hvad der sker, når du dobbeltklikker (eller trykker Return på et søgeresultat for) en fil i filoversigten. `preview` åbner den indbyggede cmux-filvisning (standard og historisk adfærd). `defaultEditor` åbner med macOS-standardappen for filtypen. `preferredEditor` åbner med kommandoen `app.preferredEditor` og falder tilbage til standardappen, når den ikke er sat. Gælder kun filer; mapper udvides/skjules altid, og ikke-lokale (eksterne) filoversigter åbner altid cmux-forhåndsvisningen."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dobbeltklik på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
+      "shortcutsWhenIntro": "Valgfri kontekstprædikater pr. handling (VS Code-lignende when-klausuler), nøgleindekseret efter cmux-handlings-id. En binding udløses kun — og konflikter kun med en anden binding på samme tastetryk — når dens klausul er sand. Udelad klausulen for at beholde handlingens indbyggede kontekst. Klausulernes ordforråd:",
+      "shortcutsWhenBooleanKeys": "boolske nøgler. En ukendt eller manglende nøgle læses som false; litteralerne true og false accepteres også.",
+      "shortcutsWhenTypedKeys": "typede nøgler til sammenligninger: den højre sidebjælkes aktive tilstand (streng) samt antal paneler og workspaces (heltal).",
+      "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-match og listemedlemskab. Sammenligninger binder tættere end && og ||.",
+      "shortcutsWhenExample": "Dette får for eksempel Ctrl+1–9 til at vælge workspaces overalt, undtagen når højre sidebjælke har fokus (så Ctrl+1–5 er fri til sidebjælkens tilstandsskifter), og begrænser overfladevalg til Find-sidebjælken, når workspacet har flere paneler:"
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",
@@ -864,6 +934,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces er faner inde i et panel.",
         "splitPanes": "Opdelte paneler",
+        "canvas": "Lærred",
+        "canvasBlurb": "En fri 2D-layouttilstand, hvor ruder flyder på et uendeligt lærred, der kan panoreres. Justerings- og fordelingskommandoer findes i kommandopaletten.",
         "browser": "Browser",
         "notifications": "Notifikationer",
         "find": "Find",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Kom i gang",
       "concepts": "Koncepter",
+      "workspaceGroups": "Workspace-grupper",
       "configuration": "Konfiguration",
       "sessionRestore": "Sessionsgenoprettelse",
       "customCommands": "Brugerdefinerede kommandoer",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Download lyst ikon",
     "downloadDark": "Download mørkt ikon",
     "brandPage": "Brandassets"
+  },
+  "afterSignIn": {
+    "title": "Logget ind på cmux",
+    "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
+    "button": "Tilbage til cmux"
   }
 }

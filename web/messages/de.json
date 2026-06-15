@@ -673,7 +673,57 @@
       "automatic": "Automatisch",
       "paneIdSocket": "Bereichs-ID (Socket-API)",
       "panelIdInternal": "Panel-ID (intern)",
-      "metaTitle": "Konzepte"
+      "metaTitle": "Konzepte",
+      "workspaceGroups": "Workspace-Gruppen",
+      "workspaceGroupsDesc": "Fassen Sie zusammengehörige Workspaces zu zusammenklappbaren benannten Abschnitten in der Seitenleiste zusammen. Jede Gruppe gehört einem Anker-Workspace und kann angeheftet, umbenannt sowie mit einem eigenen Symbol und einer eigenen Farbe versehen werden. Neue Workspaces können direkt aus der Kopfzeile einer Gruppe heraus innerhalb dieser erstellt werden.",
+      "workspaceGroupsLink": "Den vollständigen Leitfaden zu Workspace-Gruppen lesen"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Workspace-Gruppen",
+      "metaDescription": "Verschachteln Sie Arbeitsbereiche in einklappbare benannte Abschnitte in der cmux-Seitenleiste. Das Anker-Modell, das Erstellen und Verwalten einer Gruppe sowie die workspace-group-CLI.",
+      "title": "Workspace-Gruppen",
+      "intro": "Mit Workspace-Gruppen können Sie Workspaces zu zusammenklappbaren benannten Abschnitten in der Seitenleiste verschachteln. Jede Gruppe hat einen impliziten Anker-Workspace, eine anpassbare +-Schaltfläche zum Erstellen neuer Workspaces darin sowie Rechtsklick-Aktionen zum Umbenennen, Anheften, Auflösen und Bearbeiten ihrer Konfiguration.",
+      "concepts": "Konzepte",
+      "anchorTitle": "Anker-Workspace",
+      "anchorDesc": "Jede Gruppe gehört genau einem Workspace, dem sogenannten Anker. Die Gruppenkopfzeile in der Seitenleiste ist die Repräsentation des Ankers – es gibt keine separate Zeile dafür. Ein Klick auf den Namensbereich der Kopfzeile fokussiert die Bereiche des Ankers; ein Klick auf das Chevron schaltet das Zusammenklappen um.",
+      "anchorNew": "Anker sind beim Erstellen einer Gruppe immer brandneu. Sie werden nie aus einem bestehenden Workspace heraufgestuft. Das Arbeitsverzeichnis des Ankers wird beim Gruppieren einer Auswahl vom ersten ausgewählten Workspace übernommen oder beim Erstellen über das CLI ohne --cwd vom aktiven Workspace.",
+      "anchorClose": "Das Schließen des Anker-Workspace löst die Gruppe auf: Jedes andere Mitglied wird zu einem nicht gruppierten Workspace und bleibt in der Tab-Liste. Außer dem Anker selbst wird nichts geschlossen. Die App zeigt zuvor einen Bestätigungsdialog mit einem Umschalter \"Nicht erneut fragen\" an.",
+      "identityTitle": "Gruppenidentität",
+      "identityDesc": "Eine Gruppe hat einen Namen, ein Symbol (ein SF Symbol, standardmäßig folder.fill) und eine optionale benutzerdefinierte Farbe. Diese sind unabhängig von den eigenen Anpassungen des Anker-Workspace. Die Farbe und das Symbol des Ankers werden bei der Erstellung von der Gruppe übernommen, können danach aber abweichen.",
+      "pinningTitle": "Anheften",
+      "pinningDesc": "Gruppen können unabhängig von einzelnen Workspace-Anheftungen angeheftet werden. Angeheftete Zeilen der obersten Ebene, ob einzelne Workspaces oder Gruppen, bleiben über nicht angehefteten Zeilen. Innerhalb jeder Ebene behalten Gruppen und Workspaces die Reihenfolge bei, in die Sie sie ziehen.",
+      "layoutIntro": "Die Seitenleiste ordnet die Zeilen der obersten Ebene von oben nach unten an:",
+      "layoutItem1": "Angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
+      "layoutItem2": "Nicht angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
+      "creatingTitle": "Eine Gruppe erstellen",
+      "creatingIntro": "Eine Gruppe wird auf eine von zwei Arten erstellt: über ein Tastenkürzel oder das Kontextmenü eines Workspace. Beide fügen einen neuen Anker-Workspace oberhalb der Auswahl ein und verschieben die ausgewählten Workspaces in die Gruppe. Sobald eine Gruppe existiert, verwalten Sie sie und fügen ihr Workspaces über die Gruppenkopfzeile hinzu (siehe Verwalten einer Gruppe weiter unten).",
+      "keyboardTitle": "Über die Tastatur ({shortcut})",
+      "keyboardDesc": "Wählen Sie zwei oder mehr Workspaces in der Seitenleiste aus und drücken Sie dann {shortcut}. Ein neuer Anker-Workspace wird oberhalb der Auswahl eingefügt, und alle ausgewählten Workspaces werden zu Kindern. Die Gruppe wird automatisch Group 1, Group 2 und so weiter benannt – benennen Sie sie jederzeit über das Kontextmenü der Kopfzeile um.",
+      "keyboardNote": "{shortcut} kollidiert mit der Standardbelegung von React Grab. Der Gruppen-Handler verwendet den Tastenakkord nur, wenn es eine explizite Mehrfachauswahl von mindestens zwei Workspaces in der Seitenleiste gibt, sodass React Grab bei Einzelauswahl sowie in Browser- oder Terminalkontexten weiterhin auslöst. Belegen Sie es in Einstellungen → Tastatur neu, falls Sie nicht möchten, dass sich die beiden eine Taste teilen.",
+      "keyboardSingle": "Gruppen mit nur einem Tab werden nicht über das Tastenkürzel erstellt. Verwenden Sie dafür den Eintrag „Neue Gruppe aus Arbeitsbereich“ im Kontextmenü des Arbeitsbereichs.",
+      "contextMenuTitle": "Über ein Workspace-Kontextmenü",
+      "contextMenuDesc": "Klicken Sie mit der rechten Maustaste auf einen beliebigen Arbeitsbereich in der Seitenleiste und wählen Sie „Neue Gruppe aus Arbeitsbereich“ oder „Neue Gruppe aus Auswahl“, wenn mehrere Arbeitsbereiche ausgewählt sind. Dabei wird dasselbe automatische Benennungsverhalten wie beim Tastenkürzel verwendet.",
+      "managingTitle": "Verwalten einer Gruppe",
+      "managingIntro": "Sobald eine Gruppe existiert, können Sie über das Kontextmenü ihrer Kopfzeile und die Schaltfläche + in der Kopfzeile die Gruppe verwalten und ihr Workspaces hinzufügen. Keine der beiden Aktionen erstellt eine neue Gruppe.",
+      "headerMenuTitle": "Über das Kontextmenü der Gruppenkopfzeile",
+      "headerMenuDesc": "Klicken Sie mit der rechten Maustaste auf die Kopfzeile einer vorhandenen Gruppe für „Gruppe umbenennen …“, „Gruppe anheften“ / „Gruppe lösen“, „Gruppen-Konfiguration bearbeiten …“ (wodurch ~/.config/cmux/cmux.json geöffnet wird), „Dokumentation zu Arbeitsbereich-Gruppen öffnen“, „Gruppe auflösen (Arbeitsbereiche behalten)“ und „Gruppe löschen (Arbeitsbereiche schließen)“. Das Löschen ist destruktiv und fordert eine Bestätigung an; das Auflösen behält die Arbeitsbereiche bei und entfernt lediglich den Container.",
+      "plusButtonTitle": "Über die +-Schaltfläche in einer Gruppenkopfzeile",
+      "plusButtonDesc": "Bewegen Sie den Mauszeiger über eine Gruppen-Kopfzeile, um eine nachgestellte +-Schaltfläche einzublenden. Klicken Sie darauf, um einen neuen Arbeitsbereich in der Gruppe im Anker-Arbeitsverzeichnis zu erstellen. Klicken Sie mit der rechten Maustaste darauf für „Neuer Arbeitsbereich in der Gruppe“, „Gruppen-Konfiguration bearbeiten …“ und „Dokumentation zu Arbeitsbereich-Gruppen öffnen“.",
+      "plusButtonNote": "Das Drücken von {shortcut}, während der aktive Workspace ein Gruppenanker oder -mitglied ist, erstellt den neuen Workspace ebenfalls innerhalb dieser Gruppe. Die Standardplatzierung ist After current: Von einem regulären Gruppenmitglied aus landet der neue Workspace direkt nach dem aktiven Mitglied, und vom Anker oder der Kopfzeile aus landet er oben in der Gruppe.",
+      "cliTitle": "CLI",
+      "cliDesc": "Alle Gruppenoperationen lassen sich mit den cmux workspace-group Unterbefehlen skripten. Die Form mit Bindestrich wird zuerst ausgeliefert; sobald der umfassendere cmux workspace Befehls-Namensraum verfügbar ist, wird cmux workspace group zur kanonischen Form, während die Form mit Bindestrich dauerhaft als Alias erhalten bleibt.",
+      "cliSubcommandsTitle": "Unterbefehle",
+      "cliCreateNote": "create gibt ein Gruppen-Handle zurück (standardmäßig workspace_group:N). Übergeben Sie --json für die vollständige strukturierte Nutzlast.",
+      "cliFlagsNote": "Übergeben Sie set-color oder set-icon einen leeren Wert, um die Farbe oder das Symbol der Gruppe zu entfernen. delete ist unwiderruflich: Es schließt jeden zugehörigen Arbeitsbereich.",
+      "cliExamplesTitle": "Beispiele",
+      "cliExampleGroup": "Die aktuell ausgewählten Workspaces unter einem Namen gruppieren:",
+      "cliExampleNew": "Einen neuen Workspace innerhalb einer bestehenden Gruppe starten, zum Beispiel an ein Worktree-Skript gekoppelt:",
+      "cliExampleList": "Gruppen im fokussierten Fenster auflisten:",
+      "configTitle": "Konfiguration",
+      "configNote": "Die Konfiguration pro Gruppe befindet sich unter dem Schlüssel workspaceGroups in ~/.config/cmux/cmux.json, indiziert nach dem Arbeitsverzeichnis des Anker-Workspace. In der Konfigurationsreferenz finden Sie die unterstützten Schlüssel, einschließlich der globalen Platzierung neuer Workspaces sowie Farbe, Symbol, Platzierung und Kontextmenü-Aktionen pro Verzeichnis.",
+      "configLinkText": "workspaceGroups Konfigurationsreferenz",
+      "persistenceTitle": "Persistenz",
+      "persistenceDesc": "Gruppenname, Anker, Anheftstatus, Zusammenklappstatus, Farbe und Symbol werden zusammen mit Ihren Workspaces gespeichert und über Starts hinweg wiederhergestellt. Die Gruppenzugehörigkeit wird bei jedem Workspace gespeichert."
     },
     "configuration": {
       "title": "Konfiguration",
@@ -710,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Aktiviere cmux-Integrations-Hooks für Amp. Wenn deaktiviert, bleibt das gebündelte Plugin inaktiv, ohne entfernt werden zu müssen.",
-          "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben."
+          "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben.",
+          "workspaceAutoNaming": "Opt-in: KI-basierte automatische Benennung von Workspaces und Tabs aus dem Gesprächsinhalt der Agenten. Wenn aktiviert, fasst cmux unterstützte Agent-Sitzungen mit dem eigenen Binary des jeweiligen Agenten zu kurzen Titeln zusammen; manuelle Umbenennungen haben immer Vorrang.",
+          "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt."
         },
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
+          "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
@@ -740,14 +793,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
+        },
+        "fileExplorer": {
+          "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",
+          "doubleClickAction": "Legt fest, was ein Doppelklick auf eine Datei im Dateiexplorer bewirkt (oder Return bei einem Suchergebnis). `preview` öffnet die integrierte cmux-Dateivorschau (Standard und bisheriges Verhalten). `defaultEditor` öffnet die Datei mit der macOS-Standard-App für diesen Dateityp. `preferredEditor` öffnet mit dem Befehl `app.preferredEditor` und fällt auf die Standard-App zurück, wenn keiner gesetzt ist. Gilt nur für Dateien; Verzeichnisse werden immer ein-/ausgeklappt, und nicht-lokale (Remote-)Dateiexplorer öffnen immer die cmux-Vorschau."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Doppelklick auf eine Datei: preview (Standard), defaultEditor (macOS-Standard-App) oder preferredEditor (der app.preferredEditor-Befehl).",
+      "shortcutsWhenIntro": "Optionale Kontextprädikate pro Aktion (VS-Code-artige when-Klauseln), nach cmux-Aktions-ID indiziert. Eine Belegung wird nur ausgelöst — und kollidiert nur mit einer anderen Belegung auf demselben Tastendruck — wenn ihre Klausel erfüllt ist. Ohne Klausel behält die Aktion ihren eingebauten Kontext. Das Klausel-Vokabular:",
+      "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
+      "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",
+      "shortcutsWhenOperators": "boolesche Operatoren, typisierte Vergleiche, Regex-Abgleich und Listenzugehörigkeit. Vergleiche binden stärker als && und ||.",
+      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:"
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",
@@ -864,6 +934,8 @@
         "surfaces": "Oberflächen",
         "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
         "splitPanes": "Geteilte Bereiche",
+        "canvas": "Canvas",
+        "canvasBlurb": "Ein freier 2D-Layoutmodus, in dem Panels auf einem unendlichen, verschiebbaren Canvas schweben. Ausrichtungs- und Verteilungsbefehle sind über die Befehlspalette verfügbar.",
         "browser": "Browser",
         "notifications": "Benachrichtigungen",
         "find": "Suche",
@@ -1148,6 +1220,7 @@
     "navItems": {
       "gettingStarted": "Erste Schritte",
       "concepts": "Konzepte",
+      "workspaceGroups": "Workspace-Gruppen",
       "configuration": "Konfiguration",
       "sessionRestore": "Sitzungswiederherstellung",
       "customCommands": "Benutzerdefinierte Befehle",
@@ -1429,5 +1502,10 @@
     "downloadLight": "Helles Icon herunterladen",
     "downloadDark": "Dunkles Icon herunterladen",
     "brandPage": "Brand-Assets"
+  },
+  "afterSignIn": {
+    "title": "Bei cmux angemeldet",
+    "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
+    "button": "Zurück zu cmux"
   }
 }

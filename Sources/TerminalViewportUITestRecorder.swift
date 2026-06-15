@@ -1,6 +1,8 @@
 #if DEBUG
 import AppKit
+import CmuxTestSupport
 import Foundation
+import CmuxTerminal
 
 @MainActor
 final class TerminalViewportUITestRecorder {
@@ -149,7 +151,7 @@ final class TerminalViewportUITestRecorder {
     }
 
     private func writeData(_ updates: [String: String]) {
-        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
             for (key, value) in updates {
                 payload[key] = value
             }
