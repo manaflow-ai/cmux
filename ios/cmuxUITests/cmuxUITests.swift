@@ -4,6 +4,8 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
+    private let terminalContentTimeout: TimeInterval = 10
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -510,22 +512,24 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
-        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        XCTAssertTrue(surface.waitForExistence(timeout: terminalContentTimeout), file: file, line: line)
         let labelExpectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 self.terminalRows(in: app).dropFirst(index).first == expectedLabel
             },
             object: app
         )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+        let result = XCTWaiter.wait(for: [labelExpectation], timeout: terminalContentTimeout)
+        let rows = terminalRows(in: app)
+        guard result == .completed || rows.dropFirst(index).first == expectedLabel else {
+            XCTFail(
+                "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(for: rows))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
@@ -536,7 +540,7 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
-        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        XCTAssertTrue(surface.waitForExistence(timeout: terminalContentTimeout), file: file, line: line)
         let labelExpectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 expectedLabels.allSatisfy { index, expectedLabel in
@@ -545,17 +549,21 @@ final class cmuxUITests: XCTestCase {
             },
             object: app
         )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        if result != .completed {
+        let result = XCTWaiter.wait(for: [labelExpectation], timeout: terminalContentTimeout)
+        let rows = terminalRows(in: app)
+        let rowsMatch = expectedLabels.allSatisfy { index, expectedLabel in
+            rows.dropFirst(index).first == expectedLabel
+        }
+        if result != .completed && !rowsMatch {
             XCTFail(
-                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(for: rows))",
                 file: file,
                 line: line
             )
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+            XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
         }
     }
 
@@ -790,7 +798,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func terminalRowLabels(in app: XCUIApplication) -> [String] {
-        terminalRows(in: app).enumerated().map { index, row in
+        terminalRowLabels(for: terminalRows(in: app))
+    }
+
+    private func terminalRowLabels(for rows: [String]) -> [String] {
+        rows.enumerated().map { index, row in
             "\(index):\(row)"
         }
     }

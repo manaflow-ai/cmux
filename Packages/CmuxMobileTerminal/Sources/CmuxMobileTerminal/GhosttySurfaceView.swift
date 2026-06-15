@@ -2146,6 +2146,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
+        #if DEBUG
+        let shouldForceAccessibilityRead = !surfaceHasReceivedOutput
+        #endif
         // Track the host's cursor-visible mode (DECTCEM) straight from the VT
         // bytes the surface is about to apply, so the cursor overlay can match a
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
@@ -2176,9 +2179,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // main. Off-main reads can never trip the main-thread watchdog.
             var accessibilityText: String?
             let a11yNow = CACurrentMediaTime()
-            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
+            if shouldForceAccessibilityRead || a11yNow - Self.lastAccessibilityTextTime > 0.5 {
                 Self.lastAccessibilityTextTime = a11yNow
                 accessibilityText = Self.accessibilitySurfaceText(surface)
+                if accessibilityText?.isEmpty != false {
+                    accessibilityText = TerminalAccessibilityTextFallback.text(from: forwarded)
+                }
             }
             #endif
             DispatchQueue.main.async {

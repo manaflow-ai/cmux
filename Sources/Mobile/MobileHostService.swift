@@ -1361,15 +1361,15 @@ final class MobileHostService {
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
-        let workspaceSelection = stringParamSelection(
+        let requestedWorkspaceID = stringParamSelection(
             request.params,
             keys: ["workspace_id"]
         )
-        let terminalSelection = stringParamSelection(
+        let requestedTerminalID = stringParamSelection(
             request.params,
             keys: ["surface_id", "terminal_id", "tab_id"]
         )
-        if workspaceSelection.hasConflict || terminalSelection.hasConflict {
+        if requestedWorkspaceID.hasConflict || requestedTerminalID.hasConflict {
             return scopedTicketError
         }
         if containsIgnoredAliasParameters(request.params) {
@@ -1389,6 +1389,17 @@ final class MobileHostService {
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
+        case "workspace.close":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                requestedWorkspaceID: requestedWorkspaceID.value
+            )
+        case "surface.close":
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                requestedWorkspaceID: requestedWorkspaceID.value,
+                requestedTerminalID: requestedTerminalID.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
@@ -1397,8 +1408,8 @@ final class MobileHostService {
              "mobile.terminal.scroll", "terminal.scroll":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
-                workspaceSelection: workspaceSelection.value,
-                terminalSelection: terminalSelection.value
+                requestedWorkspaceID: requestedWorkspaceID.value,
+                requestedTerminalID: requestedTerminalID.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
@@ -1409,17 +1420,45 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
+    private static func ticketWorkspaceAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
-        workspaceSelection: String?,
-        terminalSelection: String?
+        requestedWorkspaceID: String?
     ) -> MobileHostRPCError? {
-        if let terminalSelection,
-           authorization.createdTerminalIDs.contains(terminalSelection) {
+        guard let requestedWorkspaceID else {
+            return scopedTicketError
+        }
+        if authorization.createdWorkspaceIDs.contains(requestedWorkspaceID) {
             return nil
         }
-        if let workspaceSelection,
-           authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+
+        let ticket = authorization.ticket
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // Allow any explicitly named workspace under it.
+        if ticketWorkspaceID.isEmpty {
+            return nil
+        }
+        if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !terminalID.isEmpty {
+            return scopedTicketError
+        }
+        guard requestedWorkspaceID == ticketWorkspaceID else {
+            return scopedTicketError
+        }
+        return nil
+    }
+
+    private static func ticketTerminalAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        requestedWorkspaceID: String?,
+        requestedTerminalID: String?
+    ) -> MobileHostRPCError? {
+        if let requestedTerminalID,
+           authorization.createdTerminalIDs.contains(requestedTerminalID) {
+            return nil
+        }
+        if let requestedWorkspaceID,
+           authorization.createdWorkspaceIDs.contains(requestedWorkspaceID) {
             return nil
         }
 
@@ -1430,19 +1469,19 @@ final class MobileHostService {
         if ticketWorkspaceID.isEmpty {
             return nil
         }
-        if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
+        if let requestedWorkspaceID, requestedWorkspaceID != ticketWorkspaceID {
             return scopedTicketError
         }
 
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            guard terminalSelection == terminalID else {
+            guard requestedTerminalID == terminalID else {
                 return scopedTicketError
             }
             return nil
         }
 
-        guard workspaceSelection == ticketWorkspaceID else {
+        guard requestedWorkspaceID == ticketWorkspaceID else {
             return scopedTicketError
         }
         return nil

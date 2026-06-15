@@ -5,7 +5,7 @@ extension MobileHostService {
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s
     /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin/read-state/close on the entries present here.
+    /// like rename/pin/read-state/close/swipe-delete on the entries present here.
     ///
     /// This also advertises `dogfood.v1`, the agent feedback round-trip
     /// (`dogfood.feedback.submit`). It is advertised on every build type so the
@@ -26,6 +26,9 @@ extension MobileHostService {
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
+            // Swipe-delete for workspace/terminal rows routes through the Mac's
+            // workspace.close/surface.close wrappers; iOS gates the action on this.
+            "mobile.delete.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts

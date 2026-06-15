@@ -19,9 +19,12 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    let deleteTerminal: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID) -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    @State private var isTerminalPickerPresented = false
+    @State private var terminalPendingDeleteID: MobileTerminalPreview.ID?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
@@ -216,19 +219,10 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // The picker is a native SwiftUI `Menu`, which renders as the platform menu
-    // (a `UIMenu` on iOS). That gives the standard menu gesture for free: a
-    // single tap opens it, and a press-and-drag from the button onto an item
-    // followed by a release selects that item. The previous `Button` +
-    // `.popover` was two separate hit-test sessions (tap to present, then tap an
-    // item), so it never supported press-drag-release. Selection still routes
-    // through `selectTerminalFromPicker`, which dismisses the keyboard, so the
-    // chrome behavior is preserved; only keyboard-dismiss-on-open is dropped
-    // because `Menu` has no will-open hook (the menu simply floats over the live
-    // keyboard like any nav-bar menu).
     private var terminalPickerToolbarButton: some View {
-        Menu {
-            terminalPickerMenuContent
+        Button {
+            dismissTerminalKeyboardForChrome()
+            isTerminalPickerPresented = true
         } label: {
             Label(
                 selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
@@ -239,35 +233,46 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
+        .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
+            terminalPickerContent
+        }
     }
 
-    @ViewBuilder
-    private var terminalPickerMenuContent: some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(workspace.terminals) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-        }
+    private var terminalPickerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+                .font(.headline)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
 
-        Section {
-            Button(action: createWorkspaceFromToolbar) {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+            if store.supportsDeleteActions {
+                terminalPickerList
+            } else {
+                terminalPickerPlainRows
             }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            Button(action: createWorkspaceFromTerminalPicker) {
+                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
 
             Button(action: createTerminalFromToolbar) {
                 Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
             Button(action: openBrowserFromToolbar) {
@@ -275,23 +280,27 @@ struct WorkspaceDetailView: View {
                     L10n.string("mobile.browser.new", defaultValue: "New Browser"),
                     systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
                 )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
 
-        #if canImport(UIKit)
-        Section {
-            // Only while the terminal pane is showing: in browser mode the
-            // terminal surface is dismantled (nothing to capture) and the
-            // sheet modifier lives on `detailContent`, so the armed flag
-            // would pop the sheet later when the browser closes.
+            #if canImport(UIKit)
             if activeBrowser == nil {
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
                         systemImage: "doc.plaintext"
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .accessibilityIdentifier("MobileViewAsTextMenuItem")
             }
 
@@ -299,7 +308,12 @@ struct WorkspaceDetailView: View {
             Button(action: copyDebugLogsFromMenu) {
                 // DEV-only debug tooling; not shipped, so not localized.
                 Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
 
@@ -308,15 +322,139 @@ struct WorkspaceDetailView: View {
                     L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
                     systemImage: "paperplane"
                 )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
+            #endif
         }
+        .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private var terminalPickerList: some View {
+        let canDeleteTerminals = store.supportsDeleteActions
+        let selectedTerminalID = selectedTerminal?.id
+        return List {
+            ForEach(workspace.terminals) { terminal in
+                Button {
+                    selectTerminalFromPicker(terminal.id)
+                } label: {
+                    Label(
+                        terminal.name,
+                        systemImage: terminal.id == selectedTerminalID && activeBrowser == nil
+                            ? "checkmark.circle.fill"
+                            : "terminal"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowSeparator(.hidden)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if canDeleteTerminals {
+                        Button(role: .destructive) {
+                            terminalPendingDeleteID = terminal.id
+                        } label: {
+                            Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
+                        }
+                        .tint(.red)
+                        .accessibilityIdentifier("MobileTerminalDeleteButton-\(terminal.id.rawValue)")
+                    }
+                }
+                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .frame(height: terminalPickerListHeight)
+        .confirmationDialog(
+            L10n.string("mobile.terminal.delete.confirmTitle", defaultValue: "Delete Terminal?"),
+            isPresented: terminalDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            if let terminalPendingDeleteID {
+                Button(
+                    L10n.string("mobile.terminal.delete.confirmAction", defaultValue: "Delete"),
+                    role: .destructive
+                ) {
+                    confirmTerminalDelete()
+                }
+                .accessibilityIdentifier("MobileTerminalDeleteConfirmButton-\(terminalPendingDeleteID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                terminalPendingDeleteID = nil
+            }
+        } message: {
+            Text(
+                L10n.string(
+                    "mobile.terminal.delete.confirmMessage",
+                    defaultValue: "This will close the terminal on your Mac."
+                )
+            )
+        }
+    }
+
+    private var terminalPickerPlainRows: some View {
+        let selectedTerminalID = selectedTerminal?.id
+        return ForEach(workspace.terminals) { terminal in
+            Button {
+                selectTerminalFromPicker(terminal.id)
+            } label: {
+                Label(
+                    terminal.name,
+                    systemImage: terminal.id == selectedTerminalID && activeBrowser == nil
+                        ? "checkmark.circle.fill"
+                        : "terminal"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+        }
+    }
+
+    private var terminalPickerListHeight: CGFloat {
+        #if os(iOS)
+        let rowHeight = UIFontMetrics.default.scaledValue(for: 44)
+        #else
+        let rowHeight: CGFloat = 44
         #endif
+        return min(max(CGFloat(workspace.terminals.count) * rowHeight, rowHeight), 480)
+    }
+
+    private var terminalDeleteConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { terminalPendingDeleteID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    terminalPendingDeleteID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmTerminalDelete() {
+        guard let terminalID = terminalPendingDeleteID else {
+            return
+        }
+        terminalPendingDeleteID = nil
+        isTerminalPickerPresented = false
+        deleteTerminal(workspace.id, terminalID)
     }
 
     #if canImport(UIKit)
     #if DEBUG
     private func copyDebugLogsFromMenu() {
+        isTerminalPickerPresented = false
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
@@ -331,11 +469,13 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
+        isTerminalPickerPresented = false
         textSheetSurfaceID = selectedTerminal?.id.rawValue
         isTextSheetPresented = true
     }
 
     private func openFeedbackComposerFromMenu() {
+        isTerminalPickerPresented = false
         feedbackText = ""
         feedbackErrorMessage = nil
         // A prior submission may still be in flight if the user dismissed the
@@ -478,7 +618,14 @@ struct WorkspaceDetailView: View {
         createWorkspace()
     }
 
+    private func createWorkspaceFromTerminalPicker() {
+        isTerminalPickerPresented = false
+        dismissTerminalKeyboardForChrome()
+        createWorkspace()
+    }
+
     private func createTerminalFromToolbar() {
+        isTerminalPickerPresented = false
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
@@ -488,6 +635,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func openBrowserFromToolbar() {
+        isTerminalPickerPresented = false
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
@@ -496,6 +644,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+        isTerminalPickerPresented = false
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.

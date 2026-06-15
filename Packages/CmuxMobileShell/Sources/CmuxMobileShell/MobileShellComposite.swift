@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let deleteActionsCapability = "mobile.delete.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
@@ -215,6 +216,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the connected Mac advertises mobile delete support for
+    /// workspace/terminal rows (the mobile close wrappers swipe-delete routes
+    /// through). `false` until host status is read, and for older Macs that do
+    /// not expose the wrappers, so the UI can hide the swipe action.
+    public var supportsDeleteActions: Bool { supportedHostCapabilities.contains(Self.deleteActionsCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
@@ -519,6 +525,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
+    private var deleteMutationTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
@@ -526,6 +533,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
+    private var deleteMutationTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
@@ -651,10 +659,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
+        self.deleteMutationTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
+        self.deleteMutationTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
@@ -855,6 +865,83 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// routing, since that transport runs over Tailscale.
     public var hasActiveMacConnection: Bool {
         connectionState == .connected && remoteClient != nil
+    }
+
+    /// Close a workspace through the Mac's existing workspace-close path.
+    ///
+    /// The phone moves selection to the same-order neighbor before the remote
+    /// mutation completes so deleting the visible workspace never leaves the
+    /// detail column pointing at a removed id. The authoritative workspace list
+    /// is then refreshed from the Mac after the close RPC.
+    public func deleteWorkspace(id: MobileWorkspacePreview.ID) {
+        guard workspaces.count > 1,
+              workspaces.contains(where: { $0.id == id }) else {
+            return
+        }
+        let previousWorkspaceID = selectedWorkspaceID
+        let previousTerminalID = selectedTerminalID
+        let neighborID = neighboringWorkspaceID(afterDeleting: id)
+        if selectedWorkspaceID == id {
+            setSelectedWorkspaceID(neighborID)
+        }
+
+        guard remoteClient != nil else {
+            deleteLocalWorkspace(id: id, neighborID: neighborID)
+            return
+        }
+
+        enqueueDeleteMutation { [weak self] in
+            await self?.deleteRemoteWorkspace(
+                id: id,
+                previousWorkspaceID: previousWorkspaceID,
+                previousTerminalID: previousTerminalID
+            )
+        }
+    }
+
+    /// Close a terminal surface through the Mac's existing surface/workspace
+    /// close paths. If the surface is the last terminal in the workspace, the
+    /// Mac decides whether the containing workspace still has non-terminal panels
+    /// or must close too; the refreshed remote list reconciles that final state.
+    public func deleteTerminal(
+        id terminalID: MobileTerminalPreview.ID,
+        in workspaceID: MobileWorkspacePreview.ID
+    ) {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              workspace.terminals.contains(where: { $0.id == terminalID }) else {
+            return
+        }
+        let removesLastKnownTerminal = workspace.terminals.count <= 1
+        let usesRemoteClient = remoteClient != nil
+        guard usesRemoteClient || !removesLastKnownTerminal || workspaces.count > 1 else {
+            return
+        }
+        let previousWorkspaceID = selectedWorkspaceID
+        let previousTerminalID = selectedTerminalID
+        let terminalNeighborID = neighboringTerminalID(
+            afterDeleting: terminalID,
+            in: workspaceID
+        )
+        if selectedWorkspaceID == workspaceID, selectedTerminalID == terminalID {
+            selectedTerminalID = terminalNeighborID
+        }
+        if !usesRemoteClient, removesLastKnownTerminal, selectedWorkspaceID == workspaceID {
+            setSelectedWorkspaceID(neighboringWorkspaceID(afterDeleting: workspaceID))
+        }
+
+        guard usesRemoteClient else {
+            deleteLocalTerminal(id: terminalID, in: workspaceID)
+            return
+        }
+
+        enqueueDeleteMutation { [weak self] in
+            await self?.deleteRemoteTerminal(
+                id: terminalID,
+                in: workspaceID,
+                previousWorkspaceID: previousWorkspaceID,
+                previousTerminalID: previousTerminalID
+            )
+        }
     }
 
     /// Where a Send Feedback submission should be delivered right now.
@@ -3135,6 +3222,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         createTerminalTask = nil
         createTerminalTaskID = nil
+        deleteMutationTask?.cancel()
+        deleteMutationTask = nil
+        deleteMutationTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
@@ -3405,6 +3495,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
     }
 
+    @discardableResult
+    private func enqueueDeleteMutation(
+        _ operation: @escaping @MainActor @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let previous = deleteMutationTask
+        let taskID = UUID()
+        deleteMutationTaskID = taskID
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            defer { self.clearDeleteMutationTask(id: taskID) }
+            await operation()
+        }
+        deleteMutationTask = task
+        return task
+    }
+
+    private func clearDeleteMutationTask(id: UUID) {
+        guard deleteMutationTaskID == id else { return }
+        deleteMutationTask = nil
+        deleteMutationTaskID = nil
+    }
+
     private func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
         isCurrentRemoteConnection(client: client, generation: generation)
             && connectionState == .connected
@@ -3663,6 +3776,210 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
         }
+    }
+
+    private func deleteRemoteWorkspace(
+        id: MobileWorkspacePreview.ID,
+        previousWorkspaceID: MobileWorkspacePreview.ID?,
+        previousTerminalID: MobileTerminalPreview.ID?
+    ) async {
+        guard let client = remoteClient else { return }
+        let generation = connectionGeneration
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.close",
+                params: [
+                    "workspace_id": id.rawValue,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            try await refreshRemoteWorkspaceListAfterMutation(client: client, generation: generation)
+        } catch {
+            handleRemoteDeleteError(
+                error,
+                generation: generation,
+                previousWorkspaceID: previousWorkspaceID,
+                previousTerminalID: previousTerminalID
+            )
+        }
+    }
+
+    private func deleteRemoteTerminal(
+        id terminalID: MobileTerminalPreview.ID,
+        in workspaceID: MobileWorkspacePreview.ID,
+        previousWorkspaceID: MobileWorkspacePreview.ID?,
+        previousTerminalID: MobileTerminalPreview.ID?
+    ) async {
+        guard let client = remoteClient else { return }
+        let generation = connectionGeneration
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "surface.close",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": terminalID.rawValue,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            try await refreshRemoteWorkspaceListAfterMutation(client: client, generation: generation)
+        } catch {
+            handleRemoteDeleteError(
+                error,
+                generation: generation,
+                previousWorkspaceID: previousWorkspaceID,
+                previousTerminalID: previousTerminalID
+            )
+        }
+    }
+
+    private func refreshRemoteWorkspaceListAfterMutation(
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) async throws {
+        let resultData = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
+        )
+        let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+        guard isCurrentRemoteOperation(client: client, generation: generation),
+              !Task.isCancelled else { return }
+        applyRemoteWorkspaceList(response)
+    }
+
+    private func handleRemoteDeleteError(
+        _ error: any Error,
+        generation: UUID,
+        previousWorkspaceID: MobileWorkspacePreview.ID?,
+        previousTerminalID: MobileTerminalPreview.ID?
+    ) {
+        guard generation == connectionGeneration, !Task.isCancelled else { return }
+        restoreSelection(
+            workspaceID: previousWorkspaceID,
+            terminalID: previousTerminalID
+        )
+        guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+        markMacConnectionUnavailableIfNeeded(after: error)
+        connectionError = Self.localizedDeleteError()
+        connectionErrorGuidance = Self.localizedDeleteErrorGuidance()
+    }
+
+    /// Headline shown when a remote delete (workspace or surface) fails after
+    /// the optimistic removal has been reverted by ``restoreSelection``.
+    private static func localizedDeleteError() -> String {
+        L10n.string(
+            "mobile.delete.failed.message",
+            defaultValue: "Couldn't delete that on your Mac."
+        )
+    }
+
+    /// Actionable next-step line shown beneath ``localizedDeleteError`` so the
+    /// user knows the item is still there and why.
+    private static func localizedDeleteErrorGuidance() -> String {
+        L10n.string(
+            "mobile.delete.failed.guidance",
+            defaultValue: "Check your connection to your Mac and try again."
+        )
+    }
+
+    private func restoreSelection(
+        workspaceID: MobileWorkspacePreview.ID?,
+        terminalID: MobileTerminalPreview.ID?
+    ) {
+        if let workspaceID,
+           workspaces.contains(where: { $0.id == workspaceID }) {
+            setSelectedWorkspaceID(workspaceID)
+        } else if workspaceID == nil {
+            setSelectedWorkspaceID(nil)
+        } else if selectedWorkspace == nil {
+            setSelectedWorkspaceID(workspaces.first?.id)
+        }
+
+        guard let selectedWorkspace else {
+            selectedTerminalID = nil
+            return
+        }
+        if let terminalID,
+           selectedWorkspace.terminals.contains(where: { $0.id == terminalID }) {
+            selectedTerminalID = terminalID
+        } else {
+            syncSelectedTerminalForWorkspace()
+        }
+    }
+
+    private func deleteLocalWorkspace(
+        id workspaceID: MobileWorkspacePreview.ID,
+        neighborID: MobileWorkspacePreview.ID? = nil
+    ) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              workspaces.count > 1 else {
+            return
+        }
+        let fallbackNeighborID = neighborID ?? neighboringWorkspaceID(afterDeleting: workspaceID)
+        workspaces.remove(at: index)
+        let selectedWorkspaceStillExists = selectedWorkspaceID.map { selectedID in
+            workspaces.contains { $0.id == selectedID }
+        } ?? false
+        if selectedWorkspaceID == workspaceID ||
+            selectedWorkspaceID == nil ||
+            !selectedWorkspaceStillExists {
+            setSelectedWorkspaceID(fallbackNeighborID ?? workspaces.first?.id)
+        }
+    }
+
+    private func deleteLocalTerminal(
+        id terminalID: MobileTerminalPreview.ID,
+        in workspaceID: MobileWorkspacePreview.ID
+    ) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
+            return
+        }
+        guard workspaces[workspaceIndex].terminals.count > 1 else {
+            deleteLocalWorkspace(id: workspaceID)
+            return
+        }
+
+        let fallbackTerminalID = neighboringTerminalID(afterDeleting: terminalID, in: workspaceID)
+        workspaces[workspaceIndex].terminals.remove(at: terminalIndex)
+        terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID.rawValue)
+        let selectedTerminalStillExists = selectedTerminalID.map { selectedID in
+            workspaces[workspaceIndex].terminals.contains { $0.id == selectedID }
+        } ?? false
+        if selectedWorkspaceID == workspaceID,
+           (selectedTerminalID == terminalID ||
+            selectedTerminalID == nil ||
+            !selectedTerminalStillExists) {
+            selectedTerminalID = fallbackTerminalID ?? workspaces[workspaceIndex].terminals.first?.id
+        }
+    }
+
+    private func neighboringWorkspaceID(
+        afterDeleting workspaceID: MobileWorkspacePreview.ID
+    ) -> MobileWorkspacePreview.ID? {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+            return selectedWorkspaceID
+        }
+        guard workspaces.count > 1 else { return nil }
+        let neighborIndex = index < workspaces.count - 1 ? index + 1 : index - 1
+        return workspaces[neighborIndex].id
+    }
+
+    private func neighboringTerminalID(
+        afterDeleting terminalID: MobileTerminalPreview.ID,
+        in workspaceID: MobileWorkspacePreview.ID
+    ) -> MobileTerminalPreview.ID? {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              let index = workspace.terminals.firstIndex(where: { $0.id == terminalID }) else {
+            return selectedTerminalID
+        }
+        guard workspace.terminals.count > 1 else { return nil }
+        let neighborIndex = index < workspace.terminals.count - 1 ? index + 1 : index - 1
+        return workspace.terminals[neighborIndex].id
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
