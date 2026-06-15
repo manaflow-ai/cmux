@@ -36,9 +36,9 @@ extension VerticalTabsSidebar {
     ///
     /// - Parameters:
     ///   - draggedId: the workspace (or group anchor) being dragged.
-    ///   - startLocationY: the gesture's start Y in the reorder list space.
-    ///     Trustworthy only on the begin event (it re-converts with current
-    ///     geometry on later events).
+    ///   - startLocationY: the gesture's start Y in the named list space. No
+    ///     longer used to anchor the drag (it is viewport-wrong under scroll);
+    ///     the anchor is the row's frozen-frame center. Kept for the API shape.
     ///   - translation: the gesture's pointer travel. Height drives the slot,
     ///     width drives boundary-slot group membership (the outliner X axis).
     func sidebarReorderGestureChanged(
@@ -51,9 +51,14 @@ extension VerticalTabsSidebar {
         // alive until the mouse releases and keeps streaming onChanged; without
         // this latch the next event would re-begin the cancelled drag.
         guard dragState.cancelledReorderTabId != draggedId else { return }
-        let cursorY = (dragState.draggedTabId == draggedId)
-            ? dragState.reorderTranslationBaseY + translation.height + dragState.autoScrollAccumulatedDelta
-            : startLocationY + translation.height
+        // The cursor's CONTENT-space Y = the grab point (frozen frame top +
+        // within-row offset) + the pure translation + any autoscroll. The
+        // grab point is captured once at begin into reorderTranslationBaseY,
+        // so this formula is identical for begin and update and never touches
+        // the unreliable absolute gesture location.
+        let updateCursorY = dragState.reorderTranslationBaseY
+            + translation.height
+            + dragState.autoScrollAccumulatedDelta
         if dragState.draggedTabId != draggedId {
             let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
                 forDraggedWorkspaceId: draggedId,
@@ -94,13 +99,26 @@ extension VerticalTabsSidebar {
                 renderContext.workspaceGroups.filter(\.isCollapsed).map(\.anchorWorkspaceId)
             )
             let frame = dragState.rowFramesInList[draggedId]
-            let grabOffsetY = frame.map { startLocationY - $0.minY } ?? 0
+            // Anchor to the row's frozen-frame CENTER plus the stable
+            // translation. With grabOffsetY = height/2 the follower top works
+            // out to rowMinY + translation, so the row sits at its committed
+            // spot at grab (no jump) and moves by exactly the drag delta (the
+            // grabbed point stays under the pointer), and the probe is the
+            // item center + translation. Nothing here depends on the absolute
+            // gesture location (viewport-wrong under scroll) or a per-grab
+            // offset, so it is fully scroll-independent.
+            let rowCenterY = frame?.midY ?? 0
+            let grabOffsetY = (frame?.height ?? 0) / 2
+            let beginCursorY = rowCenterY + translation.height
             #if DEBUG
             cmuxDebugLog(
                 "sidebar.reorder.begin id=\(draggedId.uuidString.prefix(5)) " +
-                "startY=\(Int(startLocationY)) cursorY=\(Int(cursorY)) " +
+                "rowCenterY=\(Int(rowCenterY)) grabOff=\(Int(grabOffsetY)) " +
+                "cursorY=\(Int(beginCursorY)) followerTop=\(Int(beginCursorY - grabOffsetY)) " +
+                "transY=\(Int(translation.height)) " +
                 "topLevel=\(usesTopLevelRows) scope=\(reorderIds.count) " +
-                "frames=\(dragState.rowFramesInList.count) ownFrame=\(frame.map { "\(Int($0.minY))..\(Int($0.maxY))" } ?? "nil")"
+                "frames=\(dragState.rowFramesInList.count) hasOwnFrame=\(frame != nil) " +
+                "ownFrame=\(frame.map { "\(Int($0.minY))..\(Int($0.maxY))" } ?? "nil")"
             )
             #endif
             dragState.beginReorder(
@@ -116,11 +134,11 @@ extension VerticalTabsSidebar {
                 draggedIsAnchor: draggedIsAnchor,
                 draggedRowFrame: frame,
                 grabOffsetY: grabOffsetY,
-                translationBaseY: startLocationY,
-                cursorY: cursorY
+                translationBaseY: rowCenterY,
+                cursorY: beginCursorY
             )
         } else {
-            dragState.updateReorder(cursorY: cursorY, translationWidth: translation.width)
+            dragState.updateReorder(cursorY: updateCursorY, translationWidth: translation.width)
         }
         dragAutoScrollController.updateFromDragLocation()
     }
@@ -246,6 +264,14 @@ struct SidebarReorderDragModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.gesture(
+            // The named LIST space (not `.local`) so `translation` is measured
+            // against a FIXED reference and is not corrupted by the dragged
+            // row's own movement during the drag (which `.local` does — the
+            // gesture host moves to the preview slot, making `.local`
+            // translation alternate). The absolute startLocation this space
+            // reports is unreliable under scroll, so the drag does NOT use it:
+            // it anchors to the row's frozen-frame center plus this stable
+            // translation instead.
             DragGesture(minimumDistance: 6, coordinateSpace: .named(SidebarReorderListCoordinateSpace.name))
                 .onChanged { value in onChanged(value.startLocation, value.translation) }
                 .onEnded { value in onEnded(value.startLocation, value.translation) }

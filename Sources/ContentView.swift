@@ -10438,6 +10438,25 @@ final class SidebarDragState {
     /// always agree. Observed; changes only when the slot or the X side flips.
     var previewMembershipGroupId: UUID?
 
+    /// Live frames (in the reorder list's named space) of the rows that belong
+    /// to the currently highlighted group, keyed by group id. Written every
+    /// layout pass from `SidebarGroupHighlightBoundsKey`, including the
+    /// intermediate frames of the reflow animation. Read ONLY by the isolated
+    /// `SidebarGroupHighlightBackdropView`, exactly like `followerCursorY` is
+    /// read only by the follower: keeping it off the parent body and the rows
+    /// means the per-frame churn cannot re-run the `LazyVStack` and reintroduce
+    /// the https://github.com/manaflow-ai/cmux/issues/2586 layout-thrash loop.
+    var groupHighlightRects: [UUID: [CGRect]] = [:]
+
+    /// Replace the highlighted-group frame map, skipping the observation
+    /// notification when nothing changed so a static hover/drag does not wake
+    /// the backdrop view every layout pass.
+    func updateGroupHighlightRects(_ rects: [UUID: [CGRect]]) {
+        if groupHighlightRects != rects {
+            groupHighlightRects = rects
+        }
+    }
+
     /// Per-band group identity (a member row's group, a header's group, nil
     /// for ungrouped rows), used to resolve the landing slot's membership.
     @ObservationIgnored private var bandGroupIdById: [UUID: UUID?] = [:]
@@ -10741,12 +10760,27 @@ final class SidebarDragState {
         } else {
             committedSlot = min(reorderIds.firstIndex(of: draggedTabId) ?? 0, neighborBands.count)
         }
+        let isFirstEvent = schmittSlot == nil
         let s = SidebarReorderIndicatorResolver.slot(
             probeY: probeY,
             midYs: midYs,
             previous: schmittSlot ?? committedSlot
         )
         schmittSlot = s
+#if DEBUG
+        if isFirstEvent {
+            // First event after grab: `s != committedSlot` means the list
+            // reflows immediately on grab (rows jump). `probeY` far from the
+            // dragged band's own center means the grab offset / probe is off
+            // (the follower snaps away from the pointer).
+            let ownCenter = draggedRowFrame.map { Int($0.midY) } ?? -1
+            cmuxDebugLog(
+                "sidebar.reorder.first cursorY=\(Int(cursorY)) grabOff=\(Int(grabOffsetY)) " +
+                "probeY=\(Int(probeY)) ownCenter=\(ownCenter) " +
+                "committedSlot=\(committedSlot) s=\(s) reflowOnGrab=\(s != committedSlot) bands=\(bands.count)"
+            )
+        }
+#endif
 
         let planned = SidebarDropPlanner.plan(
             draggedTabId: draggedTabId,
@@ -10914,9 +10948,22 @@ final class SidebarDragState {
         } else {
             threshold = probeY
         }
+        // Joining a group FROM OUTSIDE catches sooner: extend the "in" zone
+        // toward the approach side by a margin so the membership (and the
+        // backdrop that follows it) flips while the dragged row is still
+        // approaching the group's edge, instead of waiting until its center
+        // reaches the gap. Reordering WITHIN the group keeps the plain
+        // gap-midpoint threshold.
+        let joiningFromOutside = draggedCommittedGroupId != candidate
+        let catchMargin: CGFloat = joiningFromOutside
+            ? min((draggedRowFrame?.height ?? 0) / 2, 16)
+            : 0
+        let effectiveThreshold = candidateFromAbove
+            ? threshold + catchMargin
+            : threshold - catchMargin
         var isIn = SidebarReorderIndicatorResolver.membershipIn(
             probeY: probeY,
-            threshold: threshold,
+            threshold: effectiveThreshold,
             candidateFromAbove: candidateFromAbove,
             currentlyIn: previewMembershipGroupId == candidate
         )
@@ -12976,26 +13023,6 @@ struct VerticalTabsSidebar: View {
         dragState.draggedTabId != nil ? dragState.previewMembershipGroupId : hoveredGroupId
     }
 
-    /// The single rounded backdrop behind the highlighted group, unioned from
-    /// the bounds its rows emitted.
-    @ViewBuilder
-    private func groupHighlightBackdrop(prefs: [UUID: [Anchor<CGRect>]]) -> some View {
-        GeometryReader { proxy in
-            if let groupId = highlightedGroupId,
-               let anchors = prefs[groupId], !anchors.isEmpty {
-                let rects = anchors.map { proxy[$0] }
-                let minX = rects.map(\.minX).min() ?? 0
-                let maxX = rects.map(\.maxX).max() ?? 0
-                let minY = rects.map(\.minY).min() ?? 0
-                let maxY = rects.map(\.maxY).max() ?? 0
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.10))
-                    .frame(width: max(0, (maxX - minX) - 12), height: max(0, maxY - minY))
-                    .position(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
-            }
-        }
-    }
-
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         let baseRenderItems = SidebarWorkspaceRenderItem.renderItems(
@@ -13054,7 +13081,7 @@ struct VerticalTabsSidebar: View {
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
                     .transition(.sidebarGroupRow)
-                case .workspace(let tab, _):
+                case .workspace(let tab, let effectiveGroupId):
                     workspaceRow(
                         tab,
                         renderContext: renderContext,
@@ -13062,7 +13089,13 @@ struct VerticalTabsSidebar: View {
                         isHiddenInDraggedGroupBlock: tab.groupId != nil
                             && dragState.draggedTabId != nil
                             && tab.groupId.flatMap { renderContext.workspaceGroupById[$0]?.anchorWorkspaceId } == dragState.draggedTabId,
-                        isInHighlightedGroup: tab.groupId != nil && tab.groupId == highlightedGroupId
+                        // Use the preview's EFFECTIVE group, not the committed
+                        // one: the dragged row's placeholder reflows to its
+                        // landing slot with the target group's effectiveGroupId,
+                        // so the backdrop extends to cover where it will land —
+                        // including the LAST slot of the group, which committed
+                        // membership could never reach.
+                        isInHighlightedGroup: effectiveGroupId != nil && effectiveGroupId == highlightedGroupId
                     )
                     .transition(.sidebarGroupRow)
                 }
@@ -13071,13 +13104,6 @@ struct VerticalTabsSidebar: View {
         .animation(Self.sidebarReorderAnimation, value: previewItems.map(\.id))
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // ONE backdrop behind the highlighted group's rows, unioned from the
-        // member/header bounds the rows emit. Drawn as a background so rows
-        // (and the dragged-row follower) sit on top of a fixed region instead
-        // of each carrying its own tint.
-        .backgroundPreferenceValue(SidebarGroupHighlightBoundsKey.self) { prefs in
-            groupHighlightBackdrop(prefs: prefs)
-        }
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -13096,6 +13122,24 @@ struct VerticalTabsSidebar: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .coordinateSpace(.named(SidebarReorderListCoordinateSpace.name))
+        // ONE backdrop behind the highlighted group, unioned from the member /
+        // header frames the rows report in this named space. Drawn as a
+        // background on the coordinate-space view (so its local origin matches
+        // the reported frames). The frames are funneled through `dragState`
+        // (NOT parent @State) and read only by the isolated
+        // `SidebarGroupHighlightBackdropView`, so the per-frame geometry never
+        // re-runs the sidebar body / LazyVStack (issue #2586), exactly like the
+        // follower overlay. The union interpolates as rows join or leave, so the
+        // height animates without an explicit animation modifier.
+        .background(
+            SidebarGroupHighlightBackdropView(
+                dragState: dragState,
+                groupId: highlightedGroupId
+            )
+        )
+        .onPreferenceChange(SidebarGroupHighlightBoundsKey.self) { rects in
+            dragState.updateGroupHighlightRects(rects)
+        }
         .onPreferenceChange(SidebarReorderRowFrameKey.self) { frames in
             dragState.updateRowFrames(frames)
         }
@@ -13366,7 +13410,15 @@ struct VerticalTabsSidebar: View {
                 // Emit this member's bounds for the whole-group backdrop drawn
                 // behind the rows (not a per-row tint, so it does not travel
                 // with the row during a reorder).
-                .sidebarGroupHighlightBounds(groupId: tab.groupId, isHighlighted: isInHighlightedGroup)
+                // Key by the HIGHLIGHTED group, not the committed one: the
+                // dragged placeholder's committed group differs from where it
+                // will land, so keying by committed group would file its bounds
+                // under the wrong group and the backdrop would not stretch to
+                // contain its landing slot.
+                .sidebarGroupHighlightBounds(
+                    groupId: isInHighlightedGroup ? highlightedGroupId : nil,
+                    isHighlighted: isInHighlightedGroup
+                )
                 // Hovering a nested member highlights its whole group too (not
                 // just the header). Guarded so passing ungrouped rows writes
                 // nothing. Drag takes precedence over hover in highlightedGroupId.
@@ -13431,20 +13483,73 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 /// region the rows sit on top of rather than a per-row tint that travels with
 /// each workspace during a reorder.
 struct SidebarGroupHighlightBoundsKey: PreferenceKey {
-    static let defaultValue: [UUID: [Anchor<CGRect>]] = [:]
+    static let defaultValue: [UUID: [CGRect]] = [:]
 
-    static func reduce(value: inout [UUID: [Anchor<CGRect>]], nextValue: () -> [UUID: [Anchor<CGRect>]]) {
+    static func reduce(value: inout [UUID: [CGRect]], nextValue: () -> [UUID: [CGRect]]) {
         value.merge(nextValue()) { $0 + $1 }
     }
 }
 
-extension View {
-    /// Emits this row's bounds under `groupId` for the whole-group backdrop,
-    /// only when the row is part of the highlighted group.
-    func sidebarGroupHighlightBounds(groupId: UUID?, isHighlighted: Bool) -> some View {
-        anchorPreference(key: SidebarGroupHighlightBoundsKey.self, value: .bounds) { anchor in
-            (isHighlighted && groupId != nil) ? [groupId!: [anchor]] : [:]
+/// The single rounded backdrop drawn behind the currently highlighted group
+/// (header + member rows, and during a drag the dragged row's landing slot).
+///
+/// This is the ONLY view that reads `SidebarDragState.groupHighlightRects`, the
+/// per-layout-frame union geometry. Like `SidebarReorderFollowerView` and
+/// `followerCursorY`, it is a sibling background over the list rather than a row
+/// inside the `LazyVStack`/`ForEach`, so its per-frame repaints never invalidate
+/// the list body. Lifting these frames into the parent's `@State` instead would
+/// re-run the whole sidebar body every animation frame and reintroduce the
+/// https://github.com/manaflow-ai/cmux/issues/2586 layout-thrash loop.
+///
+/// No explicit `.animation` is needed: the highlighted rows report their frames
+/// with a `GeometryReader`, which re-reports the intermediate frames of the
+/// list's reflow animation, so the union rect already interpolates as a row
+/// joins or leaves the group. The backdrop simply renders the current union
+/// every frame, exactly like the follower renders the current cursor.
+struct SidebarGroupHighlightBackdropView: View {
+    let dragState: SidebarDragState
+    /// The group whose region is highlighted right now (drop-into target during
+    /// a drag, hovered group otherwise), or nil when nothing is highlighted.
+    let groupId: UUID?
+
+    var body: some View {
+        if let groupId,
+           let rects = dragState.groupHighlightRects[groupId],
+           !rects.isEmpty {
+            let minX = rects.map(\.minX).min() ?? 0
+            let maxX = rects.map(\.maxX).max() ?? 0
+            let minY = rects.map(\.minY).min() ?? 0
+            let maxY = rects.map(\.maxY).max() ?? 0
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+                .frame(width: max(0, (maxX - minX) - 12), height: max(0, maxY - minY))
+                .position(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
+    }
+}
+
+extension View {
+    /// Emits this row's frame (in the reorder list's named coordinate space)
+    /// under `groupId` for the whole-group backdrop, only when the row is part
+    /// of the highlighted group. A `GeometryReader` (not `anchorPreference`) is
+    /// used on purpose: it re-reports the row's frame on every layout pass,
+    /// including the intermediate frames of the reflow animation, so the
+    /// state-driven backdrop can interpolate its height as a row joins or
+    /// leaves the group instead of snapping to the final geometry the way an
+    /// `Anchor<CGRect>` resolves.
+    func sidebarGroupHighlightBounds(groupId: UUID?, isHighlighted: Bool) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarGroupHighlightBoundsKey.self,
+                    value: (isHighlighted && groupId != nil)
+                        ? [groupId!: [proxy.frame(in: .named(SidebarReorderListCoordinateSpace.name))]]
+                        : [:]
+                )
+            }
+        )
     }
 }
 

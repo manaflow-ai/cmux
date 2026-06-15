@@ -232,10 +232,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
+        // No separate hover tint on the header: hovering anywhere in the group
+        // (header or a member) draws the single whole-group backdrop behind the
+        // rows. Only the active-anchor indicator remains here.
         .background(
             isAnchorActive
                 ? Color.primary.opacity(0.08)
-                : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .sidebarShortcutHintOverlay(
