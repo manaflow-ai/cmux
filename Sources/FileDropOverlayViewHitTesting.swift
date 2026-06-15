@@ -50,12 +50,22 @@ enum SidebarFileDropDeferralRegistry {
         let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
         for view in snapshot() {
             guard view.window === window, isVisibleInHierarchy(view) else { continue }
-            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            guard let hitBounds = visibleBounds(for: view) else { continue }
+            let frameInWindow = view.convert(hitBounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
             if frameInWindow.contains(windowPoint) {
                 return view
             }
         }
         return nil
+    }
+
+    private static func visibleBounds(for view: NSView) -> NSRect? {
+        var bounds = view.bounds
+        if let clipView = view.enclosingScrollView?.contentView,
+           clipView.documentView === view {
+            bounds = bounds.intersection(clipView.documentVisibleRect)
+        }
+        return bounds.isEmpty || bounds.isNull ? nil : bounds
     }
 
 }

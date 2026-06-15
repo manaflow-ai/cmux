@@ -181,13 +181,13 @@
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
+549	Sources/FileDropOverlayViewHitTesting.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 547	Sources/Windowing/WindowGlassEffect.swift
 542	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 540	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
-539	Sources/FileDropOverlayViewHitTesting.swift
 538	Packages/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 538	Sources/App/WorkspaceRuntimeSettings.swift
 538	Sources/Panels/MarkdownPanelView.swift
