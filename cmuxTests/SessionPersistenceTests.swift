@@ -2560,6 +2560,93 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
     }
 
+    func testRestorableAgentStartupInputUsesLauncherScriptForUnicodeCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-unicode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let unicodeWorkingDirectory = "/Users/example/Desktop/测试目录"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: unicodeWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: unicodeWorkingDirectory,
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(unicodeWorkingDirectory))
+
+        let scriptPath = try Self.scriptPath(fromStartupInput: input)
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(unicodeWorkingDirectory))
+        XCTAssertTrue(scriptContents.contains("'resume'"))
+        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+    }
+
+    func testRestorableAgentStartupInputEncodesNonASCIILauncherPath() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-测试-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let unicodeWorkingDirectory = "/Users/example/Desktop/测试目录"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: unicodeWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: unicodeWorkingDirectory,
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.utf8.allSatisfy { $0 < 0x80 })
+        XCTAssertTrue(input.hasPrefix("/bin/zsh -c '"))
+        XCTAssertTrue(input.contains("base64"))
+        XCTAssertFalse(input.contains(tempDir.path))
+        XCTAssertFalse(input.contains(unicodeWorkingDirectory))
+
+        let scriptsDirectory = tempDir.appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        let scripts = try FileManager.default.contentsOfDirectory(
+            at: scriptsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "zsh" }
+        XCTAssertEqual(scripts.count, 1)
+        let scriptURL = try XCTUnwrap(scripts.first)
+        let scriptContents = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(scriptURL.path.contains("测试"))
+        XCTAssertTrue(scriptContents.contains(unicodeWorkingDirectory))
+        XCTAssertTrue(scriptContents.contains("'resume'"))
+        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+    }
+
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
@@ -2594,9 +2681,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try Self.scriptPath(fromStartupInput: input)
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'resume'"))
@@ -2639,6 +2724,47 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+    }
+
+    private static func scriptPath(fromStartupInput input: String) throws -> String {
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh "
+        let scriptPath = trimmedInput.hasPrefix(prefix)
+            ? shellSingleQuotedWord(String(trimmedInput.dropFirst(prefix.count)))
+            : nil
+        return try XCTUnwrap(
+            scriptPath,
+            "Expected startup input to invoke /bin/zsh with a single-quoted script path"
+        )
+    }
+
+    private static func shellSingleQuotedWord(_ value: String) -> String? {
+        var index = value.startIndex
+        guard index < value.endIndex, value[index] == "'" else { return nil }
+        index = value.index(after: index)
+
+        var result = ""
+        while index < value.endIndex {
+            if value[index] != "'" {
+                result.append(value[index])
+                index = value.index(after: index)
+                continue
+            }
+
+            let afterQuote = value.index(after: index)
+            guard afterQuote < value.endIndex else { return result }
+            guard value[afterQuote] == "\\" else { return result }
+
+            let escapedQuote = value.index(after: afterQuote)
+            guard escapedQuote < value.endIndex, value[escapedQuote] == "'" else { return nil }
+
+            let reopenedQuote = value.index(after: escapedQuote)
+            guard reopenedQuote < value.endIndex, value[reopenedQuote] == "'" else { return nil }
+
+            result.append("'")
+            index = value.index(after: reopenedQuote)
+        }
+        return nil
     }
 
     func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {
