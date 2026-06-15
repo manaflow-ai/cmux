@@ -128,6 +128,29 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Disabling resets the host-wide delta baseline and bootstrap retry budget")
+    func disablingResetsHiddenScannerState() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(runner: runner, relayPort: 41000)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            // Simulate state accumulated before the user hides ports: a
+            // host-wide-delta baseline and an exhausted bootstrap TTY retry
+            // budget.
+            coordinator.remotePortPollBaselinePorts = [3000, 4000]
+            coordinator.bootstrapRemoteTTYRetryCount = RemoteSessionCoordinator.bootstrapRemoteTTYRetryLimit
+            coordinator.updateRemotePortScanningEnabledLocked(false)
+        }
+
+        let reset = coordinator.queue.sync {
+            coordinator.remotePortPollBaselinePorts == nil
+                && coordinator.bootstrapRemoteTTYRetryCount == 0
+        }
+        #expect(reset)
+        coordinator.stop()
+    }
+
     @Test("Disabling suppresses bootstrap TTY resolution ssh")
     func disablingSuppressesBootstrapTTYResolution() {
         let runner = SpyProcessRunner()

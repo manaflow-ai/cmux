@@ -65,7 +65,10 @@ extension RemoteSessionCoordinator {
 
     /// Tears down every ssh-spawning port-scan activity and clears detected
     /// ports. Mirrors the scan teardown on the proxy-error path so a disabled
-    /// scanner leaves no poll timer, burst, or stale ports behind.
+    /// scanner leaves no poll timer, burst, or stale ports behind, and resets
+    /// the hidden poll/bootstrap bookkeeping (delta baseline, retry budget) so
+    /// re-enabling resumes like a fresh scanner start rather than against
+    /// pre-disable state.
     private func suspendRemotePortScanningLocked() {
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
@@ -75,9 +78,11 @@ extension RemoteSessionCoordinator {
         remotePortScanPendingReason = nil
         cancelRemotePortScanCoalesceLocked()
         cancelBootstrapRemoteTTYRetryLocked()
+        bootstrapRemoteTTYRetryCount = 0
         remoteScannedPortsByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
+        remotePortPollBaselinePorts = nil
         keepPolledRemotePortsUntilTTYScan = false
         publishPortsSnapshotLocked()
     }
