@@ -32,6 +32,9 @@ public struct ChatTranscriptListView: View {
     #if os(iOS)
     @State private var isAtBottom = true
     @State private var scrollPosition = ScrollPosition(idType: String.self)
+    #if DEBUG
+    @State private var debugScrollGeometry = ChatScrollGeometryDebugSnapshot()
+    #endif
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -257,6 +260,22 @@ public struct ChatTranscriptListView: View {
             let atBottom = distanceFromBottom <= Self.atBottomThreshold
             if atBottom != isAtBottom { isAtBottom = atBottom }
         }
+        #if DEBUG
+        .onScrollGeometryChange(for: ChatScrollGeometryDebugSnapshot.self) { geometry in
+            ChatScrollGeometryDebugSnapshot(geometry)
+        } action: { _, snapshot in
+            debugScrollGeometry = snapshot
+        }
+        .overlay(alignment: .topLeading) {
+            ChatScrollGeometryDebugOverlay(
+                snapshot: debugScrollGeometry,
+                isAtBottom: isAtBottom
+            )
+            .padding(.top, 8)
+            .padding(.leading, 8)
+            .allowsHitTesting(false)
+        }
+        #endif
         #endif
     }
 
