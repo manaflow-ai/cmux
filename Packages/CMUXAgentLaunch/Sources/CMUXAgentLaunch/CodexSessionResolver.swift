@@ -14,11 +14,6 @@ import Foundation
 /// gate this behind a single-process-per-cwd guard so an ambiguous cwd never
 /// forks the wrong conversation.
 public enum CodexSessionResolver {
-    private struct Candidate {
-        let sessionId: String
-        let modified: Date
-    }
-
     private struct SessionMeta {
         let sessionId: String
         let cwd: String
@@ -28,6 +23,12 @@ public enum CodexSessionResolver {
     /// the multi-KB `base_instructions`; cap the head read so a huge rollout is
     /// cheap to peek (we only need the early fields).
     private static let headByteCap = 16 * 1024
+
+    /// Upper bound on rollout files we open+read per resolve. The live session is
+    /// actively written, so it sits at/near the top of the mtime-sorted list and
+    /// is found in a handful of peeks; this only bounds the no-match worst case
+    /// so a heavy user's full history is never fully read on a single scan.
+    private static let maxPeeks = 128
 
     public static func inferredCodexSessionId(
         cwd: String?,
@@ -40,34 +41,47 @@ public enum CodexSessionResolver {
         let rootURL = URL(fileURLWithPath: codexSessionsRoot(env: env), isDirectory: true)
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else {
             return nil
         }
 
-        var candidates: [Candidate] = []
+        // Codex shards rollouts by date and does NOT encode the cwd in the path,
+        // so the matching session can only be found by reading `session_meta`.
+        // Collect candidate files with just their mtime (a stat, no open), then
+        // open+read newest-first and stop at the first cwd match — avoids opening
+        // every rollout in a long history on each scan.
+        var files: [(url: URL, modified: Date)] = []
         for case let fileURL as URL in enumerator {
             guard fileURL.pathExtension == "jsonl",
-                  fileURL.lastPathComponent.hasPrefix("rollout-"),
-                  let meta = peekSessionMeta(url: fileURL),
+                  fileURL.lastPathComponent.hasPrefix("rollout-") else {
+                continue
+            }
+            let modified = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            files.append((fileURL, modified))
+        }
+        files.sort {
+            // Newest mtime first; break ties on filename (which carries the
+            // start timestamp + id) so resolution is deterministic.
+            $0.modified != $1.modified
+                ? $0.modified > $1.modified
+                : $0.url.lastPathComponent > $1.url.lastPathComponent
+        }
+
+        var peeks = 0
+        for file in files {
+            guard peeks < maxPeeks else { break }
+            peeks += 1
+            guard let meta = peekSessionMeta(url: file.url),
                   let metaCwd = RovoDevIndex.normalizedPath(meta.cwd),
                   metaCwd == normalizedCwd else {
                 continue
             }
-            let modified = RovoDevIndex.contentModificationDate(ofRegularFile: fileURL) ?? .distantPast
-            candidates.append(Candidate(sessionId: meta.sessionId, modified: modified))
+            return meta.sessionId
         }
-
-        candidates.sort {
-            if $0.modified == $1.modified {
-                // Codex ids are time-ordered (ULID-like); descending id keeps
-                // equal mtimes stable while preferring the newer session.
-                return $0.sessionId > $1.sessionId
-            }
-            return $0.modified > $1.modified
-        }
-        return candidates.first?.sessionId
+        return nil
     }
 
     public static func codexSessionsRoot(env: [String: String]) -> String {
