@@ -1,6 +1,7 @@
 import Foundation
 
 /// Production restore-spawn timer backed by the main run loop.
+@MainActor
 public final class RunLoopTerminalSurfaceRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
     /// Creates a main-run-loop delay primitive.
     public init() {}
