@@ -3,6 +3,7 @@ import SwiftUI
 
 #if canImport(UIKit)
 import Accessibility
+import Combine
 import UIKit
 #endif
 
@@ -28,6 +29,9 @@ public struct ChatScreen: View {
     /// The scroll-to-bottom button's frame; excluded from the dismiss region
     /// so tapping it scrolls instead of dismissing the keyboard.
     @State private var scrollButtonFrame: CGRect = .zero
+    @State private var screenFrame: CGRect = .zero
+    @State private var safeAreaBottom: CGFloat = 0
+    @State private var keyboardOverlap: CGFloat = 0
 
     private var transcriptDismissRegion: CGRect {
         guard transcriptFrame != .zero else { return .zero }
@@ -40,6 +44,17 @@ public struct ChatScreen: View {
             height: height
         )
     }
+
+    private var composerBottomInset: CGFloat {
+        keyboardOverlap > 0 ? keyboardOverlap : safeAreaBottom
+    }
+
+    private var transcriptBottomContentInset: CGFloat {
+        guard store.agentState != .ended else { return 0 }
+        return max(0, composerFrame.height + composerBottomInset)
+    }
+    #else
+    private var transcriptBottomContentInset: CGFloat { 0 }
     #endif
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
@@ -72,24 +87,48 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        ChatTranscriptListView(
-            rows: store.rows,
-            expandedIDs: expandedIDs,
-            agentState: store.agentState,
-            hasMoreHistory: store.hasMoreHistory,
-            hasLoadedInitialHistory: store.hasLoadedInitialHistory,
-            initialLoadFailed: store.initialLoadFailed,
-            historyTruncatedAtHead: store.historyTruncatedAtHead,
-            actions: rowActions,
-            onReachTop: { Task { await store.loadOlder() } },
-            onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
-        )
-        .environment(\.chatMarkdownRenderer, renderer)
-        .environment(\.chatContentCache, contentCache)
+        ZStack(alignment: .bottom) {
+            ChatTranscriptListView(
+                rows: store.rows,
+                expandedIDs: expandedIDs,
+                agentState: store.agentState,
+                hasMoreHistory: store.hasMoreHistory,
+                hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+                initialLoadFailed: store.initialLoadFailed,
+                historyTruncatedAtHead: store.historyTruncatedAtHead,
+                bottomContentInset: transcriptBottomContentInset,
+                actions: rowActions,
+                onReachTop: { Task { await store.loadOlder() } },
+                onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
+            )
+            .environment(\.chatMarkdownRenderer, renderer)
+            .environment(\.chatContentCache, contentCache)
+            #if os(iOS)
+            // Measure the transcript so the keyboard-dismiss tap fires only over
+            // the conversation, never the composer/accessory bar or header.
+            .chatTranscriptDismissRegion()
+            #endif
+
+            #if os(iOS)
+            composerOverlay
+            #endif
+        }
         #if os(iOS)
-        // Measure the transcript so the keyboard-dismiss tap fires only over
-        // the conversation, never the composer/accessory bar or header.
-        .chatTranscriptDismissRegion()
+        // The chat composer and transcript reserve keyboard space explicitly.
+        // Opt out of SwiftUI's keyboard avoidance so the scroll container does
+        // not shrink while the content inset also changes.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            screenFrame = frame
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.safeAreaInsets.bottom
+        } action: { bottom in
+            safeAreaBottom = bottom
+        }
+        .onReceive(Self.keyboardWillChangePublisher, perform: updateKeyboardOverlap)
         #endif
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
@@ -124,32 +163,6 @@ public struct ChatScreen: View {
             }
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // A past/ended coding-agent session is read-only: keep the
-            // transcript history but drop the text field and control
-            // buttons (there is nothing live to send to). An active agent
-            // gets the full interactive composer.
-            if store.agentState != .ended {
-                ChatComposerView(
-                    agentState: store.agentState,
-                    agentKind: store.descriptor.agentKind,
-                    isTerminal: store.descriptor.kind == .terminal,
-                    isConnected: store.isConnected,
-                    draft: $draft,
-                    onSend: { text, attachments in
-                        Task { await store.send(text: text, attachments: attachments) }
-                    },
-                    onInterrupt: { hard in
-                        Task { await store.interrupt(hard: hard) }
-                    },
-                    onOpenTerminal: onOpenTerminal
-                )
-                #if os(iOS)
-                .reportsChatComposerFrame()
-                #endif
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
         .modifier(ChatScreenChrome(
             store: store,
@@ -176,6 +189,47 @@ public struct ChatScreen: View {
     }
 
     #if canImport(UIKit)
+    private static let keyboardWillChangePublisher = NotificationCenter.default
+        .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+
+    @ViewBuilder
+    private var composerOverlay: some View {
+        // A past/ended coding-agent session is read-only: keep the transcript
+        // history but drop the text field and control buttons (there is
+        // nothing live to send to). An active agent gets the full interactive
+        // composer.
+        if store.agentState != .ended {
+            ChatComposerView(
+                agentState: store.agentState,
+                agentKind: store.descriptor.agentKind,
+                isTerminal: store.descriptor.kind == .terminal,
+                isConnected: store.isConnected,
+                draft: $draft,
+                onSend: { text, attachments in
+                    Task { await store.send(text: text, attachments: attachments) }
+                },
+                onInterrupt: { hard in
+                    Task { await store.interrupt(hard: hard) }
+                },
+                onOpenTerminal: onOpenTerminal
+            )
+            .reportsChatComposerFrame()
+            .padding(.bottom, composerBottomInset)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func updateKeyboardOverlap(_ notification: Notification) {
+        guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+        else { return }
+        let bottom = screenFrame == .zero ? UIScreen.main.bounds.maxY : screenFrame.maxY
+        let overlap = max(0, bottom - frameEnd.minY)
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardOverlap = overlap
+        }
+    }
+
     /// Speaks newly arrived agent prose so VoiceOver users hear replies
     /// without re-scanning the transcript.
     private func announceLatestAgentProse() {

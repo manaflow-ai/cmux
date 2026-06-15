@@ -23,6 +23,7 @@ public struct ChatTranscriptListView: View {
     private let hasLoadedInitialHistory: Bool
     private let initialLoadFailed: Bool
     private let historyTruncatedAtHead: Bool
+    private let bottomContentInset: CGFloat
     private let actions: ChatRowActions
     private let onReachTop: () -> Void
     private let onRetryInitialLoad: () -> Void
@@ -50,6 +51,8 @@ public struct ChatTranscriptListView: View {
     ///     (drives the loading and empty placeholders).
     ///   - historyTruncatedAtHead: Whether paging stopped at the Mac's
     ///     cache head with older transcript left on disk.
+    ///   - bottomContentInset: Extra scrollable room reserved below the last
+    ///     row for an overlaid composer and keyboard.
     ///   - actions: Row action bundle.
     ///   - onReachTop: Called when the top sentinel appears (load older).
     public init(
@@ -60,6 +63,7 @@ public struct ChatTranscriptListView: View {
         hasLoadedInitialHistory: Bool = true,
         initialLoadFailed: Bool = false,
         historyTruncatedAtHead: Bool = false,
+        bottomContentInset: CGFloat = 0,
         actions: ChatRowActions,
         onReachTop: @escaping () -> Void,
         onRetryInitialLoad: @escaping () -> Void = {}
@@ -71,6 +75,7 @@ public struct ChatTranscriptListView: View {
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
         self.initialLoadFailed = initialLoadFailed
         self.historyTruncatedAtHead = historyTruncatedAtHead
+        self.bottomContentInset = bottomContentInset
         self.actions = actions
         self.onReachTop = onReachTop
         self.onRetryInitialLoad = onRetryInitialLoad
@@ -136,7 +141,7 @@ public struct ChatTranscriptListView: View {
                                 isAtBottom = true
                             }
                             .padding(.trailing, 12)
-                            .padding(.bottom, 8)
+                            .padding(.bottom, 8 + bottomContentInset)
                             .excludedFromKeyboardDismiss()
                             .transition(.opacity.combined(with: .scale(scale: 0.8)))
                         }
@@ -234,7 +239,8 @@ public struct ChatTranscriptListView: View {
             }
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 8 + bottomContentInset)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
