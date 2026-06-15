@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxTerminal
 import Foundation
 
 /// `mobile.chat.*` RPC handlers: the Mac side of the iOS agent chat
