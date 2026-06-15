@@ -18,8 +18,10 @@ extension CanvasRootView: CanvasViewportControlling {
                     }
                 }
             }, completionHandler: { [weak self] in
-                guard let self else { return }
-                self.callbacks.onViewportGeometryChanged(self.window)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.callbacks.onViewportGeometryChanged(self.window)
+                }
             })
         } else {
             applyAllPaneFrames()
@@ -52,11 +54,13 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.maxMagnification
         )
         setMagnification(target)
+        updateMinimap(reveal: true)
     }
 
     public func resetZoom() {
         overviewRestore = nil
         setMagnification(1.0)
+        updateMinimap(reveal: true)
     }
 
     public var currentMagnification: CGFloat {
@@ -99,7 +103,7 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.magnification = targetMagnification
         scrollView.contentView.setBoundsOrigin(targetOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        updateMinimap()
+        updateMinimap(reveal: true)
         callbacks.onViewportGeometryChanged(window)
         callbacks.onViewportSettled(window)
     }
@@ -118,6 +122,7 @@ extension CanvasRootView: CanvasViewportControlling {
         let anchor = scrollView.contentView.convert(windowLocation, from: nil)
         scrollView.setMagnification(target, centeredAt: anchor)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateMinimap(reveal: true)
     }
 
     /// Animates to `magnification`, keeping the current viewport center
@@ -155,6 +160,7 @@ extension CanvasRootView: CanvasViewportControlling {
                 scrollView.contentView.animator().setBoundsOrigin(restore.origin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
+            updateMinimap(reveal: true)
             return
         }
         guard let content = model.contentBounds else { return }
@@ -183,5 +189,6 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+        updateMinimap(reveal: true)
     }
 }

@@ -21,7 +21,6 @@ public final class CanvasRootView: NSView {
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
     let minimapView = CanvasMinimapView()
-
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
@@ -38,6 +37,7 @@ public final class CanvasRootView: NSView {
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     var commandScrollMonitor: Any?
+    var minimapHideTask: Task<Void, Never>?
     /// Debounced settle after option+scroll zoom (which, unlike a trackpad
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.
@@ -97,7 +97,7 @@ public final class CanvasRootView: NSView {
         minimapView.onCenterRequested = { [weak self] center in
             self?.setViewport(center: center, magnification: nil)
         }
-        minimapView.isHidden = true
+        resetMinimapVisibility()
         addSubview(minimapView, positioned: .above, relativeTo: scrollView)
         NSLayoutConstraint.activate([
             minimapView.widthAnchor.constraint(equalToConstant: 168),
@@ -192,6 +192,7 @@ public final class CanvasRootView: NSView {
         scrollSettleObservers = []
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
+        resetMinimapVisibility()
         zoomSettleTask?.cancel()
         zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
@@ -393,7 +394,7 @@ public final class CanvasRootView: NSView {
 
     private func viewportDidScroll() {
         updateLifecycle()
-        updateMinimap()
+        updateMinimap(reveal: hasPlacedInitialViewport && !isApplyingSavedViewport)
         saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
     }
