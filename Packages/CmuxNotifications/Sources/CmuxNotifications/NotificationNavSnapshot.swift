@@ -8,15 +8,21 @@ public import Foundation
 /// The concrete `TerminalNotification` lives in the app target; the coordinator
 /// only ever sees this value snapshot so it stays free of app-target types.
 public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
+    /// The notification's stable identity.
     public let id: UUID
+    /// The id of the workspace (tab) that owns the notification.
     public let tabId: UUID
+    /// The id of the surface within the workspace, when the notification is
+    /// scoped to a specific surface rather than the workspace as a whole.
     public let surfaceId: UUID?
+    /// Whether the notification has already been read.
     public let isRead: Bool
     /// The notification's click action, if any. When present the notification
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
 
+    /// Creates a navigation snapshot of a notification.
     public init(
         id: UUID,
         tabId: UUID,

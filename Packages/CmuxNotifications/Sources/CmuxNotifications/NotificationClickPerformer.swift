@@ -14,6 +14,8 @@ import Foundation
 public final class NotificationClickPerformer: NotificationClickRouting {
     private let finder: any FinderRevealing
 
+    /// Creates a click performer that routes filesystem side effects through
+    /// the injected ``FinderRevealing`` seam.
     public init(finder: any FinderRevealing) {
         self.finder = finder
     }

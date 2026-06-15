@@ -6,9 +6,12 @@ public import Foundation
 /// holds the concrete `Workspace`. Mirrors the app-target
 /// `FocusedPanelNotificationTarget` (workspace + panelId), reduced to ids.
 public struct FocusedPanel: Sendable, Hashable {
+    /// The id of the workspace (tab) that owns the panel.
     public let tabId: UUID
+    /// The id of the focused panel within the workspace.
     public let panelId: UUID
 
+    /// Creates a focused-panel handle.
     public init(tabId: UUID, panelId: UUID) {
         self.tabId = tabId
         self.panelId = panelId

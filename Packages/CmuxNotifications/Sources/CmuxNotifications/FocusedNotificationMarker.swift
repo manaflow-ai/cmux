@@ -23,6 +23,8 @@ public final class FocusedNotificationMarker {
     /// does not depend on the coordinator's other seams.
     private let jumpToLatestUnread: (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?
 
+    /// Creates a focused-notification marker driven by the injected resolver
+    /// and jump closure.
     public init(
         resolver: any FocusedNotificationResolving,
         jumpToLatestUnread: @escaping (_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?
