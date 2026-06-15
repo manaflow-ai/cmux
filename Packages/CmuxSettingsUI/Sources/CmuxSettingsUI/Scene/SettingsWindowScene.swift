@@ -346,8 +346,8 @@ public struct SettingsWindowRoot: View {
                     // the last-viewed pane rather than always at Account.
                     // Posting through the navigation notification keeps a
                     // single scroll path (legacy `applySettingsNavigation`)
-                    // and lets the SceneStorage-restored sidebar entry
-                    // drive a deep scroll if it was a setting hit.
+                    // while restored setting hits resolve through the
+                    // immutable index. Fallback hits collapse to sections.
                     let section = selectedSection
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)

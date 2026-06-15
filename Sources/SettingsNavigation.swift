@@ -274,6 +274,7 @@ struct SettingsSearchEntry: Identifiable {
     let symbolName: String
     let normalizedSearchText: String
     let normalizedSearchWords: [String]
+    let normalizedSearchWordSet: Set<String>
 
     init(
         id: String,
@@ -293,6 +294,7 @@ struct SettingsSearchEntry: Identifiable {
         let normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
         self.normalizedSearchText = normalizedSearchText
         self.normalizedSearchWords = SettingsSearchIndex.normalizedTokens(for: normalizedSearchText)
+        self.normalizedSearchWordSet = Set(normalizedSearchWords)
     }
 }
 
