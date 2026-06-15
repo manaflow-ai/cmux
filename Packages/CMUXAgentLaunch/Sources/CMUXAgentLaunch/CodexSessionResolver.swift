@@ -13,7 +13,7 @@ import Foundation
 /// resumed/forked. Resolution is the newest rollout whose `cwd` matches; callers
 /// gate this behind a single-process-per-cwd guard so an ambiguous cwd never
 /// forks the wrong conversation.
-public enum CodexSessionResolver {
+public struct CodexSessionResolver {
     private struct SessionMeta {
         let sessionId: String
         let cwd: String
@@ -22,13 +22,23 @@ public enum CodexSessionResolver {
     /// id + cwd sit in the first few hundred bytes of the first line, ahead of
     /// the multi-KB `base_instructions`; cap the head read so a huge rollout is
     /// cheap to peek (we only need the early fields).
-    private static let headByteCap = 16 * 1024
+    private let headByteCap = 16 * 1024
 
     /// Upper bound on rollout files we open+read per resolve. The live session is
     /// actively written, so it sits at/near the top of the mtime-sorted list and
     /// is found in a handful of peeks; this only bounds the no-match worst case
     /// so a heavy user's full history is never fully read on a single scan.
-    private static let maxPeeks = 128
+    private let maxPeeks = 128
+
+    private let fileManager: FileManager
+
+    /// Creates a resolver.
+    ///
+    /// - Parameter fileManager: Injected so tests can point resolution at a
+    ///   temporary `CODEX_HOME`; defaults to `.default`.
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
 
     /// Returns the id of the newest Codex rollout whose recorded `cwd` matches
     /// `cwd`, or `nil` when `cwd` is empty/unresolvable or no rollout matches.
@@ -37,12 +47,7 @@ public enum CodexSessionResolver {
     ///   - cwd: The live process working directory; symlink-normalized before
     ///     comparison so an aliased path still matches the rollout's `cwd`.
     ///   - env: The process environment, read for a `CODEX_HOME` override.
-    ///   - fileManager: Injected for deterministic tests; defaults to `.default`.
-    public static func inferredCodexSessionId(
-        cwd: String?,
-        env: [String: String],
-        fileManager: FileManager = .default
-    ) -> String? {
+    public func inferredCodexSessionId(cwd: String?, env: [String: String]) -> String? {
         guard let normalizedCwd = RovoDevIndex.normalizedPath(cwd), !normalizedCwd.isEmpty else {
             return nil
         }
@@ -94,7 +99,7 @@ public enum CodexSessionResolver {
 
     /// The directory Codex writes rollouts under: `$CODEX_HOME/sessions` when
     /// `CODEX_HOME` is set in `env`, otherwise `~/.codex/sessions`.
-    public static func codexSessionsRoot(env: [String: String]) -> String {
+    public func codexSessionsRoot(env: [String: String]) -> String {
         if let codexHome = normalizedValue(env["CODEX_HOME"]) {
             return (expandedPath(codexHome, env: env) as NSString).appendingPathComponent("sessions")
         }
@@ -104,7 +109,7 @@ public enum CodexSessionResolver {
 
     // MARK: - Session meta peek
 
-    private static func peekSessionMeta(url: URL) -> SessionMeta? {
+    private func peekSessionMeta(url: URL) -> SessionMeta? {
         guard let head = readHead(url: url, byteCap: headByteCap) else { return nil }
         // Only the first JSONL line is the `session_meta`. On small files the
         // full line is present (JSON-parse it); on real files `base_instructions`
@@ -126,7 +131,7 @@ public enum CodexSessionResolver {
         return SessionMeta(sessionId: id, cwd: cwd)
     }
 
-    private static func readHead(url: URL, byteCap: Int) -> String? {
+    private func readHead(url: URL, byteCap: Int) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: byteCap)) ?? Data()
@@ -134,7 +139,7 @@ public enum CodexSessionResolver {
         return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
     }
 
-    private static func firstCapture(in text: String, pattern: String) -> String? {
+    private func firstCapture(in text: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let match = regex.firstMatch(in: text, range: range),
@@ -147,16 +152,16 @@ public enum CodexSessionResolver {
 
     // MARK: - Path helpers
 
-    private static func normalizedValue(_ raw: String?) -> String? {
+    private func normalizedValue(_ raw: String?) -> String? {
         nonEmpty(raw?.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    private static func nonEmpty(_ value: String?) -> String? {
+    private func nonEmpty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
     }
 
-    private static func expandedPath(_ path: String, env: [String: String]) -> String {
+    private func expandedPath(_ path: String, env: [String: String]) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed == "~" || trimmed.hasPrefix("~/") else {
             return (trimmed as NSString).expandingTildeInPath

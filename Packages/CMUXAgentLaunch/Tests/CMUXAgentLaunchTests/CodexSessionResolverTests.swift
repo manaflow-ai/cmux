@@ -21,7 +21,7 @@ struct CodexSessionResolverTests {
                          modified: Date(timeIntervalSince1970: 900))
 
         let env = ["CODEX_HOME": codexHome.path]
-        #expect(CodexSessionResolver.inferredCodexSessionId(cwd: cwd.path, env: env) == "newer")
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: cwd.path, env: env) == "newer")
     }
 
     @Test("Returns nil for missing or non-matching cwd")
@@ -34,9 +34,9 @@ struct CodexSessionResolverTests {
                          modified: Date(timeIntervalSince1970: 200))
 
         let env = ["CODEX_HOME": codexHome.path]
-        #expect(CodexSessionResolver.inferredCodexSessionId(cwd: nil, env: env) == nil)
-        #expect(CodexSessionResolver.inferredCodexSessionId(cwd: "", env: env) == nil)
-        #expect(CodexSessionResolver.inferredCodexSessionId(
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: nil, env: env) == nil)
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: "", env: env) == nil)
+        #expect(CodexSessionResolver().inferredCodexSessionId(
             cwd: root.appendingPathComponent("nope", isDirectory: true).path, env: env) == nil)
     }
 
@@ -50,9 +50,9 @@ struct CodexSessionResolverTests {
                          modified: Date(timeIntervalSince1970: 300))
 
         let env = ["HOME": root.path]
-        #expect(CodexSessionResolver.codexSessionsRoot(env: env)
+        #expect(CodexSessionResolver().codexSessionsRoot(env: env)
                 == codexHome.appendingPathComponent("sessions", isDirectory: true).path)
-        #expect(CodexSessionResolver.inferredCodexSessionId(cwd: cwd.path, env: env) == "home-session")
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: cwd.path, env: env) == "home-session")
     }
 
     @Test("Matches a symlinked cwd")
@@ -68,7 +68,7 @@ struct CodexSessionResolverTests {
                          modified: Date(timeIntervalSince1970: 200))
 
         let env = ["CODEX_HOME": codexHome.path]
-        #expect(CodexSessionResolver.inferredCodexSessionId(cwd: realCwd.path, env: env) == "symlink-session")
+        #expect(CodexSessionResolver().inferredCodexSessionId(cwd: realCwd.path, env: env) == "symlink-session")
     }
 
     // MARK: - Fixtures

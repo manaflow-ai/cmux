@@ -390,10 +390,9 @@ extension RestorableAgentSessionIndex {
                 fileManager: fileManager
             )
         case .codex:
-            return CodexSessionResolver.inferredCodexSessionId(
+            return CodexSessionResolver(fileManager: fileManager).inferredCodexSessionId(
                 cwd: cwd,
-                env: environment,
-                fileManager: fileManager
+                env: environment
             )
         default:
             return nil
