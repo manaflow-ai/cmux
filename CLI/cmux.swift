@@ -27514,8 +27514,21 @@ export default CMUXSessionRestore;
     /// - Returns: The decoded top-level JSON object.
     /// - Throws: ``CLIError`` when the bytes are not a valid JSON/JSONC object.
     static func parseOpenCodeConfig(data: Data, sourcePath: String) throws -> [String: Any] {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CLIError(message: "Failed to parse \(sourcePath). Fix the JSON syntax and retry.")
+        let sanitized: Data
+        let configParseError = String.localizedStringWithFormat(
+          String(
+            localized: "cli.hooks.opencode.error.invalidJSON",
+            defaultValue: "Failed to parse %@. Fix the JSON syntax and retry."
+          ), sourcePath
+        )
+
+        do {
+            sanitized = try JSONCParser.preprocess(data: data)
+        } catch {
+            throw CLIError(message: configParseError)
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
+            throw CLIError(message: configParseError)
         }
         return object
     }
@@ -27656,19 +27669,73 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// Compares two opencode `plugin` arrays for logical equality so a no-op
+    /// registration call does not rewrite (and reformat) the user's config.
+    ///
+    /// Raw-byte comparison is wrong here: the on-disk file may be JSONC, but the
+    /// re-serialized array is always strict JSON, so the two can never match even
+    /// when nothing changed. Comparing the decoded arrays avoids needlessly
+    /// stripping the user's comments on every hook install/uninstall.
+    static func openCodePluginListsEqual(_ lhs: [Any], _ rhs: [Any]) -> Bool {
+        guard
+            let lhsData = try? JSONSerialization.data(withJSONObject: lhs, options: [.sortedKeys]),
+            let rhsData = try? JSONSerialization.data(withJSONObject: rhs, options: [.sortedKeys])
+        else { return false }
+        return lhsData == rhsData
+    }
+
+    /// Serializes an opencode `plugin` array to pretty-printed JSON for embedding
+    /// as a property value via ``JSONCObjectEditor``.
+    static func openCodePluginListValueJSON(_ plugins: [Any]) -> String? {
+        guard
+            JSONSerialization.isValidJSONObject(plugins),
+            let data = try? JSONSerialization.data(withJSONObject: plugins, options: [.prettyPrinted]),
+            let string = String(data: data, encoding: .utf8)
+        else { return nil }
+        return string
+    }
+
     private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
+        var sourceText: String?
+        var sourceEncoding: String.Encoding = .utf8
         if let data = existingData {
             config = try Self.parseOpenCodeConfig(data: data, sourcePath: configURL.path)
+            if let parsed = try? JSONCParser.source(data: data) {
+                sourceText = parsed.text
+                sourceEncoding = parsed.encoding
+            }
         } else {
             config = [:]
         }
-        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
+        let originalPlugins = (config["plugin"] as? [Any]) ?? []
+        var plugins = Self.openCodePluginListRemovingSessionPlugin(originalPlugins)
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
+            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        }
+        // Logical no-op detection: if the plugin list already matches what we'd
+        // write, leave the file (and its comments) untouched.
+        if Self.openCodePluginListsEqual(originalPlugins, plugins) {
+            return false
+        }
         config["plugin"] = plugins
+
+        // Prefer a surgical, comment-preserving edit of the existing JSONC text so
+        // the user's `opencode.json` keeps its comments, trailing commas, and
+        // formatting. Fall back to a full re-serialization only when we have no
+        // existing source to edit or the edit cannot be applied.
+        if let sourceText,
+           let valueJSON = Self.openCodePluginListValueJSON(plugins),
+           let edited = JSONCObjectEditor.setRootProperty(key: "plugin", valueJSON: valueJSON, in: sourceText) {
+            try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+            let outputData = edited.data(using: sourceEncoding) ?? Data(edited.utf8)
+            try outputData.write(to: configURL, options: .atomic)
+            return true
+        }
+
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
         return true
