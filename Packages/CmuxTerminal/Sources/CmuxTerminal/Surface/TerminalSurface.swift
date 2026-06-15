@@ -43,21 +43,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     static let committedTextInputChunkByteLimit = 96
-
-    // The surface value DTOs live in CmuxTerminalCore; these aliases keep the
-    // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
-    // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
-
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t?
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
-
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
-
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
@@ -65,6 +58,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
+    let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
+    let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted once per
     /// app session by the composition root so every runtime startup path uses
     /// the same immutable workspace port range.
@@ -194,12 +189,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
+    var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
+    var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
+    var restoredRuntimeSurfaceStartQueued = false
+    var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
     var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    var claudeCommandShimCompletionTask: Task<Void, Never>?
     var claudeCommandShimInstallCompleted = false
+    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
@@ -349,6 +350,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
@@ -373,6 +375,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.rendererRealization = dependencies.rendererRealization
         self.hibernationRecorder = dependencies.hibernationRecorder
         self.runtimeTeardown = dependencies.runtimeTeardown
+        self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
+        self.runtimeFilesystem = dependencies.runtimeFilesystem
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
@@ -423,6 +428,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     deinit {
         claudeCommandShimInstallTask?.cancel()
+        claudeCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

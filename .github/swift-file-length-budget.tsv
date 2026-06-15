@@ -6,9 +6,9 @@
 16884	Sources/ContentView.swift
 14809	Sources/TerminalController.swift
 13358	Sources/Panels/BrowserPanel.swift
-13162	Sources/Workspace.swift
+13165	Sources/Workspace.swift
 12112	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12088	Sources/GhosttyTerminalView.swift
+12093	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7925	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
@@ -96,12 +96,11 @@
 934	Sources/App/ShortcutRoutingSupport.swift
 931	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 926	Sources/DockPanelView.swift
-920	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 892	Sources/WorkspaceContentView.swift
-876	Sources/Panels/TerminalPanel.swift
+878	Sources/Panels/TerminalPanel.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 859	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 852	Sources/TerminalController+Notes.swift
@@ -152,6 +151,7 @@
 649	Sources/CmuxTopSnapshot.swift
 644	Sources/CmuxConfigExecutor.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
+637	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 621	cmuxTests/FinderFileDropRegressionTests.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
@@ -183,9 +183,9 @@
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 549	Sources/FileDropOverlayViewHitTesting.swift
+548	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 547	Sources/Windowing/WindowGlassEffect.swift
-542	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 540	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
