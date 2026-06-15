@@ -484,6 +484,31 @@ struct SettingsControlEngineTests {
         #expect(!one.conflicts(with: twoShift, selfUsesNumberedDigitMatching: true, otherUsesNumberedDigitMatching: true))
     }
 
+    @Test func storedShortcutDecodesEveryJSONForm() {
+        #expect(StoredShortcut.decodeFromJSON("cmd+t") == StoredShortcut(first: ShortcutStroke(key: "t", command: true)))
+        #expect(StoredShortcut.decodeFromJSON(["ctrl+b", "c"])
+            == StoredShortcut(first: ShortcutStroke(key: "b", control: true), second: ShortcutStroke(key: "c")))
+        #expect(StoredShortcut.decodeFromJSON(NSNull()) == .unbound)
+        // The whole `shortcuts.bindings` map decodes mixed forms without loss.
+        let raw: [String: Any] = ["newTab": "cmd+t", "prefix": ["ctrl+b", "c"]]
+        #expect([String: StoredShortcut].decodeFromJSON(raw)?.count == 2)
+    }
+
+    @Test func shortcutSetPreservesExistingStringFormBindings() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // A user's hand-written cmux.json with a string-form binding.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"shortcuts":{"bindings":{"toggleSidebar":"cmd+b"}}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+
+        // Setting a different action must not erase the existing override.
+        _ = try await harness.engine.shortcutSet("openSettings", combo: "cmd+ctrl+opt+5", force: true)
+        let toggleSidebar = try await harness.engine.shortcutGet("toggleSidebar")
+        #expect(toggleSidebar.isOverridden)
+        #expect(toggleSidebar.binding == "cmd+b")
+    }
+
     @Test func shortcutListCoversEveryAction() async {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

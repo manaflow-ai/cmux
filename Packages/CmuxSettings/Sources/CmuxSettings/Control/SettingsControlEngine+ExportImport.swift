@@ -4,10 +4,12 @@ extension SettingsControlEngine {
     /// Snapshots current settings into a portable document.
     ///
     /// Secret-backed settings are omitted so the export never carries a
-    /// credential. When `includeDefaults` is `false`, only overridden settings
-    /// are emitted (a minimal, version-control-friendly profile); otherwise the
-    /// full current state of every non-secret setting is captured.
-    public func export(includeDefaults: Bool = true) async -> SettingsDocument {
+    /// credential. By default only **overridden** settings are emitted — a
+    /// minimal, version-control-friendly profile that also avoids serializing
+    /// catalog defaults whose JSON shape can differ from the runtime schema
+    /// (e.g. `notifications.hooks`), which an import would otherwise re-apply.
+    /// Pass `includeDefaults: true` to capture the full current state.
+    public func export(includeDefaults: Bool = false) async -> SettingsDocument {
         var settings: [String: SettingJSONValue] = [:]
         for descriptor in descriptors where !descriptor.isSecret {
             if !includeDefaults {
@@ -36,9 +38,11 @@ extension SettingsControlEngine {
                 errors.append("unknown setting '\(id)'")
                 continue
             }
-            if descriptor.isSecret, case let .string(text) = value, text == CatalogSettingDescriptor.redactionMarker {
-                // A redacted placeholder carries no real secret; leave the
-                // stored secret untouched.
+            if descriptor.isSecret {
+                // Import never writes secrets: export omits them, and a secret
+                // write cannot be rolled back if a later entry fails, so a failed
+                // import must never have rotated a credential. Set secrets
+                // explicitly with `cmux settings set` instead.
                 continue
             }
             do {
