@@ -359,6 +359,51 @@ struct SettingsControlEngineTests {
         #expect(openSettings.isOverridden)
     }
 
+    @Test func rejectsOutOfRangeNumeric() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+        // Above max / below min / out of [0,1] are all rejected per the schema.
+        await #expect(throws: SettingsControlError.self) { try await engine.set("markdown.fontSize", rawValue: "1000000") }
+        await #expect(throws: SettingsControlError.self) { try await engine.set("terminal.textBoxMaxLines", rawValue: "0") }
+        await #expect(throws: SettingsControlError.self) { try await engine.set("sidebarAppearance.tintOpacity", rawValue: "2") }
+        // In-range values still go through.
+        #expect(try await engine.set("markdown.fontSize", rawValue: "12").value == .int(12))
+        #expect(try await engine.set("sidebarAppearance.tintOpacity", rawValue: "0.5").value == .double(0.5))
+    }
+
+    @Test func shortcutSystemWideHotkeyShape() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+        // System-wide hotkeys reject chords and shift-only (non-primary) strokes.
+        await #expect(throws: SettingsControlError.self) { try await engine.shortcutSet("globalSearch", combo: "ctrl+b c") }
+        await #expect(throws: SettingsControlError.self) { try await engine.shortcutSet("globalSearch", combo: "shift+f") }
+        // A single stroke with a primary modifier is accepted.
+        let row = try await engine.shortcutSet("globalSearch", combo: "cmd+ctrl+opt+0", force: true)
+        #expect(row.isOverridden)
+    }
+
+    @Test func importRollsBackOnBackendWriteFailure() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let fileManager = FileManager.default
+        // Make cmux.json's directory read-only so a JSON-backed write fails.
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: harness.tempDir.path)
+        defer { try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harness.tempDir.path) }
+
+        // Sorted apply order: app.appearance (UserDefaults) applies, then
+        // app.devWindowDisplay (cmux.json) fails — the first must roll back.
+        let document = SettingsDocument(settings: [
+            "app.appearance": .string("dark"),
+            "app.devWindowDisplay": .string("x"),
+        ])
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.importDocument(document)
+        }
+        #expect(try await harness.engine.get("app.appearance").isOverridden == false)
+    }
+
     @Test func rejectsNonFiniteDouble() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

@@ -45,6 +45,17 @@ extension SettingsControlEngine {
             )
         }
 
+        // System-wide (Carbon) hotkeys must be a single stroke with a primary
+        // (⌘/⌃/⌥) modifier; chords and shift-only strokes fail registration and
+        // the app drops them, so reject rather than report a false success.
+        if action.usesGlobalHotkey, !proposed.isUnbound,
+           proposed.hasChord || !proposed.first.hasPrimaryModifier {
+            throw SettingsControlError.invalidShortcut(
+                action: actionID,
+                reason: "this is a system-wide hotkey: bind it to a single stroke with a ⌘, ⌃, or ⌥ modifier (no chord)."
+            )
+        }
+
         var bindings = await currentShortcutBindings()
 
         // Find every action whose effective binding truly collides: keystrokes

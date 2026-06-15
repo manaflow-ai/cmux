@@ -33,15 +33,26 @@ public struct CatalogSettingDescriptor: Sendable {
     /// whose secret is unset reports its (empty) default instead.
     public static let redactionMarker = "<redacted>"
 
-    /// Catalog-side semantic minimums for integer settings whose value range is
-    /// narrower than `Int` and is enforced by the app's `cmux.json` parser. The
-    /// engine applies these generically in ``validate(_:)`` so a CLI write is
-    /// rejected for the same out-of-range values the config file rejects (e.g.
-    /// `automation.portBase` / `automation.portRange` must be `> 0`). Keyed by
-    /// dotted id; absent ids have no extra bound beyond their type.
-    static let integerMinimums: [String: Int] = [
-        "automation.portBase": 1,
-        "automation.portRange": 1,
+    /// Catalog-side numeric bounds for settings whose value range is narrower
+    /// than its type, mirroring the published `cmux.schema.json` (and the
+    /// Settings UI). The engine applies these generically in ``validate(_:)`` so
+    /// the CLI rejects the same out-of-range values the config file / UI reject,
+    /// instead of persisting a value that puts UI/runtime readers into an invalid
+    /// state. Keyed by dotted id; `nil` bounds are unbounded on that side; absent
+    /// ids have no bound beyond their type.
+    static let numericRanges: [String: (min: Double?, max: Double?)] = [
+        "terminal.agentHibernation.idleSeconds": (5, 604_800),
+        "terminal.agentHibernation.maxLiveTerminals": (1, 256),
+        "terminal.rendererRealization.idleSeconds": (5, 604_800),
+        "terminal.rendererRealization.maxWarmRenderers": (1, 256),
+        "terminal.textBoxMaxLines": (1, 20),
+        "sidebarAppearance.tintOpacity": (0, 1),
+        "automation.portBase": (1, nil),
+        "automation.portRange": (1, nil),
+        "browser.hiddenWebViewDiscardDelaySeconds": (0, 3600),
+        "markdown.fontSize": (8, 96),
+        "markdown.maxWidth": (320, 2400),
+        "canvas.paneGap": (0, 64),
     ]
 
     /// Reads the current value. For secrets this returns a redaction marker (or
@@ -73,14 +84,32 @@ public struct CatalogSettingDescriptor: Sendable {
         guard let normalized = validateValue(candidate) else {
             throw SettingsControlError.invalidValue(key: id, reason: invalidValueReason(candidate))
         }
-        // Apply any catalog-side semantic bound (e.g. ports must be > 0).
-        if case let .int(value) = normalized, let minimum = Self.integerMinimums[id], value < minimum {
-            throw SettingsControlError.invalidValue(
-                key: id,
-                reason: "must be at least \(minimum), got \(value)"
-            )
+        // Apply any catalog-side numeric bound (matching cmux.schema.json).
+        if let range = Self.numericRanges[id] {
+            let numericValue: Double?
+            switch normalized {
+            case let .int(value): numericValue = Double(value)
+            case let .double(value): numericValue = value
+            default: numericValue = nil
+            }
+            if let value = numericValue {
+                if let minimum = range.min, value < minimum {
+                    throw SettingsControlError.invalidValue(
+                        key: id, reason: "must be at least \(Self.formatBound(minimum)), got \(normalized.displayString)"
+                    )
+                }
+                if let maximum = range.max, value > maximum {
+                    throw SettingsControlError.invalidValue(
+                        key: id, reason: "must be at most \(Self.formatBound(maximum)), got \(normalized.displayString)"
+                    )
+                }
+            }
         }
         return normalized
+    }
+
+    private static func formatBound(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(value)
     }
 
     /// Validates then writes `candidate`.

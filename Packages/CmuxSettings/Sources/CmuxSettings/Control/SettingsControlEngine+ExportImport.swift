@@ -55,9 +55,41 @@ extension SettingsControlEngine {
             throw SettingsControlError.importFailed(errors: errors)
         }
 
-        // Phase 2 — apply the fully-validated set.
+        // Phase 2 — apply the fully-validated set, snapshotting each setting
+        // first so a mid-apply backend write failure (e.g. cmux.json became
+        // unwritable) rolls back the changes already made, preserving the
+        // all-or-nothing contract. Secret writes cannot be rolled back (the
+        // plaintext is never read back); they are extremely rare in an import
+        // (redaction markers are skipped in phase 1) and are left as applied.
+        var applied: [(descriptor: CatalogSettingDescriptor, previousValue: SettingJSONValue, wasOverridden: Bool)] = []
         for entry in validated {
-            try await entry.descriptor.applyNormalized(entry.value, in: stores)
+            let previousValue = await entry.descriptor.currentValue(in: stores)
+            let wasOverridden = await entry.descriptor.isOverridden(in: stores)
+            do {
+                try await entry.descriptor.applyNormalized(entry.value, in: stores)
+                applied.append((entry.descriptor, previousValue, wasOverridden))
+            } catch {
+                await rollBack(applied)
+                throw SettingsControlError.importFailed(errors: [
+                    "failed to apply '\(entry.descriptor.id)': \(error.localizedDescription) — rolled back \(applied.count) earlier change(s)",
+                ])
+            }
+        }
+    }
+
+    /// Best-effort restore of already-applied entries in reverse order: a setting
+    /// that was overridden is restored to its prior value; one that was at its
+    /// default is cleared. Secret-backed entries are skipped (their plaintext was
+    /// never read).
+    private func rollBack(
+        _ applied: [(descriptor: CatalogSettingDescriptor, previousValue: SettingJSONValue, wasOverridden: Bool)]
+    ) async {
+        for entry in applied.reversed() where !entry.descriptor.isSecret {
+            if entry.wasOverridden {
+                try? await entry.descriptor.applyNormalized(entry.previousValue, in: stores)
+            } else {
+                try? await entry.descriptor.reset(in: stores)
+            }
         }
     }
 }
