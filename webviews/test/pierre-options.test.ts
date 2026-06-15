@@ -26,6 +26,8 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-gutter-buffer='buffer']");
   expect(css).toContain("background-image: repeating-linear-gradient(");
+  expect(css).toContain("[data-code] {");
+  expect(css).toContain("scrollbar-gutter: auto");
   expect(css).not.toContain("[data-line-type='change-addition'] {");
   expect(css).not.toContain("[data-line-type='change-deletion'] {");
 });
