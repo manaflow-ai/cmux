@@ -15,13 +15,17 @@ extension TerminalSurface {
             return (true, claudeCommandShim)
         }
 
+        claudeCommandShimPendingCreationSource =
+            (claudeCommandShimPendingCreationSource ?? source).promoted(with: source)
+
         if claudeCommandShimInstallTask == nil {
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation (same effective body).
             let temporaryDirectory = FileManager.default.temporaryDirectory
-            let installOperation: @Sendable () async -> ClaudeCommandShim? = { [wrapperURL, surfaceId, temporaryDirectory] in
+            let installOperation: @concurrent @Sendable () async -> ClaudeCommandShim? = {
+                [wrapperURL, surfaceId, temporaryDirectory] in
                 TerminalSurface.installClaudeCommandShimIfPossible(
                     wrapperURL: wrapperURL,
                     surfaceId: surfaceId,
@@ -31,17 +35,30 @@ extension TerminalSurface {
             }
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             claudeCommandShimInstallTask = installTask
-            Task { @MainActor [weak self, weak view] in
+            claudeCommandShimCompletionTask = Task { @MainActor [weak self, weak view] in
                 let shim = await installTask.value
+                guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.claudeCommandShim = shim
                 self.claudeCommandShimInstallCompleted = true
                 self.claudeCommandShimInstallTask = nil
+                self.claudeCommandShimCompletionTask = nil
+                let source = self.claudeCommandShimPendingCreationSource ?? source
+                self.claudeCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterClaudeCommandShimReady(view: view, source: source)
             }
         }
 
         return (false, nil)
+    }
+
+    @MainActor
+    func cancelClaudeCommandShimInstallLifecycle() {
+        claudeCommandShimCompletionTask?.cancel()
+        claudeCommandShimCompletionTask = nil
+        claudeCommandShimInstallTask?.cancel()
+        claudeCommandShimInstallTask = nil
+        claudeCommandShimPendingCreationSource = nil
     }
 
     @MainActor

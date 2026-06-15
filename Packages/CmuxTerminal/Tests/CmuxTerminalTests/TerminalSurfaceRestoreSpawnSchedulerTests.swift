@@ -239,6 +239,49 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
+    @Test func queuedSocketInputPromotesBackgroundStartToInputDemand() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.backgroundSurfaceStartQueued = true
+        surface.backgroundSurfaceStartSource = .normal
+
+        #expect(surface.sendText("echo queued\n"))
+
+        #expect(surface.backgroundSurfaceStartQueued)
+        #expect(surface.backgroundSurfaceStartSource == .inputDemand)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+    }
+
+    @Test func inputDemandPromotesInFlightClaudeShimCreationSource() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallTask = Task { nil }
+        defer {
+            surface.claudeCommandShimInstallTask?.cancel()
+            surface.claudeCommandShimInstallTask = nil
+            surface.claudeCommandShimPendingCreationSource = nil
+        }
+
+        _ = surface.claudeCommandShimStateForSurface(view: nativeView, source: .scheduledRestore)
+        _ = surface.claudeCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+
+        #expect(surface.claudeCommandShimPendingCreationSource == .inputDemand)
+    }
+
     private func waitForSpawnCount(_ count: Int, spawned: () -> Int) async {
         for _ in 0..<100 {
             if spawned() >= count { return }

@@ -43,10 +43,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     static let committedTextInputChunkByteLimit = 96
-
-    // The surface value DTOs live in CmuxTerminalCore; these aliases keep the
-    // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
-    // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
@@ -195,6 +191,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
+    var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
@@ -202,7 +199,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
     var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    var claudeCommandShimCompletionTask: Task<Void, Never>?
     var claudeCommandShimInstallCompleted = false
+    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
@@ -426,6 +425,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     deinit {
         claudeCommandShimInstallTask?.cancel()
+        claudeCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

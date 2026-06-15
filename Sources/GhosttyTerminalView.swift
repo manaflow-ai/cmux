@@ -4562,7 +4562,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
-        terminalSurface?.requestBackgroundSurfaceStartIfNeeded()
+        terminalSurface?.requestInputDemandSurfaceStartIfNeeded()
 #if DEBUG
         cmuxDebugLog(
             "focus.input_recovery surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +

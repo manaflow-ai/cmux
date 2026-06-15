@@ -12,16 +12,25 @@ internal import CMUXDebugLog
 
 extension TerminalSurface {
     @MainActor
-    func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
-        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+    func scheduleHeadlessRuntimeStartIfNeeded(
+        reason: String,
+        source: RuntimeSurfaceCreationSource = .normal
+    ) {
+        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason, source: source)
     }
 
     @MainActor
-    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
+    private func startRuntimeUsingHeadlessWindowIfNeeded(
+        reason: String,
+        source: RuntimeSurfaceCreationSource
+    ) {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
         paneHost.attachSurface(self)
+        if source == .inputDemand, surface == nil {
+            attachToViewForInputDemand(surfaceView)
+        }
     }
 
     @MainActor
@@ -217,6 +226,8 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        backgroundSurfaceStartSource = .normal
+        cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
@@ -278,6 +289,8 @@ extension TerminalSurface {
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
+        backgroundSurfaceStartSource = .normal
+        cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -344,47 +357,6 @@ extension TerminalSurface {
     public func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
         nextRuntimeInitialInput = trimmedInput
-    }
-
-    // Socket/API operations are an explicit runtime demand: they must be able to
-    // start a terminal in a background workspace without selecting that workspace.
-    // When there is no real window yet, bootstrap Ghostty in a hidden window and
-    // reconcile display/window state when the terminal is later presented.
-    //
-    // Isolation note: the legacy entry accepted off-main callers with a
-    // Thread.isMainThread check; every caller (Workspace, AppDelegate,
-    // TabManager, and the surface's own send paths) runs on the main actor, so
-    // the method is now @MainActor and the deferral hop uses a main-actor Task
-    // (same executor, same next-turn semantics as the legacy
-    // DispatchQueue.main.async).
-    @MainActor
-    public func requestBackgroundSurfaceStartIfNeeded() {
-        guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
-        guard !backgroundSurfaceStartQueued else { return }
-        backgroundSurfaceStartQueued = true
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.backgroundSurfaceStartQueued = false
-            guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil else { return }
-        #if DEBUG
-            let startedAt = ProcessInfo.processInfo.systemUptime
-        #endif
-            if let view = self.attachedView, view.window != nil {
-                self.createSurface(for: view, source: .normal)
-            } else {
-                self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
-            }
-        #if DEBUG
-            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-            let view = self.attachedView ?? self.surfaceView
-            logDebugEvent(
-                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
-            )
-        #endif
-        }
     }
 
     /// Attaches the model to its inner view, creating the runtime surface
