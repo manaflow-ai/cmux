@@ -2281,9 +2281,6 @@ extension Workspace {
                 focus: false,
                 reuseExisting: false
             ) else {
-                if let placeholderPanelId, panels[placeholderPanelId] != nil {
-                    _ = closePanel(placeholderPanelId, force: true)
-                }
                 return
             }
             if let placeholderPanelId {
