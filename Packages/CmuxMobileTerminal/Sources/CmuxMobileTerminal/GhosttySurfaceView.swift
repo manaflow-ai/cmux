@@ -368,7 +368,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var output: Data? {
+    public var output: Data? {
         switch self {
         case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
             return nil
