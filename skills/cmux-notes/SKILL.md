@@ -36,9 +36,9 @@ Resolve the workspace notes root **once** at the start, then work inside it.
 2. **Fallback — resolve from the project.** If the variable is empty (older app,
    or running outside a cmux terminal), walk up from the current directory to the
    nearest ancestor containing `.cmux/` and use `<that>/.cmux/notes/` as the notes
-   root. If no ancestor has a `.cmux/`, cmux keeps the project's notes in the
-   home-level store `~/.cmux/notes/` — use that as the root. Then pick the
-   workspace subfolder whose `_workspace.json` binds your cwd:
+   root. If no ancestor has a `.cmux/`, cmux treats the current directory as the
+   project root and uses `<cwd>/.cmux/notes/`. Then pick the workspace subfolder
+   whose `_workspace.json` binds your cwd:
    ```bash
    find <notes-root> -maxdepth 2 -name '_workspace.json' -print -exec cat {} \;
    # use the folder whose "cwd" matches your project directory
