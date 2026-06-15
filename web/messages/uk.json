@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
+        },
         "fileExplorer": {
           "description": "Налаштування провідника файлів (дерева файлів) у правій бічній панелі.",
           "doubleClickAction": "Визначає, що відбувається під час подвійного клацання файлу в провіднику файлів (або натискання Return на результаті пошуку). `preview` відкриває вбудований перегляд файлів cmux (типова й історична поведінка). `defaultEditor` відкриває файл у типовій програмі macOS для цього типу файлів. `preferredEditor` відкриває через команду `app.preferredEditor`, а якщо її не задано, повертається до типової програми. Застосовується лише до файлів; каталоги завжди розгортаються/згортаються, а нелокальні (віддалені) провідники файлів завжди відкривають перегляд cmux."

@@ -733,6 +733,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },

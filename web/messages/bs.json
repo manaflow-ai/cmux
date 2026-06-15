@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
+        },
         "fileExplorer": {
           "description": "Postavke istraživača datoteka (stabla datoteka) u desnoj bočnoj traci.",
           "doubleClickAction": "Šta se dešava kada dvaput kliknete (ili pritisnete Return na rezultatu pretrage) datoteku u istraživaču datoteka. `preview` otvara ugrađeni cmux pregled datoteke (zadano i dosadašnje ponašanje). `defaultEditor` otvara datoteku macOS zadanom aplikacijom za tu vrstu datoteke. `preferredEditor` otvara pomoću komande `app.preferredEditor`, uz povratak na zadanu aplikaciju kada nije postavljena. Primjenjuje se samo na datoteke; direktoriji se uvijek proširuju/skupljaju, a nelokalni (udaljeni) istraživači datoteka uvijek otvaraju cmux pregled."

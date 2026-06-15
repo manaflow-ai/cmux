@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
+        },
         "fileExplorer": {
           "description": "右側邊欄檔案瀏覽器（檔案樹）設定。",
           "doubleClickAction": "設定在檔案瀏覽器中按兩下檔案（或在搜尋結果上按 Return）時要執行的動作。`preview` 會開啟 cmux 內建檔案預覽（預設與既有行為）。`defaultEditor` 會使用該檔案類型的 macOS 預設 App 開啟。`preferredEditor` 會使用 `app.preferredEditor` 命令開啟；未設定時會退回預設 App。僅適用於檔案；目錄一律展開/收合，非本機（遠端）檔案瀏覽器一律開啟 cmux 預覽。"
