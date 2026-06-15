@@ -12,7 +12,8 @@ final class CanvasMinimapView: NSView {
         }
     }
 
-    var onCenterRequested: ((CGPoint) -> Void)?
+    var onCenterChanged: ((CGPoint) -> Void)?
+    var onCenterSettled: ((CGPoint) -> Void)?
     var onScrollWheel: ((NSEvent) -> Void)?
 
     override var isFlipped: Bool { true }
@@ -42,11 +43,15 @@ final class CanvasMinimapView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        recenter(at: convert(event.locationInWindow, from: nil))
+        recenter(at: convert(event.locationInWindow, from: nil), settled: false)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        recenter(at: convert(event.locationInWindow, from: nil))
+        recenter(at: convert(event.locationInWindow, from: nil), settled: false)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        recenter(at: convert(event.locationInWindow, from: nil), settled: true)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -60,13 +65,18 @@ final class CanvasMinimapView: NSView {
         drawViewport()
     }
 
-    private func recenter(at point: CGPoint) {
+    private func recenter(at point: CGPoint, settled: Bool) {
         let projectedBounds = snapshot.projectedNavigationBounds(in: drawingRect)
         let clamped = CGPoint(
             x: min(max(point.x, projectedBounds.minX), projectedBounds.maxX),
             y: min(max(point.y, projectedBounds.minY), projectedBounds.maxY)
         )
-        onCenterRequested?(snapshot.canvasPoint(for: clamped, in: drawingRect))
+        let center = snapshot.canvasPoint(for: clamped, in: drawingRect)
+        if settled {
+            onCenterSettled?(center)
+        } else {
+            onCenterChanged?(center)
+        }
     }
 
     private func drawBackground() {

@@ -74,6 +74,10 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func setViewport(center: CGPoint, magnification: CGFloat?) {
+        setViewport(center: center, magnification: magnification, notifySettled: true)
+    }
+
+    func setViewport(center: CGPoint, magnification: CGFloat?, notifySettled: Bool) {
         // An explicit viewport set invalidates the overview round-trip restore.
         overviewRestore = nil
         let targetMagnification: CGFloat
@@ -105,7 +109,9 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.reflectScrolledClipView(scrollView.contentView)
         updateMinimap(reveal: true)
         callbacks.onViewportGeometryChanged(window)
-        callbacks.onViewportSettled(window)
+        if notifySettled {
+            callbacks.onViewportSettled(window)
+        }
     }
 
     /// Zooms by `factor` while keeping the document point under

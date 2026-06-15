@@ -93,8 +93,11 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
-        minimapView.onCenterRequested = { [weak self] center in
-            self?.setViewport(center: center, magnification: nil)
+        minimapView.onCenterChanged = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: false)
+        }
+        minimapView.onCenterSettled = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: true)
         }
         minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
         resetMinimapVisibility()
@@ -190,7 +193,9 @@ public final class CanvasRootView: NSView {
         zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
-        minimapView.onCenterRequested = nil; minimapView.onScrollWheel = nil
+        minimapView.onCenterChanged = nil
+        minimapView.onCenterSettled = nil
+        minimapView.onScrollWheel = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
