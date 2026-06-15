@@ -61,9 +61,11 @@ struct MobileHostPickerView: View {
                 MobilePairingScannerSheet { code in
                     showingScanner = false
                     Task {
-                        let result = await store.connectPairingURLResult(code)
-                        if result != .needsUserApproval {
-                            await store.loadPairedMacs()
+                        // Pair without dropping the current session on a bad scan:
+                        // dismiss only when the new Mac actually connected. A
+                        // version-skew scan returns .needsUserApproval and leaves
+                        // the sheet open behind the compatibility alert below.
+                        if await store.pairAdditionalMac(code) {
                             dismiss()
                         }
                     }
