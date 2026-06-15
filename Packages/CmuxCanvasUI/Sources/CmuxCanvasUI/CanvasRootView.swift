@@ -68,11 +68,11 @@ public final class CanvasRootView: NSView {
         var lastPoint: CGPoint = .zero
     }
 
-    public init<C: Clock & Sendable>(
+    init<C: Clock & Sendable>(
         model: CanvasModel,
         commandScrollHintText: String,
         callbacks: CanvasHostCallbacks,
-        themeProvider: @escaping () -> CanvasTheme, minimapClock: C = ContinuousClock()
+        themeProvider: @escaping () -> CanvasTheme, minimapClock: C
     ) where C.Duration == Duration {
         self.model = model
         self.callbacks = callbacks
