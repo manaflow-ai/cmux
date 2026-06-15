@@ -12076,15 +12076,23 @@ struct VerticalTabsSidebar: View {
                         .offset(y: tabRowSpacing / 2)
                 }
             }
-            // Claim workspace drops over the rows block (incl. the 2pt gaps and
-            // row padding) so they never fall through to the end-of-list empty
-            // area behind. Sized to the rows, so only the genuine blank area
-            // below the last row routes to SidebarEmptyArea (and nothing does
-            // when rows overflow). Per-row delegates render in front and win.
+            // Neutralize ALL end-of-list empty-area interactions over the rows
+            // block (2pt gaps, row padding, and the entire list when it
+            // overflows) so none fall through to SidebarEmptyArea behind:
+            // workspace-reorder drops, Bonsplit new-workspace drops, and the
+            // double-tap-to-create gesture. Sized to the rows, so only the
+            // genuine blank area below the last row stays interactive. This is
+            // the measurement-free equivalent of physically placing the empty
+            // area below the rows; doing that requires asking the LazyVStack for
+            // its height, which realizes every row each layout pass and is the
+            // livelock this change removes. Per-row delegates render in front
+            // and still win over their own rows.
             .background {
                 Color.clear
                     .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {}
                     .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
+                    .onDrop(of: BonsplitTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
             }
             .frame(minHeight: minHeight, alignment: .top)
             .background(alignment: .top) {
