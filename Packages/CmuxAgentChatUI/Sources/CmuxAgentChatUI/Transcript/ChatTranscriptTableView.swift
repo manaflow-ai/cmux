@@ -73,6 +73,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isHandlingLayout = false
         private var shouldPreserveKeyboardViewport = false
         private var keyboardWasAtBottom = false
+        private var keyboardVisibleBottomY: CGFloat?
         private var keyboardBottomAnchor: ChatTranscriptTableBottomAnchor?
         private var keyboardAnimationDuration: TimeInterval = 0
         private var keyboardAnimationOptions: UIView.AnimationOptions = []
@@ -258,6 +259,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 tableView.layoutIfNeeded()
                 if self.keyboardWasAtBottom || self.isAtBottom.wrappedValue {
                     self.scrollToBottom(in: tableView, animated: false)
+                } else if let keyboardVisibleBottomY = self.keyboardVisibleBottomY {
+                    self.restoreVisibleBottom(keyboardVisibleBottomY, in: tableView)
                 } else if let keyboardBottomAnchor = self.keyboardBottomAnchor {
                     self.restore(keyboardBottomAnchor, in: tableView)
                 }
@@ -306,10 +309,24 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         private func distanceFromBottom(in tableView: UITableView) -> CGFloat {
             guard tableView.bounds.height > 0 else { return 0 }
-            let visibleBottom = tableView.contentOffset.y
+            let visibleBottom = visibleBottomY(in: tableView)
+            return max(0, tableView.contentSize.height - visibleBottom)
+        }
+
+        private func visibleBottomY(in tableView: UITableView) -> CGFloat {
+            tableView.contentOffset.y
                 + tableView.bounds.height
                 - tableView.adjustedContentInset.bottom
-            return max(0, tableView.contentSize.height - visibleBottom)
+        }
+
+        private func restoreVisibleBottom(_ visibleBottomY: CGFloat, in tableView: UITableView) {
+            let targetY = visibleBottomY
+                - tableView.bounds.height
+                + tableView.adjustedContentInset.bottom
+            tableView.setContentOffset(
+                CGPoint(x: tableView.contentOffset.x, y: clampedOffsetY(targetY, in: tableView)),
+                animated: false
+            )
         }
 
         private func maxOffsetY(in tableView: UITableView) -> CGFloat {
@@ -329,6 +346,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             guard let tableView else { return }
             keyboardWasAtBottom = isAtBottom.wrappedValue
                 || distanceFromBottom(in: tableView) <= Self.atBottomThreshold
+            keyboardVisibleBottomY = visibleBottomY(in: tableView)
             keyboardBottomAnchor = bottomVisibleAnchor(in: tableView)
             keyboardAnimationDuration = Self.keyboardAnimationDuration(from: notification)
             keyboardAnimationOptions = Self.keyboardAnimationOptions(from: notification)
@@ -341,6 +359,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             preserveViewportAfterLayout(in: tableView)
             shouldPreserveKeyboardViewport = false
             keyboardWasAtBottom = false
+            keyboardVisibleBottomY = nil
             keyboardBottomAnchor = nil
             keyboardAnimationDuration = 0
             keyboardAnimationOptions = []
