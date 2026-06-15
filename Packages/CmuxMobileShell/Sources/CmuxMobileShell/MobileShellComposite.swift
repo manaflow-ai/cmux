@@ -4519,7 +4519,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            connectionError = Self.localizedConnectionError(for: error)
+            applyOperationalError(error)
         }
     }
 
