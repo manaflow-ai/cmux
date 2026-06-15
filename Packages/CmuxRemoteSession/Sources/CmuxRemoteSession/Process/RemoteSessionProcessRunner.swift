@@ -1,4 +1,5 @@
 internal import CmuxFoundation
+import Darwin
 public import Foundation
 #if DEBUG
 internal import CMUXDebugLog
@@ -94,21 +95,34 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.terminationHandler = { _ in
             exitSemaphore.signal()
         }
-        // Snapshot the descriptors on the calling thread, while the handles
-        // are guaranteed open, and drain the raw descriptors. The contract
-        // (pinned by the capture-survives-teardown test) is that closing the
-        // read handles mid-run must not break the run: a closed FileHandle's
-        // `fileDescriptor` accessor raises an uncatchable ObjC exception,
-        // whereas `read(2)` on a closed descriptor fails cleanly with EBADF
-        // and lands in the captured readError, exactly like any other
-        // mid-drain read failure. The handles stay alive until
-        // `finishCaptureAndCloseReadHandles` (every exit path), so the
-        // descriptors cannot be recycled under the readers.
-        let stdoutDescriptor = stdoutHandle.fileDescriptor
-        let stderrDescriptor = stderrHandle.fileDescriptor
+        // Duplicate the descriptors on the calling thread, while the handles
+        // are guaranteed open, and drain the duplicates. The contract (pinned
+        // by the capture-survives-teardown test) is that closing the read
+        // handles mid-run must not break the run. Keeping reader-owned
+        // descriptors avoids fd-number reuse if a test hook or caller closes
+        // the FileHandles before the background readers start their first
+        // `read(2)`.
+        let stdoutDescriptor: Int32
+        let stderrDescriptor: Int32
+        do {
+            stdoutDescriptor = try duplicatePipeReadDescriptor(stdoutHandle, executable: executable)
+            do {
+                stderrDescriptor = try duplicatePipeReadDescriptor(stderrHandle, executable: executable)
+            } catch {
+                _ = Darwin.close(stdoutDescriptor)
+                throw error
+            }
+        } catch {
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            throw error
+        }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stdoutDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stdoutDescriptor)
             captureQueue.sync {
                 captureState.stdoutData = result.data
@@ -118,6 +132,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
+            defer { _ = Darwin.close(stderrDescriptor) }
             let result = ProcessPipeEndRead.reading(fileDescriptor: stderrDescriptor)
             captureQueue.sync {
                 captureState.stderrData = result.data
@@ -217,6 +232,17 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             "stderr=\(stderr.debugLogSnippet())"
         )
         return RemoteCommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+    }
+
+    private func duplicatePipeReadDescriptor(_ handle: FileHandle, executable: String) throws -> Int32 {
+        let descriptor = Darwin.dup(handle.fileDescriptor)
+        guard descriptor >= 0 else {
+            let errnoCode = errno
+            throw NSError(domain: "cmux.remote.process", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to prepare pipe capture for \(URL(fileURLWithPath: executable).lastPathComponent): \(String(cString: strerror(errnoCode)))",
+            ])
+        }
+        return descriptor
     }
 
     private func debugShellCommand(executable: String, arguments: [String]) -> String {
