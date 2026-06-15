@@ -36,6 +36,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The paced native-surface creation queue for restored terminal sessions.
     public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
 
+    /// Filesystem probes and writers used by runtime creation.
+    public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+
     /// The first port of the per-session `CMUX_PORT` allocation
     /// (snapshotted once per app session by the composition root).
     public let sessionPortBase: Int
@@ -59,6 +62,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         hibernationRecorder: any AgentHibernationRecording,
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
+        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String
@@ -72,6 +76,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.hibernationRecorder = hibernationRecorder
         self.runtimeTeardown = runtimeTeardown
         self.restoreSpawnScheduler = restoreSpawnScheduler
+        self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey

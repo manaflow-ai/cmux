@@ -51,9 +51,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t?
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
-
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
-
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
@@ -62,6 +60,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let hibernationRecorder: any AgentHibernationRecording
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
+    let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted once per
     /// app session by the composition root so every runtime startup path uses
     /// the same immutable workspace port range.
@@ -374,6 +373,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.hibernationRecorder = dependencies.hibernationRecorder
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
+        self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize

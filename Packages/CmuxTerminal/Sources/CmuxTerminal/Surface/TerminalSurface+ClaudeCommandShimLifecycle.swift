@@ -23,26 +23,17 @@ extension TerminalSurface {
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation (same effective body).
-            let temporaryDirectory = FileManager.default.temporaryDirectory
+            let runtimeFilesystem = runtimeFilesystem
+            let temporaryDirectory = runtimeFilesystem.claudeCommandShimTemporaryDirectory
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> ClaudeCommandShim? = {
-                [wrapperURL, surfaceId, temporaryDirectory] in
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: wrapperURL,
-                    surfaceId: surfaceId,
-                    temporaryDirectory: temporaryDirectory,
-                    fileManager: .default
-                )
+                [wrapperURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
             }
             #else
             let installOperation: @Sendable () async -> ClaudeCommandShim? = {
-                [wrapperURL, surfaceId, temporaryDirectory] in
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: wrapperURL,
-                    surfaceId: surfaceId,
-                    temporaryDirectory: temporaryDirectory,
-                    fileManager: .default
-                )
+                [wrapperURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                runtimeFilesystem.installClaudeCommandShim(wrapperURL, surfaceId, temporaryDirectory)
             }
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
