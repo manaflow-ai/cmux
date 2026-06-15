@@ -6,6 +6,7 @@ import WebKit
 import AppKit
 import Bonsplit
 import CmuxBrowserPanel
+import CmuxBrowserFind
 import CmuxTerminalCore
 import Network
 import CFNetwork
@@ -3257,6 +3258,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     @Published private(set) var isElementFullscreenActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
+
+    /// Find-in-page search execution: generates the find scripts, evaluates them against the
+    /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
+    /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
+    /// this service owns only the script generation and result parsing.
+    private lazy var findService = BrowserFindService(
+        evaluator: BrowserFindWebViewEvaluator(panel: self)
+    )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLease {
         let hostId: ObjectIdentifier
@@ -7415,16 +7424,14 @@ extension BrowserPanel {
     func findNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
-            self.parseFindResult(result)
+            self.applyFindMatchCount(await self.findService.next())
         }
     }
 
     func findPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
-            self.parseFindResult(result)
+            self.applyFindMatchCount(await self.findService.previous())
         }
     }
 
@@ -7615,38 +7622,21 @@ extension BrowserPanel {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let js = BrowserFindJavaScript.searchScript(query: needle)
-            do {
-                let result = try await self.webView.evaluateJavaScript(js)
-                self.parseFindResult(result)
-            } catch {
-                NSLog("Find: browser JS search error: %@", error.localizedDescription)
-            }
+            self.applyFindMatchCount(await self.findService.search(needle: needle))
         }
     }
 
     private func executeFindClear() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
-            } catch {
-                NSLog("Find: browser JS clear error: %@", error.localizedDescription)
-            }
+            await self.findService.clear()
         }
     }
 
-    private func parseFindResult(_ result: Any?) {
-        guard let jsonString = result as? String,
-              let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let total = json["total"] as? Int,
-              let current = json["current"] as? Int,
-              total >= 0, current >= 0 else {
-            return
-        }
-        searchState?.total = UInt(total)
-        searchState?.selected = total > 0 ? UInt(current) : nil
+    private func applyFindMatchCount(_ count: BrowserFindMatchCount?) {
+        guard let count else { return }
+        searchState?.total = count.total
+        searchState?.selected = count.selected
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
