@@ -12076,6 +12076,16 @@ struct VerticalTabsSidebar: View {
                         .offset(y: tabRowSpacing / 2)
                 }
             }
+            // Claim workspace drops over the rows block (incl. the 2pt gaps and
+            // row padding) so they never fall through to the end-of-list empty
+            // area behind. Sized to the rows, so only the genuine blank area
+            // below the last row routes to SidebarEmptyArea (and nothing does
+            // when rows overflow). Per-row delegates render in front and win.
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
+            }
             .frame(minHeight: minHeight, alignment: .top)
             .background(alignment: .top) {
                 SidebarEmptyArea(
