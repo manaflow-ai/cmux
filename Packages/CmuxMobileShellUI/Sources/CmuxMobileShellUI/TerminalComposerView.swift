@@ -422,10 +422,18 @@ struct TerminalComposerView: View {
     private func send() {
         // Allowed with empty text as long as an attachment is staged.
         guard canSend else { return }
-        // Stop dictation gracefully before sending. Every partial already wrote
-        // into `terminalInputText`, so the latest spoken words are committed and
-        // read by `submitComposer()` below.
-        dictation.stop()
+        // Hard-cancel dictation before sending, NOT the graceful async stop. Every
+        // partial already wrote into `terminalInputText`, so the field holds the
+        // latest spoken words at send time. `cancel()` immediately tears down the
+        // recognition task and drops `onText`, so (a) `submitComposer()`'s
+        // synchronous snapshot of `terminalInputText` captures exactly the current
+        // field text, and (b) no late final result can fire `onText` back into the
+        // field that send is about to clear. A graceful `stop()` would let a late
+        // final result land after the snapshot, dropping the finalized tail from
+        // the sent message and re-polluting the just-cleared draft. `cancel()` on
+        // an idle controller is a no-op, so a send without active dictation is
+        // unchanged.
+        dictation.cancel()
         isFieldFocused = true
         Task { @MainActor in
             // Sends staged images first (in order), then the text. Acknowledged
