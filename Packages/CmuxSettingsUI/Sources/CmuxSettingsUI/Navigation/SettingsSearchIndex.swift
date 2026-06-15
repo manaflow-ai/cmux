@@ -37,7 +37,25 @@ public struct SettingsSearchIndex: Sendable {
         public let title: String
         public let symbolName: String
         public let normalizedSearchText: String
+        let normalizedSearchWords: [String]
         public let anchorID: String
+
+        init(
+            id: String,
+            kind: Kind,
+            title: String,
+            symbolName: String,
+            normalizedSearchText: String,
+            anchorID: String
+        ) {
+            self.id = id
+            self.kind = kind
+            self.title = title
+            self.symbolName = symbolName
+            self.normalizedSearchText = normalizedSearchText
+            self.normalizedSearchWords = SettingsSearchIndex.tokens(in: normalizedSearchText)
+            self.anchorID = anchorID
+        }
     }
 
     public let entries: [Entry]
@@ -213,10 +231,9 @@ public struct SettingsSearchIndex: Sendable {
     }
 
     private static func matchScore(entry: Entry, query: String, tokens: [String]) -> Int? {
-        let words = Self.tokens(in: entry.normalizedSearchText)
         var score = 0
         for token in tokens {
-            guard let tokenScore = Self.matchScore(token: token, text: entry.normalizedSearchText, words: words) else {
+            guard let tokenScore = Self.matchScore(token: token, text: entry.normalizedSearchText, words: entry.normalizedSearchWords) else {
                 return nil
             }
             score += tokenScore

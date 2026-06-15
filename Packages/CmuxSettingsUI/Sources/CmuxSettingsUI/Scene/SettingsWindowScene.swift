@@ -34,9 +34,11 @@ public struct SettingsWindowScene: Scene {
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
+    private let searchIndex: SettingsSearchIndex
 
     public init(runtime: SettingsRuntime) {
         self.runtime = runtime
+        self.searchIndex = SettingsSearchIndex(catalog: runtime.catalog)
     }
 
     @State private var searchText: String = ""
@@ -85,10 +87,6 @@ public struct SettingsWindowRoot: View {
     private var catalog: SettingCatalog { runtime.catalog }
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
-
-    private var searchIndex: SettingsSearchIndex {
-        SettingsSearchIndex(catalog: catalog)
-    }
 
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value

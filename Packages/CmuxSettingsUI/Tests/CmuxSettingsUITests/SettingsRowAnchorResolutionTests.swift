@@ -186,10 +186,19 @@ struct SettingsRowAnchorResolutionTests {
             .filter { $0.anchorID == $0.id }
             .map(\.id)
             .filter { !reachable.contains($0) }
+        let brokenAliasedAnchors = index.entries
+            .filter { if case .setting = $0.kind { return true } else { return false } }
+            .filter { $0.anchorID != $0.id }
+            .map(\.anchorID)
+            .filter { !reachable.contains($0) }
 
         #expect(
             unreachable.isEmpty,
             "these search results have no row to scroll to / highlight: \(unreachable.sorted())"
+        )
+        #expect(
+            brokenAliasedAnchors.isEmpty,
+            "these aliased search results point to non-reachable anchors: \(brokenAliasedAnchors.sorted())"
         )
     }
 

@@ -208,10 +208,9 @@ extension SettingsSearchIndex {
     }
 
     static func matchScore(entry: SettingsSearchEntry, query: String, tokens: [String]) -> Int? {
-        let words = normalizedTokens(for: entry.normalizedSearchText)
         var score = 0
         for token in tokens {
-            guard let tokenScore = matchScore(token: token, text: entry.normalizedSearchText, words: words) else {
+            guard let tokenScore = matchScore(token: token, text: entry.normalizedSearchText, words: entry.normalizedSearchWords) else {
                 return nil
             }
             score += tokenScore
