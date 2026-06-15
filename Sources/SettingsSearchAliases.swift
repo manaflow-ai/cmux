@@ -1,3 +1,5 @@
+import Foundation
+
 enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
@@ -169,5 +171,127 @@ enum SettingsSearchAliasIndex {
 
     private static func localized(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: defaultValue)
+    }
+}
+
+extension SettingsSearchIndex {
+    static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    static func setting(
+        _ target: SettingsNavigationTarget,
+        _ idSuffix: String,
+        _ title: String,
+        _ searchText: String
+    ) -> SettingsSearchEntry {
+        SettingsSearchEntry(
+            id: settingID(for: target, idSuffix: idSuffix),
+            kind: .setting,
+            target: target,
+            title: title,
+            subtitle: target.title,
+            symbolName: target.symbolName,
+            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
+        )
+    }
+
+    static func normalizedTokens(for query: String) -> [String] {
+        normalized(query)
+            .split { character in
+                character.unicodeScalars.allSatisfy { scalar in
+                    CharacterSet.whitespacesAndNewlines.contains(scalar)
+                        || CharacterSet.punctuationCharacters.contains(scalar)
+                }
+            }
+            .map(String.init)
+    }
+
+    static func matchScore(entry: SettingsSearchEntry, query: String, tokens: [String]) -> Int? {
+        let words = normalizedTokens(for: entry.normalizedSearchText)
+        var score = 0
+        for token in tokens {
+            guard let tokenScore = matchScore(token: token, text: entry.normalizedSearchText, words: words) else {
+                return nil
+            }
+            score += tokenScore
+        }
+
+        let title = normalized(entry.title)
+        if title == query { score -= 1_000 }
+        if title.hasPrefix(query) { score -= 800 }
+        if containsAtWordBoundary(query, in: title) { score -= 700 }
+        if entry.normalizedSearchText.hasPrefix(query) { score -= 600 }
+        if containsAtWordBoundary(query, in: entry.normalizedSearchText) { score -= 500 }
+        if entry.normalizedSearchText.contains(query) { score -= 400 }
+        if case .section = entry.kind { score += 25 }
+        return score
+    }
+
+    private static func matchScore(token: String, text: String, words: [String]) -> Int? {
+        if words.contains(token) { return 0 }
+        if words.contains(where: { $0.hasPrefix(token) }) { return 10 }
+        if containsAtWordBoundary(token, in: text) { return 20 }
+        if text.contains(token) { return 30 }
+        if words.contains(where: { isLightTypo(token, comparedTo: $0) }) { return 50 }
+        if words.contains(where: { isSubsequence(token, of: $0) }) { return 60 }
+        if isSubsequence(token, of: text) { return 80 }
+        return nil
+    }
+
+    private static func containsAtWordBoundary(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var searchStart = haystack.startIndex
+        while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            if range.lowerBound == haystack.startIndex {
+                return true
+            }
+            let previous = haystack[haystack.index(before: range.lowerBound)]
+            if !previous.isLetter, !previous.isNumber {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var index = needle.startIndex
+        for character in haystack where character == needle[index] {
+            index = needle.index(after: index)
+            if index == needle.endIndex { return true }
+        }
+        return false
+    }
+
+    private static func isLightTypo(_ token: String, comparedTo word: String) -> Bool {
+        guard token.count >= 4, word.count >= 4 else { return false }
+        let allowedDistance = min(token.count, word.count) >= 6 ? 2 : 1
+        return editDistance(token, word, maximum: allowedDistance) <= allowedDistance
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        if abs(left.count - right.count) > maximum { return maximum + 1 }
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+        for leftIndex in 1...left.count {
+            current[0] = leftIndex
+            var rowMinimum = current[0]
+            for rightIndex in 1...right.count {
+                let cost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1
+                current[rightIndex] = min(
+                    previous[rightIndex] + 1,
+                    current[rightIndex - 1] + 1,
+                    previous[rightIndex - 1] + cost
+                )
+                rowMinimum = min(rowMinimum, current[rightIndex])
+            }
+            if rowMinimum > maximum { return maximum + 1 }
+            swap(&previous, &current)
+        }
+        return previous[right.count]
     }
 }
