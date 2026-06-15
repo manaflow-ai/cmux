@@ -174,6 +174,64 @@ final class WorkspaceForkConversationTests: XCTestCase {
         XCTAssertTrue(workspace.canForkAgentConversationFromPanel(panelId, liveAgentIndex: index))
     }
 
+    func testForkConversationContextMenuAvailabilityUsesLiveCodexProcessDetection() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let processId = 4_242
+        let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: processId,
+                    parentPID: 1,
+                    name: "codex",
+                    path: "/tmp/codex",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: workspace.id,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: FileManager.default,
+            processSnapshot: processSnapshot,
+            capturedAt: 123,
+            processArgumentsProvider: { requestedProcessId in
+                guard requestedProcessId == processId else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/tmp/codex", "resume", sessionId, "--model", "gpt-5.4"],
+                    environment: ["PWD": "/tmp/fork repo", "CODEX_HOME": "/tmp/codex"]
+                )
+            }
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            fileManager: FileManager.default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detectedSnapshots
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspace.id, panelId: panelId))
+
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, sessionId)
+        XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/tmp/codex")
+        XCTAssertEqual(index.processIDs(workspaceId: workspace.id, panelId: panelId), Set([processId]))
+        XCTAssertTrue(snapshot.forkCommand?.contains("'fork' '\(sessionId)'") == true)
+        XCTAssertTrue(workspace.canForkAgentConversationFromPanel(panelId, liveAgentIndex: index))
+        XCTAssertNotNil(detectedSnapshots[key], "Live Codex processes should be indexed by their cmux panel")
+    }
+
     func testSharedLiveAgentIndexRefreshPublishesWorkspaceAfterNewIndexIsReadable() throws {
         SharedLiveAgentIndex.shared.resetForTesting()
         let workspace = Workspace()
