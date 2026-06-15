@@ -13,10 +13,10 @@ private enum DockTileAppIconMode: String {
         self = Self(rawValue: defaultsValue ?? "") ?? .automatic
     }
 
-    func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
+    var imageName: NSImage.Name? {
         switch self {
         case .automatic:
-            return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
+            return nil
         case .light:
             return NSImage.Name("AppIconLight")
         case .dark:
@@ -30,13 +30,12 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: CmuxDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
-    private var appearanceObservation: NSKeyValueObservation?
+    private var hasClearedAutomaticOverride = false
 
     deinit {
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
         }
-        appearanceObservation?.invalidate()
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
@@ -52,8 +51,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
         }
-        appearanceObservation?.invalidate()
-        appearanceObservation = nil
+        hasClearedAutomaticOverride = false
 
         guard let dockTile else { return }
         updateDockTile(dockTile)
@@ -65,15 +63,6 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         ) { [weak self] _ in
             guard let self else { return }
             self.updateDockTile(dockTile)
-        }
-
-        if let app = NSApp {
-            appearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-                DispatchQueue.main.async {
-                    guard let self, self.appearanceObservation != nil else { return }
-                    self.updateDockTile(dockTile)
-                }
-            }
         }
     }
 
@@ -106,29 +95,51 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         Self.assertMainQueue()
 
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
         }
 
-        guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
-              let icon = appBundle?.image(forResource: imageName) else {
-            if shouldPersistBundleIcon {
-                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
-                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-                _ = LSRegisterURL(appBundleURL as CFURL, true)
+        // For automatic mode, defer to the bundle's AppIcon asset catalog,
+        // which carries `luminosity: dark` appearance variants for every size.
+        // The Dock plugin runs in the Dock process where NSApp.effectiveAppearance
+        // is not a reliable signal for the user's system dark/light setting, so
+        // picking AppIconDark/AppIconLight here and persisting it via
+        // NSWorkspace.setIcon would lock the bundle icon to whatever variant the
+        // Dock happened to detect at quit time (issue #3303). Clearing any
+        // previous custom override lets macOS reassert the asset catalog's
+        // adaptive icon and switch automatically with system appearance.
+        // The clear is gated on `hasClearedAutomaticOverride` so the redundant
+        // workspace ops don't repeat while the plugin remains in automatic mode.
+        if mode == .automatic {
+            if !hasClearedAutomaticOverride {
+                persistBundleIcon(nil, at: appBundleURL)
+                hasClearedAutomaticOverride = true
             }
             dockTile.showDefaultAppIcon()
             return
         }
 
-        if shouldPersistBundleIcon {
-            NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
-            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-            _ = LSRegisterURL(appBundleURL as CFURL, true)
+        // Manual mode is about to write a custom bundle icon, so any previously
+        // recorded "automatic override cleared" state no longer applies.
+        hasClearedAutomaticOverride = false
+
+        guard let imageName = mode.imageName,
+              let icon = appBundle?.image(forResource: imageName) else {
+            persistBundleIcon(nil, at: appBundleURL)
+            dockTile.showDefaultAppIcon()
+            return
         }
+
+        persistBundleIcon(icon, at: appBundleURL)
         dockTile.showIcon(icon)
+    }
+
+    private func persistBundleIcon(_ icon: NSImage?, at appBundleURL: URL) {
+        guard shouldPersistBundleIcon else { return }
+        NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+        _ = LSRegisterURL(appBundleURL as CFURL, true)
     }
 
     private static func performOnMain(_ work: @escaping () -> Void) {
