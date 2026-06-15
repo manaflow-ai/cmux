@@ -41,7 +41,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-                requestBackgroundSurfaceStartIfNeeded()
+                requestInputDemandSurfaceStartIfNeeded()
             }
             return queued
         }
@@ -89,7 +89,7 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-            requestBackgroundSurfaceStartIfNeeded()
+            requestInputDemandSurfaceStartIfNeeded()
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -128,7 +128,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-                requestBackgroundSurfaceStartIfNeeded()
+                requestInputDemandSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
         }

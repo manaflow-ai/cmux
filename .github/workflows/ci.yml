@@ -687,6 +687,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminal
             CmuxTerminalCore
             CmuxTerminalEngine
             CmuxTerminalServices
@@ -706,7 +707,7 @@ jobs:
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
             case "$pkg" in
-            CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
+            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
               status=0
               output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
               printf '%s\n' "$output"
