@@ -194,7 +194,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview] {
-        didSet { workspaceTopologyVersion &+= 1 }
+        didSet {
+            workspaceTopologyVersion &+= 1
+            prunePendingAttachmentsForMissingTerminals()
+        }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
@@ -2770,6 +2773,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
         guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+        // Reject any add for a terminal that is not in the current topology, so a
+        // closed/recreated/stale id can never accrue orphaned bytes the user can no
+        // longer see or send. This is the single validated path: both the base
+        // call and the session-guarded variant funnel through here.
+        guard terminalExistsInTopology(key) else { return nil }
         // A single image larger than the per-image cap is rejected outright.
         guard data.count <= Self.maxPendingAttachmentImageBytes else { return nil }
         let existing = pendingAttachmentsByTerminalID[key] ?? []
@@ -2814,12 +2822,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // loading/encoding: this is the previous user's content, drop it.
         guard capturedGeneration == signInGeneration else { return nil }
         // For an explicit target, require it to still exist so a closed terminal
-        // does not accrue orphaned bytes the user can no longer see or send.
-        if let terminalID,
-           !workspaces.contains(where: { $0.terminals.contains(where: { $0.id.rawValue == terminalID }) }) {
+        // does not accrue orphaned bytes the user can no longer see or send. The
+        // base add re-validates this for every path (including the selected-id
+        // fallback), so existence is enforced once and only once below.
+        if let terminalID, !terminalExistsInTopology(terminalID) {
             return nil
         }
         return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+    }
+
+    /// Whether a terminal id is present in the current workspace/terminal
+    /// topology. The single existence check both add paths share, so a stale id
+    /// (closed or never-existed terminal) can never accrue staged bytes.
+    private func terminalExistsInTopology(_ terminalID: String) -> Bool {
+        workspaces.contains { $0.terminals.contains { $0.id.rawValue == terminalID } }
+    }
+
+    /// Drop staged attachments whose terminal id is no longer in the topology.
+    /// Called from the ``workspaces`` `didSet` so a workspace/terminal sync that
+    /// removes a terminal also releases its (potentially multi-MB) staged photo
+    /// bytes instead of letting them accumulate until sign-out. The dictionary
+    /// holds large `Data`, so unlike the externally-stored text draft it must be
+    /// pruned in memory on every topology change.
+    private func prunePendingAttachmentsForMissingTerminals() {
+        guard !pendingAttachmentsByTerminalID.isEmpty else { return }
+        let liveTerminalIDs: Set<String> = Set(
+            workspaces.flatMap { $0.terminals.map(\.id.rawValue) }
+        )
+        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
+            liveTerminalIDs.contains($0.key)
+        }
     }
 
     /// Remove one staged attachment by id. A no-op when the id is not staged.

@@ -173,6 +173,60 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-gone").isEmpty)
     }
 
+    // MARK: - Topology validation and pruning (no orphaned bytes for stale ids)
+
+    /// The BASE add path (no session token) must also reject a terminal id that
+    /// is not in the current topology, so there is no unchecked entry point that
+    /// can accrue orphaned photo bytes under a dead id.
+    @Test func baseAddDroppedWhenTerminalNotInTopology() {
+        let composite = Self.makeComposite()
+        let id = composite.addPendingAttachment(
+            Self.bytes("photo"),
+            format: "png",
+            forTerminalID: "term-gone"
+        )
+        #expect(id == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-gone").isEmpty)
+    }
+
+    /// When a topology sync drops a terminal, its staged attachments must be
+    /// released in memory (they hold multi-MB `Data`), not retained until
+    /// sign-out. The surviving terminal's attachments stay intact.
+    @Test func topologyUpdateDroppingTerminalPrunesItsAttachments() {
+        let composite = Self.makeComposite()
+        composite.addPendingAttachment(Self.bytes("a-img"), format: "png", forTerminalID: "term-a")
+        composite.addPendingAttachment(Self.bytes("b-img"), format: "png", forTerminalID: "term-b")
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+        #expect(composite.pendingAttachments(forTerminalID: "term-b").count == 1)
+
+        // A workspace sync now reports only term-a (term-b was closed). Setting
+        // `workspaces` is the single topology funnel; its `didSet` must prune the
+        // staged bytes for the terminal that disappeared.
+        composite.workspaces = [
+            MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: [Self.terminalA]),
+        ]
+
+        #expect(composite.pendingAttachments(forTerminalID: "term-b").isEmpty)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+    }
+
+    /// A terminal removed from one workspace but present in another stays staged:
+    /// pruning keys on the terminal id's presence anywhere in topology, not on
+    /// which workspace holds it.
+    @Test func topologyUpdateKeepsTerminalStillPresentElsewhere() {
+        let composite = Self.makeComposite()
+        composite.addPendingAttachment(Self.bytes("b-img"), format: "png", forTerminalID: "term-b")
+
+        // term-b moves to a second workspace; it is still in topology, so its
+        // attachments survive.
+        composite.workspaces = [
+            MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: [Self.terminalA]),
+            MobileWorkspacePreview(id: "ws-2", name: "ws2", terminals: [Self.terminalB]),
+        ]
+
+        #expect(composite.pendingAttachments(forTerminalID: "term-b").count == 1)
+    }
+
     // MARK: - Atomic count / byte caps (store is the authoritative budget)
 
     /// Bytes of the given length, distinct per call so attachments are unique.

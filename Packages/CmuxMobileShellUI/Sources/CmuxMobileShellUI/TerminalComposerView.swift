@@ -8,6 +8,7 @@ import ImageIO
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// iMessage-style composer hosted in the terminal surface's composer band.
 ///
@@ -125,6 +126,14 @@ struct TerminalComposerView: View {
     /// atomically at mutation time); the view pre-filters against it only for
     /// responsiveness so an obviously-over-budget pick skips the encode.
     private static let maxTotalAttachmentBytes = CMUXMobileShellStore.maxPendingAttachmentTotalBytes
+
+    /// Raw-input file-size ceiling for one picked asset, checked on disk BEFORE
+    /// any bytes are read. The source is a file-backed import (see
+    /// ``ImportedImageFile``), so an enormous ProRAW/DNG/panorama is rejected
+    /// without ever being decoded. A compressed HEIC can decode larger than its
+    /// file size, so this is a generous multiple of the 8 MB per-image cap rather
+    /// than the cap itself; whatever passes is still downsampled by ImageIO.
+    private static let maxRawInputBytes = 60 * 1024 * 1024
 
     /// Max pixel dimension of the cached chip thumbnail. The chip renders at 56pt;
     /// 3x covers Retina without holding the full-resolution image.
@@ -390,14 +399,33 @@ struct TerminalComposerView: View {
                 guard staged.count < Self.maxAttachmentCount else { break }
                 let stagedBytes = staged.reduce(0) { $0 + $1.data.count }
                 guard stagedBytes < Self.maxTotalAttachmentBytes else { break }
-                guard let raw = try? await item.loadTransferable(type: Data.self) else { continue }
-                if Task.isCancelled { break }
-                // Bounded encode + downsample off the main thread: ImageIO reads
-                // the picked bytes and emits a downsampled, re-encoded payload
-                // without ever materializing a full-resolution raster, so a giant
-                // HEIC/panorama cannot OOM the app. This is the expensive part and
+                // Load the asset file-backed: PhotosUI copies the imported image to
+                // a temp file on disk and hands back only its URL, so the FULL
+                // original (a ProRAW/DNG/panorama can be hundreds of MB) is never
+                // slurped into memory as `Data` the way `loadTransferable(Data)`
+                // would. ImageIO then downsamples straight from the file below.
+                guard let imported = try? await item.loadTransferable(type: ImportedImageFile.self) else { continue }
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(at: imported.url)
+                    break
+                }
+                let fileURL = imported.url
+                // Always release the temp file, on every exit from this iteration.
+                defer { try? FileManager.default.removeItem(at: fileURL) }
+                // Reject an absurdly large source BEFORE reading any bytes. A
+                // compressed HEIC can decode larger than its file size, so the
+                // bound is a generous multiple of the per-image cap, not the cap
+                // itself; ImageIO still downsamples whatever passes.
+                if let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size]) as? Int,
+                   fileSize > Self.maxRawInputBytes {
+                    continue
+                }
+                // Bounded encode + downsample off the main thread, reading the
+                // image straight from the temp FILE (CGImageSourceCreateWithURL),
+                // so a giant HEIC/panorama is never materialized as a
+                // full-resolution raster in memory. This is the expensive part and
                 // must not block the composer's keyboard/typing.
-                guard let prepared = await Self.prepare(raw) else { continue }
+                guard let prepared = await Self.prepare(url: fileURL) else { continue }
                 if Task.isCancelled { break }
                 // The store is the single source of truth for the count/byte caps
                 // and the session-generation guard: it re-checks the CURRENT
@@ -435,19 +463,24 @@ struct TerminalComposerView: View {
         var thumbnail: Data?
     }
 
-    /// Prepare a picked image's raw bytes for staging, entirely via ImageIO and
-    /// entirely off the main thread. Both the SEND payload and the chip thumbnail
-    /// are produced by downsampling the source with
-    /// `CGImageSourceCreateThumbnailAtIndex` and re-encoding the (bounded)
-    /// `CGImage`, so a large HEIC/JPEG/panorama is NEVER decoded into a full-size
-    /// raster and never re-encoded to a hundreds-of-MB PNG just to measure it. The
-    /// per-image byte cap is enforced on the bounded result, downscaling further
-    /// (JPEG, then progressively smaller) if needed. Returns `nil` when the bytes
-    /// are not a decodable image. Every returned field is `Sendable` value data
-    /// (`Data`), so nothing UIKit-reference crosses back to the main actor.
-    private static func prepare(_ raw: Data) async -> PreparedAttachment? {
+    /// Prepare a picked image from its temp file URL for staging, entirely via
+    /// ImageIO and entirely off the main thread. The source is read with
+    /// `CGImageSourceCreateWithURL`, so the full original is never slurped into
+    /// memory. Both the SEND payload and the chip thumbnail are produced by
+    /// downsampling that source with `CGImageSourceCreateThumbnailAtIndex` and
+    /// re-encoding the (bounded) `CGImage`, so a large HEIC/JPEG/panorama is NEVER
+    /// decoded into a full-size raster and never re-encoded to a hundreds-of-MB
+    /// PNG just to measure it. The per-image byte cap is enforced on the bounded
+    /// result, downscaling further (JPEG, then progressively smaller) if needed.
+    /// Returns `nil` when the file is not a decodable image. Every returned field
+    /// is `Sendable` value data (`Data`), so nothing UIKit-reference crosses back
+    /// to the main actor. The caller deletes the temp file.
+    private static func prepare(url: URL) async -> PreparedAttachment? {
         await Task.detached(priority: .userInitiated) {
-            guard let source = CGImageSourceCreateWithData(raw as CFData, nil) else { return nil }
+            // Read the image from the file URL: ImageIO maps it lazily and only
+            // ever decodes the downsampled thumbnail below, so the full-resolution
+            // raster is never materialized in memory.
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
             guard let (data, format) = boundedSendPayload(from: source) else { return nil }
             return PreparedAttachment(
                 data: data,
@@ -558,6 +591,37 @@ struct TerminalComposerView: View {
         CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return encoded as Data
+    }
+}
+
+/// A file-backed `Transferable` for loading a `PhotosPickerItem` as an on-disk
+/// file rather than in-memory `Data`. `FileRepresentation` hands PhotosUI a temp
+/// destination and copies the imported image there, so loading this type yields a
+/// file URL WITHOUT reading the (possibly hundreds-of-MB ProRAW/panorama) image
+/// into memory. The composer then size-gates on disk and downsamples straight
+/// from the URL via ImageIO, never materializing the full-resolution raster.
+///
+/// The framework deletes the import staging area, so we copy the file into our
+/// own temp location we control and delete after encoding (the composer's
+/// `defer` cleanup). `url` is `Sendable`, so the value crosses task boundaries.
+struct ImportedImageFile: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .image) { imported in
+            SentTransferredFile(imported.url)
+        } importing: { received in
+            // Copy out of the framework-owned staging area into our own uniquely
+            // named temp file, which the composer deletes after encoding. Keep the
+            // source extension so ImageIO can identify the format from the URL.
+            let ext = received.file.pathExtension
+            let name = UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-composer-import-" + name)
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: received.file, to: destination)
+            return ImportedImageFile(url: destination)
+        }
     }
 }
 
