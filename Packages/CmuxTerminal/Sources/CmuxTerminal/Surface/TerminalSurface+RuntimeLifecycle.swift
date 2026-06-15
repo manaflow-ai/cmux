@@ -25,6 +25,7 @@ extension TerminalSurface {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        // Production pane hosts synchronously call attachToView; carry the requested creation source through that callback.
         let previousAttachCreationSource = paneHostAttachCreationSource
         paneHostAttachCreationSource = source
         paneHost.attachSurface(self)
