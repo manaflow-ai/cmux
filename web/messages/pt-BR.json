@@ -791,6 +791,10 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
+          "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -803,6 +807,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Clique duas vezes em um arquivo: preview (padrão), defaultEditor (app padrão do macOS) ou preferredEditor (o comando app.preferredEditor).",
       "shortcutsWhenIntro": "Predicados de contexto opcionais por ação (cláusulas when no estilo do VS Code), indexados pelo id da ação do cmux. Uma atribuição só dispara — e só conflita com outra atribuição na mesma tecla — quando sua cláusula é verdadeira. Omita a cláusula para manter o contexto integrado da ação. O vocabulário das cláusulas:",
       "shortcutsWhenBooleanKeys": "chaves booleanas. Uma chave desconhecida ou ausente é avaliada como false; os literais true e false também são aceitos.",
       "shortcutsWhenTypedKeys": "chaves tipadas para comparações: o modo ativo da barra lateral direita (string) e as contagens de painéis e workspaces (inteiros).",

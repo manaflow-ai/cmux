@@ -3,10 +3,16 @@ public import Foundation
 /// Orchestrates one palette search across both engines: prefers the nucleo
 /// FFI index when available, falls back to the Swift engine, and merges in
 /// Swift single-edit (typo) matches that nucleo cannot produce.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum CommandPaletteSearchOrchestrator {
+///
+/// A stateless service value: construct one with `init()` and drive a search
+/// through the instance methods. The pure decision/transform helpers it relies
+/// on stay `static`.
+public struct CommandPaletteSearchOrchestrator: Sendable {
     private static let synchronousSeedCorpusLimit = 256
     private static let singleEditFallbackNucleoProbeLimit = 12
+
+    /// Creates a search orchestrator.
+    public init() {}
 
     /// Keys `values` by `key`, keeping the first element per key.
     public static func firstValueDictionary<Element, Key: Hashable>(
@@ -23,7 +29,7 @@ public enum CommandPaletteSearchOrchestrator {
 
     /// Resolves matches for `query` over the corpus, merging nucleo results
     /// with Swift single-edit fallback matches when needed.
-    public static func resolvedSearchMatches(
+    public func resolvedSearchMatches(
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
         searchCorpusByID providedSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]? = nil,
@@ -38,7 +44,7 @@ public enum CommandPaletteSearchOrchestrator {
         let nucleoResultLimit = resultLimit ?? searchCorpus.count
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let historyBoost: ((String, Bool) -> Int)? = usageHistory.isEmpty ? nil : { commandId, queryIsEmpty in
-            self.historyBoost(
+            Self.historyBoost(
                 for: commandId,
                 queryIsEmpty: queryIsEmpty,
                 history: usageHistory,
@@ -61,8 +67,7 @@ public enum CommandPaletteSearchOrchestrator {
         }()
 
         func swiftSearchMatches() -> [CommandPaletteResolvedSearchMatch] {
-            let results = CommandPaletteSearchEngine.search(
-                entries: searchCorpus,
+            let results = CommandPaletteSearchEngine(entries: searchCorpus).search(
                 query: query,
                 resultLimit: resultLimit,
                 historyBoost: scoreBoost ?? { _, _ in 0 },
@@ -104,7 +109,7 @@ public enum CommandPaletteSearchOrchestrator {
                 ) else {
                     return nucleoMatches
                 }
-                let fallbackMatches = swiftSingleEditFallbackMatches(
+                let fallbackMatches = Self.swiftSingleEditFallbackMatches(
                     swiftSearchMatches(),
                     preparedQuery: preparedQuery,
                     searchCorpusByID: searchCorpusByID
@@ -112,7 +117,7 @@ public enum CommandPaletteSearchOrchestrator {
                 guard !fallbackMatches.isEmpty else {
                     return nucleoMatches
                 }
-                return mergedSwiftFallbackMatches(
+                return Self.mergedSwiftFallbackMatches(
                     fallbackMatches,
                     nucleoMatches: nucleoMatches,
                     searchCorpusByID: searchCorpusByID,
@@ -236,7 +241,7 @@ public enum CommandPaletteSearchOrchestrator {
 
     /// Resolves preview matches: full-corpus search for the commands scope,
     /// candidate-restricted Swift search for the switcher scope.
-    public static func previewSearchMatches(
+    public func previewSearchMatches(
         scope: CommandPaletteListScope,
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
