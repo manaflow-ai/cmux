@@ -7,28 +7,38 @@ internal import Darwin
 #if DEBUG
 internal import CMUXDebugLog
 #endif
-
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
-
 extension TerminalSurface {
     @MainActor
-    func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
-        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+    func scheduleHeadlessRuntimeStartIfNeeded(
+        reason: String,
+        source: RuntimeSurfaceCreationSource = .normal
+    ) {
+        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason, source: source)
     }
 
     @MainActor
-    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
+    private func startRuntimeUsingHeadlessWindowIfNeeded(
+        reason: String,
+        source: RuntimeSurfaceCreationSource
+    ) {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        // Production pane hosts synchronously call attachToView; carry the requested creation source through that callback.
+        let previousAttachCreationSource = paneHostAttachCreationSource
+        paneHostAttachCreationSource = source
         paneHost.attachSurface(self)
+        paneHostAttachCreationSource = previousAttachCreationSource
+        if source == .inputDemand, surface == nil, attachedView !== surfaceView {
+            attachToViewForInputDemand(surfaceView)
+        }
     }
 
     @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
         guard headlessStartupWindow == nil else { return }
         guard paneHost.window == nil else { return }
-
         let width = max(surfaceView.bounds.width, CGFloat(800))
         let height = max(surfaceView.bounds.height, CGFloat(600))
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -44,7 +54,6 @@ extension TerminalSurface {
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
-
         let contentView = NSView(frame: frame)
         paneHost.frame = contentView.bounds
         paneHost.autoresizingMask = [.width, .height]
@@ -217,6 +226,8 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        backgroundSurfaceStartSource = .normal
+        cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
@@ -278,6 +289,8 @@ extension TerminalSurface {
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
+        backgroundSurfaceStartSource = .normal
+        cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -344,47 +357,6 @@ extension TerminalSurface {
     public func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
         nextRuntimeInitialInput = trimmedInput
-    }
-
-    // Socket/API operations are an explicit runtime demand: they must be able to
-    // start a terminal in a background workspace without selecting that workspace.
-    // When there is no real window yet, bootstrap Ghostty in a hidden window and
-    // reconcile display/window state when the terminal is later presented.
-    //
-    // Isolation note: the legacy entry accepted off-main callers with a
-    // Thread.isMainThread check; every caller (Workspace, AppDelegate,
-    // TabManager, and the surface's own send paths) runs on the main actor, so
-    // the method is now @MainActor and the deferral hop uses a main-actor Task
-    // (same executor, same next-turn semantics as the legacy
-    // DispatchQueue.main.async).
-    @MainActor
-    public func requestBackgroundSurfaceStartIfNeeded() {
-        guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil else { return }
-        guard !backgroundSurfaceStartQueued else { return }
-        backgroundSurfaceStartQueued = true
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.backgroundSurfaceStartQueued = false
-            guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil else { return }
-        #if DEBUG
-            let startedAt = ProcessInfo.processInfo.systemUptime
-        #endif
-            if let view = self.attachedView, view.window != nil {
-                self.createSurface(for: view)
-            } else {
-                self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
-            }
-        #if DEBUG
-            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-            let view = self.attachedView ?? self.surfaceView
-            logDebugEvent(
-                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
-            )
-        #endif
-        }
     }
 
     /// Attaches the model to its inner view, creating the runtime surface
@@ -461,7 +433,7 @@ extension TerminalSurface {
                 "inWindow=\(view.window != nil ? 1 : 0)"
             )
 #endif
-            createSurface(for: view)
+            createSurface(for: view, source: paneHostAttachCreationSource)
 #if DEBUG
             logDebugEvent("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
 #endif
@@ -478,54 +450,12 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func claudeCommandShimStateForSurface(view: any TerminalSurfaceNativeViewing) -> (isReady: Bool, shim: ClaudeCommandShim?) {
-        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
-            claudeCommandShimInstallCompleted = true
-            return (true, nil)
-        }
-
-        if claudeCommandShimInstallCompleted {
-            return (true, claudeCommandShim)
-        }
-
-        if claudeCommandShimInstallTask == nil {
-            let surfaceId = id
-            // Explicit captures and arguments: the region-based isolation
-            // checker cannot analyze the legacy closure's implicit captures
-            // and in-closure default-argument evaluation (same effective body).
-            let temporaryDirectory = FileManager.default.temporaryDirectory
-            let installOperation: @Sendable () async -> ClaudeCommandShim? = { [wrapperURL, surfaceId, temporaryDirectory] in
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: wrapperURL,
-                    surfaceId: surfaceId,
-                    temporaryDirectory: temporaryDirectory,
-                    fileManager: .default
-                )
-            }
-            let installTask = Task.detached(priority: .utility, operation: installOperation)
-            claudeCommandShimInstallTask = installTask
-            Task { @MainActor [weak self, weak view] in
-                let shim = await installTask.value
-                guard let self else { return }
-                self.claudeCommandShim = shim
-                self.claudeCommandShimInstallCompleted = true
-                self.claudeCommandShimInstallTask = nil
-                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
-                if let view, view.window != nil {
-                    self.createSurface(for: view)
-                } else if let attachedView = self.attachedView, attachedView.window != nil {
-                    self.createSurface(for: attachedView)
-                } else {
-                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
-                }
-            }
-        }
-
-        return (false, nil)
+    func createSurface(for view: any TerminalSurfaceNativeViewing) {
+        createSurface(for: view, source: .normal)
     }
 
     @MainActor
-    func createSurface(for view: any TerminalSurfaceNativeViewing) {
+    func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
             logDebugEvent(
@@ -538,8 +468,12 @@ extension TerminalSurface {
 #endif
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view)
+        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
         guard claudeShimState.isReady else { return }
+        if shouldPaceRuntimeSurfaceCreation(source: source) {
+            enqueueRestoredRuntimeSurfaceCreation(for: view)
+            return
+        }
         let claudeShim = claudeShimState.shim
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -564,234 +498,14 @@ extension TerminalSurface {
 
         let scaleFactors = scaleFactors(for: view)
 
-        var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
-        var surfaceConfig = ghostty_surface_config_new()
-        surfaceConfig.font_size = baseConfig.fontSize
-        surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
-        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
-        surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
-            nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
-        ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
-        surfaceConfig.userdata = callbackContext.toOpaque()
-        surfaceCallbackContext?.release()
-        surfaceCallbackContext = callbackContext
-        surfaceConfig.scale_factor = scaleFactors.layer
-        surfaceConfig.context = surfaceContext
-#if DEBUG
-        let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
-        logDebugEvent(
-            "zoom.create surface=\(id.uuidString.prefix(5)) context=\(GhosttySurfaceRuntimeProbe.contextName(surfaceContext)) " +
-            "templateFont=\(templateFontText)"
+        let runtimeSurfaceCreation = createNativeRuntimeSurface(
+            app: app,
+            for: view,
+            scaleFactors: scaleFactors,
+            claudeShim: claudeShim
         )
-#endif
-        var envVars: [ghostty_env_var_s] = []
-        var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
-        defer {
-            for (key, value) in envStorage {
-                free(key)
-                free(value)
-            }
-        }
-
-        var env = baseConfig.environmentVariables
-
-        var protectedStartupEnvironmentKeys: Set<String> = []
-        Self.applyManagedTerminalIdentityEnvironment(
-            to: &env,
-            protectedKeys: &protectedStartupEnvironmentKeys
-        )
-        func setManagedEnvironmentValue(_ key: String, _ value: String) {
-            env[key] = value
-            protectedStartupEnvironmentKeys.insert(key)
-        }
-
-        let socketPath = spawnPolicyProvider.controlSocketPath()
-        Self.applyManagedCmuxContextEnvironment(
-            Self.cmuxContextEnvironment(
-                workspaceId: tabId,
-                surfaceId: id,
-                socketPath: socketPath
-            ),
-            to: &env,
-            protectedKeys: &protectedStartupEnvironmentKeys
-        )
-        setManagedEnvironmentValue("CMUX_SOCKET", "")
-        if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
-           !inheritedClaudeConfigDir.isEmpty {
-            env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
-        }
-        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
-            setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
-        }
-        if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
-            setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
-        }
-
-        // Port range for this workspace (base/range snapshotted once per app session)
-        do {
-            let startPort = sessionPortBase + portOrdinal * sessionPortRangeSize
-            setManagedEnvironmentValue("CMUX_PORT", String(startPort))
-            setManagedEnvironmentValue("CMUX_PORT_END", String(startPort + sessionPortRangeSize - 1))
-            setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
-        }
-
-        // One synchronous snapshot at the same point the legacy code read the
-        // individual settings stores.
-        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
-        let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
-        if !claudeHooksEnabled {
-            setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
-        }
-        if let customClaudePath = spawnPolicy.customClaudePath {
-            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
-        }
-        setManagedEnvironmentValue(
-            spawnPolicy.subagentNotificationEnvironmentKey,
-            spawnPolicy.suppressSubagentNotifications ? "1" : "0"
-        )
-        if !spawnPolicy.cursorHooksEnabled {
-            setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
-        }
-        if !spawnPolicy.geminiHooksEnabled {
-            setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
-        }
-        if !spawnPolicy.kiroHooksEnabled {
-            setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
-        }
-        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", spawnPolicy.kiroNotificationLevel)
-        if !spawnPolicy.ampHooksEnabled {
-            setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
-        }
-
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
-            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                setManagedEnvironmentValue(
-                    "PATH",
-                    Self.pathByPrependingUniqueDirectory(cliBinPath, to: currentPath)
-                )
-            }
-        }
-
-        if let claudeShim {
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
-            setManagedEnvironmentValue(
-                "PATH",
-                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
-            )
-        }
-
-        // Shell integration: inject startup wrappers for supported shells; skipped when the bundled dir is missing (deleted app bundle), see shellIntegrationDirectoryExists.
-        if spawnPolicy.shellIntegrationEnabled,
-           let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
-           Self.shellIntegrationDirectoryExists(integrationDir) {
-            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
-            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
-            Self.applyManagedGitWatchEnvironment(
-                watchGitStatusEnabled: spawnPolicy.watchGitStatusEnabled,
-                showPullRequestsEnabled: spawnPolicy.showPullRequestsEnabled,
-                to: &env,
-                protectedKeys: &protectedStartupEnvironmentKeys
-            )
-
-            let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
-                ?? getenv("SHELL").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["SHELL"]
-                ?? "/bin/zsh"
-            if let command = Self.applyManagedShellSpecificStartupEnvironment(
-                shell: shell,
-                integrationDir: integrationDir,
-                userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
-                to: &env,
-                protectedKeys: &protectedStartupEnvironmentKeys
-            ) {
-                if baseConfig.command?.isEmpty != false { baseConfig.command = command }
-            }
-        }
-        env = Self.mergedStartupEnvironment(
-            base: env,
-            protectedKeys: protectedStartupEnvironmentKeys,
-            additionalEnvironment: additionalEnvironment,
-            initialEnvironmentOverrides: initialEnvironmentOverrides
-        )
-        env["CMUX_SOCKET"] = ""
-
-        if !env.isEmpty {
-            envVars.reserveCapacity(env.count)
-            envStorage.reserveCapacity(env.count)
-            for (key, value) in env {
-                guard let keyPtr = strdup(key), let valuePtr = strdup(value) else { continue }
-                envStorage.append((keyPtr, valuePtr))
-                envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
-            }
-        }
-
-        let createSurface = { [self] in
-            if !envVars.isEmpty {
-                let envVarsCount = envVars.count
-                envVars.withUnsafeMutableBufferPointer { buffer in
-                    surfaceConfig.env_vars = buffer.baseAddress
-                    surfaceConfig.env_var_count = envVarsCount
-                    self.surface = ghostty_surface_new(app, &surfaceConfig)
-                }
-            } else {
-                self.surface = ghostty_surface_new(app, &surfaceConfig)
-            }
-        }
-
-        let resolvedWorkingDirectory: String? = {
-            if let workingDirectory, !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            return baseConfig.workingDirectory
-        }()
-        let resolvedCommand: String? = {
-            if let initialCommand, !initialCommand.isEmpty {
-                return initialCommand
-            }
-            return baseConfig.command
-        }()
-        let runtimeInitialInput = nextRuntimeInitialInput
-        let resolvedInitialInput: String? = {
-            if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
-                return runtimeInitialInput
-            }
-            if let initialInput, !initialInput.isEmpty {
-                return initialInput
-            }
-            return baseConfig.initialInput
-        }()
-        func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
-            guard let value else {
-                return body(nil)
-            }
-            return value.withCString(body)
-        }
-
-        let createWithCommandAndWorkingDirectory = {
-            withOptionalCString(resolvedCommand) { cCommand in
-                surfaceConfig.command = cCommand
-                withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
-                    surfaceConfig.working_directory = cWorkingDir
-                    withOptionalCString(resolvedInitialInput) { cInitialInput in
-                        surfaceConfig.initial_input = cInitialInput
-                        createSurface()
-                    }
-                }
-            }
-        }
-
-        createWithCommandAndWorkingDirectory()
+        surface = runtimeSurfaceCreation.createdSurface
+        let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
             surfaceCallbackContext?.release()
@@ -816,6 +530,9 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        if source == .scheduledRestore || source == .inputDemand {
+            requiresRestoreSpawnPacing = false
+        }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
         // A freshly created runtime surface always owns a live (non-defunct)
         // swap chain, so it is realized. Reset the flag in case this object's
@@ -916,4 +633,5 @@ extension TerminalSurface {
         )
 #endif
     }
+
 }

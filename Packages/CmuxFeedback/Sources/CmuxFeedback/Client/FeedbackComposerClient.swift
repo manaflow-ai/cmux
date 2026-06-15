@@ -6,8 +6,7 @@ import ImageIO
 /// Builds and uploads the feedback multipart request: gathers app metadata,
 /// downsamples/optimizes image attachments to fit the upload budget, and posts
 /// to the resolved endpoint. Surfaces failures as ``FeedbackComposerSubmissionError``.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum FeedbackComposerClient {
+public struct FeedbackComposerClient {
     private static let passthroughAttachmentMIMETypes: Set<String> = [
         "image/gif",
         "image/heic",
@@ -21,12 +20,20 @@ public enum FeedbackComposerClient {
     private static let optimizedAttachmentQualities: [CGFloat] = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32]
     private static let optimizedAttachmentMIMEType = "image/jpeg"
 
-    public static func submit(
+    /// Configuration (endpoint, size budgets) the client uploads against.
+    public let settings: FeedbackComposerSettings
+
+    /// Creates a feedback client bound to the given settings.
+    public init(settings: FeedbackComposerSettings = FeedbackComposerSettings()) {
+        self.settings = settings
+    }
+
+    public func submit(
         email: String,
         message: String,
         attachments: [FeedbackComposerAttachment]
     ) async throws {
-        guard let endpointURL = FeedbackComposerSettings.endpointURL() else {
+        guard let endpointURL = settings.endpointURL() else {
             throw FeedbackComposerSubmissionError.invalidEndpoint
         }
 
@@ -93,7 +100,7 @@ public enum FeedbackComposerClient {
         }
     }
 
-    private static func appendField(
+    private func appendField(
         _ name: String,
         value: String,
         to body: inout Data,
@@ -105,7 +112,7 @@ public enum FeedbackComposerClient {
         body.append(Data("\r\n".utf8))
     }
 
-    private static func prepareAttachmentsForUpload(
+    private func prepareAttachmentsForUpload(
         _ attachments: [FeedbackComposerAttachment]
     ) throws -> [PreparedFeedbackComposerAttachment] {
         guard attachments.isEmpty == false else { return [] }
@@ -122,12 +129,12 @@ public enum FeedbackComposerClient {
             }
 
         var preparedByIndex: [Int: PreparedFeedbackComposerAttachment] = [:]
-        var remainingBudget = FeedbackComposerSettings.targetTotalAttachmentUploadBytes
+        var remainingBudget = settings.targetTotalAttachmentUploadBytes
         var remainingCount = sortedAttachments.count
 
         for item in sortedAttachments {
             let perAttachmentBudget = max(1, remainingBudget / max(remainingCount, 1))
-            let preparedAttachment = try prepareAttachmentForUpload(
+            let preparedAttachment = try Self.prepareAttachmentForUpload(
                 item.attachment,
                 maximumByteCount: perAttachmentBudget
             )
@@ -138,7 +145,7 @@ public enum FeedbackComposerClient {
 
         let preparedAttachments = attachments.indices.compactMap { preparedByIndex[$0] }
         let totalBytes = preparedAttachments.reduce(0) { $0 + $1.data.count }
-        guard totalBytes <= FeedbackComposerSettings.targetTotalAttachmentUploadBytes else {
+        guard totalBytes <= settings.targetTotalAttachmentUploadBytes else {
             throw FeedbackComposerSubmissionError.attachmentPreparationFailed
         }
         return preparedAttachments
@@ -224,7 +231,7 @@ public enum FeedbackComposerClient {
         return "\(baseName.isEmpty ? "feedback-image" : baseName).jpg"
     }
 
-    private static func appendFile(
+    private func appendFile(
         named fieldName: String,
         attachment: PreparedFeedbackComposerAttachment,
         to body: inout Data,
