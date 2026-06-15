@@ -485,6 +485,12 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
+    var requiresPromptApproval: Bool {
+        approvalPolicy == .prompt
+    }
+}
+
 nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
@@ -1421,6 +1427,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
+
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
     var lastActivityAt: TimeInterval
@@ -1720,6 +1728,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var project: SessionProjectPanelSnapshot?
 }
 
+extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
+
 enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
     case vertical
@@ -1841,6 +1851,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
 }
+
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
