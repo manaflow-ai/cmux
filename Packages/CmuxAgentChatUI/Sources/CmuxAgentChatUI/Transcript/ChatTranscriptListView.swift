@@ -32,10 +32,6 @@ public struct ChatTranscriptListView: View {
     #if os(iOS)
     @State private var isAtBottom = true
     @State private var scrollPosition = ScrollPosition(idType: String.self)
-    #if DEBUG
-    @State private var debugScrollGeometry = ChatScrollGeometryDebugSnapshot()
-    @State private var lastLoggedDebugScrollGeometry = ChatScrollGeometryDebugSnapshot()
-    #endif
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -104,11 +100,7 @@ public struct ChatTranscriptListView: View {
                 .onReceive(Self.keyboardWillChangePublisher) { _ in
                     guard isAtBottom else { return }
                     withAnimation(.snappy(duration: 0.25)) {
-                        if let lastID = rows.last?.id {
-                            proxy.scrollTo(lastID, anchor: .bottom)
-                        } else {
-                            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                        }
+                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -119,15 +111,12 @@ public struct ChatTranscriptListView: View {
                     Group {
                         if !isAtBottom {
                             ChatScrollToBottomButton {
-                                // Scroll to the last row id (reliably scrollable;
-                                // the zero-height bottom anchor alone no-ops),
-                                // animated so it glides instead of jumping.
+                                // Scroll to the real bottom target, not the
+                                // last row. Aligning the last row itself to
+                                // the bottom can leave its lower half hidden
+                                // under the composer/safe-area inset.
                                 withAnimation(.snappy(duration: 0.3)) {
-                                    if let lastID = rows.last?.id {
-                                        proxy.scrollTo(lastID, anchor: .bottom)
-                                    } else {
-                                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                                    }
+                                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                                 }
                                 // Optimistic immediate hide; the scroll-geometry
                                 // reader reconciles within a frame (and correctly
@@ -223,18 +212,17 @@ public struct ChatTranscriptListView: View {
                         .padding(.top, theme.intraGroupSpacing)
                 }
                 // Fixed trailing anchor: a stable scroll target for
-                // tail-follow, the pill, and keyboard re-pin. At-bottom is no
-                // longer derived from this view's visibility (it sits at the
-                // composer/keyboard safe-area boundary and under-reported as
-                // "visible", desyncing the pill and the keyboard guard);
-                // `isAtBottom` now comes from the scroll geometry below.
+                // tail-follow, the pill, and keyboard re-pin. It owns the
+                // final bottom breathing room so `scrollTo(bottomAnchorID)`
+                // lands at the true content end, not halfway through the last
+                // visible row.
                 Color.clear
-                    .frame(height: 1)
+                    .frame(height: 9)
                     .id(Self.bottomAnchorID)
             }
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -261,26 +249,6 @@ public struct ChatTranscriptListView: View {
             let atBottom = distanceFromBottom <= Self.atBottomThreshold
             if atBottom != isAtBottom { isAtBottom = atBottom }
         }
-        #if DEBUG
-        .onScrollGeometryChange(for: ChatScrollGeometryDebugSnapshot.self) { geometry in
-            ChatScrollGeometryDebugSnapshot(geometry)
-        } action: { _, snapshot in
-            debugScrollGeometry = snapshot
-            if snapshot.differsMeaningfully(from: lastLoggedDebugScrollGeometry) {
-                print(snapshot.debugLogLine(isAtBottom: isAtBottom))
-                lastLoggedDebugScrollGeometry = snapshot
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            ChatScrollGeometryDebugOverlay(
-                snapshot: debugScrollGeometry,
-                isAtBottom: isAtBottom
-            )
-            .padding(.top, 8)
-            .padding(.leading, 8)
-            .allowsHitTesting(false)
-        }
-        #endif
         #endif
     }
 
