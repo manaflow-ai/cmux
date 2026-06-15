@@ -10,8 +10,9 @@ import CmuxFeedback
 /// depends on the `CmuxFeedback` domain package.
 public struct SidebarFeedbackComposerSheet: View {
     private static let formMaxHeight: CGFloat = 560
+    private static let settings = FeedbackComposerSettings()
 
-    @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
+    @AppStorage(SidebarFeedbackComposerSheet.settings.storedEmailKey) private var email = ""
     @Environment(\.dismiss) private var dismiss
 
     @State private var message = ""
@@ -31,7 +32,7 @@ public struct SidebarFeedbackComposerSheet: View {
     private var canSubmit: Bool {
         isValidEmail(email) &&
             !trimmedMessage.isEmpty &&
-            message.count <= FeedbackComposerSettings.maxMessageLength &&
+            message.count <= Self.settings.maxMessageLength &&
             !isSubmitting &&
             !didSend
     }
@@ -111,10 +112,10 @@ public struct SidebarFeedbackComposerSheet: View {
                     Text(String(localized: "sidebar.help.feedback.message", defaultValue: "Message", bundle: .module))
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 0)
-                    Text("\(message.count)/\(FeedbackComposerSettings.maxMessageLength)")
+                    Text("\(message.count)/\(Self.settings.maxMessageLength)")
                         .font(.system(size: 11))
                         .foregroundStyle(
-                            message.count > FeedbackComposerSettings.maxMessageLength
+                            message.count > Self.settings.maxMessageLength
                                 ? Color.red
                                 : Color.secondary
                         )
@@ -245,7 +246,7 @@ public struct SidebarFeedbackComposerSheet: View {
             if knownPaths.contains(normalizedPath) {
                 continue
             }
-            if updatedAttachments.count >= FeedbackComposerSettings.maxAttachmentCount {
+            if updatedAttachments.count >= Self.settings.maxAttachmentCount {
                 firstIssue = String(
                     localized: "sidebar.help.feedback.tooManyImages",
                     defaultValue: "You can attach up to 10 images.",
@@ -297,7 +298,7 @@ public struct SidebarFeedbackComposerSheet: View {
             return
         }
 
-        guard message.count <= FeedbackComposerSettings.maxMessageLength else {
+        guard message.count <= Self.settings.maxMessageLength else {
             submissionErrorMessage = String(
                 localized: "sidebar.help.feedback.messageTooLong",
                 defaultValue: "Your message is too long.",
@@ -313,7 +314,7 @@ public struct SidebarFeedbackComposerSheet: View {
         }
 
         do {
-            try await FeedbackComposerClient.submit(
+            try await FeedbackComposerClient(settings: Self.settings).submit(
                 email: trimmedEmail,
                 message: normalizedMessage,
                 attachments: attachments

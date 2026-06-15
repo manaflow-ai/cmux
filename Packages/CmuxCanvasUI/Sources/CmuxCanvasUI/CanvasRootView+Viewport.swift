@@ -18,13 +18,16 @@ extension CanvasRootView: CanvasViewportControlling {
                     }
                 }
             }, completionHandler: { [weak self] in
-                guard let self else { return }
-                self.callbacks.onViewportGeometryChanged(self.window)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.callbacks.onViewportGeometryChanged(self.window)
+                }
             })
         } else {
             applyAllPaneFrames()
         }
         updateLifecycle()
+        updateMinimap()
         callbacks.onLayoutChanged()
         callbacks.onViewportGeometryChanged(window)
     }
@@ -51,11 +54,13 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.maxMagnification
         )
         setMagnification(target)
+        updateMinimap(reveal: true)
     }
 
     public func resetZoom() {
         overviewRestore = nil
         setMagnification(1.0)
+        updateMinimap(reveal: true)
     }
 
     public var currentMagnification: CGFloat {
@@ -69,6 +74,10 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func setViewport(center: CGPoint, magnification: CGFloat?) {
+        setViewport(center: center, magnification: magnification, notifySettled: true)
+    }
+
+    func setViewport(center: CGPoint, magnification: CGFloat?, notifySettled: Bool) {
         // An explicit viewport set invalidates the overview round-trip restore.
         overviewRestore = nil
         let targetMagnification: CGFloat
@@ -98,8 +107,11 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.magnification = targetMagnification
         scrollView.contentView.setBoundsOrigin(targetOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateMinimap(reveal: true)
         callbacks.onViewportGeometryChanged(window)
-        callbacks.onViewportSettled(window)
+        if notifySettled {
+            callbacks.onViewportSettled(window)
+        }
     }
 
     /// Zooms by `factor` while keeping the document point under
@@ -116,6 +128,7 @@ extension CanvasRootView: CanvasViewportControlling {
         let anchor = scrollView.contentView.convert(windowLocation, from: nil)
         scrollView.setMagnification(target, centeredAt: anchor)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateMinimap(reveal: true)
     }
 
     /// Animates to `magnification`, keeping the current viewport center
@@ -153,6 +166,7 @@ extension CanvasRootView: CanvasViewportControlling {
                 scrollView.contentView.animator().setBoundsOrigin(restore.origin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
+            updateMinimap(reveal: true)
             return
         }
         guard let content = model.contentBounds else { return }
@@ -181,5 +195,6 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+        updateMinimap(reveal: true)
     }
 }

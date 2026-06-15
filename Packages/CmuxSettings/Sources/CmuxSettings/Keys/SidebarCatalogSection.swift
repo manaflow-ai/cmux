@@ -116,6 +116,18 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    public let rightMaxWidth = DefaultsKey<Double>(
+        id: "sidebar.rightMaxWidth",
+        defaultValue: RightSidebarWidthSettings.noOverrideValue,
+        userDefaultsKey: RightSidebarWidthSettings.maxWidthKey
+    )
+
+    public let rememberedRightMaxWidth = DefaultsKey<Double>(
+        id: "sidebar.rightMaxWidth.remembered",
+        defaultValue: RightSidebarWidthSettings.defaultConfiguredMaximumWidth,
+        userDefaultsKey: RightSidebarWidthSettings.rememberedMaxWidthKey
+    )
+
     public let activeTabIndicatorStyle = DefaultsKey<String>(
         id: "sidebar.activeTabIndicatorStyle",
         defaultValue: "leftRail",
