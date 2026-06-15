@@ -209,15 +209,29 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  # The macOS app-host suite (cmuxTests) is the long pole. It is execution
+  # bound, not compile bound: ~4k test cases, dominated by app-host classes
+  # whose methods each take 1-17s. Run it as N shards across runners. Each
+  # shard builds once and runs a deterministic round-robin slice of the
+  # authoritative enumerated test list single-threaded, so the slices stay
+  # balanced, the union is exactly the full suite, and the per-shard crash
+  # profile matches the old single-job run (no in-process parallelism). The
+  # required `tests` status check is reported by the aggregator job below.
+  tests-shard:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1", "2", "3", "4"]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      CMUX_SHARD_INDEX: ${{ matrix.shard }}
+      CMUX_SHARD_TOTAL: ${{ strategy.job-total }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -286,13 +300,27 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
-      - name: Prepare isolated DerivedData
+      - name: Prepare DerivedData path
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
+          # Stable (non per-run) path so the incremental build products can be
+          # cached across runs. Xcode's incremental build validates restored
+          # products against the current sources, so a warm restore recompiles
+          # only what changed instead of rebuilding the whole app + test bundle
+          # (the focused-gate step used to spend ~3 min on that full compile).
+          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-tests
+          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-
 
       - name: Resolve Swift packages
         run: |
@@ -315,7 +343,53 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build for testing
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # Build the app + cmuxTests bundle once. Every test step below runs via
+          # test-without-building against these products, so the bundle is no
+          # longer rebuilt and relinked for each focused gate plus the main
+          # suite (four separate build-graph resolutions today).
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            build-for-testing
+
+      - name: Compute test shard
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # Enumerate the authoritative flat test list (XCTest + swift-testing,
+          # which a source grep would miss) and select this shard's slice.
+          # shard_tests.py sorts then assigns round-robin, so the slices are
+          # disjoint, their union is the whole suite, and the slow app-host
+          # classes' methods spread evenly across shards.
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -enumerate-tests -test-enumeration-style flat -test-enumeration-format json \
+            -test-enumeration-output-path /tmp/cmux-test-enum.json \
+            test-without-building
+          TOTAL=$(python3 scripts/ci/shard_tests.py --input /tmp/cmux-test-enum.json \
+            --shard-index "$CMUX_SHARD_INDEX" --shard-total "$CMUX_SHARD_TOTAL" --print-count)
+          python3 scripts/ci/shard_tests.py --input /tmp/cmux-test-enum.json \
+            --shard-index "$CMUX_SHARD_INDEX" --shard-total "$CMUX_SHARD_TOTAL" \
+            > /tmp/cmux-shard-tests.txt
+          SHARD_COUNT=$(wc -l < /tmp/cmux-shard-tests.txt | tr -d ' ')
+          echo "Enumerated $TOTAL tests; shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL selected $SHARD_COUNT"
+          if [ "$SHARD_COUNT" -eq 0 ]; then
+            echo "ERROR: shard selected 0 tests from $TOTAL enumerated" >&2
+            exit 1
+          fi
+
       - name: Run Ghostty split-theme appearance regression
+        if: matrix.shard == '1'
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -324,14 +398,14 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+            test-without-building
 
       - name: Run browser system proxy mirror regression
+        if: matrix.shard == '1'
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
           # The full "Run unit tests" step tolerates app-host crashes by
@@ -346,11 +420,11 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test
+            test-without-building
 
       - name: Run Option/Alt sided-modifier regression
+        if: matrix.shard == '1'
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5993.
           # The full "Run unit tests" step tolerates app-host crashes by
@@ -365,14 +439,24 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test
+            test-without-building
 
       - name: Run unit tests
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # Build this shard's -only-testing arguments from the slice computed
+          # in "Compute test shard". Held in an array so the literal
+          # `run_unit_tests | tee` invocation below stays unchanged.
+          ONLY_TESTING_ARGS=()
+          while IFS= read -r tid; do
+            [ -n "$tid" ] && ONLY_TESTING_ARGS+=("-only-testing:$tid")
+          done < /tmp/cmux-shard-tests.txt
+          if [ "${#ONLY_TESTING_ARGS[@]}" -eq 0 ]; then
+            echo "No tests selected for shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL" >&2
+            exit 1
+          fi
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -386,8 +470,8 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
+              "${ONLY_TESTING_ARGS[@]}" \
+              test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
@@ -422,11 +506,34 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf "$CMUX_DERIVED_DATA_PATH"
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            # DerivedData was wiped to clear the corrupt SwiftPM state, so the
+            # build products that test-without-building needs are gone. Re-resolve
+            # and rebuild for testing before retrying the suite.
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
+          fi
+
+          # A shard must actually execute tests. If the -only-testing selectors
+          # matched nothing, every summary line reads "Executed 0 tests" while
+          # xcodebuild still exits 0, which would silently drop this shard's
+          # coverage. Require at least one non-zero "Executed N tests" line.
+          if ! echo "$OUTPUT" | grep -qE "Executed [1-9][0-9]* test"; then
+            echo "ERROR: shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} (selector format mismatch?)" >&2
+            exit 1
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
@@ -440,10 +547,109 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
+        if: matrix.shard == '1'
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
+
+      - name: Run CLI no-socket regressions
+        if: matrix.shard == '1'
+        run: |
+          set -euo pipefail
+
+          CLI_BIN="$(
+            find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          python3 tests/test_stress_cli_socket_api.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
+          python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_claude_wrapper_user_binary_resolution.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
+          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_shell_git_branch_stale_cwd.py
+          python3 tests/test_shell_git_config_remote_url_parsing.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+
+  # SwiftPM package test targets plus the Agent Session web build. None of
+  # these need the app/test-bundle build, so they run as their own job
+  # concurrently with the tests-shard matrix instead of serializing behind the
+  # app-host suite. Gated through the `tests` aggregator below so they stay a
+  # required check.
+  package-tests:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 45
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit-pkg
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit-pkg.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
 
       - name: Run Swift package unit tests
         run: |
@@ -533,41 +739,25 @@ jobs:
           bun run agent-session-web:test
           git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
 
-      - name: Run CLI no-socket regressions
+  # Aggregator that reports the required `tests` status check. It passes only
+  # when the sharded app-host suite and the package-test job both pass, so the
+  # required check name stays `tests` without a ruleset change while the heavy
+  # work fans out across the tests-shard matrix.
+  tests:
+    needs: [tests-shard, package-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required test jobs passed
         run: |
-          set -euo pipefail
-
-          CLI_BIN="$(
-            find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
-          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
-            echo "cmux CLI binary not found in DerivedData" >&2
+          echo "tests-shard:   ${{ needs.tests-shard.result }}"
+          echo "package-tests: ${{ needs.package-tests.result }}"
+          if [ "${{ needs.tests-shard.result }}" != "success" ] || \
+             [ "${{ needs.package-tests.result }}" != "success" ]; then
+            echo "One or more required test jobs did not succeed" >&2
             exit 1
           fi
-
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
-          python3 tests/test_stress_cli_socket_api.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
-          python3 tests/test_claude_wrapper_hooks.py
-          python3 tests/test_claude_wrapper_user_binary_resolution.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
-          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
-          python3 tests/test_shell_git_branch_stale_cwd.py
-          python3 tests/test_shell_git_config_remote_url_parsing.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+          echo "All required test jobs passed"
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on macOS CI.

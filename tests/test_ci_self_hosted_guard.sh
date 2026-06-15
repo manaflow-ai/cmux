@@ -224,7 +224,11 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 # ci.yml jobs
-check_macos_runner "$CI_FILE" "tests"
+# The heavy macOS test work runs in the tests-shard matrix and the package-tests
+# job. The `tests` job is a lightweight ubuntu aggregator that reports the
+# required status check, so it is intentionally not on a paid macOS runner.
+check_macos_runner "$CI_FILE" "tests-shard"
+check_macos_runner "$CI_FILE" "package-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
