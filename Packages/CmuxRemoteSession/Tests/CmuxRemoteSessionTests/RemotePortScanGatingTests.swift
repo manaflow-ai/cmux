@@ -145,16 +145,21 @@ struct RemotePortScanGatingTests {
 
     @Test("Enabled bootstrap TTY resolution spawns ssh (sanity)")
     func enabledBootstrapTTYResolutionSpawnsSSH() {
-        let runner = SpyProcessRunner()
+        // A valid TTY in stdout resolves on the first pass, so no 0.5s retry is
+        // scheduled and the exact run count cannot race a delayed retry.
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 0, stdout: "ttys005\n", stderr: "")
+        )
         let coordinator = Self.makeCoordinator(runner: runner, relayPort: 41000)
 
-        coordinator.queue.sync {
+        let (count, resolved) = coordinator.queue.sync { () -> (Int, Bool) in
             coordinator.daemonReady = true
             coordinator.requestBootstrapRemoteTTYIfNeededLocked()
+            return (runner.runCount, coordinator.bootstrapRemoteTTYResolved)
         }
 
-        #expect(runner.runCount == 1)
-        coordinator.queue.sync { coordinator.cancelBootstrapRemoteTTYRetryLocked() }
+        #expect(count == 1)
+        #expect(resolved)
         coordinator.stop()
     }
 
