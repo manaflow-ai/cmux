@@ -324,6 +324,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
     /// Sent in order on the next submit and then cleared for that terminal.
     private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+    /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
+    /// session. The composer's photo-staging path captures it before its
+    /// (off-main) load + encode and re-checks it just before mutating the store:
+    /// a sign-out that lands while a photo is in flight bumps the token, so the
+    /// stale continuation is dropped instead of re-staging the previous user's
+    /// photo bytes under a terminal id the next account may reuse. Not observed:
+    /// it gates an async hand-back, not view state.
+    @ObservationIgnored private var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -768,6 +776,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // content, and a reused terminal id under the next account must never
         // surface the previous user's selected photos.
         pendingAttachmentsByTerminalID = [:]
+        // Bump the session token so a photo load+encode already in flight (started
+        // under this account) is dropped at its store-mutation re-check instead of
+        // re-staging this user's bytes after the wipe above.
+        signInGeneration &+= 1
         // Per-terminal composer dismissals are this user's session UI state; the
         // next account starts with the default-open composer everywhere. Clear
         // the focus mirror BEFORE the selection resets below so the terminal
@@ -2737,6 +2749,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return attachment.id
     }
 
+    /// A token identifying the current signed-in session. Capture it before an
+    /// async photo load/encode and pass it back to
+    /// ``addPendingAttachment(_:format:forTerminalID:ifSessionGeneration:)`` so a
+    /// sign-out that lands mid-flight (which bumps the token) drops the stale
+    /// result instead of staging the previous user's bytes under a terminal id the
+    /// next account may reuse.
+    public var currentSessionGeneration: Int { signInGeneration }
+
+    /// Stage a picked image only if the captured session token still matches the
+    /// current one, AND (when an explicit terminal id is given) that terminal
+    /// still exists. Used by the composer's photo picker, whose load+encode runs
+    /// off-main: a sign-out (or the target terminal going away) while that work is
+    /// in flight must not re-stage the result. The token recheck lives in this
+    /// store-mutation path so it is robust even if the picker view is already
+    /// gone.
+    /// - Parameter capturedGeneration: The value of
+    ///   ``currentSessionGeneration`` read before the async work began.
+    /// - Returns: The new attachment's id, or `nil` when nothing was staged
+    ///   (empty bytes, no target terminal, a superseded session, or a terminal
+    ///   that no longer exists).
+    @discardableResult
+    public func addPendingAttachment(
+        _ data: Data,
+        format: String,
+        forTerminalID terminalID: String? = nil,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> MobilePendingAttachment.ID? {
+        // A sign-out (or account switch) bumped the token while the photo was
+        // loading/encoding: this is the previous user's content, drop it.
+        guard capturedGeneration == signInGeneration else { return nil }
+        // For an explicit target, require it to still exist so a closed terminal
+        // does not accrue orphaned bytes the user can no longer see or send.
+        if let terminalID,
+           !workspaces.contains(where: { $0.terminals.contains(where: { $0.id.rawValue == terminalID }) }) {
+            return nil
+        }
+        return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+    }
+
     /// Remove one staged attachment by id. A no-op when the id is not staged.
     /// - Parameters:
     ///   - id: The attachment's stable id.
@@ -2794,15 +2845,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconciliation still keys on that captured terminal (not the live
     /// selection).
     ///
+    /// - Parameter capturedText: The exact text to send, snapshotted by the
+    ///   caller before any await. When `nil`, the live ``terminalInputText`` is
+    ///   read (the text-only entry points have no earlier await, so there is no
+    ///   snapshot to drift). ``submitComposer()`` MUST pass a snapshot: a terminal
+    ///   switch or a field edit during its image awaits would otherwise make this
+    ///   send (and the draft reconcile) read a different terminal's draft or skip
+    ///   the text the user actually composed at Send time.
+    ///
     /// - Returns: `true` when the Mac acknowledged the paste (or the text was
     ///   empty, i.e. nothing to send), `false` when the send failed so the caller
     ///   keeps the text for a retry.
     @discardableResult
     func submitComposerInput(
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        capturedText: String? = nil
     ) async -> Bool {
-        let text = terminalInputText
+        let text = capturedText ?? terminalInputText
         // Empty text is "nothing to send", which is a success from the caller's
         // point of view (an images-only send has no text to keep on failure).
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
@@ -2864,6 +2924,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await submitComposerInput()
             return
         }
+        // Snapshot the text BEFORE any await (the image sends below). Threaded
+        // through the text submit + the post-send reconcile so a terminal switch
+        // (which swaps the draft into a different terminal's text) or a field edit
+        // while an image send is in flight cannot make the text send read the
+        // wrong draft or skip the message the user composed at Send time. An
+        // images-only send snapshots empty text, which the text submit no-ops.
+        let submittedText = terminalInputText
         let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
         // Deliver each image first and await it, so the agent's terminal has the
         // file paths before the text arrives. Remove each only after its send is
@@ -2878,9 +2945,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard sent else { return }
             removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
         }
-        // Submit the text to the captured terminal (a no-op when empty, e.g. an
-        // images-only send). All images acked by here, so the text follows.
-        await submitComposerInput(workspaceID: workspaceID, terminalID: submittedTerminalID)
+        // Submit the captured text to the captured terminal (a no-op when empty,
+        // e.g. an images-only send). All images acked by here, so the text
+        // follows. Passing the snapshot (not the live field) keeps this immune to
+        // a switch/edit that happened during the image awaits above.
+        await submitComposerInput(
+            workspaceID: workspaceID,
+            terminalID: submittedTerminalID,
+            capturedText: submittedText
+        )
     }
 
     /// Clear the sent text from wherever it now lives after a successful

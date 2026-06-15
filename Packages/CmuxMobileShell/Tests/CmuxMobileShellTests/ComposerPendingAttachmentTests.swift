@@ -123,6 +123,56 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-b").isEmpty)
     }
 
+    @Test func guardedAddDroppedAfterSignOutGenerationBump() {
+        let composite = Self.makeComposite()
+        // The picker captures the session token before its (async) load+encode.
+        let captured = composite.currentSessionGeneration
+
+        // A sign-out lands while the photo is in flight, wiping staged content and
+        // bumping the session token.
+        composite.signOut()
+
+        // The continuation now tries to stage the previous user's bytes. The
+        // guarded add must drop it: the captured token no longer matches.
+        let id = composite.addPendingAttachment(
+            Self.bytes("prev-user-photo"),
+            format: "png",
+            forTerminalID: "term-a",
+            ifSessionGeneration: captured
+        )
+        #expect(id == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func guardedAddSucceedsWhenSessionUnchanged() {
+        let composite = Self.makeComposite()
+        let captured = composite.currentSessionGeneration
+        // No sign-out: the token still matches, so the photo stages normally.
+        let id = composite.addPendingAttachment(
+            Self.bytes("photo"),
+            format: "png",
+            forTerminalID: "term-a",
+            ifSessionGeneration: captured
+        )
+        #expect(id != nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+    }
+
+    @Test func guardedAddDroppedWhenTargetTerminalGone() {
+        let composite = Self.makeComposite()
+        let captured = composite.currentSessionGeneration
+        // The captured terminal no longer exists in the current workspaces, so
+        // the photo must not accrue orphaned bytes under a dead id.
+        let id = composite.addPendingAttachment(
+            Self.bytes("photo"),
+            format: "png",
+            forTerminalID: "term-gone",
+            ifSessionGeneration: captured
+        )
+        #expect(id == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-gone").isEmpty)
+    }
+
     @Test func submitKeepsAttachmentsWhenSendFails() async {
         let composite = Self.makeComposite()
         // No remoteClient is wired, so the image send fails (returns false). A

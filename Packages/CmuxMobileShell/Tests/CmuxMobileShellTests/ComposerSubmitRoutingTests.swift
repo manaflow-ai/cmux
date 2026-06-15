@@ -69,6 +69,68 @@ import Testing
         #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
     }
 
+    /// The text sent is the snapshot taken at Send time, not whatever the field
+    /// holds when the (awaited) image sends return. A field edit while the first
+    /// image is in flight must NOT change the text that lands on the captured
+    /// terminal, and must not be discarded as already-sent on reconcile.
+    @Test func textSnapshotSurvivesFieldEditMidSend() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let termA = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("a-img"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "to-a"
+
+        await router.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+
+        // Park the first image send, then edit the field mid-flight (the user
+        // keeps typing after tapping Send). If the text send re-read the live
+        // field, "edited after send" would paste instead of the snapshot.
+        await router.awaitFirstPasteImageReached()
+        store.terminalInputText = "edited after send"
+        await router.releaseFirstPasteImage()
+        await submit.value
+
+        let pastes = await router.recordedPastes()
+        #expect(pastes.map(\.surfaceID) == [termA])
+        #expect(pastes.first?.text == "to-a", "the snapshot taken at Send time must paste, not the mid-send edit")
+        // The newer text the user typed after Send is preserved (reconcile only
+        // clears when the field still equals the sent snapshot).
+        #expect(store.terminalInputText == "edited after send")
+    }
+
+    /// A terminal switch mid-send swaps the draft into a different terminal's
+    /// text; the captured snapshot must still be what pastes to the captured
+    /// terminal, not the now-current (different) draft.
+    @Test func textSnapshotSurvivesSwitchMidSend() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let termA = RoutingHostRouter.terminalA
+        let termB = RoutingHostRouter.terminalB
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("a-img"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "to-a"
+
+        await router.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+
+        // Switch to term-b mid-flight (which swaps the draft, changing the live
+        // field) and seed term-b's field with different text. The text send must
+        // still paste term-a's snapshot to term-a.
+        await router.awaitFirstPasteImageReached()
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
+        store.terminalInputText = "b-draft"
+        await router.releaseFirstPasteImage()
+        await submit.value
+
+        let pastes = await router.recordedPastes()
+        #expect(pastes.map(\.surfaceID) == [termA])
+        #expect(pastes.first?.text == "to-a", "term-a's snapshot must paste to term-a, not term-b's live draft")
+    }
+
     /// A second submit while the first is still awaiting an image RPC is rejected
     /// by the re-entrancy guard, so the same staged attachments are NOT uploaded
     /// twice (the Send button stays enabled mid-send because attachments clear

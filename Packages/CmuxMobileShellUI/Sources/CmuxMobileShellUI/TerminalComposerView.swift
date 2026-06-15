@@ -351,6 +351,11 @@ struct TerminalComposerView: View {
     /// picker callback; the selection is cleared so re-picking the same asset
     /// fires again.
     private func stagePickedItems(_ items: [PhotosPickerItem]) {
+        // Capture the signed-in session token before any await. If a sign-out
+        // lands while a photo is loading/encoding below, the store bumps this
+        // token and the guarded add drops the stale result instead of re-staging
+        // the previous user's bytes under a (possibly reused) terminal id.
+        let sessionGeneration = store.currentSessionGeneration
         Task { @MainActor in
             // Start from what is already staged so the budget spans the whole
             // message, not just this batch.
@@ -366,7 +371,12 @@ struct TerminalComposerView: View {
                 // Skip a pick that would blow the total byte budget; the
                 // already-staged attachments stay, and the user can still send.
                 guard stagedBytes + prepared.data.count <= Self.maxTotalAttachmentBytes else { continue }
-                guard let id = store.addPendingAttachment(prepared.data, format: prepared.format, forTerminalID: terminalID) else { continue }
+                guard let id = store.addPendingAttachment(
+                    prepared.data,
+                    format: prepared.format,
+                    forTerminalID: terminalID,
+                    ifSessionGeneration: sessionGeneration
+                ) else { continue }
                 // The off-main path hands back the downsampled thumbnail as
                 // Sendable PNG bytes; build the UIKit image here on the main
                 // actor (UIImage is not Sendable and must not cross the task
