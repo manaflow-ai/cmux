@@ -1,19 +1,30 @@
 import Foundation
 
+struct CanvasMinimapAutoHideClock: Sendable {
+    let now: @Sendable () -> Duration
+    let sleep: @Sendable (Duration) async throws -> Void
+
+    init<C: Clock & Sendable>(_ clock: C) where C.Duration == Duration {
+        let start = clock.now
+        now = { start.duration(to: clock.now) }
+        sleep = { duration in try await clock.sleep(for: duration) }
+    }
+}
+
 @MainActor
 final class CanvasMinimapAutoHideScheduler {
-    private let clock: any Clock<Duration>
-    private let delaySeconds: TimeInterval
-    private var deadline: Date?
+    private let clock: CanvasMinimapAutoHideClock
+    private let delay: Duration
+    private var deadline: Duration?
     private var task: Task<Void, Never>?
 
-    init(clock: any Clock<Duration>, delaySeconds: TimeInterval = 3) {
-        self.clock = clock
-        self.delaySeconds = delaySeconds
+    init<C: Clock & Sendable>(clock: C, delay: Duration = .seconds(3)) where C.Duration == Duration {
+        self.clock = CanvasMinimapAutoHideClock(clock)
+        self.delay = delay
     }
 
     func schedule(_ action: @escaping @MainActor () -> Void) {
-        deadline = Date().addingTimeInterval(delaySeconds)
+        deadline = clock.now() + delay
         guard task == nil else { return }
 
         task = Task { @MainActor [weak self] in
@@ -24,8 +35,8 @@ final class CanvasMinimapAutoHideScheduler {
                     return
                 }
 
-                let remaining = deadline.timeIntervalSince(Date())
-                if remaining <= 0 {
+                let remaining = deadline - clock.now()
+                if remaining <= .zero {
                     self.deadline = nil
                     task = nil
                     action()
@@ -33,7 +44,7 @@ final class CanvasMinimapAutoHideScheduler {
                 }
 
                 do {
-                    try await clock.sleep(for: Self.duration(for: remaining))
+                    try await clock.sleep(remaining)
                 } catch {
                     return
                 }
@@ -45,9 +56,5 @@ final class CanvasMinimapAutoHideScheduler {
         deadline = nil
         task?.cancel()
         task = nil
-    }
-
-    private static func duration(for interval: TimeInterval) -> Duration {
-        .milliseconds(max(1, Int64((interval * 1000).rounded(.up))))
     }
 }
