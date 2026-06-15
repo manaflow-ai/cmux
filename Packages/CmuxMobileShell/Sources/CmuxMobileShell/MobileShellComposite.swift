@@ -543,10 +543,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
-    /// The in-flight raw-input drain loop. Retained (not fire-and-forget) so a
-    /// new `.startDraining` chains strictly after the previous drain and tests
-    /// can await it deterministically via ``drainRawTerminalInputForTesting()``.
-    /// Not observed: it sequences async delivery, not view state.
+    /// The in-flight raw-input drain loop. Retained (not fire-and-forget) so it
+    /// isn't orphaned and tests can await it deterministically via
+    /// ``drainRawTerminalInputForTesting()``. Single-drain-at-a-time ordering is
+    /// enforced by the buffer's `isDraining` flag — a new `.startDraining` only
+    /// occurs once the prior drain emptied the queue — so the task is replaced,
+    /// never chained onto the previous one. Not observed: it sequences async
+    /// delivery, not view state.
     @ObservationIgnored private var rawTerminalInputDrainTask: Task<Void, Never>?
     @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
@@ -2832,12 +2835,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: terminalID
         ) {
         case .startDraining:
-            // Chain onto any prior drain so sequential bursts deliver strictly
-            // in order, and retain the task so it isn't an orphaned fire-and
-            // -forget (tests await it via `drainRawTerminalInputForTesting()`).
-            let previousDrain = rawTerminalInputDrainTask
+            // Retain the drain loop (not fire-and-forget) so it isn't orphaned
+            // and tests can await it via `drainRawTerminalInputForTesting()`.
+            // Ordering is already guaranteed by the buffer's `isDraining` flag
+            // (a new `.startDraining` only fires once the prior drain emptied
+            // the queue), so we deliberately do NOT chain onto the previous
+            // task: chaining would make a fresh session's first keystroke block
+            // on a stale drain still awaiting an in-flight RPC from a dropped
+            // connection.
             rawTerminalInputDrainTask = Task { @MainActor [weak self] in
-                await previousDrain?.value
                 await self?.drainRawTerminalInputBuffer()
             }
         case .queued:
