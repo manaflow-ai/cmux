@@ -50,12 +50,28 @@ final class SettingsWindowPresenterTests: XCTestCase {
             settingsWindow.close()
         }
 
+        presenter.show(openWindowOverride: {})
         presenter.configure(window: settingsWindow)
         await Task.yield()
         presenter.configure(window: settingsWindow)
         await Task.yield()
 
         XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
+    }
+
+    func testConfigureWindowWithoutOpenRequestDoesNotFocus() async {
+        let presenter = SettingsWindowPresenter()
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        defer {
+            settingsWindow.orderOut(nil)
+            settingsWindow.close()
+        }
+
+        presenter.configure(window: settingsWindow)
+        await Task.yield()
+
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 0)
+        XCTAssertFalse(settingsWindow.isVisible)
     }
 
     func testShowPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async {
@@ -90,6 +106,7 @@ final class SettingsWindowPresenterTests: XCTestCase {
         weak var weakSettingsWindow = settingsWindow
         var didOpen = false
 
+        presenter.show(openWindowOverride: {})
         presenter.configure(window: settingsWindow!)
         await Task.yield()
         settingsWindow?.orderOut(nil)
