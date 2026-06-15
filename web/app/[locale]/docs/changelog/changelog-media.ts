@@ -26,6 +26,37 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.16": {
+    title:
+      "Freeform 2D Canvas, AI Auto-Naming, Per-Workspace Env Vars, Left/Right Option as Alt",
+    features: [
+      {
+        title: "Freeform 2D Canvas Layout",
+        description:
+          "Arrange a workspace's panes anywhere on a zoomable 2D canvas instead of a fixed split grid, with a polished minimap for navigation.",
+      },
+      {
+        title: "AI Auto-Naming for Workspaces and Tabs",
+        description:
+          "Opt in to have cmux name your workspaces and tabs from the agent conversation running inside them, so a wall of sessions stays readable at a glance.",
+      },
+      {
+        title: "Per-Workspace Environment Variables",
+        description:
+          "Set environment variables on a workspace and every shell it spawns inherits them, so per-project configuration no longer has to live in your shell profile.",
+      },
+      {
+        title: "Left and Right Option as Alt",
+        description:
+          "macos-option-as-alt now distinguishes the left and right Option keys, sending sided modifier bits to the terminal. One of our most-requested terminal fixes.",
+      },
+      {
+        title: "iOS Beta Polish",
+        description:
+          "A redesigned workspace list with groups, unread dots, and last-activity previews; smoother terminal scrolling; cross-device notification dismiss-sync with an authoritative unread badge; and a TestFlight push-notification fix.",
+      },
+    ],
+  },
   "0.64.15": {
     title:
       "Diff Viewer Review Comments, Rebindable ⌘1-9 + Shortcut When-Clauses, In-Process Custom Sidebars, iOS Terminal Composer",

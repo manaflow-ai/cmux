@@ -27,6 +27,66 @@ extension RemoteSessionCoordinator {
         }
     }
 
+    /// Enables or disables remote listening-port discovery on the coordinator
+    /// queue. The app derives the flag from the sidebar ports-visibility
+    /// settings (`sidebar.showPorts` and `sidebar.hideAllDetails`): disabling
+    /// tears down any active poll timer and in-flight scan burst and stops
+    /// every ssh-spawning scan; enabling resumes polling when the daemon is
+    /// ready and re-arms a TTY-scoped refresh so ports repopulate promptly.
+    public func updateRemotePortScanningEnabled(_ enabled: Bool) {
+        queue.async { [weak self] in
+            self?.updateRemotePortScanningEnabledLocked(enabled)
+        }
+    }
+
+    func updateRemotePortScanningEnabledLocked(_ enabled: Bool) {
+        guard remotePortScanningEnabled != enabled else { return }
+        remotePortScanningEnabled = enabled
+        guard enabled else {
+            suspendRemotePortScanningLocked()
+            return
+        }
+        updateRemotePortPollingStateLocked()
+        guard daemonReady, !isStopping else { return }
+        if remotePortScanTTYNames.isEmpty {
+            // Resume bootstrap TTY resolution (its ssh is gated on the flag
+            // too) so TTY-scoped scanning can start once the remote TTY is
+            // known again.
+            requestBootstrapRemoteTTYIfNeededLocked()
+        } else if remotePortPollTimer == nil {
+            // TTYs are known but no fallback poll timer covers them, so re-arm
+            // one refresh burst to repopulate the display promptly. The
+            // host-wide/delta poll modes already refresh themselves through the
+            // timer restarted above.
+            remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
+            scheduleRemotePortScanCoalesceLocked()
+        }
+    }
+
+    /// Tears down every ssh-spawning port-scan activity and clears detected
+    /// ports. Mirrors the scan teardown on the proxy-error path so a disabled
+    /// scanner leaves no poll timer, burst, or stale ports behind, and resets
+    /// the hidden poll/bootstrap bookkeeping (delta baseline, retry budget) so
+    /// re-enabling resumes like a fresh scanner start rather than against
+    /// pre-disable state.
+    private func suspendRemotePortScanningLocked() {
+        remotePortScanGeneration &+= 1
+        remotePortScanBurstTask?.cancel()
+        remotePortScanBurstTask = nil
+        remotePortScanBurstActive = false
+        remotePortScanActiveReason = nil
+        remotePortScanPendingReason = nil
+        cancelRemotePortScanCoalesceLocked()
+        cancelBootstrapRemoteTTYRetryLocked()
+        bootstrapRemoteTTYRetryCount = 0
+        remoteScannedPortsByPanel.removeAll()
+        stopRemotePortPollingLocked()
+        polledRemotePorts = []
+        remotePortPollBaselinePorts = nil
+        keepPolledRemotePortsUntilTTYScan = false
+        publishPortsSnapshotLocked()
+    }
+
     func updateRemotePortScanTTYsLocked(_ ttyNames: [UUID: String]) {
         let previousTTYNames = remotePortScanTTYNames
         let nextTTYNames = ttyNames.reduce(into: [UUID: String]()) { result, entry in
@@ -60,6 +120,7 @@ extension RemoteSessionCoordinator {
 
     func kickRemotePortScanLocked(panelId: UUID, reason: PortScanKickReason) {
         guard !isStopping else { return }
+        guard remotePortScanningEnabled else { return }
         guard daemonReady else { return }
         guard remotePortScanTTYNames[panelId] != nil else { return }
         if remotePortScanBurstActive, remotePortScanActiveReason == .command, reason == .refresh {
@@ -150,6 +211,7 @@ extension RemoteSessionCoordinator {
     }
 
     func performRemotePortScanLocked() {
+        guard remotePortScanningEnabled else { return }
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
             remoteScannedPortsByPanel.removeAll()
@@ -336,6 +398,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func remotePortPollingModeLocked() -> RemotePortPollingMode? {
+        guard remotePortScanningEnabled else { return nil }
         if !remotePortScanTTYNames.isEmpty {
             return shouldUseTTYFallbackRemotePortPollingLocked() ? .ttyScoped : nil
         }

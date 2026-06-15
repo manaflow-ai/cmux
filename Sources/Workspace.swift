@@ -128,6 +128,7 @@ extension Workspace {
             workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
+            customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
@@ -145,7 +146,8 @@ extension Workspace {
             logEntries: logSnapshots,
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
-            remote: remoteConfiguration?.sessionSnapshot()
+            remote: remoteConfiguration?.sessionSnapshot(),
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
     }
 
@@ -187,6 +189,11 @@ extension Workspace {
             currentDirectory = normalizedCurrentDirectory
         }
 
+        // Restore the per-workspace environment before any surface is rebuilt so
+        // every restored terminal (all of which spawn fresh shells — PTYs do not
+        // survive an app restart) inherits it through `newTerminalSurface`.
+        workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
+
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
@@ -210,7 +217,7 @@ extension Workspace {
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
         applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle)
+        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -386,6 +393,9 @@ extension Workspace {
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource: CustomTitleSource? = customTitle != nil
+            ? (panelCustomTitleSources[panelId] ?? .user)
+            : nil
         let directory: String? = {
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
@@ -602,6 +612,7 @@ extension Workspace {
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
+            customTitleSource: customTitleSource,
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
@@ -1684,6 +1695,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
+                runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
             ) else {
@@ -1826,7 +1838,7 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         if snapshot.isManuallyUnread {
@@ -2296,6 +2308,17 @@ final class SharedLiveAgentIndex: ObservableObject {
     // Holds a pending rate-limited reload when changes arrive faster than the floor.
     private var deferredReloadTask: Task<Void, Never>?
 
+    // Process-detection layer. Heavier than the hook-store reload above (a full
+    // process snapshot + per-agent transcript/rollout scans), so it is NOT wired
+    // into the chatty hook-store watcher. It is loaded lazily on demand and on a
+    // slower TTL, and only powers the tab-menu fork fallback for live agents cmux
+    // never recorded a hook for (e.g. `sr claude` / direct `codex`, which bypass
+    // the cmux wrapper's SessionStart hook).
+    @Published private(set) var processDetectedIndex: RestorableAgentSessionIndex?
+    private var processDetectedLoadedAt: Date?
+    private var processDetectedRefreshTask: Task<Void, Never>?
+    private static let processDetectedCacheTTL: TimeInterval = 30.0
+
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
     private static let cacheTTL: TimeInterval = 60.0
@@ -2321,6 +2344,34 @@ final class SharedLiveAgentIndex: ObservableObject {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Process-detected snapshot for a panel (lazy, slower-cadence). Never blocks.
+    /// The tab-menu fork affordance reads this as a fallback when neither the
+    /// restored snapshot nor the hook-store index resolves the panel, so the
+    /// expensive process scan is paid only on demand. When the scan lands, the
+    /// `@Published` change re-renders subscribed workspaces and the menu item
+    /// appears without a second right-click.
+    func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        scheduleProcessDetectedRefreshIfStale()
+        return processDetectedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    private func scheduleProcessDetectedRefreshIfStale() {
+        guard processDetectedRefreshTask == nil else { return }
+        if let processDetectedLoadedAt,
+           Date().timeIntervalSince(processDetectedLoadedAt) < Self.processDetectedCacheTTL {
+            return
+        }
+        processDetectedRefreshTask = Task { @MainActor [weak self] in
+            // `loadIncludingProcessDetectedSnapshots` runs the heavy capture +
+            // scan off the main actor internally; here we only await + assign.
+            let newIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard let self else { return }
+            self.processDetectedIndex = newIndex
+            self.processDetectedLoadedAt = Date()
+            self.processDetectedRefreshTask = nil
+        }
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -2457,12 +2508,28 @@ final class Workspace: Identifiable, ObservableObject {
     let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?
+    /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
+    /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
+    /// custom title is set. A present title with absent provenance is
+    /// treated as `.user` so auto-naming never overwrites a title it
+    /// cannot prove it owns.
+    @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// User-defined environment variables applied to every shell spawned in this
+    /// workspace: the initial terminal, every later pane/surface/split, and every
+    /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
+    /// variables always win — this dictionary is merged through the
+    /// `additionalEnvironment` / `initialEnvironmentOverrides` channels, both of
+    /// which skip `protectedStartupEnvironmentKeys` in
+    /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
+    /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
+    /// Persisted in the session manifest and restored before surfaces are rebuilt.
+    @Published var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -2670,6 +2737,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
+    /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
+    /// An entry may be absent for a title carried across panel moves or
+    /// restored from older snapshots; absent provenance is treated as `.user`.
+    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
@@ -2736,11 +2807,17 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
-    /// Display target of the remote workspace that just disconnected. Set right before
-    /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
-    /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
-    /// that looks identical to a healthy workspace).
-    private var pendingReplacementBannerRemoteTarget: String?
+
+    private struct PendingRemoteDisconnectReplacement {
+        let target: String
+        let reconnectCommand: String?
+    }
+
+    /// Display target and reconnect command for the remote terminal that just disconnected.
+    /// Set right before `createReplacementTerminalPanel()` so the replacement terminal stays
+    /// visibly disconnected instead of falling through to a local login shell.
+    private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
+    var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -2840,8 +2917,9 @@ final class Workspace: Identifiable, ObservableObject {
             || lowered.contains("daemon transport")
     }
 
-    private var preservesSSHTerminalConnection: Bool {
-        activeRemoteTerminalSessionCount > 0
+    private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
+        remoteConfiguration?.transport == .ssh
+            && activeRemoteTerminalSessionCount > 0
             && remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
@@ -3173,13 +3251,18 @@ final class Workspace: Identifiable, ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:],
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
+        let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
+        self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
+        self.customTitleSource = nil
         self.customDescription = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -3258,7 +3341,7 @@ final class Workspace: Identifiable, ObservableObject {
             if let tabId = bonsplitController.createTab(
                 title: browserPanel.displayTitle,
                 icon: browserPanel.displayIcon,
-                kind: SurfaceKind.browser,
+                kind: SurfaceKind.browser.rawValue,
                 isDirty: browserPanel.isDirty,
                 isLoading: browserPanel.isLoading,
                 isAudioMuted: browserPanel.isMuted,
@@ -3278,7 +3361,10 @@ final class Workspace: Identifiable, ObservableObject {
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: initialTerminalEnvironment
+                initialEnvironmentOverrides: Self.startupEnvironment(
+                    workspaceEnvironment: sanitizedWorkspaceEnvironment,
+                    overlaying: initialTerminalEnvironment
+                )
             )
             configureNewTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
@@ -3289,7 +3375,7 @@ final class Workspace: Identifiable, ObservableObject {
             if let tabId = bonsplitController.createTab(
                 title: title,
                 icon: "terminal.fill",
-                kind: SurfaceKind.terminal,
+                kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,
                 isPinned: false
             ) {
@@ -3688,6 +3774,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
+        // Record the workspace env this freshly-created panel inherited, so a later
+        // respawn (which reuses this panel even after a move to another workspace)
+        // can drop it and re-apply the current workspace's env instead of leaking
+        // the source workspace's (#5995). Only creation runs through here — attach
+        // uses configureTerminalPanel — so it keeps reflecting the workspace the
+        // surface's env was built from until the panel is respawned.
+        terminalPanel.seededWorkspaceEnvironment = workspaceEnvironment
         if TerminalTextBoxInputSettings.focusOnNewTerminals() {
             terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
@@ -3967,21 +4060,21 @@ final class Workspace: Identifiable, ObservableObject {
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
-            return SurfaceKind.terminal
+            return SurfaceKind.terminal.rawValue
         case .browser:
-            return SurfaceKind.browser
+            return SurfaceKind.browser.rawValue
         case .markdown:
-            return SurfaceKind.markdown
+            return SurfaceKind.markdown.rawValue
         case .filePreview:
-            return SurfaceKind.filePreview
+            return SurfaceKind.filePreview.rawValue
         case .rightSidebarTool:
-            return SurfaceKind.rightSidebarTool
+            return SurfaceKind.rightSidebarTool.rawValue
         case .agentSession:
-            return SurfaceKind.agentSession
+            return SurfaceKind.agentSession.rawValue
         case .project:
-            return SurfaceKind.project
+            return SurfaceKind.project.rawValue
         case .extensionBrowser:
-            return SurfaceKind.extensionBrowser
+            return SurfaceKind.extensionBrowser.rawValue
         }
     }
 
@@ -4113,19 +4206,35 @@ final class Workspace: Identifiable, ObservableObject {
         return max(rawTarget, pinnedCount)
     }
 
-    func setPanelCustomTitle(panelId: UUID, title: String?) {
-        guard panels[panelId] != nil else { return }
+    /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
-            guard previous != nil else { return }
+            guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
+            panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else { return }
+            guard previous != trimmed else {
+                // Same text: a user write still claims ownership so a later
+                // auto write cannot replace a title the user re-confirmed.
+                if source == .user { panelCustomTitleSources[panelId] = .user }
+                return true
+            }
             panelCustomTitles[panelId] = trimmed
+            panelCustomTitleSources[panelId] = source
         }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
+        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
         bonsplitController.updateTab(
             tabId,
@@ -4138,6 +4247,7 @@ final class Workspace: Identifiable, ObservableObject {
                 workspaceId: id, panelId: panelId, title: trimmed
             )
         }
+        return true
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -4366,9 +4476,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Title Management
 
+    /// Who set a custom title. Auto-naming (AI-generated titles) must never
+    /// overwrite a user-set title; this enum carries that distinction for
+    /// workspace and panel custom titles, and round-trips through session
+    /// persistence.
+    enum CustomTitleSource: String, Codable, Sendable {
+        case user
+        case auto
+    }
+
     var hasCustomTitle: Bool {
         let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !trimmed.isEmpty
+    }
+
+    /// The provenance of the current custom title, normalizing legacy state:
+    /// `nil` when no custom title is set; `.user` when a title exists but
+    /// provenance was never recorded (pre-provenance snapshots, carried moves).
+    var effectiveCustomTitleSource: CustomTitleSource? {
+        hasCustomTitle ? (customTitleSource ?? .user) : nil
     }
 
     var hasCustomDescription: Bool {
@@ -4417,15 +4543,27 @@ final class Workspace: Identifiable, ObservableObject {
         return normalizedLineEndings
     }
 
-    func setCustomTitle(_ title: String?) {
+    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
             customTitle = nil
+            customTitleSource = nil
             self.title = processTitle
         } else {
             customTitle = trimmed
+            customTitleSource = source
             self.title = trimmed
         }
+        return true
     }
 
     func setCustomDescription(_ description: String?) {
@@ -5065,6 +5203,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
@@ -5350,6 +5489,22 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
+        guard !isDetachingCloseTransaction,
+              activeRemoteTerminalSurfaceIds.count == 1,
+              activeRemoteTerminalSurfaceIds.contains(surfaceId) else {
+            return
+        }
+        let relayPort: Int?
+        if remoteConfiguration?.transport == .ssh {
+            relayPort = remoteConfiguration?.relayPort
+        } else {
+            relayPort = nil
+        }
+        markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+    }
+
+    @MainActor
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
         return activeRemoteTerminalSurfaceIds.contains(panelId) ||
@@ -5402,6 +5557,26 @@ final class Workspace: Identifiable, ObservableObject {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+    }
+
+    /// Whether remote listening-port discovery may run, derived from the global
+    /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
+    /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see
+    /// `SidebarWorkspaceAuxiliaryDetailVisibility.resolved`): when the ports
+    /// detail is not displayed there is nothing for the remote scans to
+    /// populate, so the backend ssh port-scan loop is suspended (issue #6123).
+    static func remotePortScanningEnabledFromSettings(defaults: UserDefaults = .standard) -> Bool {
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        let showsPorts = settings.value(for: catalog.sidebar.showPorts)
+        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
+        return showsPorts && !hidesAllDetails
+    }
+
+    /// Pushes the current remote port-scanning enablement to this workspace's
+    /// active remote session, if any. No-op for non-remote workspaces.
+    func applyRemotePortScanningEnabled(_ enabled: Bool) {
+        remoteSessionController?.updateRemotePortScanningEnabled(enabled)
     }
 
     func listRemotePTYSessions() throws -> [[String: Any]] {
@@ -5549,6 +5724,8 @@ final class Workspace: Identifiable, ObservableObject {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        pendingRemoteDisconnectReplacement = nil
+        let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
         if let previousConfiguration,
            previousConfiguration != configuration,
            !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
@@ -5558,6 +5735,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -5623,13 +5801,25 @@ final class Workspace: Identifiable, ObservableObject {
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
+        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()
         controller.start()
     }
 
-    func reconnectRemoteConnection() {
+    func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let configuration = remoteConfiguration else { return }
+        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
+            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
+                  panels[candidate] is TerminalPanel else {
+                return nil
+            }
+            return candidate
+        }
+        if let reconnectingPlaceholderSurfaceId {
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
+            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
+        }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
@@ -5658,7 +5848,7 @@ final class Workspace: Identifiable, ObservableObject {
         reconnectRemoteConnection()
     }
 
-    func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+    func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let shouldCleanupControlMaster =
             clearConfiguration
@@ -5686,7 +5876,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
         remoteConnectionState = .disconnected
-        remoteConnectionDetail = nil
+        remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -5698,6 +5888,8 @@ final class Workspace: Identifiable, ObservableObject {
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
+            pendingRemoteDisconnectReplacement = nil
+            remoteDisconnectPlaceholderPanelIds.removeAll()
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         }
         applyRemoteProxyEndpointUpdate(nil)
@@ -5710,6 +5902,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
         guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
+        guard pendingRemoteDisconnectReplacement == nil else { return }
         if remoteConfiguration?.preserveAfterTerminalExit == true {
             return
         }
@@ -5722,10 +5915,17 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
         let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
+            panel is TerminalPanel && !remoteDisconnectPlaceholderPanelIds.contains(panelId)
+                ? panelId
+                : nil
         }
-        guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
-        trackRemoteTerminalSurface(initialPanelId)
+        if terminalIds.count == 1, let initialPanelId = terminalIds.first {
+            trackRemoteTerminalSurface(initialPanelId)
+            return
+        }
+        if let focusedPanelId, terminalIds.contains(focusedPanelId) {
+            trackRemoteTerminalSurface(focusedPanelId)
+        }
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
@@ -5748,6 +5948,62 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
+    }
+
+    /// Normalizes a user-supplied workspace environment: trims keys and drops any
+    /// entry with a blank key or blank value. Dropping blank values keeps behavior
+    /// identical across the `additionalEnvironment` channel (which already skips
+    /// empty values) and the `initialEnvironmentOverrides` channel (which would
+    /// otherwise export a blank value on the initial shell only).
+    ///
+    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
+    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
+    /// the single authority on which keys are managed. That protection is an exact
+    /// Swift-string match, but the env eventually crosses the Swift→C boundary
+    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
+    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
+    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
+    /// (and `=`, which is never a valid env var name) and any value containing a
+    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
+    /// session restore), so the guard cannot be bypassed.
+    // `nonisolated` so the nonisolated socket workspace-create parsing path
+    // (`v2WorkspaceCreate`) can call this pure helper without hopping to the main
+    // actor; `Workspace` is `@MainActor`, so its statics are main-actor-isolated by
+    // default.
+    nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty,
+                  !pair.value.isEmpty,
+                  !key.contains("\0"),
+                  !key.contains("="),
+                  !pair.value.contains("\0") else { return }
+            result[key] = pair.value
+        }
+    }
+
+    /// Pure merge core: overlays `explicit` on top of `workspaceEnvironment`.
+    /// Managed `CMUX_*` / terminal-identity keys are protected downstream by
+    /// `mergedStartupEnvironment(protectedKeys:)`; this only decides precedence
+    /// among user-supplied values — explicit per-surface entries (layout `env`,
+    /// scrollback replay, SSH startup) win over the workspace set. Static so the
+    /// `init` path can call it before `self` is fully initialized.
+    static func startupEnvironment(
+        workspaceEnvironment: [String: String],
+        overlaying explicit: [String: String]
+    ) -> [String: String] {
+        guard !workspaceEnvironment.isEmpty else { return explicit }
+        var merged = workspaceEnvironment
+        for (key, value) in explicit {
+            merged[key] = value
+        }
+        return merged
+    }
+
+    /// Instance convenience over ``startupEnvironment(workspaceEnvironment:overlaying:)``
+    /// for the post-init surface-creation paths.
+    func startupEnvironmentMergingWorkspaceEnvironment(_ explicit: [String: String]) -> [String: String] {
+        Self.startupEnvironment(workspaceEnvironment: workspaceEnvironment, overlaying: explicit)
     }
 
     private func terminalStartupEnvironment(
@@ -6230,25 +6486,75 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
+    private func remoteTerminalSessionEndMatchesCurrentConfiguration(
+        surfaceId: UUID,
+        relayPort: Int?,
+        configuration: WorkspaceRemoteConfiguration,
+        allowUntracked: Bool
+    ) -> Bool {
+        guard activeRemoteTerminalSurfaceIds.contains(surfaceId) ||
+            (allowUntracked && activeRemoteTerminalSurfaceIds.isEmpty) else {
+            return false
+        }
+        if let relayPort, relayPort > 0 {
+            return configuration.relayPort == relayPort
+        }
+        return true
+    }
+
+    private func disconnectRemoteConnectionAfterTerminalExit() {
+        disconnectRemoteConnection(
+            clearConfiguration: false,
+            disconnectedDetail: String(
+                localized: "remote.status.terminalDisconnected",
+                defaultValue: "Remote terminal session disconnected"
+            )
+        )
+    }
+
+    func rememberPendingRemoteDisconnectReplacement(configuration: WorkspaceRemoteConfiguration) {
+        let reconnectCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingRemoteDisconnectReplacement = PendingRemoteDisconnectReplacement(
+            target: configuration.displayTarget,
+            reconnectCommand: reconnectCommand?.isEmpty == false ? reconnectCommand : nil
+        )
+    }
+
+    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
         }
-        guard let relayPort,
-              relayPort > 0,
-              remoteConfiguration?.relayPort == relayPort else {
+        guard let configuration = remoteConfiguration,
+              remoteTerminalSessionEndMatchesCurrentConfiguration(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                configuration: configuration,
+                allowUntracked: allowUntracked
+              ) else {
             return
         }
-        // Arm the replacement-banner before ownership of `remoteConfiguration` drains
-        // away through `untrackRemoteTerminalSurface` → `disconnectRemoteConnection`.
-        // The banner only matters if we end up demoting this workspace to local, so
-        // `createReplacementTerminalPanel` consumes and clears the value.
-        if remoteConfiguration?.preserveAfterTerminalExit != true,
-           let displayTarget = remoteConfiguration?.displayTarget {
-            pendingReplacementBannerRemoteTarget = displayTarget
+        let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
+        if !preservesRemotePTYSession {
+            rememberPendingRemoteDisconnectReplacement(configuration: configuration)
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
-        untrackRemoteTerminalSurface(surfaceId)
+        if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
+            activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        }
+        if activeRemoteTerminalSurfaceIds.isEmpty {
+            guard !preservesRemotePTYSession else { return }
+            let shouldCleanupControlMaster =
+                configuration.relayPort != nil &&
+                configuration.transport == .ssh &&
+                !isDetachingCloseTransaction &&
+                pendingDetachedSurfaces.isEmpty &&
+                !skipControlMasterCleanupAfterDetachedRemoteTransfer
+            disconnectRemoteConnectionAfterTerminalExit()
+            if shouldCleanupControlMaster {
+                Self.requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
+            }
+        }
     }
 
     func teardownRemoteConnection() {
@@ -6338,10 +6644,10 @@ final class Workspace: Identifiable, ObservableObject {
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                preservesSSHTerminalConnection &&
+                preservesProxyFailureWhileSSHTerminalIsAlive &&
                 hasProxyOnlyRemoteSidebarError
         let effectiveState: WorkspaceRemoteConnectionState
-        if state == .error && proxyOnlyError && preservesSSHTerminalConnection {
+        if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive {
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
@@ -6839,7 +7145,7 @@ final class Workspace: Identifiable, ObservableObject {
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: startupEnvironment,
+            base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
         // Hold the pane open after the remote session ends so the user can read the
@@ -6909,7 +7215,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
         )
@@ -6993,6 +7299,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
@@ -7008,6 +7315,7 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             startupEnvironment: startupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
@@ -7028,6 +7336,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
@@ -7055,6 +7364,7 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             startupEnvironment: startupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
@@ -7073,6 +7383,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String?,
         initialInput: String?,
         startupEnvironment: [String: String],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         autoRefreshMetadata: Bool,
         preserveFocusWhenUnfocused: Bool,
         remotePTYSessionID: String?,
@@ -7091,7 +7402,7 @@ final class Workspace: Identifiable, ObservableObject {
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: startupEnvironment,
+            base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
         // See the comment at the other call site: hold the PTY open after the remote
@@ -7121,7 +7432,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -7141,7 +7453,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,
             inPane: paneId
@@ -7246,7 +7558,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: title,
             icon: "rectangle.connected.to.line.below",
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: newPanel.id)
@@ -7357,13 +7669,26 @@ final class Workspace: Identifiable, ObservableObject {
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
         let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource = panelCustomTitleSources[panelId]
         let wasPinned = pinnedPanelIds.contains(panelId)
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        // Drop env this surface inherited from its (possibly previous) workspace,
+        // then re-fold the current workspace's env below, so a terminal moved
+        // between workspaces respawns with the destination's variables rather than
+        // the source's (#5995). Only entries whose value still equals the seeded
+        // workspace value are dropped, so an explicit per-surface override that
+        // shares a workspace key keeps its value. configureNewTerminalPanel
+        // re-records the seeded env for the replacement panel against the current
+        // workspace.
+        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-        let additionalEnvironment = oldPanel.surface.respawnAdditionalEnvironment
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
+            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        )
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -7403,6 +7728,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {
             panelCustomTitles[panelId] = customTitle
+            panelCustomTitleSources[panelId] = customTitleSource ?? .user
         }
         if wasPinned {
             pinnedPanelIds.insert(panelId)
@@ -7416,7 +7742,7 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
             iconImageData: .some(nil),
-            kind: .some(SurfaceKind.terminal),
+            kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
             showsNotificationBadge: false,
@@ -7521,7 +7847,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: SurfaceKind.browser.rawValue,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
@@ -7628,7 +7954,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: SurfaceKind.browser.rawValue,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
@@ -7694,7 +8020,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: extensionBrowserPanel.displayTitle,
             icon: extensionBrowserPanel.displayIcon,
-            kind: SurfaceKind.extensionBrowser,
+            kind: SurfaceKind.extensionBrowser.rawValue,
             isDirty: false,
             isLoading: false,
             isPinned: false,
@@ -7709,7 +8035,7 @@ final class Workspace: Identifiable, ObservableObject {
         publishCmuxSurfaceCreated(
             extensionBrowserPanel.id,
             paneId: paneId,
-            kind: SurfaceKind.extensionBrowser,
+            kind: SurfaceKind.extensionBrowser.rawValue,
             origin: "extension_browser_tab",
             focused: shouldFocusNewTab
         )
@@ -7784,7 +8110,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: markdownPanel.displayTitle,
             icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown,
+            kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
             isPinned: false
@@ -7839,7 +8165,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: markdownPanel.displayTitle,
             icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown,
+            kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
             isPinned: false,
@@ -7891,7 +8217,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: projectPanel.displayTitle,
             icon: projectPanel.displayIcon,
-            kind: SurfaceKind.project,
+            kind: SurfaceKind.project.rawValue,
             isDirty: false,
             isLoading: false,
             isPinned: false,
@@ -7906,7 +8232,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
-        publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project, origin: "project_tab", focused: shouldFocusNewTab)
+        publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project.rawValue, origin: "project_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
@@ -7957,7 +8283,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: markdownPanel.displayTitle,
             icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown,
+            kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
             isPinned: false
@@ -8049,7 +8375,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: filePreviewPanel.displayTitle,
             icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
-            kind: SurfaceKind.filePreview,
+            kind: SurfaceKind.filePreview.rawValue,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
             isPinned: false,
@@ -8121,7 +8447,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: toolPanel.displayTitle,
             icon: toolPanel.displayIcon,
-            kind: SurfaceKind.rightSidebarTool,
+            kind: SurfaceKind.rightSidebarTool.rawValue,
             isDirty: false,
             isLoading: false,
             isPinned: false,
@@ -8180,7 +8506,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: agentPanel.displayTitle,
             icon: agentPanel.displayIcon,
-            kind: SurfaceKind.agentSession,
+            kind: SurfaceKind.agentSession.rawValue,
             isDirty: agentPanel.isDirty,
             isLoading: false,
             isPinned: false,
@@ -8235,7 +8561,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: filePreviewPanel.displayTitle,
             icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
-            kind: SurfaceKind.filePreview,
+            kind: SurfaceKind.filePreview.rawValue,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
             isPinned: false
@@ -8875,6 +9201,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
+            panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
         }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
@@ -8915,6 +9242,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
+            panelCustomTitleSources.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -9537,14 +9865,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Utility
 
-    /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
-    /// then execs the user's `$SHELL`. Returned path goes to `initialCommand`, which Ghostty
-    /// runs as the PTY command. The banner survives as text in scrollback so the user can
-    /// see it after the replacement local shell starts.
-    private static func replacementShellScriptWithBanner(target: String) -> String {
+    /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
+    /// Returned path goes to `initialCommand`, which Ghostty runs as the PTY command.
+    private static func remoteDisconnectPlaceholderScript(target: String, reconnectCommand: String?) -> String {
         let tempDir = FileManager.default.temporaryDirectory
         let scriptURL = tempDir.appendingPathComponent(
-            "cmux-remote-disconnect-banner-\(UUID().uuidString.lowercased()).sh"
+            "cmux-remote-disconnect-\(UUID().uuidString.lowercased()).sh"
         )
         // Encode the target as base64 and decode it inside the shell. This sidesteps every
         // layer of shell quoting: no matter what the target contains (`$(id)`, backticks,
@@ -9556,17 +9882,23 @@ final class Workspace: Identifiable, ObservableObject {
         // POSIX printf inside the shell wrapper, not by Swift's String(format:).
         let endedLineFormat = String(
             localized: "remote.disconnectBanner.sessionEnded",
-            defaultValue: "[cmux] remote ssh session ended: %s"
+            defaultValue: "[cmux] remote session disconnected: %s"
         )
         let reconnectLine = String(
             localized: "remote.disconnectBanner.reconnectHint",
-            defaultValue: "[cmux] falling back to a local shell. Reconnect with the original cmux ssh or cmux vm attach command."
+            defaultValue: "[cmux] Press Enter to reconnect. This terminal will stay disconnected until then."
+        )
+        let reconnectUnavailableLine = String(
+            localized: "remote.disconnectBanner.reconnectUnavailableHint",
+            defaultValue: "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
         )
         // Encode the localized lines the same way as the target, so a translator using
         // backticks or $(…) in a translation string can't unexpectedly execute in the
         // user's local shell. Decoded inline at wrapper startup, then fed to printf.
         let encodedEndedFormat = Data(endedLineFormat.utf8).base64EncodedString()
         let encodedReconnectLine = Data(reconnectLine.utf8).base64EncodedString()
+        let encodedReconnectUnavailableLine = Data(reconnectUnavailableLine.utf8).base64EncodedString()
+        let encodedReconnectCommand = Data((reconnectCommand ?? "").utf8).base64EncodedString()
         let body = """
         #!/bin/sh
         cmux_disconnect_decode() {
@@ -9575,18 +9907,40 @@ final class Workspace: Identifiable, ObservableObject {
         cmux_disconnect_target="$(cmux_disconnect_decode '\(encodedTarget)')"
         cmux_disconnect_ended_format="$(cmux_disconnect_decode '\(encodedEndedFormat)')"
         cmux_disconnect_reconnect_line="$(cmux_disconnect_decode '\(encodedReconnectLine)')"
+        cmux_disconnect_reconnect_unavailable_line="$(cmux_disconnect_decode '\(encodedReconnectUnavailableLine)')"
+        cmux_disconnect_reconnect_command="$(cmux_disconnect_decode '\(encodedReconnectCommand)')"
         # Append newline + color codes ourselves rather than trusting the translator to
         # preserve them in every locale.
         printf '\\033[1;33m'
         printf "$cmux_disconnect_ended_format" "$cmux_disconnect_target"
         printf '\\033[0m\\n' >&2
-        printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_line" >&2
-        printf '\\n'
-        unset cmux_disconnect_target cmux_disconnect_ended_format cmux_disconnect_reconnect_line
-        unset -f cmux_disconnect_decode 2>/dev/null || true
         # Remove ourselves so /tmp doesn't accumulate these wrappers across sessions.
         rm -f -- "$0" 2>/dev/null || true
-        exec "${SHELL:-/bin/sh}" -l
+        if [ -n "$cmux_disconnect_reconnect_command" ]; then
+          printf '\\033[2m%s\\033[0m\\n\\n' "$cmux_disconnect_reconnect_line" >&2
+          IFS= read -r _ || exit 0
+          cmux_reconnect_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+          if [ -z "$cmux_reconnect_cli" ] || [ ! -x "$cmux_reconnect_cli" ]; then
+            cmux_reconnect_cli="$(command -v cmux 2>/dev/null || true)"
+          fi
+          cmux_reconnect_socket="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}"
+          if [ -n "$cmux_reconnect_cli" ] && [ -n "$cmux_reconnect_socket" ] && [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
+            cmux_reconnect_payload="{\\"workspace_id\\":\\"$CMUX_WORKSPACE_ID\\""
+            if [ -n "${CMUX_SURFACE_ID:-}" ]; then
+              cmux_reconnect_payload="$cmux_reconnect_payload,\\"surface_id\\":\\"$CMUX_SURFACE_ID\\""
+            fi
+            cmux_reconnect_payload="$cmux_reconnect_payload}"
+            if "$cmux_reconnect_cli" --socket "$cmux_reconnect_socket" rpc workspace.remote.reconnect "$cmux_reconnect_payload" >/dev/null 2>&1; then
+              exec /bin/sh -lc "$cmux_disconnect_reconnect_command"
+            fi
+          fi
+          printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_unavailable_line" >&2
+          while IFS= read -r _; do :; done
+          exit 0
+        fi
+        printf '\\033[2m%s\\033[0m\\n' "$cmux_disconnect_reconnect_unavailable_line" >&2
+        while IFS= read -r _; do :; done
+        exit 0
 
         """
         do {
@@ -9601,35 +9955,44 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
     func createReplacementTerminalPanel() -> TerminalPanel {
-        let inheritedConfig = inheritedTerminalConfig(
+        var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
         )
-        // If the previous surface was a remote ssh terminal that just exited, spawn a
-        // local shell that first prints a clearly-coloured banner explaining what happened.
-        // Without this banner a dead VM surfaces as an ordinary local `lawrence@mac ~ %`
-        // prompt, which looks identical to "I never connected" and was mis-read during
-        // dogfood as "cmux disconnected silently".
-        let bannerTarget = pendingReplacementBannerRemoteTarget
-        pendingReplacementBannerRemoteTarget = nil
-        let replacementInitialCommand: String? = bannerTarget.map { Self.replacementShellScriptWithBanner(target: $0) }
+        let pendingRemoteDisconnect = pendingRemoteDisconnectReplacement
+        pendingRemoteDisconnectReplacement = nil
+        let replacementInitialCommand: String? = pendingRemoteDisconnect.map {
+            Self.remoteDisconnectPlaceholderScript(
+                target: $0.target,
+                reconnectCommand: $0.reconnectCommand
+            )
+        }
+        if replacementInitialCommand != nil {
+            var config = replacementConfig ?? CmuxSurfaceConfigTemplate()
+            config.waitAfterCommand = true
+            replacementConfig = config
+        }
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: inheritedConfig,
+            configTemplate: replacementConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand
+            initialCommand: replacementInitialCommand,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+        if replacementInitialCommand != nil {
+            remoteDisconnectPlaceholderPanelIds.insert(newPanel.id)
+        }
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: replacementConfig)
 
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
         ) {
@@ -10686,7 +11049,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: [:],
+            base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
         if startupCommand != nil {
@@ -10716,7 +11079,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
         )
@@ -10871,7 +11234,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+            return snapshot
+        }
+        // Last resort: a live agent cmux never recorded a hook for (e.g. an
+        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
+        // Lazily process-detected and debounced, off the hot hook-store path.
+        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -11812,6 +12181,9 @@ extension Workspace: BonsplitDelegate {
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
+                customTitleSource: panelCustomTitles[panelId] != nil
+                    ? (panelCustomTitleSources[panelId] ?? .user)
+                    : nil,
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
@@ -11859,14 +12231,14 @@ extension Workspace: BonsplitDelegate {
         if panels.isEmpty {
             if isDetaching {
                 // Detach path also doesn't create a replacement panel this turn, so any
-                // pending banner state would survive and leak into a later close. Drop it.
-                pendingReplacementBannerRemoteTarget = nil
+                // pending disconnect placeholder state would survive and leak into a later close.
+                pendingRemoteDisconnectReplacement = nil
                 scheduleTerminalGeometryReconcile()
                 return
             }
 
             #if DEBUG
-            dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
+            dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacement?.target ?? "nil")")
             #endif
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
@@ -11881,10 +12253,9 @@ extension Workspace: BonsplitDelegate {
         }
 
         // A remote terminal exited but sibling panels are still alive, so we won't spawn a
-        // replacement right now. Drop the banner-target — without this, a later unrelated
-        // close (e.g. a local pane shuts down its shell) would inherit the stale value and
-        // print "remote ssh session ended" for a flow that had nothing to do with the VM.
-        pendingReplacementBannerRemoteTarget = nil
+        // replacement right now. Drop the placeholder — without this, a later unrelated
+        // close could inherit stale remote-disconnect state.
+        pendingRemoteDisconnectReplacement = nil
 
         if let selectTabId,
            bonsplitController.allPaneIds.contains(pane),
@@ -12189,7 +12560,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -12202,7 +12574,7 @@ extension Workspace: BonsplitDelegate {
                         title: replacementPanel.displayTitle,
                         icon: .some(replacementPanel.displayIcon),
                         iconImageData: .some(nil),
-                        kind: .some(SurfaceKind.terminal),
+                        kind: .some(SurfaceKind.terminal.rawValue),
                         hasCustomTitle: false,
                         isDirty: replacementPanel.isDirty,
                         showsNotificationBadge: false,
@@ -12257,7 +12629,8 @@ extension Workspace: BonsplitDelegate {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12267,7 +12640,7 @@ extension Workspace: BonsplitDelegate {
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
+            kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,
             inPane: newPane
