@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSidebarDragCoordinator
 import SwiftUI
 import CmuxSettings
 

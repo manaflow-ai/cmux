@@ -261,6 +261,7 @@
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
 		E3B7A30000000000000000B3 /* CmuxSidebar in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000B2 /* CmuxSidebar */; };
 		DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */; };
+		C5DA6C0000000000000000A3 /* CmuxSidebarDragCoordinator in Frameworks */ = {isa = PBXBuildFile; productRef = C5DA6C0000000000000000A2 /* CmuxSidebarDragCoordinator */; };
 		C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */; };
 		C5B6A10000000000000000A3 /* CmuxSidebarGit in Frameworks */ = {isa = PBXBuildFile; productRef = C5B6A10000000000000000A2 /* CmuxSidebarGit */; };
 		C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
@@ -1798,6 +1799,7 @@
 				CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */,
 				CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */,
 				E3B7A30000000000000000B3 /* CmuxSidebar in Frameworks */,
+				C5DA6C0000000000000000A3 /* CmuxSidebarDragCoordinator in Frameworks */,
 				C5B6A10000000000000000A3 /* CmuxSidebarGit in Frameworks */,
 				C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */,
@@ -2836,6 +2838,7 @@
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
 				C617000000000000000000A2 /* CmuxGit */,
 				C5B6A10000000000000000A2 /* CmuxSidebarGit */,
+				C5DA6C0000000000000000A2 /* CmuxSidebarDragCoordinator */,
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
@@ -3029,6 +3032,7 @@
 				C8000311C8000311C8000311 /* XCLocalSwiftPackageReference "CmuxFileWatch" */,
 				C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */,
 				C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */,
+				C5DA6C0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarDragCoordinator" */,
 				E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */,
 				E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */,
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
@@ -4555,6 +4559,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSidebarGit;
 		};
+		C5DA6C0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarDragCoordinator" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxSidebarDragCoordinator;
+		};
 		E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSidebar;
@@ -4823,6 +4831,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */;
 			productName = CmuxSidebarGit;
+		};
+		C5DA6C0000000000000000A2 /* CmuxSidebarDragCoordinator */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5DA6C0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarDragCoordinator" */;
+			productName = CmuxSidebarDragCoordinator;
 		};
 		E3B7A30000000000000000B2 /* CmuxSidebar */ = {
 			isa = XCSwiftPackageProductDependency;

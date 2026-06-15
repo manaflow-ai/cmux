@@ -20,6 +20,7 @@ import Foundation
 import Bonsplit
 import WebKit
 import CmuxSidebar
+import CmuxSidebarDragCoordinator
 import CmuxTerminal
 import CmuxWorkspaceCore
 
@@ -10247,7 +10248,7 @@ class TerminalController {
             } else {
                 requestedSteps = nil
             }
-            guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+            guard AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
                 return .err(
                     code: "not_found",
                     message: "No mounted sidebar for window_id",
@@ -10331,7 +10332,7 @@ class TerminalController {
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
@@ -10357,7 +10358,7 @@ class TerminalController {
                 pathSample.append(targetTabId.uuidString)
             }
             let tickOK: Bool = v2MainSync {
-                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
@@ -10371,7 +10372,7 @@ class TerminalController {
         }
 
         v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
         }
