@@ -1,0 +1,33 @@
+name: mini CI smoke
+# Throwaway validation that a fleet Mac mini can serve a CI job. Targets a
+# UNIQUE self-hosted label (cmux-mini-build) so it never collides with the
+# hosted `macos-26` label or the warp-* production labels — i.e. only this
+# branch's runner picks it up, no production job is ever routed to the mini.
+# Triggered by push to this branch so it needs no presence on the default branch.
+on:
+  push:
+    branches: [feat-mini-ci-smoke]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: cmux-mini-build
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+      - name: Toolchain versions
+        run: |
+          echo "host: $(hostname) $(sw_vers -productVersion) $(sysctl -n hw.model)"
+          xcodebuild -version
+          swift --version
+      - name: Install zig (CI helper)
+        run: ./scripts/install-zig-ci.sh
+      - name: Build GhosttyKit
+        run: ./scripts/ensure-ghosttykit.sh
+      - name: Smoke result
+        run: echo "mini CI smoke OK on $(hostname)"
