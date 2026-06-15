@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — マルチタスクのために作られたターミナル",
-    "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
-    "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
+    "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
+    "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
@@ -73,7 +73,7 @@
     "faqPlatformQ": "対応プラットフォームは？",
     "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
-    "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
+    "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
     "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>Claude Codeフック</hooksLink>で手動トリガーも可能です。",
     "faqShortcutsQ": "キーボードショートカットはカスタマイズできますか？",
@@ -371,7 +371,7 @@
         "date": "2026年5月22日",
         "p1": "cmuxのブラウザはパスキー認証に対応しました。パスキー、WebAuthn、Touch ID、ハードウェアセキュリティキーに依存するサインインフローを、cmuxのブラウザペイン内で完了できます。",
         "p2": "同じサイトを別のブラウザですでに使っている場合は、互換性のあるCookieを一度だけインポートしてください：",
-        "p3": "cmux v0.64+が必要です。Claude Code、Codex、OpenCode、Gemini CLIなどのエージェントが、cmuxを離れずに認証済みのローカルアプリをテストしやすくなります。"
+        "p3": "cmux v0.64+が必要です。Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLIなどのエージェントが、cmuxを離れずに認証済みのローカルアプリをテストしやすくなります。"
       },
       "taskManager": {
         "title": "cmuxのタスクマネージャ",

@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — The terminal built for multitasking",
-    "description": "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-    "ogDescription": "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
+    "description": "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+    "ogDescription": "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Kiro, Aider, and any CLI tool."
   },
   "common": {
     "downloadForMac": "Download for Mac",
@@ -73,7 +73,7 @@
     "faqPlatformQ": "What platforms does it support?",
     "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app.",
     "faqAgentsQ": "What coding agents does cmux work with?",
-    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
+    "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
     "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>Claude Code hooks</hooksLink>.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
@@ -399,7 +399,7 @@
         "date": "May 22, 2026",
         "p1": "cmux's browser now supports passkey authentication. Sign-in flows that depend on passkeys, WebAuthn, Touch ID, or hardware security keys can complete inside a cmux browser pane.",
         "p2": "If you already use another browser for the same site, import compatible cookies once:",
-        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, or another agent needs to test an authenticated local app without leaving cmux."
+        "p3": "Requires cmux v0.64+. This helps when Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, or another agent needs to test an authenticated local app without leaving cmux."
       },
       "taskManager": {
         "title": "Task Manager in cmux",

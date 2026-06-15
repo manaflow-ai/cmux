@@ -13,6 +13,7 @@ function usePhrases() {
     "Codex",
     "OpenCode",
     "Gemini CLI",
+    "Antigravity CLI",
   ];
 }
 

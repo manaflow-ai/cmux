@@ -48,6 +48,7 @@ export async function generateMetadata({
       "Codex",
       "OpenCode",
       "Gemini CLI",
+      "Antigravity CLI",
       "Kiro",
       "Aider",
       "Ghostty",
@@ -103,9 +104,9 @@ export default async function LocaleLayout({
     url: "https://cmux.com",
     downloadUrl: DOWNLOAD_URL,
     description:
-      "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+      "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     keywords:
-      "terminal, macOS, Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, AI coding agents, Ghostty",
+      "terminal, macOS, Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Kiro, Aider, AI coding agents, Ghostty",
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   };
   const jsonLdScript = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
