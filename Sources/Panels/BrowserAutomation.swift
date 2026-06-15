@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowserImport
 
 enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case noBrowsers
@@ -365,7 +366,7 @@ enum BrowserProfileAutomation {
 
 enum BrowserImportAutomation {
     static func importCookies(params: [String: Any]) async throws -> BrowserImportOutcome {
-        let browsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = BrowserInstalledBrowserDetector.detectInstalledBrowsers()
         guard !browsers.isEmpty else {
             throw BrowserImportAutomationError.noBrowsers
         }

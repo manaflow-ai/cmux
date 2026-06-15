@@ -18,6 +18,7 @@ import CMUXMobileCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
+import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
 import CmuxTerminal

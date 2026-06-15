@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxBrowserImport
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -666,7 +667,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserImportHintSummary: String {
-        InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+        BrowserInstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
 
     private var shouldShowToolbarImportHintChip: Bool {
@@ -2457,7 +2458,7 @@ struct BrowserPanelView: View {
 
         emptyStateImportBrowserRefreshTask = Task {
             let browsers = await Task.detached(priority: .utility) {
-                InstalledBrowserDetector.detectInstalledBrowsers()
+                BrowserInstalledBrowserDetector.detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
