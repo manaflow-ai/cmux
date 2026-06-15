@@ -34,4 +34,8 @@ enum WorkspaceShortcutMapper {
         return workspaceIds[index]
     }
 
+    static func digitForWorkspace(id workspaceId: UUID, workspaceIds: [UUID]) -> Int? {
+        guard let index = workspaceIds.firstIndex(of: workspaceId) else { return nil }
+        return digitForWorkspace(at: index, workspaceCount: workspaceIds.count)
+    }
 }
