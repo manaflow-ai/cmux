@@ -109,6 +109,28 @@ final class SettingsWindowPresenterTests: XCTestCase {
         weakSettingsWindow?.close()
     }
 
+    func testRefocusIfVisibleDoesNotReopenClosedSettingsWindow() async {
+        let presenter = SettingsWindowPresenter()
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        defer {
+            settingsWindow.orderOut(nil)
+            settingsWindow.close()
+        }
+
+        presenter.show(openWindowOverride: {})
+        presenter.configure(window: settingsWindow)
+        await Task.yield()
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
+
+        settingsWindow.orderOut(nil)
+        XCTAssertFalse(settingsWindow.isVisible)
+
+        presenter.refocusIfVisible()
+
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
+        XCTAssertFalse(settingsWindow.isVisible)
+    }
+
     // Settings is a top-level *peer* window, not a child of the main window.
     // A child window (`addChildWindow`) is pinned above its parent forever and
     // can never recede when the user clicks the main window — that is the
