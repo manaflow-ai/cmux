@@ -792,6 +792,10 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
+          "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -803,6 +807,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dobbeltklikk på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
       "shortcutsWhenIntro": "Valgfrie kontekstpredikater per handling (VS Code-lignende when-klausuler), indeksert etter cmux-handlings-id. En binding utløses bare — og kolliderer bare med en annen binding på samme tastetrykk — når klausulen er sann. Utelat klausulen for å beholde handlingens innebygde kontekst. Klausulenes vokabular:",
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",

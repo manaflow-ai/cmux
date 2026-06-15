@@ -792,6 +792,10 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
+          "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -803,6 +807,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dwukrotne kliknięcie pliku: preview (domyślne), defaultEditor (domyślna aplikacja macOS) albo preferredEditor (polecenie app.preferredEditor).",
       "shortcutsWhenIntro": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule when w stylu VS Code), indeksowane identyfikatorem akcji cmux. Przypisanie uruchamia się — i koliduje z innym przypisaniem tego samego skrótu — tylko wtedy, gdy jego klauzula jest spełniona. Pomiń klauzulę, aby zachować wbudowany kontekst akcji. Słownictwo klauzul:",
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",

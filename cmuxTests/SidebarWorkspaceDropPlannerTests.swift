@@ -314,12 +314,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
             ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
         ]
 
-        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).move(
             draggedWorkspaceId: openB,
             insertionPosition: 2,
-            orderedRows: rows,
             preferredTargetSectionId: "reading"
-        ))
+            ))
 
         XCTAssertEqual(move.workspaceId, openB)
         XCTAssertEqual(move.sourceSectionId, "open")
@@ -337,12 +336,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
             ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
         ]
 
-        let indicator = ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+        let indicator = ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).sectionBoundaryIndicator(
             draggedWorkspaceId: openB,
             targetWorkspaceId: readingA,
             pointerY: 2,
-            targetHeight: 34,
-            orderedRows: rows
+            targetHeight: 34
         )
 
         XCTAssertEqual(indicator, SidebarDropIndicator(tabId: readingA, edge: .top))
@@ -356,12 +354,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
             ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading")
         ]
 
-        let indicator = ExtensionSidebarBrowserStackDropPlanner.sectionBoundaryIndicator(
+        let indicator = ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).sectionBoundaryIndicator(
             draggedWorkspaceId: readingA,
             targetWorkspaceId: openA,
             pointerY: 32,
-            targetHeight: 34,
-            orderedRows: rows
+            targetHeight: 34
         )
 
         XCTAssertEqual(indicator, SidebarDropIndicator(tabId: openA, edge: .bottom))
@@ -377,12 +374,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
             ExtensionSidebarBrowserStackDropRow(workspaceId: readingB, sectionId: "reading")
         ]
 
-        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).move(
             draggedWorkspaceId: readingB,
             insertionPosition: 1,
-            orderedRows: rows,
             preferredTargetSectionId: "open"
-        ))
+            ))
 
         XCTAssertEqual(move.workspaceId, readingB)
         XCTAssertEqual(move.sourceSectionId, "reading")
@@ -402,20 +398,18 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
             ExtensionSidebarBrowserStackDropRow(workspaceId: readingB, sectionId: "reading")
         ]
 
-        let preferredSectionId = ExtensionSidebarBrowserStackDropPlanner.preferredSectionId(
+        let preferredSectionId = ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).preferredSectionId(
             targetWorkspaceId: openB,
-            indicator: SidebarDropIndicator(tabId: readingA, edge: .top),
-            orderedRows: rows
+            indicator: SidebarDropIndicator(tabId: readingA, edge: .top)
         )
 
         XCTAssertEqual(preferredSectionId, "open")
 
-        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner(orderedRows: rows).move(
             draggedWorkspaceId: readingB,
             insertionPosition: 2,
-            orderedRows: rows,
             preferredTargetSectionId: preferredSectionId
-        ))
+            ))
         XCTAssertEqual(move.workspaceId, readingB)
         XCTAssertEqual(move.sourceSectionId, "reading")
         XCTAssertEqual(move.targetSectionId, "open")
