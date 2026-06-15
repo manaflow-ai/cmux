@@ -59,6 +59,21 @@ export type AttachOptions = {
    * loopback URLs. PTY-only split attaches can omit it and only mint a terminal lease.
    */
   requireDaemon?: boolean;
+  /**
+   * Only images built with cmuxd-remote signed attach verification can accept this path.
+   * Callers derive this from recorded VM image metadata, not from provider-wide env.
+   */
+  signedWebSocketAuth?: boolean;
+  /**
+   * SHA-256 of the raw Ed25519 public key baked into this VM image. Signed auth
+   * is only used when the runtime private key derives this same public key.
+   */
+  signedWebSocketAuthPublicKeySha256?: string | null;
+  /**
+   * True only when the caller has just completed provider create-time readiness work for
+   * this VM. Lets cold-start attach avoid a duplicate network health probe.
+   */
+  webSocketReadinessVerified?: boolean;
 };
 
 export type ExecResult = {
@@ -108,6 +123,7 @@ export class ProviderError extends Error {
     public readonly provider: ProviderId,
     message: string,
     public readonly cause?: unknown,
+    public readonly allocatedProviderVmId?: string,
   ) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";

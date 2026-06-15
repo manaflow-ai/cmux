@@ -35,7 +35,7 @@ import {
   createVm,
   listUserVms,
   runVmWorkflow,
-} from "../../../services/vms/workflows";
+} from "../../../services/vms/routeRuntime";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
@@ -83,6 +83,9 @@ export async function GET(request: Request): Promise<Response> {
         provider: entry.provider,
         image: entry.image,
         imageVersion: entry.imageVersion,
+        status: entry.status,
+        failureCode: entry.failureCode,
+        failureMessage: entry.failureMessage,
         createdAt: entry.createdAt,
       }));
       return jsonResponse({ vms });
@@ -323,6 +326,9 @@ export async function POST(request: Request): Promise<Response> {
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,
+          status: created.status,
+          failureCode: created.failureCode,
+          failureMessage: created.failureMessage,
           createdAt: created.createdAt,
         });
       }

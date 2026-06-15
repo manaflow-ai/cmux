@@ -33,7 +33,7 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
 }));
 
-mock.module("../services/vms/workflows", () => ({
+mock.module("../services/vms/routeRuntime", () => ({
   createVm,
   destroyVm,
   execVm,

@@ -8,6 +8,7 @@ import type {
   ProviderId,
   SSHEndpoint,
 } from "./drivers";
+import { ProviderError as DriverProviderError } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -28,6 +29,7 @@ import {
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { imageSignedAuthPublicKeySha256, imageSupportsSignedWebSocketAuth } from "./images/resolver";
 import {
   VmRepository,
   VmRepositoryLive,
@@ -39,11 +41,16 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
+const SIGNED_ATTACH_CREATE_READINESS_TRUST_MS = 60_000;
+
 export type VmEntry = {
   readonly providerVmId: string;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  readonly status: CloudVmStatus;
+  readonly failureCode: string | null;
+  readonly failureMessage: string | null;
   readonly createdAt: number;
 };
 
@@ -63,7 +70,7 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+    return rows.filter(isListableVmRow).map(vmEntryFromRow);
   });
 }
 
@@ -91,7 +98,7 @@ export function createVm(input: {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
-            message: existing.failureMessage ?? "previous VM create failed",
+            message: sanitizedCreateFailureMessage(existing.failureCode),
           }),
         );
       }
@@ -111,13 +118,19 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, { image: input.image }),
     ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
+      Effect.tapError((err) => {
+        const allocatedProviderVmId = allocatedProviderVmIdFromError(err);
+        return Effect.all([
+          allocatedProviderVmId
+            ? Effect.void
+            : refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
             code: err.operation,
-            message: errorMessage(err.cause),
+            message: sanitizedCreateFailureMessage(err.operation),
+            providerVmId: allocatedProviderVmId,
+            image: allocatedProviderVmId ? input.image : undefined,
+            imageVersion: allocatedProviderVmId ? input.imageVersion ?? null : undefined,
           }),
           repo.recordUsageEvent({
             userId: input.userId,
@@ -127,10 +140,14 @@ export function createVm(input: {
             eventType: "vm.create.failed",
             provider: input.provider,
             imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause) },
+            metadata: {
+              operation: err.operation,
+              message: errorMessage(err.cause),
+              ...(allocatedProviderVmId ? { providerVmId: allocatedProviderVmId } : {}),
+            },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void));
+      }),
     );
 
     const running = yield* measureVmEffect(
@@ -150,7 +167,7 @@ export function createVm(input: {
           yield* repo.markCreateFailed({
             id: create.vm.id,
             code: "database_finalize_failed",
-            message: "Cloud VM state update failed.",
+            message: sanitizedCreateFailureMessage("database_finalize_failed"),
           }).pipe(Effect.catchAll(() => Effect.void));
           yield* recordCreateFailureEvent(
             repo,
@@ -168,6 +185,16 @@ export function createVm(input: {
 
     return vmEntryFromRow(running);
   });
+}
+
+function allocatedProviderVmIdFromError(err: unknown): string | undefined {
+  if (err instanceof DriverProviderError && err.allocatedProviderVmId) {
+    return err.allocatedProviderVmId;
+  }
+  if (!err || typeof err !== "object") return undefined;
+  const cause = (err as { cause?: unknown }).cause;
+  if (!cause || cause === err) return undefined;
+  return allocatedProviderVmIdFromError(cause);
 }
 
 function beginCreateWithLazyProviderRefresh(
@@ -254,7 +281,7 @@ export function destroyVm(input: { readonly userId: string; readonly providerVmI
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, { allowFailed: true });
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -313,7 +340,11 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* providers.openAttach(
+      vm.provider,
+      input.providerVmId,
+      attachOptionsForVm(vm, input.options),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -370,15 +401,44 @@ export function openSshEndpoint(input: {
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string) {
+function attachOptionsForVm(vm: CloudVmRow, options?: AttachOptions): AttachOptions {
+  const signedWebSocketAuth =
+    options?.signedWebSocketAuth ??
+    imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId);
+  const signedWebSocketAuthPublicKeySha256 =
+    options?.signedWebSocketAuthPublicKeySha256 ??
+    imageSignedAuthPublicKeySha256(vm.provider, vm.imageId);
+  return {
+    ...options,
+    signedWebSocketAuth,
+    signedWebSocketAuthPublicKeySha256,
+    webSocketReadinessVerified:
+      options?.webSocketReadinessVerified ??
+      (signedWebSocketAuth && Date.now() - vm.createdAt.getTime() <= SIGNED_ATTACH_CREATE_READINESS_TRUST_MS),
+  };
+}
+
+function requireUserVm(
+  userId: string,
+  providerVmId: string,
+  options: { readonly allowFailed?: boolean } = {},
+) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({ userId, providerVmId });
-    if (!vm || !vm.providerVmId) {
+    if (!vm || !vm.providerVmId || (!options.allowFailed && !isUsableVmRow(vm))) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
     return vm;
   });
+}
+
+function isUsableVmRow(vm: CloudVmRow): boolean {
+  return !!vm.providerVmId && (vm.status === "running" || vm.status === "paused");
+}
+
+function isListableVmRow(vm: CloudVmRow): boolean {
+  return !!vm.providerVmId && (isUsableVmRow(vm) || vm.status === "failed");
 }
 
 function revokeActiveIdentities(vm: CloudVmRow) {
@@ -507,7 +567,7 @@ function reserveCreateCredit(
             repo.markCreateFailed({
               id: vm.id,
               code: "billing_reserve_failed",
-              message: errorMessage(err),
+              message: sanitizedCreateFailureMessage("billing_reserve_failed"),
             }),
             repo.recordUsageEvent({
               userId: input.userId,
@@ -770,6 +830,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    status: row.status,
+    failureCode: row.failureCode,
+    failureMessage: row.status === "failed" ? sanitizedCreateFailureMessage(row.failureCode) : null,
     createdAt: row.createdAt.getTime(),
   };
 }
@@ -786,4 +849,17 @@ function hashToken(token: string): string {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function sanitizedCreateFailureMessage(code: string | null): string {
+  switch (code) {
+    case "billing_reserve_failed":
+      return "Cloud VM billing could not be reserved.";
+    case "database_finalize_failed":
+      return "Cloud VM state could not be finalized after provider allocation.";
+    case "create":
+      return "Cloud VM setup failed after the provider allocated a VM.";
+    default:
+      return "Cloud VM creation failed.";
+  }
 }
