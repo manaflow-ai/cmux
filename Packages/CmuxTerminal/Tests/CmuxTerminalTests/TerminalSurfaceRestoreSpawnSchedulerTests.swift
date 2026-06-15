@@ -149,12 +149,7 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
-        let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
-            scheduler: scheduler,
-            nativeView: nativeView,
-            paneHost: paneHost
-        )
+        let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
 
         surface.createSurface(for: nativeView)
 
@@ -167,7 +162,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -203,7 +197,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -218,12 +211,36 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
-    @Test func postShimScheduledRestoreReentersRestoreQueueBeforeNativeCreation() {
+    @Test func postShimScheduledRestoreRequeuesReadyViewBeforeNativeCreation() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-ready-slot")
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+        surface.attachedView = nativeView
+        surface.claudeCommandShimInstallCompleted = true
+
+        #expect(nativeView.window != nil)
+        surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
+            view: nativeView,
+            source: .scheduledRestore
+        )
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func postShimScheduledRestoreReentersRestoreQueueWhenViewIsNotReady() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -244,7 +261,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -264,7 +280,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -287,7 +302,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(
-            runtimeSpawnPolicy: .pacedSessionRestore,
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost
@@ -314,7 +328,7 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
     }
 
     private func makeSurface(
-        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .pacedSessionRestore,
         scheduler: RecordingRestoreSpawnScheduler,
         nativeView: FakeTerminalSurfaceNativeView,
         paneHost: FakeTerminalSurfacePaneHost

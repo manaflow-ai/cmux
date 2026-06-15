@@ -80,22 +80,21 @@ extension TerminalSurface {
     ) {
         guard allowsRuntimeSurfaceCreation(), surface == nil else { return }
 
-        let resumedSource: RuntimeSurfaceCreationSource = source == .scheduledRestore ? .normal : source
         if source == .scheduledRestore {
             if let view {
-                createSurface(for: view, source: resumedSource)
+                createSurface(for: view, source: .normal)
             } else if let attachedView {
-                createSurface(for: attachedView, source: resumedSource)
+                createSurface(for: attachedView, source: .normal)
             }
             return
         }
 
         if let view, view.window != nil {
-            createSurface(for: view, source: resumedSource)
+            createSurface(for: view, source: source)
         } else if let attachedView, attachedView.window != nil {
-            createSurface(for: attachedView, source: resumedSource)
+            createSurface(for: attachedView, source: source)
         } else {
-            scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready", source: resumedSource)
+            scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready", source: source)
         }
     }
 }
