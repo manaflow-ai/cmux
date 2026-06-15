@@ -6,6 +6,7 @@ import WebKit
 import AppKit
 import Bonsplit
 import CmuxBrowserPanel
+import CmuxBrowserNavigation
 import CmuxTerminalCore
 import Network
 import CFNetwork
@@ -3178,10 +3179,23 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var nativeCanGoBack: Bool = false
     private var nativeCanGoForward: Bool = false
-    private var usesRestoredSessionHistory: Bool = false
-    private var restoredBackHistoryStack: [URL] = []
-    private var restoredForwardHistoryStack: [URL] = []
-    private var restoredHistoryCurrentURL: URL?
+
+    /// The replayable back/forward session history this surface restores from a
+    /// prior launch. The pure stack state machine lives in `CmuxBrowserNavigation`;
+    /// this surface owns the instance, feeds it the resolved live current URL,
+    /// and performs the `WKWebView` calls its decisions return. The temporary-URL
+    /// classification (diff viewer + remote loopback proxy alias) is inverted into
+    /// the injected sanitizer seam.
+    private var restoredSessionHistory = RestoredSessionHistory(
+        sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
+    )
+
+    private var usesRestoredSessionHistory: Bool {
+        restoredSessionHistory.usesRestoredSessionHistory
+    }
+    private var restoredHistoryCurrentURL: URL? {
+        restoredSessionHistory.current
+    }
     private var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
@@ -4673,31 +4687,12 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-        let nativeBack = webView.backForwardList.backList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
-        }
-        let nativeForward = webView.backForwardList.forwardList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
-        }
-
-        if usesRestoredSessionHistory {
-            let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
-            // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
-            let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
-                Self.serializableSessionHistoryURLString($0)
-            }
-
-            if isLiveSessionHistoryAlignedWithRestoredCurrent {
-                return (
-                    back,
-                    restoredForward.isEmpty ? nativeForward : restoredForward
-                )
-            }
-
-            return (back + nativeBack, nativeForward)
-        }
-
-        return (nativeBack, nativeForward)
+        let snapshot = restoredSessionHistory.snapshot(
+            nativeBackURLs: webView.backForwardList.backList.map { $0.url },
+            nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
+            isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
+        )
+        return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
@@ -4713,67 +4708,24 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
-        let liveCurrent = Self.serializableSessionHistoryURLString(resolvedLiveSessionHistoryURL())
-        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
-        guard let liveCurrent, let restoredCurrent else { return true }
-        return liveCurrent == restoredCurrent
+        restoredSessionHistory.isLiveAligned(withLiveCurrentURL: resolvedLiveSessionHistoryURL())
     }
 
     private func realignRestoredSessionHistoryToLiveCurrentIfPossible() {
-        guard usesRestoredSessionHistory else { return }
-        guard let liveCurrent = resolvedLiveSessionHistoryURL(),
-              let liveCurrentString = Self.serializableSessionHistoryURLString(liveCurrent) else {
+        switch restoredSessionHistory.realign(toLiveCurrentURL: resolvedLiveSessionHistoryURL()) {
+        case .noChange:
             return
-        }
-        guard Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL) != liveCurrentString else {
-            return
-        }
-
-        let restoredBack = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
-        let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
-            Self.serializableSessionHistoryURLString($0)
-        }
-        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
-
-        if let backIndex = restoredBack.lastIndex(of: liveCurrentString) {
-            let newBack = Array(restoredBack[..<backIndex])
-            var newForward = Array(restoredBack[(backIndex + 1)...])
-            if let restoredCurrent {
-                newForward.append(restoredCurrent)
-            }
-            newForward.append(contentsOf: restoredForward)
-
-            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
-            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
-            restoredHistoryCurrentURL = liveCurrent
+        case .rebalanced:
             refreshNavigationAvailability()
-            return
-        }
-
-        if let forwardIndex = restoredForward.firstIndex(of: liveCurrentString) {
-            var newBack = restoredBack
-            if let restoredCurrent {
-                newBack.append(restoredCurrent)
-            }
-            newBack.append(contentsOf: restoredForward[..<forwardIndex])
-            let newForward = Array(restoredForward[(forwardIndex + 1)...])
-
-            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
-            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
-            restoredHistoryCurrentURL = liveCurrent
-            refreshNavigationAvailability()
-            return
-        }
-
-        guard !restoredForwardHistoryStack.isEmpty else { return }
+        case .clearedForward(let liveCurrentString):
 #if DEBUG
-        cmuxDebugLog(
-            "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
-            "current=\(liveCurrentString)"
-        )
+            cmuxDebugLog(
+                "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
+                "current=\(liveCurrentString)"
+            )
 #endif
-        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
-        refreshNavigationAvailability()
+            refreshNavigationAvailability()
+        }
     }
 
     func restoreSessionNavigationHistory(
@@ -4781,16 +4733,12 @@ final class BrowserPanel: Panel, ObservableObject {
         forwardHistoryURLStrings: [String],
         currentURLString: String?
     ) {
-        let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
-        let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
-        let restoredCurrent = Self.sanitizedSessionHistoryURL(currentURLString)
-        guard !restoredBack.isEmpty || !restoredForward.isEmpty || restoredCurrent != nil else { return }
-
-        usesRestoredSessionHistory = true
-        restoredBackHistoryStack = restoredBack
-        // Store nearest-forward entries at the end to make stack pop operations trivial.
-        restoredForwardHistoryStack = Array(restoredForward.reversed())
-        restoredHistoryCurrentURL = restoredCurrent
+        let activated = restoredSessionHistory.restore(
+            backHistoryURLStrings: backHistoryURLStrings,
+            forwardHistoryURLStrings: forwardHistoryURLStrings,
+            currentURLString: currentURLString
+        )
+        guard activated else { return }
         refreshNavigationAvailability()
     }
 
@@ -6159,9 +6107,7 @@ extension BrowserPanel {
         isBrowserFocusModeExitArmed ||
         nativeCanGoBack ||
         nativeCanGoForward ||
-        restoredHistoryCurrentURL != nil ||
-        !restoredBackHistoryStack.isEmpty ||
-        !restoredForwardHistoryStack.isEmpty ||
+        restoredSessionHistory.hasRestoredState ||
         estimatedProgress > 0 ||
         isLoading ||
         isDownloading ||
@@ -6365,27 +6311,24 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack),
-               let targetURL = restoredBackHistoryStack.popLast() {
-                if let current = resolvedCurrentSessionHistoryURL() {
-                    restoredForwardHistoryStack.append(current)
-                }
-                restoredHistoryCurrentURL = targetURL
+            let decision = restoredSessionHistory.decideGoBack(
+                isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent,
+                nativeCanGoBack: nativeCanGoBack,
+                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
+            )
+            switch decision {
+            case .navigate(let targetURL):
                 refreshNavigationAvailability()
                 navigateWithoutInsecureHTTPPrompt(
                     to: targetURL,
                     recordTypedNavigation: false,
                     preserveRestoredSessionHistory: true
                 )
-                return
-            }
-
-            if nativeCanGoBack {
+            case .nativeGoBack:
                 webView.goBack()
-                return
+            case .nativeGoForward, .refreshOnly:
+                refreshNavigationAvailability()
             }
-
-            refreshNavigationAvailability()
             return
         }
 
@@ -6400,25 +6343,23 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if nativeCanGoForward {
-                webView.goForward()
-                return
-            }
-
-            guard let targetURL = restoredForwardHistoryStack.popLast() else {
-                refreshNavigationAvailability()
-                return
-            }
-            if let current = resolvedCurrentSessionHistoryURL() {
-                restoredBackHistoryStack.append(current)
-            }
-            restoredHistoryCurrentURL = targetURL
-            refreshNavigationAvailability()
-            navigateWithoutInsecureHTTPPrompt(
-                to: targetURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
+            let decision = restoredSessionHistory.decideGoForward(
+                nativeCanGoForward: nativeCanGoForward,
+                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
             )
+            switch decision {
+            case .nativeGoForward:
+                webView.goForward()
+            case .navigate(let targetURL):
+                refreshNavigationAvailability()
+                navigateWithoutInsecureHTTPPrompt(
+                    to: targetURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
+            case .nativeGoBack, .refreshOnly:
+                refreshNavigationAvailability()
+            }
             return
         }
 
@@ -8166,58 +8107,44 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
-        let resolvedCanGoBack: Bool
-        let resolvedCanGoForward: Bool
-        if usesRestoredSessionHistory {
-            resolvedCanGoBack = nativeCanGoBack || !restoredBackHistoryStack.isEmpty
-            resolvedCanGoForward = nativeCanGoForward || !restoredForwardHistoryStack.isEmpty
-        } else {
-            resolvedCanGoBack = nativeCanGoBack
-            resolvedCanGoForward = nativeCanGoForward
-        }
+        let availability = restoredSessionHistory.availability(
+            nativeCanGoBack: nativeCanGoBack,
+            nativeCanGoForward: nativeCanGoForward
+        )
 
-        if canGoBack != resolvedCanGoBack {
-            canGoBack = resolvedCanGoBack
+        if canGoBack != availability.canGoBack {
+            canGoBack = availability.canGoBack
         }
-        if canGoForward != resolvedCanGoForward {
-            canGoForward = resolvedCanGoForward
+        if canGoForward != availability.canGoForward {
+            canGoForward = availability.canGoForward
         }
     }
 
     private func abandonRestoredSessionHistoryIfNeeded() {
-        guard usesRestoredSessionHistory else { return }
-        usesRestoredSessionHistory = false
-        restoredBackHistoryStack.removeAll(keepingCapacity: false)
-        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
-        restoredHistoryCurrentURL = nil
+        guard restoredSessionHistory.abandon() else { return }
         refreshNavigationAvailability()
     }
 
+    /// Shared sanitizer mirroring the restored-session-history URL rules, used by
+    /// the surface's WebKit-touching resolution helpers.
+    private static let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
+        browserIsTemporaryHistoryURL($0)
+    }
+
     private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
-        guard let url else { return nil }
-        guard !isTemporarySessionHistoryURL(url) else { return nil }
-        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != "about:blank" else { return nil }
-        return value
+        sessionHistoryURLSanitizer.serializableSessionHistoryURLString(url)
     }
 
     private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
-        guard let url = URL(string: trimmed),
-              !isTemporarySessionHistoryURL(url) else {
-            return nil
-        }
-        return url
+        sessionHistoryURLSanitizer.sanitizedSessionHistoryURL(raw)
     }
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
-        values.compactMap { sanitizedSessionHistoryURL($0) }
+        sessionHistoryURLSanitizer.sanitizedSessionHistoryURLs(values)
     }
 
     private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        browserIsTemporaryHistoryURL(url)
+        sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(url)
     }
 
 }
