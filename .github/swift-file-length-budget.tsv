@@ -91,7 +91,6 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
-932	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
@@ -122,6 +121,7 @@
 716	Sources/TaskManagerSnapshot.swift
 715	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 715	Sources/AppleScriptSupport.swift
+712	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 710	Sources/TerminalSSHSessionDetector.swift
 707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
