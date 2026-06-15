@@ -3,9 +3,10 @@ public import Foundation
 
 /// Decides whether a sidebar row's shortcut-hint visibility should use the
 /// frozen value captured for a specific tab, or fall back to the live value.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarShortcutHintFreezePolicy {
-    public static func resolved(
+public struct SidebarShortcutHintFreezePolicy {
+    public init() {}
+
+    public func resolved(
         live: Bool,
         currentTabId: UUID,
         frozenTabId: UUID?,
@@ -20,31 +21,33 @@ public enum SidebarShortcutHintFreezePolicy {
 
 /// Whether an in-flight sidebar drag should be reset when a drop lands outside
 /// the sidebar.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarOutsideDropResetPolicy {
-    public static func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
+public struct SidebarOutsideDropResetPolicy {
+    public init() {}
+
+    public func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
         draggedTabId != nil && hasSidebarDragPayload
     }
 }
 
 /// Failsafe rules for clearing a stuck sidebar drag (mouse released outside a
 /// drop target, app resigned active, escape pressed).
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarDragFailsafePolicy {
+public struct SidebarDragFailsafePolicy {
     public static let clearDelay: TimeInterval = 0.15
 
-    public static func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
+    public init() {}
+
+    public func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
         isDragActive && !isLeftMouseButtonDown
     }
 
-    public static func shouldRequestClearWhenMonitoringStarts(isLeftMouseButtonDown: Bool) -> Bool {
+    public func shouldRequestClearWhenMonitoringStarts(isLeftMouseButtonDown: Bool) -> Bool {
         shouldRequestClear(
             isDragActive: true,
             isLeftMouseButtonDown: isLeftMouseButtonDown
         )
     }
 
-    public static func shouldRequestClear(forMouseEventType eventType: NSEvent.EventType) -> Bool {
+    public func shouldRequestClear(forMouseEventType eventType: NSEvent.EventType) -> Bool {
         eventType == .leftMouseUp
     }
 }

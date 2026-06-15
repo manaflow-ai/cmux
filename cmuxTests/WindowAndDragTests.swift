@@ -11,6 +11,12 @@ import WebKit
 import ObjectiveC.runtime
 @testable import Bonsplit
 import UserNotifications
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AccountCatalogSection
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.FileRouteSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -401,13 +407,14 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
 
         let defaults = UserDefaults.standard
-        let previousWelcomeShown = defaults.object(forKey: WelcomeSettings.shownKey)
-        defaults.set(true, forKey: WelcomeSettings.shownKey)
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
+        defaults.set(true, forKey: welcomeShownKey)
         defer {
             if let previousWelcomeShown {
-                defaults.set(previousWelcomeShown, forKey: WelcomeSettings.shownKey)
+                defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
             } else {
-                defaults.removeObject(forKey: WelcomeSettings.shownKey)
+                defaults.removeObject(forKey: welcomeShownKey)
             }
         }
 
@@ -3427,12 +3434,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
-        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).supportedFileRouteEnabled)
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: directoryURL.path))
 
-        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
     }
 
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
@@ -3443,11 +3450,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
-        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        defaults.set(true, forKey: AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey)
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
 
-        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteMarkdown(path: fileURL.path))
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
     }
 
     func testCmdClickMarkdownRoutingDefaultsToReadableMarkdownFiles() throws {
@@ -3458,8 +3465,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        XCTAssertTrue(CmdClickMarkdownRouteSettings.isEnabled(defaults: defaults))
-        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).markdownRouteEnabled)
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteMarkdown(path: fileURL.path))
     }
 
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {

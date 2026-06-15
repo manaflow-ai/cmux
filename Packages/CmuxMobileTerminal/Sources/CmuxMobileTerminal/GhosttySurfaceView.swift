@@ -421,16 +421,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     /// Whether the user can show/hide/reorder this action.
     ///
-    /// Every button on the bar is configurable except ``shift`` and ``composer``,
-    /// which have armed machinery but are intentionally not surfaced as bar
-    /// buttons (``composer`` is the iMessage-style composer toggle, not a normal
-    /// shortcut). The leading modifier keys (⌃ ⌥ ⌘), zoom controls, and paste used
-    /// to be structurally pinned; they are now part of the user-configurable
-    /// region too, so their position can be moved alongside the insertable
-    /// shortcuts.
+    /// Every button is configurable except ``composer`` (the iMessage-style
+    /// composer toggle, pinned outside the scroll view, not a normal shortcut).
+    /// The leading modifiers (⌃ ⌥ ⌘ ⇧), zoom, and paste were once structurally
+    /// pinned but now move freely. ⇧ became configurable in this build;
+    /// ``TerminalAccessoryConfiguration`` folds it into existing layouts.
     public var isUserConfigurable: Bool {
         switch self {
-        case .shift, .composer:
+        case .composer:
             return false
         default:
             return true
@@ -444,12 +442,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         allCases.filter { $0.isUserConfigurable }
     }
 
-    /// The configurable actions that previously sat in the bar's fixed leading
-    /// region, in their shipped left-to-right order. They lead ``defaultConfigurableOrder``
-    /// on a fresh install, and the v1/v2→v3 migration force-enables and inserts
-    /// them at the front so an upgrading user's bar looks unchanged.
+    /// The modifier/paste controls leading the default bar: ⌃ ⌥ ⌘ ⇧ then paste
+    /// (⇧ right after ⌘ so all four modifiers are adjacent). The v1/v2→v3 migration
+    /// force-enables and prepends them, so an upgrading user keeps these controls
+    /// and gains ⇧.
     public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
-        [.control, .alternate, .command, .paste]
+        [.control, .alternate, .command, .shift, .paste]
     }
 
     /// The configurable actions that previously sat in the bar's fixed trailing
@@ -519,7 +517,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
         case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
         case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .shift, .composer:
+        case .shift: return String(localized: "terminal.shortcut.name.shift", defaultValue: "Shift")
+        case .composer:
             return title
         }
     }
@@ -3543,7 +3542,7 @@ private class DisplayLinkProxy {
 // MARK: - Arrow Nub (draggable directional pad)
 
 final class TerminalArrowNubView: UIView {
-    var onArrowKey: ((Data) -> Void)?
+    var onArrowKey: ((TerminalInputAccessoryAction) -> Void)?
 
     // Locked to the size the docked bar actually pins the nub to, so the circular
     // background (cornerRadius = nubSize/2) and the drag clamp track the real frame.
@@ -3565,6 +3564,15 @@ final class TerminalArrowNubView: UIView {
         case up, down, left, right
 
         var repeatDirection: TerminalArrowRepeatService.Direction {
+            switch self {
+            case .up:    return .upArrow
+            case .down:  return .downArrow
+            case .right: return .rightArrow
+            case .left:  return .leftArrow
+            }
+        }
+
+        var accessoryAction: TerminalInputAccessoryAction {
             switch self {
             case .up:    return .upArrow
             case .down:  return .downArrow
@@ -3658,10 +3666,10 @@ final class TerminalArrowNubView: UIView {
             clock: ContinuousClock()
         )
         repeatTask = Task { @MainActor [weak self] in
-            for await bytes in stream {
+            for await _ in stream {
                 guard let self else { return }
                 self.feedbackGenerator.impactOccurred()
-                self.onArrowKey?(bytes)
+                self.onArrowKey?(direction.accessoryAction)
             }
         }
     }
