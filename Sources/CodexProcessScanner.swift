@@ -25,7 +25,8 @@ extension RestorableAgentSessionIndex {
             guard observed.isCodexProcess else { continue }
 
             let tail = codexLaunchTail(observed: observed)
-            guard let sessionId = codexSessionId(in: tail),
+            guard let sessionId = codexSessionId(in: tail)
+                    ?? normalizedCodexProcessValue(observed.environment["CODEX_THREAD_ID"]),
                   AgentLaunchSanitizer.preservedCodexForkArguments(args: tail) != nil else {
                 continue
             }

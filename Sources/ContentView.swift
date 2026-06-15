@@ -14176,6 +14176,8 @@ struct TabItemView: View, Equatable {
 
         }
 
+        forkConversationContextMenuSection(canFork: !isMulti && tab.canForkFocusedAgentConversation())
+
         if !remoteContextMenuWorkspaceIds.isEmpty {
             Divider()
 

@@ -47,6 +47,15 @@ extension RestorableAgentSessionIndex {
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
             processArgumentsProvider: processArgumentsProvider
         )
+        for (key, value) in processDetectedClaudeSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: processArgumentsProvider
+        ) {
+            resolved[key] = value
+        }
         for (key, value) in processDetectedCodexSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,

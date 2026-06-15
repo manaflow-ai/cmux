@@ -10467,6 +10467,34 @@ final class Workspace: Identifiable, ObservableObject {
         ) == .supportedWithoutProbe
     }
 
+    func canForkFocusedAgentConversation() -> Bool {
+        guard let panelId = focusedPanelId else { return false }
+        return canForkAgentConversationFromPanel(panelId)
+    }
+
+    func forkFocusedAgentConversation(destination: AgentConversationForkDestination) -> Bool {
+        guard let panelId = focusedPanelId,
+              let anchorTabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
+            return false
+        }
+        let isRemote = isRemoteTerminalSurface(panelId)
+        guard ContentView.commandPaletteSnapshotForkAvailability(
+            snapshot,
+            isRemoteTerminal: isRemote
+        ) == .supportedWithoutProbe else {
+            return false
+        }
+        return forkAgentConversation(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            destination: destination,
+            anchorTabId: anchorTabId,
+            paneId: paneId
+        )
+    }
+
     /// Snapshot used by the right-click fork path. Prefers restored snapshots, then the
     /// shared live index, which refreshes off-main and invalidates the workspace on changes.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
