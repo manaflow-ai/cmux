@@ -15,7 +15,15 @@ import CmuxTerminal
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
+    var keyDownCallCount = 0
+    var lastKeyDownCharactersIgnoringModifiers: String?
+
     override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownCallCount += 1
+        lastKeyDownCharactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
 }
 private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     var clipboardReadGeneration = 0
@@ -6220,6 +6228,205 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testOptionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: false)
+        manager.selectTab(at: 0)
+
+        let optionWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "™",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19 // kVK_ANSI_2
+            ) else {
+                XCTFail("Failed to construct Option+2 event")
+                return
+            }
+
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Explicit Option+digit workspace bindings should route before printable Option text bypass"
+            )
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Option+2 should select workspace 2 when selectWorkspaceByNumber is rebound to Option+1...9"
+            )
+        }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testTerminalKeyEquivalentRoutesActiveOptionDigitWorkspaceShortcut() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: false)
+        manager.selectTab(at: 0)
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before key-equivalent routing"
+        )
+
+        let optionWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "™",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19 // kVK_ANSI_2
+            ) else {
+                XCTFail("Failed to construct Option+2 event")
+                return
+            }
+
+            XCTAssertTrue(
+                window.performKeyEquivalent(with: event),
+                "Terminal key-equivalent fallback should route active Option+digit workspace bindings"
+            )
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Option+2 should select workspace 2 before the terminal fast path receives printable Option text"
+            )
+        }
+#else
+        throw XCTSkip("debug terminal focus assertions are only available in DEBUG builds")
+#endif
+    }
+
+    func testInactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "selectWorkspaceByNumber": "opt+1"
+            },
+            "when": {
+              "selectWorkspaceByNumber": "browserFocus"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        contentView.addSubview(focusableView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        XCTAssertTrue(window.makeFirstResponder(focusableView), "Expected focusable view to own first responder")
+
+        let event = makeKeyEvent(
+            modifierFlags: [.option],
+            characters: "™",
+            charactersIgnoringModifiers: "2",
+            keyCode: 19 // kVK_ANSI_2
+        )
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: event),
+            "Inactive Option+digit workspace bindings should leave printable Option text forwarding intact"
+        )
+        XCTAssertEqual(focusableView.keyDownCallCount, 1, "Printable Option text should be forwarded to the text responder")
+        XCTAssertEqual(focusableView.lastKeyDownCharactersIgnoringModifiers, "2")
+#else
+        throw XCTSkip("debug shortcut routing state reset is only available in DEBUG builds")
 #endif
     }
 
