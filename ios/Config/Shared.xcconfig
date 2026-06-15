@@ -46,3 +46,16 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // ==========================================
 // AI agents can modify Config/cmux.entitlements to add capabilities
 CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+
+// ==========================================
+// Pairing URL scheme (channel-specific)
+// ==========================================
+// The cmux pairing/attach deep-link scheme this build registers in
+// CFBundleURLTypes (Config/Info.plist). Channel-specific so the system Camera
+// app can never hand a beta/prod pairing QR to a dev build that also claimed
+// the scheme: dev (Debug/tagged) builds register cmux-ios-dev, Release
+// (TestFlight beta + App Store) overrides this to cmux-ios in
+// Release.xcconfig. The default here is the dev scheme so an unknown build
+// configuration can never hijack release links. Keep both values in sync with
+// CmxPairingURLScheme in Packages/CMUXMobileCore.
+CMUX_IOS_URL_SCHEME = cmux-ios-dev
