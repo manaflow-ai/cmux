@@ -48,11 +48,13 @@ struct TerminalClearScreenKeepScrollbackTests {
         import tty
 
         fd = 0
-        sys.stdout.write("\(readyMarker)\\n")
-        sys.stdout.flush()
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
+            # Announce readiness only after raw mode is active, so the test never
+            # races the PTY mode change when it delivers Ctrl-L.
+            sys.stdout.write("\\r\\n\(readyMarker)\\r\\n")
+            sys.stdout.flush()
             data = bytearray()
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline and len(data) < 4:
@@ -76,9 +78,10 @@ struct TerminalClearScreenKeepScrollbackTests {
         // byte-level assertion there (mirrors GhosttyDECCKMArrowKeyTests).
         guard hosted.surface.hasLiveSurface else { return }
 
+        // The harness prints its marker only after entering raw mode, so seeing it
+        // means Ctrl-L will be delivered as a raw byte — no timing delay needed.
         let readyText = try waitForTerminalText(from: hosted) { $0.contains(readyMarker) }
         #expect(readyText.contains(readyMarker), "capture harness should become ready")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         #expect(
             hosted.surface.clearScreenKeepingScrollback(),
