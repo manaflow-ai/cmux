@@ -217,6 +217,20 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether this action is bound as a **system-wide** Carbon hotkey (fires
+    /// even when cmux is not frontmost). Such a binding must be a single stroke
+    /// with a primary (⌘/⌃/⌥) modifier — chords and shift-only strokes fail
+    /// Carbon registration and are dropped by the app. Mirrors the app target's
+    /// `KeyboardShortcutSettings.systemWideActions`.
+    public var usesGlobalHotkey: Bool {
+        switch self {
+        case .showHideAllWindows, .globalSearch:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
     ///
     /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid

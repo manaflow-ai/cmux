@@ -1,83 +1,136 @@
 ---
 name: cmux-settings
-description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when the user wants to change cmux preferences (appearance, sidebar, notifications, automation, browser, shortcuts), set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
+description: "Read and write any cmux setting and remap any keyboard shortcut from the command line via `cmux settings`. Use when the user wants to change a cmux preference (appearance, sidebar, notifications, automation, browser, terminal, shortcuts), set/get a value, list or describe what's settable, export/import a config, or rebind a shortcut. Triggers on '/cmux-settings', 'change cmux setting', 'set <something> in cmux', 'cmux config', 'cmux.json', 'remap/rebind a cmux shortcut', or 'cmux settings'."
 ---
 
 # cmux-settings
 
-cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). The app installs a file watcher; saving the file applies changes immediately, no restart needed. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys not present in `cmux.json`.
+`cmux settings` reads and writes **every** cmux setting and **every** keyboard shortcut from the command line, while the app is running. It is **catalog-driven**: the CLI derives the full set of keys, their types, allowed values, and defaults from the app's single source of truth (`SettingCatalog`). So you never hardcode a key list — you **discover** it at runtime, and the CLI automatically covers new settings as they are added.
 
-Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list lives in `Sources/CmuxSettingsJSONPathSupport.swift` in the cmux checkout, and the installed skill includes a generated copy in `references/all-keys.md`. Top-level sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) coexist in the same file.
+Changes apply **live** (no restart): a CLI write lands in exactly the same place the Settings window reads from (`UserDefaults`, `~/.config/cmux/cmux.json`, or a secret file) and the running app picks it up immediately.
 
-## Helper script
+## The loop: discover → set → verify
 
-Use the bundled helper for every read/write. It strips JSONC comments, writes atomically, and validates keys against the schema.
+Always discover before guessing a key name.
+
+```bash
+# 1. Discover. List every key (flat, sorted, scriptable):
+cmux settings list --keys
+# Find the one you want (plain English -> key):
+cmux settings list --keys | rg -i 'sidebar|terminal|appearance'
+# Inspect one key fully — type, allowed values, default, current value, backend:
+cmux settings describe app.appearance
+
+# 2. Set. Values are validated against the catalog (type / enum / range):
+cmux settings set app.appearance dark
+
+# 3. Verify:
+cmux settings get app.appearance        # -> dark
+```
+
+`cmux settings list --json` and `--json` on any read command give machine-readable output (stable, sorted). Use it to enumerate programmatically:
+
+```bash
+cmux settings list --json | jq -r '.settings[] | select(.type=="enum") | .id'
+```
+
+## Subcommands
+
+| Command | What it does |
+|---|---|
+| `cmux settings list [--json] [--keys]` | Every setting with value, default, backend. `--keys` = flat key list. |
+| `cmux settings get <key> [--json]` | Print one setting's value. |
+| `cmux settings set <key> <value>` | Set a value (validated). Quote values with spaces. |
+| `cmux settings unset <key>` | Clear an override, reverting to the default. |
+| `cmux settings reset <key>` | Same as unset. |
+| `cmux settings reset --all --yes` | Clear every override. |
+| `cmux settings describe <key> [--json]` | Type, allowed enum values, default, current value, backend, section. |
+| `cmux settings export [--json] [--out file]` | Dump current settings (secrets omitted). |
+| `cmux settings import <file>` | Apply a settings file; validated atomically (all-or-nothing). |
+| `cmux settings shortcuts <subcommand>` | Manage keyboard shortcuts (below). |
+
+Validation never silently no-ops: an unknown key, wrong type, unknown enum case, or out-of-range value exits non-zero with a clear stderr message.
+
+## Examples
+
+```bash
+# Toggle a boolean
+cmux settings set app.menuBarOnly true
+
+# Set an enum (run `describe` first to see the cases)
+cmux settings describe browser.defaultSearchEngine
+cmux settings set browser.defaultSearchEngine duckduckgo
+
+# Number
+cmux settings set automation.portBase 9200
+
+# JSON value (quote it)
+cmux settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
+
+# Revert one setting, or everything
+cmux settings unset app.menuBarOnly
+cmux settings reset --all --yes
+
+# Version-control a profile across machines
+cmux settings export --out ~/dotfiles/cmux-settings.json
+cmux settings import ~/dotfiles/cmux-settings.json
+```
+
+## Keyboard shortcuts
+
+Shortcuts live under `cmux settings shortcuts` and key off action ids (e.g. `newTab`, `openSettings`). Bindings are config strings: a single stroke `cmd+t`, a tmux-style chord `ctrl+b c` (or `["ctrl+b","c"]`), or `none` to unbind.
+
+```bash
+cmux settings shortcuts list                 # every action: current binding + default
+cmux settings shortcuts get newTab
+cmux settings shortcuts set newTab "cmd+t"
+cmux settings shortcuts set newTab "ctrl+b c"
+cmux settings shortcuts unset newTab         # revert to default
+cmux settings shortcuts reset                # clear every override
+```
+
+Assigning a binding already used by another action fails with a clear conflict error; pass `--force` to reassign it:
+
+```bash
+cmux settings shortcuts set newTab "cmd+k" --force
+```
+
+(Bare `cmux settings shortcuts`, with no subcommand, opens the GUI Settings window to Keyboard Shortcuts.)
+
+## Secrets
+
+Secret-backed settings (e.g. `automation.socketPassword`) are **redacted** on read — `get` / `list` / `export` print `<redacted>`, never the value, and `export` omits them entirely. They are still settable:
+
+```bash
+cmux settings set automation.socketPassword 'hunter2'   # writes the secret file
+cmux settings get automation.socketPassword             # -> <redacted>
+```
+
+## Rules
+
+- Discover with `list --keys` / `describe` instead of guessing or hardcoding a key list — the CLI is the source of truth and stays current as settings change.
+- Don't tell the user to restart cmux; writes apply live.
+- `import` is all-or-nothing: if any entry is invalid, nothing is applied and the offending entries are reported.
+- To revert, `cmux settings unset <key>` (one) or `cmux settings reset --all --yes` (everything).
+- **Managed `cmux.json` wins.** A setting written into `~/.config/cmux/cmux.json` is *managed*: cmux re-applies it on every reload, so it overrides the per-machine value `cmux settings set`/`unset` writes (the same precedence the GUI Settings window is subject to). Rather than let a write silently no-op, `cmux settings set`/`unset` **errors** for a key that is managed in `cmux.json` and tells you to change it there — use the fallback helper below (or edit `cmux.json` directly). Keyboard shortcuts are the exception: `shortcuts.bindings` in `cmux.json` is the highest-precedence runtime source, so `cmux settings shortcuts set` always takes effect.
+
+## Fallback: editing `cmux.json` directly
+
+When the app is **not running** (the CLI needs it for live-apply) or you want to hand-edit the JSON, cmux still reads `~/.config/cmux/cmux.json` (JSONC) and auto-reloads on save. The bundled helper edits it safely (strips comments, writes atomically, validates keys):
 
 ```bash
 # From a cmux checkout
 skills/cmux-settings/scripts/cmux-settings <subcommand>
-
 # From an installed Codex skill
 ~/.codex/skills/cmux-settings/scripts/cmux-settings <subcommand>
 ```
 
-For brevity in the rest of this doc, assume the script is on `$PATH` as `cmux-settings`. To make it so for a session from a checkout: `export PATH="$PWD/skills/cmux-settings/scripts:$PATH"`.
-
-Subcommands:
-
 | Command | What it does |
 |---|---|
-| `cmux-settings path` | Print the config path. |
-| `cmux-settings dump` | Print the raw file (preserves comments). |
-| `cmux-settings dump --no-comments` | Print the parsed JSON. |
-| `cmux-settings get <a.b.c>` | Print value at dotted JSON path. |
-| `cmux-settings set <a.b.c> <value>` | Set value. `<value>` is parsed as JSON (`true`, `42`, `"text"`, `[…]`, `{…}`); plain strings without quotes are stored as strings. |
-| `cmux-settings unset <a.b.c>` | Delete key, reverting to the in-app default. |
-| `cmux-settings list-supported` | List every settings JSON path the app recognizes. |
-| `cmux-settings validate` | Parse the file and flag any unknown settings keys. |
-| `cmux-settings open` | Open `cmux.json` in `$EDITOR`, VS Code, Cursor, or TextEdit. |
+| `cmux-settings get <a.b.c>` | Print value at a dotted JSON path. |
+| `cmux-settings set <a.b.c> <value>` | Set value (JSON literal, or bare string). |
+| `cmux-settings unset <a.b.c>` | Delete a key, reverting to the in-app default. |
+| `cmux-settings list-supported` | List every JSON path the app recognizes. |
+| `cmux-settings validate` | Flag unknown keys in the file. |
 
-`--file <path>` overrides the target file (useful for `--file ~/.config/cmux/settings.json` when the user keeps things in the legacy file).
-
-## Workflow
-
-1. Confirm the change. If the user named a setting in plain English (e.g. "make the sidebar tint match the terminal background"), look it up first.
-   ```bash
-   cmux-settings list-supported | rg -i 'sidebar.*terminal|terminal.*sidebar'
-   ```
-2. Set the value. JSON literals (`true`, `false`, numbers, arrays, objects) must be valid JSON. Plain words are stored as strings.
-   ```bash
-   cmux-settings set sidebarAppearance.matchTerminalBackground true
-   cmux-settings set app.appearance dark
-   cmux-settings set shortcuts.bindings.toggleSidebar cmd+b
-   cmux-settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
-   cmux-settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
-   ```
-3. Verify by reading back and validating.
-   ```bash
-   cmux-settings get sidebarAppearance.matchTerminalBackground
-   cmux-settings validate
-   ```
-4. Tell the user it auto-reloaded. No app restart. If they want to revert, run `cmux-settings unset <key>`.
-
-## Quick reference
-
-- Appearance: `app.appearance` = `"system" | "light" | "dark"`, `app.appIcon`, `app.menuBarOnly`, `app.minimalMode`.
-- Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `sidebarAppearance.tintColor`, `sidebarAppearance.tintOpacity` (0..1).
-- Sidebar details: `sidebar.hideAllDetails`, `sidebar.showBranchDirectory`, `sidebar.showPullRequests`, `sidebar.showPorts`, `sidebar.showLog`.
-- Notifications: `notifications.dockBadge`, `notifications.sound` (enum incl. `"none"`, `"custom_file"`), `notifications.customSoundFilePath`, `notifications.hooks` (array).
-- Browser: `browser.defaultSearchEngine`, `browser.theme`, `browser.openTerminalLinksInCmuxBrowser`, `browser.hostsToOpenInEmbeddedBrowser`.
-- Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `automation.portBase`, `automation.portRange`.
-- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. See `references/shortcut-actions.md`.
-
-For the full list of settings, defaults, and descriptions, run `cmux-settings list-supported` or read [references/all-keys.md](references/all-keys.md).
-
-## Rules
-
-- Only edit `cmux.json`. Never edit `settings.json` unless the user explicitly asks; it is legacy and only read when the key is absent from `cmux.json`.
-- Never tell the user to restart cmux to apply a change. The file watcher reloads on save.
-- Always validate after a bulk edit: `cmux-settings validate`. Unknown keys mean the user pasted a key the app does not consume.
-- Do not blindly overwrite top-level sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`). They live in the same file and contain non-settings config the user has hand-tuned.
-- Shortcut action ids must match the schema enum. Look them up in [references/shortcut-actions.md](references/shortcut-actions.md) before binding.
-- Color values must be `#RRGGBB`. Opacities are `0..1`.
-- For settings the user expressed in app-level language (e.g. "Settings > Notifications > Dock badge"), translate to the matching JSON path first; the docs page at `web/app/[locale]/docs/configuration/page.tsx` mirrors the schema 1:1.
+This helper writes only `cmux.json` (the ~15 JSON-backed settings, shortcut bindings, and non-settings config sections); the ~170 `UserDefaults`-backed settings are reachable only through the running app via `cmux settings`. Prefer `cmux settings` whenever the app is up. See [references/all-keys.md](references/all-keys.md) for a static (possibly stale) key reference; `cmux settings list --keys` is authoritative.

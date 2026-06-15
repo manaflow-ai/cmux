@@ -48,4 +48,26 @@ public protocol SettingCodable: Sendable, Equatable {
     ///
     /// - Returns: A `JSONSerialization`-compatible value.
     func encodeForJSON() -> Any
+
+    /// The closed set of accepted raw values, when this type is an enumeration,
+    /// or `nil` for open value types (`Bool`, `Int`, `Double`, `String`,
+    /// collections, …).
+    ///
+    /// This is the catalog's machine-readable "allowed values" metadata. It
+    /// powers `cmux settings describe <key>` (listing every enum case) and the
+    /// CLI's enum-membership error messages without any per-setting code: a
+    /// `CaseIterable & RawRepresentable` value type advertises its cases
+    /// automatically (see `SettingCodable+AllowedValues.swift`), so a new enum
+    /// setting is fully described the moment its key is added to a
+    /// ``SettingCatalogSection``.
+    ///
+    /// It must be a protocol requirement (not a free function) so the concrete
+    /// type's witness is selected by dynamic dispatch — a generic caller that
+    /// only knows `Value: SettingCodable` still resolves the enum's cases.
+    static var settingAllowedRawValues: [String]? { get }
+}
+
+public extension SettingCodable {
+    /// Open value types advertise no closed set of cases.
+    static var settingAllowedRawValues: [String]? { nil }
 }

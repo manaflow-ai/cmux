@@ -247,8 +247,8 @@ def main() -> int:
     except (RuntimeError, OSError, ValueError) as exc:
         failures.append(f"cmux settings --help stale-target check: {exc}")
     else:
-        stale_usage = "Usage: cmux settings [open|path|docs|target]"
-        target_usage = "Usage: cmux settings [open [target]|path|docs|<target>]"
+        stale_usage = "Usage: cmux settings [open [target]|path|docs|<target>]"
+        target_usage = "Usage: cmux settings <subcommand> [args]"
         if stale_usage in result.stdout:
             failures.append(
                 f"cmux settings --help: stale literal target usage still present\n"
@@ -256,9 +256,16 @@ def main() -> int:
             )
         if target_usage not in result.stdout:
             failures.append(
-                f"cmux settings --help: expected target-placeholder usage {target_usage!r}\n"
+                f"cmux settings --help: expected subcommand usage {target_usage!r}\n"
                 f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
+        # The catalog-driven read/write subcommands must be discoverable in help.
+        for needle in ("list [--json] [--keys]", "describe <key>", "shortcuts <subcommand>"):
+            if needle not in result.stdout:
+                failures.append(
+                    f"cmux settings --help: expected subcommand help to mention {needle!r}\n"
+                    f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+                )
 
     if failures:
         print("FAIL: CLI help contract probes failed")

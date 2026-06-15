@@ -21,7 +21,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
-        if method.hasPrefix("vm.") || Self.socketWorkerMethods.contains(method) {
+        // `settings.control.*` (the `cmux settings` CLI backend) runs on the
+        // worker lane: its reads/writes are `async` actor hops through the
+        // catalog-driven settings engine, which the synchronous main-actor
+        // coordinator cannot host. (The unrelated main-actor `settings.open`
+        // does not share this prefix.)
+        if method.hasPrefix("vm.")
+            || method.hasPrefix("settings.control.")
+            || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )

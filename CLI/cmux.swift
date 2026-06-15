@@ -33966,7 +33966,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
-          settings [open [target]|path|docs|<target>]
+          settings <list|get|set|unset|reset|describe|export|import|shortcuts|open> [args]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status

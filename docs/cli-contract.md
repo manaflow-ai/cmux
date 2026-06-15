@@ -60,7 +60,7 @@ Environment:
 | --- | --- |
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
-| `settings` | Open Settings, print cmux.json paths, or print settings docs. |
+| `settings` | Read/write any setting, remap shortcuts, export/import a profile, or open the GUI. |
 | `config` | Validate cmux.json syntax, print config references, or reload config. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
@@ -369,8 +369,16 @@ Settings subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `settings` | Open the Settings window, launching cmux if needed. |
-| `settings open [target]` | Open Settings to an optional target section. |
+| `settings list [--json] [--keys]` | Catalog-driven: list every setting with value, default, and backend. `--keys` prints a flat, sorted key list. |
+| `settings get <key> [--json]` | Print one setting's value. Non-zero exit on unknown key. |
+| `settings set <key> <value>` | Validate against the catalog (type/enum/range) and write live. Non-zero exit + stderr on invalid value; never a silent no-op. |
+| `settings unset <key>` / `settings reset <key>` | Clear an override, reverting to the default. |
+| `settings reset --all --yes` | Clear every override atomically. |
+| `settings describe <key> [--json]` | Full metadata: type, allowed enum values, default, current value, backend, section. |
+| `settings export [--json] [--out <file>]` | Dump current settings (secret values omitted). |
+| `settings import <file>` | Apply a settings file; validated atomically (all-or-nothing). |
+| `settings shortcuts <list\|get\|set\|unset\|reset>` | Read/remap keyboard shortcuts. `set` rejects a binding already used by another action unless `--force`. |
+| `settings` / `settings open [target]` | Open the Settings window, launching cmux if needed, optionally to a target section. |
 | `settings path` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `settings docs` | Print the same output as `docs settings` without a socket. |
 | `settings <target>` | Open Settings to a target section. Supported aliases include `shortcuts`, `json`, `cmux-json`, `browser`, and `automation`. |
@@ -443,7 +451,7 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
+- `cmux settings --help` -> `Usage: cmux settings <subcommand> [args]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
 - `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>`
