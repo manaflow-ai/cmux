@@ -324,6 +324,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
     /// Sent in order on the next submit and then cleared for that terminal.
     private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+
+    /// Max number of staged attachments per terminal. Enforced in
+    /// ``addPendingAttachment(_:format:forTerminalID:)`` against the CURRENT
+    /// staged set at mutation time so the check+insert is atomic on the main
+    /// actor: two concurrent picker batches that each snapshot the same starting
+    /// budget cannot both append past the cap, because the second add re-reads
+    /// the (already-grown) staged set. The view may pre-filter for
+    /// responsiveness, but the store is the authoritative cap.
+    public static let maxPendingAttachmentCount = 10
+    /// Total encoded-bytes budget across one terminal's staged attachments.
+    /// Enforced in the same atomic add path as the count cap so a run of large
+    /// photos (or two racing batches) cannot balloon observable state past the
+    /// budget regardless of the count.
+    public static let maxPendingAttachmentTotalBytes = 32 * 1024 * 1024
+    /// Per-image encoded-bytes cap. An add whose single image exceeds this is
+    /// rejected outright (the view bounds the encode below this, but the store
+    /// re-enforces it as the single source of truth).
+    public static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
     /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
     /// session. The composer's photo-staging path captures it before its
     /// (off-main) load + encode and re-checks it just before mutating the store:
@@ -2740,10 +2758,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///     selected terminal.
     /// - Returns: The new attachment's stable id, so the caller can key a side
     ///   cache (e.g. a downsampled thumbnail) to it; `nil` when nothing was
-    ///   staged (empty bytes or no target terminal).
+    ///   staged (empty bytes, no target terminal, an over-cap single image, or an
+    ///   add that would exceed the per-terminal count or total-byte budget).
+    ///
+    /// The count and total-byte caps are enforced HERE against the current staged
+    /// set, not against a caller-side pre-await snapshot, so the check+insert is
+    /// atomic on the main actor: if the user opens the picker again while a prior
+    /// batch is still encoding, both batches funnel through this one mutation
+    /// path and the second add re-reads the (already-grown) set, so the combined
+    /// total can never exceed the cap. The store is the single source of truth.
     @discardableResult
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
         guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+        // A single image larger than the per-image cap is rejected outright.
+        guard data.count <= Self.maxPendingAttachmentImageBytes else { return nil }
+        let existing = pendingAttachmentsByTerminalID[key] ?? []
+        // Count cap, computed against the CURRENT staged set (atomic on @MainActor).
+        guard existing.count < Self.maxPendingAttachmentCount else { return nil }
+        // Total-byte budget, likewise against the current set.
+        let currentBytes = existing.reduce(0) { $0 + $1.data.count }
+        guard currentBytes + data.count <= Self.maxPendingAttachmentTotalBytes else { return nil }
         let attachment = MobilePendingAttachment(data: data, format: format)
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         return attachment.id
@@ -2936,6 +2970,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // file paths before the text arrives. Remove each only after its send is
         // acknowledged; on failure stop and keep the rest (and the text) staged.
         for attachment in attachments {
+            // Re-check the attachment is still staged for the captured terminal
+            // before uploading it. The user can delete a not-yet-acked chip while
+            // an earlier image's send is in flight; that removes it from
+            // `pendingAttachmentsByTerminalID`, but this loop iterates a snapshot
+            // taken before the awaits. Skipping the removed one keeps the local
+            // snapshot from re-uploading bytes the user already dismissed. Runs on
+            // the @MainActor, so the membership check is consistent with the
+            // removal.
+            guard pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+                .contains(where: { $0.id == attachment.id }) else { continue }
             let sent = await submitTerminalPasteImage(
                 attachment.data,
                 format: attachment.format,

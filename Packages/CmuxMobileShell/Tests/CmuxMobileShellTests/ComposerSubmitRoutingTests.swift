@@ -188,6 +188,39 @@ import Testing
         #expect(store.terminalInputText == "keep me")
     }
 
+    /// A chip the user deletes WHILE an earlier image's send is in flight must not
+    /// upload: submitComposer iterates a snapshot taken before the awaits, but it
+    /// re-checks each attachment is still staged for the captured terminal before
+    /// sending it, and skips the removed one.
+    @Test func midSendRemovalSkipsThatAttachment() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let termA = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("first"), format: "png", forTerminalID: termA)
+        store.addPendingAttachment(Self.bytes("second"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "hello"
+        let secondID = store.pendingAttachments(forTerminalID: termA)[1].id
+
+        // Park the FIRST image send, then remove the second (not-yet-reached) chip
+        // mid-flight, then release. Without the re-check the loop's pre-await
+        // snapshot would still upload "second".
+        await router.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+        await router.awaitFirstPasteImageReached()
+        store.removePendingAttachment(id: secondID, forTerminalID: termA)
+        await router.releaseFirstPasteImage()
+        await submit.value
+
+        let images = await router.recordedPasteImages()
+        let pastes = await router.recordedPastes()
+        // Only the first image uploaded; the removed second was skipped.
+        #expect(images.map(\.surfaceID) == [termA])
+        #expect(pastes.map(\.text) == ["hello"], "text still sends after the kept image")
+        #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
+    }
+
     /// The first image acks but the second is rejected: only the acknowledged one
     /// is cleared, the failed one (and the text) are kept.
     @Test func partialFailureClearsOnlyAcknowledgedAttachment() async throws {

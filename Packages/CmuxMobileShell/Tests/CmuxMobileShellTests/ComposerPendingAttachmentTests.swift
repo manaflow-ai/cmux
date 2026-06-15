@@ -173,6 +173,139 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-gone").isEmpty)
     }
 
+    // MARK: - Atomic count / byte caps (store is the authoritative budget)
+
+    /// Bytes of the given length, distinct per call so attachments are unique.
+    private static func bytes(count: Int, fill: UInt8) -> Data {
+        Data(repeating: fill, count: count)
+    }
+
+    @Test func addRejectsBeyondCountCap() {
+        let composite = Self.makeComposite()
+        let cap = MobileShellComposite.maxPendingAttachmentCount
+        // Fill exactly to the cap; every add up to it succeeds.
+        for i in 0..<cap {
+            let id = composite.addPendingAttachment(Self.bytes("img-\(i)"), format: "png", forTerminalID: "term-a")
+            #expect(id != nil)
+        }
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == cap)
+
+        // The next add is over the cap and must be rejected without growing the set.
+        let overflow = composite.addPendingAttachment(Self.bytes("over"), format: "png", forTerminalID: "term-a")
+        #expect(overflow == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == cap)
+    }
+
+    @Test func addRejectsBeyondTotalByteBudget() {
+        let composite = Self.makeComposite()
+        let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
+        // A single image just under the per-image cap, staged a few times to
+        // approach the total budget. 4 MB each, under the 8 MB per-image cap.
+        let chunk = 4 * 1024 * 1024
+        var staged = 0
+        var fill: UInt8 = 1
+        while staged + chunk <= budget {
+            let id = composite.addPendingAttachment(
+                Self.bytes(count: chunk, fill: fill),
+                format: "jpg",
+                forTerminalID: "term-a"
+            )
+            #expect(id != nil)
+            staged += chunk
+            fill &+= 1
+        }
+        // The remaining headroom is now smaller than one more chunk: that add
+        // exceeds the budget and must be rejected, leaving the set unchanged.
+        let countBefore = composite.pendingAttachments(forTerminalID: "term-a").count
+        let overflow = composite.addPendingAttachment(
+            Self.bytes(count: chunk, fill: 0xFF),
+            format: "jpg",
+            forTerminalID: "term-a"
+        )
+        #expect(overflow == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == countBefore)
+    }
+
+    @Test func addRejectsSingleImageOverPerImageCap() {
+        let composite = Self.makeComposite()
+        let perImage = MobileShellComposite.maxPendingAttachmentImageBytes
+        let id = composite.addPendingAttachment(
+            Self.bytes(count: perImage + 1, fill: 7),
+            format: "png",
+            forTerminalID: "term-a"
+        )
+        #expect(id == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    /// Two batches that each snapshot the SAME starting budget and then interleave
+    /// their adds must not both append past the count cap: because the cap is
+    /// enforced against the current staged set at each add (atomic on @MainActor),
+    /// the combined total stops exactly at the cap. This is the concurrent-picker
+    /// race from finding 2 reduced to its store-mutation core.
+    @Test func racingAddsCannotExceedCountCap() {
+        let composite = Self.makeComposite()
+        let cap = MobileShellComposite.maxPendingAttachmentCount
+        // Both "batches" captured an empty starting set; each tries to add `cap`
+        // items, interleaved. Only `cap` total may land.
+        var accepted = 0
+        for i in 0..<cap {
+            if composite.addPendingAttachment(Self.bytes("a-\(i)"), format: "png", forTerminalID: "term-a") != nil {
+                accepted += 1
+            }
+            if composite.addPendingAttachment(Self.bytes("b-\(i)"), format: "png", forTerminalID: "term-a") != nil {
+                accepted += 1
+            }
+        }
+        #expect(accepted == cap)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == cap)
+    }
+
+    /// The byte budget is likewise atomic against racing adds: two batches sized to
+    /// each fit alone but to overflow together cannot both fully land.
+    @Test func racingAddsCannotExceedByteBudget() {
+        let composite = Self.makeComposite()
+        let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
+        // Each chunk is 4 MB; budget/4MB = 8 chunks fit. Two batches each try to
+        // add 8 chunks interleaved; only 8 total may land.
+        let chunk = 4 * 1024 * 1024
+        let fits = budget / chunk
+        var accepted = 0
+        var fill: UInt8 = 1
+        for _ in 0..<fits {
+            if composite.addPendingAttachment(Self.bytes(count: chunk, fill: fill), format: "jpg", forTerminalID: "term-a") != nil {
+                accepted += 1
+            }
+            fill &+= 1
+            if composite.addPendingAttachment(Self.bytes(count: chunk, fill: fill), format: "jpg", forTerminalID: "term-a") != nil {
+                accepted += 1
+            }
+            fill &+= 1
+        }
+        #expect(accepted == fits)
+        let total = composite.pendingAttachments(forTerminalID: "term-a").reduce(0) { $0 + $1.data.count }
+        #expect(total <= budget)
+    }
+
+    /// The guarded (session-generation) add path enforces the same caps, since it
+    /// funnels through the base add after its generation/terminal checks.
+    @Test func guardedAddAlsoEnforcesCountCap() {
+        let composite = Self.makeComposite()
+        let captured = composite.currentSessionGeneration
+        let cap = MobileShellComposite.maxPendingAttachmentCount
+        for i in 0..<cap {
+            _ = composite.addPendingAttachment(Self.bytes("g-\(i)"), format: "png", forTerminalID: "term-a", ifSessionGeneration: captured)
+        }
+        let overflow = composite.addPendingAttachment(
+            Self.bytes("g-over"),
+            format: "png",
+            forTerminalID: "term-a",
+            ifSessionGeneration: captured
+        )
+        #expect(overflow == nil)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == cap)
+    }
+
     @Test func submitKeepsAttachmentsWhenSendFails() async {
         let composite = Self.makeComposite()
         // No remoteClient is wired, so the image send fails (returns false). A

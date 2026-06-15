@@ -56,6 +56,12 @@ struct TerminalComposerView: View {
     /// full multi-MB `Data` from inside the view body on every composer
     /// re-render (e.g. every keystroke).
     @State private var thumbnailCache = AttachmentThumbnailCache()
+    /// The in-flight staging task for the current picker batch, if any. A new
+    /// picker batch cancels the previous one so stale encode jobs do not pile up
+    /// (and keep mutating the store) after the user re-picks or the view's
+    /// lifecycle moves on. Held as `@State` so it survives this value type's
+    /// frequent re-creation.
+    @State private var stagingTask = StagingTaskBox()
 
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
@@ -104,21 +110,32 @@ struct TerminalComposerView: View {
     }
 
     /// The Mac decodes the image to a temp file with a 10 MB cap; mirror the
-    /// clipboard paste path and keep PNG under ~8 MB, otherwise fall back to JPEG.
-    private static let maxImageBytes = 8 * 1024 * 1024
+    /// clipboard paste path and keep the bounded encode under ~8 MB. The store
+    /// re-enforces this as the authoritative per-image cap; this constant only
+    /// bounds the encode loop below it.
+    private static let maxImageBytes = CMUXMobileShellStore.maxPendingAttachmentImageBytes
 
-    /// Cap how many images one message may carry, so the picker cannot stage an
-    /// unbounded batch of full-resolution photos into observable state.
-    private static let maxAttachmentCount = 10
+    /// Cap how many images one message may carry, mirrored from the store so the
+    /// picker's `maxSelectionCount` matches the store's authoritative count cap.
+    /// The store enforces it atomically; this is only a pre-filter for picker UX.
+    private static let maxAttachmentCount = CMUXMobileShellStore.maxPendingAttachmentCount
 
-    /// Total encoded-bytes budget across this terminal's staged attachments.
-    /// New picks past the budget are skipped (the already-staged ones stay), so a
-    /// run of large photos cannot balloon memory regardless of the count cap.
-    private static let maxTotalAttachmentBytes = 32 * 1024 * 1024
+    /// Total encoded-bytes budget across this terminal's staged attachments,
+    /// mirrored from the store. The store is the authoritative budget (checked
+    /// atomically at mutation time); the view pre-filters against it only for
+    /// responsiveness so an obviously-over-budget pick skips the encode.
+    private static let maxTotalAttachmentBytes = CMUXMobileShellStore.maxPendingAttachmentTotalBytes
 
     /// Max pixel dimension of the cached chip thumbnail. The chip renders at 56pt;
     /// 3x covers Retina without holding the full-resolution image.
     private static let thumbnailMaxPixelSize = 168
+
+    /// Max pixel dimension of the SEND payload. ImageIO downsamples the picked
+    /// item to fit this longest edge before re-encoding, so a panorama or a
+    /// 48-megapixel HEIC never materializes as a full-resolution raster. 2048 px
+    /// keeps screenshot text legible for an agent while bounding the bytes well
+    /// under the per-image cap.
+    private static let sendMaxPixelSize = 2048
 
     var body: some View {
         composerSurface
@@ -356,21 +373,36 @@ struct TerminalComposerView: View {
         // token and the guarded add drops the stale result instead of re-staging
         // the previous user's bytes under a (possibly reused) terminal id.
         let sessionGeneration = store.currentSessionGeneration
-        Task { @MainActor in
-            // Start from what is already staged so the budget spans the whole
-            // message, not just this batch.
-            var stagedCount = pendingAttachments.count
-            var stagedBytes = pendingAttachments.reduce(0) { $0 + $1.data.count }
+        // Cancel any still-running batch before starting this one, so two picker
+        // opens in quick succession do not run overlapping encode loops that both
+        // mutate the store. The store enforces the count/byte caps atomically, so
+        // even an un-cancelled overlap could not exceed the cap; cancelling just
+        // stops stale encode work from piling up after the user re-picks.
+        stagingTask.task?.cancel()
+        stagingTask.task = Task { @MainActor in
             for item in items {
-                guard stagedCount < Self.maxAttachmentCount else { break }
+                if Task.isCancelled { break }
+                // Cheap pre-filter for responsiveness: stop once the store is at
+                // the count cap or the budget is already full. The store remains
+                // the authoritative cap (checked atomically at add time); this
+                // only avoids loading/encoding picks that obviously cannot land.
+                let staged = pendingAttachments
+                guard staged.count < Self.maxAttachmentCount else { break }
+                let stagedBytes = staged.reduce(0) { $0 + $1.data.count }
+                guard stagedBytes < Self.maxTotalAttachmentBytes else { break }
                 guard let raw = try? await item.loadTransferable(type: Data.self) else { continue }
-                // Encode + downsample off the main thread: the full-resolution
-                // decode and the PNG/JPEG re-encode are the expensive parts and
+                if Task.isCancelled { break }
+                // Bounded encode + downsample off the main thread: ImageIO reads
+                // the picked bytes and emits a downsampled, re-encoded payload
+                // without ever materializing a full-resolution raster, so a giant
+                // HEIC/panorama cannot OOM the app. This is the expensive part and
                 // must not block the composer's keyboard/typing.
                 guard let prepared = await Self.prepare(raw) else { continue }
-                // Skip a pick that would blow the total byte budget; the
-                // already-staged attachments stay, and the user can still send.
-                guard stagedBytes + prepared.data.count <= Self.maxTotalAttachmentBytes else { continue }
+                if Task.isCancelled { break }
+                // The store is the single source of truth for the count/byte caps
+                // and the session-generation guard: it re-checks the CURRENT
+                // staged set atomically, so even if a prior (cancelled-too-late)
+                // batch already appended, this add cannot push past the cap.
                 guard let id = store.addPendingAttachment(
                     prepared.data,
                     format: prepared.format,
@@ -385,8 +417,6 @@ struct TerminalComposerView: View {
                 if let thumbnailData = prepared.thumbnail, let thumbnail = UIImage(data: thumbnailData) {
                     thumbnailCache.set(thumbnail, for: id)
                 }
-                stagedCount += 1
-                stagedBytes += prepared.data.count
             }
             pickerSelection = []
             // A new chip grows the band; ask the host to re-measure.
@@ -405,51 +435,109 @@ struct TerminalComposerView: View {
         var thumbnail: Data?
     }
 
-    /// Decode, re-encode (PNG, or JPEG over the per-image cap), and downsample a
-    /// picked image's raw bytes off the main thread. Returns `nil` when the bytes
-    /// are not a decodable image. The downsampled thumbnail is returned as PNG
-    /// bytes (Sendable), not a `UIImage`, so nothing UIKit-reference crosses back
-    /// to the main actor.
+    /// Prepare a picked image's raw bytes for staging, entirely via ImageIO and
+    /// entirely off the main thread. Both the SEND payload and the chip thumbnail
+    /// are produced by downsampling the source with
+    /// `CGImageSourceCreateThumbnailAtIndex` and re-encoding the (bounded)
+    /// `CGImage`, so a large HEIC/JPEG/panorama is NEVER decoded into a full-size
+    /// raster and never re-encoded to a hundreds-of-MB PNG just to measure it. The
+    /// per-image byte cap is enforced on the bounded result, downscaling further
+    /// (JPEG, then progressively smaller) if needed. Returns `nil` when the bytes
+    /// are not a decodable image. Every returned field is `Sendable` value data
+    /// (`Data`), so nothing UIKit-reference crosses back to the main actor.
     private static func prepare(_ raw: Data) async -> PreparedAttachment? {
         await Task.detached(priority: .userInitiated) {
-            guard let image = UIImage(data: raw) else { return nil }
-            guard let (encoded, format) = encode(image) else { return nil }
+            guard let source = CGImageSourceCreateWithData(raw as CFData, nil) else { return nil }
+            guard let (data, format) = boundedSendPayload(from: source) else { return nil }
             return PreparedAttachment(
-                data: encoded,
+                data: data,
                 format: format,
-                thumbnail: downsampledThumbnailData(from: raw)
+                thumbnail: downsampledImageData(
+                    from: source,
+                    maxPixelSize: thumbnailMaxPixelSize,
+                    type: "public.png",
+                    jpegQuality: nil
+                )
             )
         }.value
     }
 
-    /// Encode a picked image the way the clipboard paste path does: PNG when it
-    /// fits the per-image cap, otherwise JPEG, falling back to PNG.
-    private static func encode(_ image: UIImage) -> (data: Data, format: String)? {
-        if let png = image.pngData(), png.count <= maxImageBytes {
+    /// Produce the bounded SEND payload for one picked image from its ImageIO
+    /// source. Downsamples to ``sendMaxPixelSize`` (longest edge) so the raster is
+    /// always small, then encodes under the per-image byte cap:
+    /// 1. PNG at the send size if it already fits (keeps screenshots crisp).
+    /// 2. JPEG at decreasing quality.
+    /// 3. Progressively smaller dimensions as a last resort.
+    /// Returns the encoded bytes + a lowercase format hint, or `nil` if the source
+    /// is undecodable. The cap is also re-enforced authoritatively in the store.
+    private static func boundedSendPayload(from source: CGImageSource) -> (data: Data, format: String)? {
+        // PNG at the bounded send size: lossless, and for a typical screenshot it
+        // lands well under the cap.
+        if let png = downsampledImageData(
+            from: source,
+            maxPixelSize: sendMaxPixelSize,
+            type: "public.png",
+            jpegQuality: nil
+        ), png.count <= maxImageBytes {
             return (png, "png")
         }
-        if let jpeg = image.jpegData(compressionQuality: 0.8) {
+        // JPEG at the bounded send size, stepping quality down until it fits.
+        for quality in [0.8, 0.6, 0.4] as [CGFloat] {
+            if let jpeg = downsampledImageData(
+                from: source,
+                maxPixelSize: sendMaxPixelSize,
+                type: "public.jpeg",
+                jpegQuality: quality
+            ), jpeg.count <= maxImageBytes {
+                return (jpeg, "jpg")
+            }
+        }
+        // Still over the cap (an extreme source): shrink the dimensions as well,
+        // at a low-but-readable JPEG quality, until it fits.
+        for maxPixel in [1536, 1024, 768] {
+            if let jpeg = downsampledImageData(
+                from: source,
+                maxPixelSize: maxPixel,
+                type: "public.jpeg",
+                jpegQuality: 0.5
+            ), jpeg.count <= maxImageBytes {
+                return (jpeg, "jpg")
+            }
+        }
+        // Last resort: return the smallest JPEG we can even if marginally over the
+        // bound; the store re-checks the cap and rejects it if truly too large.
+        if let jpeg = downsampledImageData(
+            from: source,
+            maxPixelSize: 768,
+            type: "public.jpeg",
+            jpegQuality: 0.4
+        ) {
             return (jpeg, "jpg")
-        }
-        if let png = image.pngData() {
-            return (png, "png")
         }
         return nil
     }
 
-    /// Build a small downsampled thumbnail from the original encoded bytes via
-    /// ImageIO (which decodes only a reduced-size image instead of the full
-    /// raster) and re-encode it to PNG bytes, all off the main thread. Returns
-    /// `Data` rather than a `UIImage` so the result is `Sendable` and can cross
-    /// back to the main actor, where the chip's `UIImage` is built. Returns `nil`
-    /// if the bytes are not a decodable image or PNG encoding fails.
-    private static func downsampledThumbnailData(from data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    /// Downsample one image from an ImageIO source to a bounded longest edge and
+    /// re-encode it to the given UTType. `CGImageSourceCreateThumbnailAtIndex`
+    /// decodes only a reduced-size image (never the full raster), so this is the
+    /// bounded primitive both the send payload and the chip thumbnail run through.
+    /// Returns `Data` (Sendable) so the result can cross back to the main actor.
+    /// Returns `nil` if the source is undecodable or encoding fails.
+    /// - Parameters:
+    ///   - maxPixelSize: The longest-edge cap, in pixels, for the downsample.
+    ///   - type: The destination UTType identifier (`"public.png"`/`"public.jpeg"`).
+    ///   - jpegQuality: The JPEG compression quality (0...1); `nil` for PNG.
+    private static func downsampledImageData(
+        from source: CGImageSource,
+        maxPixelSize: Int,
+        type: String,
+        jpegQuality: CGFloat?
+    ) -> Data? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCache: false,
-            kCGImageSourceThumbnailMaxPixelSize: thumbnailMaxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             return nil
@@ -457,16 +545,28 @@ struct TerminalComposerView: View {
         let encoded = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             encoded as CFMutableData,
-            "public.png" as CFString,
+            type as CFString,
             1,
             nil
         ) else {
             return nil
         }
-        CGImageDestinationAddImage(destination, cgImage, nil)
+        var properties: [CFString: Any] = [:]
+        if let jpegQuality {
+            properties[kCGImageDestinationLossyCompressionQuality] = jpegQuality
+        }
+        CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return encoded as Data
     }
+}
+
+/// Holds the in-flight photo-staging `Task` so a new picker batch can cancel the
+/// previous one. A reference type so it survives the composer view's frequent
+/// value-type re-creation (held as `@State`).
+@MainActor
+final class StagingTaskBox {
+    var task: Task<Void, Never>?
 }
 
 /// A side cache of downsampled chip thumbnails keyed by attachment id, built
