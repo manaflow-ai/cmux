@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34833	CLI/cmux.swift
-17914	Sources/AppDelegate.swift
+17911	Sources/AppDelegate.swift
 17024	Sources/ContentView.swift
 14809	Sources/TerminalController.swift
 13358	Sources/Panels/BrowserPanel.swift
@@ -73,8 +73,8 @@
 1270	cmuxTests/RestorableAgentSessionIndexTests.swift
 1257	Sources/Feed/FeedCoordinator.swift
 1252	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
+1248	Sources/NotesTreeStore.swift
 1241	cmuxTests/NotesTreeStorageTests.swift
-1238	Sources/NotesTreeStore.swift
 1228	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1183	cmuxUITests/BonsplitTabDragUITests.swift
@@ -150,7 +150,7 @@
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
 648	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
-647	Sources/CmuxConfigExecutor.swift
+644	Sources/CmuxConfigExecutor.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 621	cmuxTests/FinderFileDropRegressionTests.swift

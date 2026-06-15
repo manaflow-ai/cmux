@@ -262,13 +262,18 @@ final class NotesTreeStore: ObservableObject {
             let buildTask = Task.detached(priority: .utility) {
                 Self.buildReloadResult(request)
             }
-            let result = await buildTask.value
+            let result = await withTaskCancellationHandler {
+                await buildTask.value
+            } onCancel: {
+                buildTask.cancel()
+            }
             guard let self else { return }
             defer {
                 if self.reloadGeneration == generation {
                     self.reloadTask = nil
                 }
             }
+            guard let result else { return }
             guard !Task.isCancelled, self.reloadGeneration == generation else { return }
             guard self.hasWorkspace,
                   self.resolvedRootPath == root,
@@ -283,12 +288,14 @@ final class NotesTreeStore: ObservableObject {
         }
     }
 
-    private static func buildReloadResult(_ request: NotesTreeReloadRequest) -> NotesTreeReloadResult {
+    private static func buildReloadResult(_ request: NotesTreeReloadRequest) -> NotesTreeReloadResult? {
+        guard !Task.isCancelled else { return nil }
         let indexedRefs = request.projectRoot.flatMap { projectRoot in
             request.workspaceAnchorId.map {
                 NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: $0)
             }
         } ?? []
+        guard !Task.isCancelled else { return nil }
         let indexedTitleByPath = Dictionary(
             uniqueKeysWithValues: indexedRefs.map {
                 (($0.path as NSString).standardizingPath, $0.title)
@@ -302,7 +309,9 @@ final class NotesTreeStore: ObservableObject {
             budget: &budget,
             indexedTitleByPath: indexedTitleByPath
         )
+        guard !Task.isCancelled else { return nil }
         let records = NotesTreeStorage.readWorkspaceSessions(inRoot: request.root)
+        guard !Task.isCancelled else { return nil }
         nodes.append(contentsOf: sessionRowNodes(
             records: records,
             materializedInto: nodes,
@@ -437,6 +446,7 @@ final class NotesTreeStore: ObservableObject {
             }
             return nodeDisplayOrder(lhs, rhs)
         }
+        guard !Task.isCancelled else { return nil }
         return NotesTreeReloadResult(
             nodes: nodes,
             watchedDirs: watcherDirectories(

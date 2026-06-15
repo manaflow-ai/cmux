@@ -49,9 +49,6 @@ final class CmuxDiffViewerLauncher {
 
     @discardableResult
     func start(cwd: String, workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        guard CmuxGitDiffAvailability.hasDisplayableDiff(in: cwd) else {
-            return false
-        }
         guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             return false

@@ -5914,9 +5914,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let cwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        guard CmuxGitDiffAvailability.hasDisplayableDiff(in: cwd) else {
-            return false
-        }
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
