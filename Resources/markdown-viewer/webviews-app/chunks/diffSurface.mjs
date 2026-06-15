@@ -101,6 +101,9 @@ ${o}
     [data-expand-button] {
       font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
     }
+    [data-code] {
+      scrollbar-gutter: auto;
+    }
   `}function Fi(){return`
     :host {
       display: block;
