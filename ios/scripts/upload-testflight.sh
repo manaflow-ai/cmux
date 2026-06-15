@@ -374,27 +374,49 @@ fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
-  # Archive WITHOUT signing. The export step below does all signing (manual cert
-  # or automatic cloud distribution). Signing the archive with automatic +
-  # -allowProvisioningUpdates makes Xcode mint a NEW Apple Development cert on
-  # every ephemeral CI runner, which exhausts the account's certificate cap and
-  # then fails ("maximum number of certificates" / "no profiles found"). An
-  # unsigned archive creates no certs; the reused (cloud-managed) distribution
-  # cert is applied only at export, where it does not churn.
-  xcodebuild archive \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -destination "generic/platform=iOS" \
-    -archivePath "$ARCHIVE_PATH" \
-    -derivedDataPath "$DERIVED_DATA" \
-    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-    CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGN_IDENTITY="" \
-    | tee "$OUT_DIR/archive.log"
+  if [[ "$SIGNING" == "automatic" ]]; then
+    # Automatic signing must archive a signed app so Xcode has the requested
+    # Release entitlements to preserve during App Store Connect export. An
+    # unsigned archive exports with only the profile baseline and drops
+    # aps-environment, which the gate below correctly refuses to upload.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      -allowProvisioningUpdates \
+      "${XCODE_AUTH_ARGS[@]}" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGN_STYLE=Automatic \
+      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
+      CODE_SIGN_IDENTITY="Apple Distribution" \
+      CODE_SIGNING_ALLOWED=YES \
+      CODE_SIGNING_REQUIRED=YES \
+      | tee "$OUT_DIR/archive.log"
+  else
+    # Manual signing archives WITHOUT signing. The export step signs with the
+    # installed distribution profile, then the manual path below re-signs with
+    # the full Release entitlements from the local Apple Distribution cert.
+    # This keeps signing material off shared fleet builders.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
+      | tee "$OUT_DIR/archive.log"
+  fi
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
     echo "error: archive not found: $ARCHIVE_PATH" >&2
@@ -454,12 +476,13 @@ fi
 # Re-sign the exported app with the FULL entitlements (production aps-environment
 # et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
 #
-# Why this is necessary: the archive is built UNSIGNED (CODE_SIGNING_ALLOWED=NO,
-# see above) to avoid distribution-cert churn on ephemeral runners. An unsigned
-# archive carries NO entitlements, so `-exportArchive` re-adds only the profile
-# baseline (application-identifier, com.apple.developer.team-identifier,
-# get-task-allow, beta-reports-active) and SILENTLY DROPS app-capability
-# entitlements such as aps-environment. This regressed in
+# Why this is necessary for the manual path: the archive is built UNSIGNED
+# (CODE_SIGNING_ALLOWED=NO, see above) to keep distribution material off shared
+# fleet builders. An unsigned archive carries NO entitlements, so
+# `-exportArchive` re-adds only the profile baseline (application-identifier,
+# com.apple.developer.team-identifier, get-task-allow, beta-reports-active) and
+# SILENTLY DROPS app-capability entitlements such as aps-environment. This
+# regressed in
 # https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
 # had aps-environment absent entirely, so the device registered no push token and
 # beta/prod push was dead. The per-config entitlements file fix
@@ -467,6 +490,21 @@ fi
 # a config-level entitlement only ships if it survives into the signed binary,
 # and only `codesign -d --entitlements` on the EXPORTED app proves that. So we
 # re-sign here with the export baseline MERGED with the Release entitlements file.
+#
+# The merged set MUST then be reconciled against the provisioning profile, in
+# both directions (hit 2026-06-11, ASC error 90163): App Store Connect rejects
+# any signed entitlement key the profile does not authorize. The Release file
+# carries com.apple.developer.usernotifications.time-sensitive, the App ID has
+# the capability enabled, but the installed "cmux Beta Distribution" profile
+# predates it and does not list the key, so a naive baseline+Release merge is
+# rejected at upload ("bundle contains a key not in the provisioning profile").
+# The same naive merge also SHIPS WITHOUT keychain-access-groups (authorized by
+# the profile but absent from both the export baseline and the Release file).
+# So below we (1) seed from the profile's own Entitlements dict, the exact set
+# ASC validates against, and (2) drop any merged key the profile does not
+# authorize, warning per key. Restoring a dropped capability (e.g.
+# time-sensitive) requires REGENERATING the profile so it snapshots the App
+# ID's current capabilities, not editing this script or the Release file.
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
@@ -503,22 +541,56 @@ if [[ "$SIGNING" == "manual" ]]; then
   fi
 
   # Start from the exported app's current (profile-baseline) entitlements, then
-  # MERGE every key from the Release entitlements file. The merge is GENERIC:
-  # PlistBuddy Merge copies all keys from the Release file and skips any that
-  # already exist in the baseline, so future entitlements survive automatically
-  # and existing baseline values (e.g. get-task-allow=false) are preserved.
+  # MERGE the profile's authorized Entitlements dict, then every key from the
+  # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
+  # keys from the source and skips any that already exist, so future entitlements
+  # survive automatically and existing baseline values (e.g. get-task-allow=false)
+  # are preserved. Seeding from the profile is what carries profile-authorized
+  # keys that appear in NEITHER the baseline NOR the Release file (concretely:
+  # keychain-access-groups, which the 2026-06-10 accepted upload shipped and a
+  # baseline+Release-only merge silently lost).
   MERGED_ENTITLEMENTS="$RESIGN_DIR/entitlements.plist"
   codesign -d --entitlements :- --xml "$RESIGN_APP" > "$MERGED_ENTITLEMENTS" 2>/dev/null || {
     echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
     exit 1
   }
-  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a future
-  # Release key ever overlaps a baseline key. That is the intended behavior
-  # (baseline wins), but its exit code on that path is not contractually 0 across
+  PROFILE_ENTITLEMENTS="$RESIGN_DIR/profile-entitlements.plist"
+  security cms -D -i "$RESIGN_APP/embedded.mobileprovision" > "$RESIGN_DIR/profile.plist" || {
+    echo "error: could not decode embedded.mobileprovision from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  plutil -extract Entitlements xml1 -o "$PROFILE_ENTITLEMENTS" "$RESIGN_DIR/profile.plist"
+  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a
+  # source key overlaps an existing key. That is the intended behavior
+  # (existing wins), but its exit code on that path is not contractually 0 across
   # OS versions, and a stray non-zero would kill the script under `set -e`. The
   # exit code is non-load-bearing anyway: a genuinely failed merge produces no
   # aps-environment and is caught by the hard gate below with a clear error.
+  /usr/libexec/PlistBuddy -c "Merge $PROFILE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
   /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  # Intersect against the profile: ASC rejects the upload (error 90163, "bundle
+  # contains a key not in the provisioning profile") for ANY signed key the
+  # profile does not authorize. Baseline keys are authorized by construction
+  # (the export minted them FROM this profile), so a strict top-level-key
+  # intersection is safe. Each dropped key is warned so the loss is visible in
+  # the cut log (e.g. time-sensitive until the profile is regenerated).
+  python3 - "$MERGED_ENTITLEMENTS" "$PROFILE_ENTITLEMENTS" <<'PY'
+import plistlib, sys
+merged_path, profile_path = sys.argv[1], sys.argv[2]
+with open(merged_path, "rb") as f:
+    merged = plistlib.load(f)
+with open(profile_path, "rb") as f:
+    profile = plistlib.load(f)
+for key in [k for k in merged if k not in profile]:
+    del merged[key]
+    print(
+        f"warning: dropping entitlement the provisioning profile does not "
+        f"authorize (ASC error 90163 otherwise): {key}",
+        file=sys.stderr,
+    )
+with open(merged_path, "wb") as f:
+    plistlib.dump(merged, f)
+PY
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"

@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "Керує тим, коли cmux запитує підтвердження перед виходом. DEV-збірки завжди завершуються одразу незалежно від цього налаштування. Застарілий app.warnBeforeQuit і надалі приймається як булевий запасний варіант.",
+          "windowTitleTemplate": "Необов'язковий шаблон заголовка NSWindow. Порожнє значення зберігає наявну стандартну поведінку заголовка cmux, включно з використанням поточного каталогу як запасного варіанта. Підтримувані заповнювачі: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Застарілий булевий запасний варіант для підтвердження виходу. Для нових конфігурацій використовуйте app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Показувати підтвердження перед закриттям вкладки кнопкою закриття вкладки.",
           "hideTabCloseButton": "Приховувати кнопки закриття вкладок на панелі вкладок області.",
@@ -790,6 +791,10 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "description": "Налаштування провідника файлів (дерева файлів) у правій бічній панелі.",
+          "doubleClickAction": "Визначає, що відбувається під час подвійного клацання файлу в провіднику файлів (або натискання Return на результаті пошуку). `preview` відкриває вбудований перегляд файлів cmux (типова й історична поведінка). `defaultEditor` відкриває файл у типовій програмі macOS для цього типу файлів. `preferredEditor` відкриває через команду `app.preferredEditor`, а якщо її не задано, повертається до типової програми. Застосовується лише до файлів; каталоги завжди розгортаються/згортаються, а нелокальні (віддалені) провідники файлів завжди відкривають перегляд cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -801,6 +806,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Подвійне клацання файлу: preview (типово), defaultEditor (типова програма macOS) або preferredEditor (команда app.preferredEditor).",
       "shortcutsWhenIntro": "Необов'язкові контекстні предикати для кожної дії (клаузи when у стилі VS Code), індексовані за ідентифікатором дії cmux. Прив'язка спрацьовує — і конфліктує з іншою прив'язкою на тому самому натисканні — лише тоді, коли її клауза істинна. Пропустіть клаузу, щоб зберегти вбудований контекст дії. Словник клауз:",
       "shortcutsWhenBooleanKeys": "булеві ключі. Невідомий або відсутній ключ вважається false; також приймаються літерали true і false.",
       "shortcutsWhenTypedKeys": "типізовані ключі для порівнянь: активний режим правої бічної панелі (рядок) та кількість панелей і робочих просторів (цілі числа).",
@@ -923,6 +929,8 @@
         "surfaces": "Поверхні",
         "surfacesBlurb": "Поверхні — це вкладки всередині панелі.",
         "splitPanes": "Розділені панелі",
+        "canvas": "Полотно",
+        "canvasBlurb": "Вільний 2D-режим компонування, у якому панелі розташовуються на нескінченному полотні з прокручуванням. Команди вирівнювання та розподілу доступні з палітри команд.",
         "browser": "Браузер",
         "notifications": "Сповіщення",
         "find": "Пошук",

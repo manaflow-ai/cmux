@@ -1,5 +1,8 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
+import CmuxSettings
 
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
@@ -54,6 +57,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
+    /// Factory invoked from `body` with a stable drop-hit height. Closure
+    /// captures the parent's drag state while this LazyVStack row stays free of
+    /// layout-driven state writes.
     let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
@@ -67,7 +73,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var isHovered = false
-    @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
@@ -89,18 +94,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
               let shortcutDigit,
               let shortcutModifierSymbol else { return nil }
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
-    }
-
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
     }
 
     var body: some View {
@@ -224,7 +217,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, 6)
-        .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
@@ -236,7 +228,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(metrics.dropTargetHeight))
         .onHover { hovering in
             isHovered = hovering
         }
@@ -369,7 +361,7 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
         if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
             return true
         }
-        return SidebarDropPlanner.indicator(
+        return SidebarDropPlanner().indicator(
             draggedTabId: draggedWorkspaceId,
             targetTabId: targetAnchorWorkspaceId,
             tabIds: tabIds,

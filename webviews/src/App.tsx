@@ -30,6 +30,7 @@ import type {
   DiffCommentSide,
 } from "./comments/types";
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
+import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
@@ -62,6 +63,7 @@ type AppState = {
   filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
+  languages: string[];
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
@@ -105,6 +107,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     filesWidth: 252,
     filesVisible: true,
     items: [],
+    languages: ["text"],
     metrics: null,
     options: {
       collapsed: false,
@@ -126,13 +129,16 @@ function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
   case "append-items": {
     const nextItems = action.items.map((item) => {
+      resolveDiffItemLanguage(item);
       const annotated = withCommentAnnotations(item, state.comments, state.draft);
       return state.options.collapsed ? { ...annotated, collapsed: true } : annotated;
     });
+    const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
     return {
       ...state,
       activeItemId: state.activeItemId || nextItems[0]?.id || "",
       items: [...state.items, ...nextItems],
+      languages,
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
@@ -238,7 +244,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
-  const highlighterOptions = workerHighlighterOptions(state.options, appearance);
+  const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
@@ -1054,11 +1060,22 @@ function sameWorkerHighlighterOptions(
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return previous?.lineDiffType === next.lineDiffType &&
+    sameStringArray(previous?.langs, next.langs) &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
     sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
     previous?.useTokenTransformer === next.useTokenTransformer;
+}
+
+function sameStringArray(previous: readonly string[] | undefined, next: readonly string[] | undefined): boolean {
+  if (previous === next) {
+    return true;
+  }
+  if (previous == null || next == null || previous.length !== next.length) {
+    return false;
+  }
+  return previous.every((value, index) => value === next[index]);
 }
 
 function sameThemeOption(
@@ -1161,8 +1178,7 @@ function useRenderDiff(
         const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
         const langs = Array.from(new Set(items.flatMap((item) => {
           const diff = item.fileDiff ?? {};
-          const lang = diff.lang ?? getFiletypeFromFileName(fileName(diff, "")) ?? "text";
-          return lang ? [lang] : [];
+          return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
         })));
         preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
           .catch((error) => console.warn("cmux diff highlighter preload failed", error));
@@ -1178,6 +1194,33 @@ function useRenderDiff(
       dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
     });
   }, [config, dispatch, label, latestState]);
+}
+
+function resolveDiffItemLanguage(item: DiffItem): void {
+  const diff = item.fileDiff;
+  if (diff == null) {
+    return;
+  }
+  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.lang, getFiletypeFromFileName);
+  diff.lang = lang;
+}
+
+function diffItemPreloadLanguages(item: DiffItem): string[] {
+  const diff = item.fileDiff;
+  if (diff == null) {
+    return [];
+  }
+  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+}
+
+function mergeLanguages(current: string[], next: string[]): string[] {
+  const languages = new Set(current);
+  for (const language of next) {
+    if (language.trim().length > 0) {
+      languages.add(language);
+    }
+  }
+  return Array.from(languages);
 }
 
 function isStatusOnlyPayload(payload: any): boolean {

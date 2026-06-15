@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
+          "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
@@ -790,6 +791,10 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "fileExplorer": {
+          "description": "右侧边栏文件浏览器（文件树）设置。",
+          "doubleClickAction": "设置在文件浏览器中双击文件（或在搜索结果上按 Return）时执行的操作。`preview` 会打开 cmux 内置文件预览（默认和历史行为）。`defaultEditor` 会使用该文件类型的 macOS 默认应用打开。`preferredEditor` 会使用 `app.preferredEditor` 命令打开；未设置时回退到默认应用。仅适用于文件；目录始终展开/折叠，非本地（远程）文件浏览器始终打开 cmux 预览。"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -801,6 +806,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "双击文件：preview（默认）、defaultEditor（macOS 默认应用）或 preferredEditor（app.preferredEditor 命令）。",
       "shortcutsWhenIntro": "每个操作可选的上下文谓词（VS Code 风格的 when 子句），按 cmux 操作 id 索引。只有当其子句成立时，绑定才会触发，也只会在这种情况下与同一按键上的其他绑定冲突。省略子句即保留操作的内置上下文。子句可用的词汇：",
       "shortcutsWhenBooleanKeys": "布尔键。未知或不存在的键按 false 处理；也接受字面量 true 和 false。",
       "shortcutsWhenTypedKeys": "用于比较的类型化键：右侧边栏的当前模式（字符串），以及窗格和工作区数量（整数）。",
@@ -922,6 +928,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是面板内的标签页。",
         "splitPanes": "分屏面板",
+        "canvas": "画布",
+        "canvasBlurb": "一种自由的二维布局模式，窗格漂浮在可任意平移的无限画布上。对齐和分布命令可在命令面板中使用。",
         "browser": "浏览器",
         "notifications": "通知",
         "find": "查找",

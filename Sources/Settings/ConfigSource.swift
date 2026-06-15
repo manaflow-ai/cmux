@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL
@@ -17,7 +18,7 @@ struct ConfigSourceEnvironment {
         self.fileManager = fileManager
         self.currentBundleIdentifier = currentBundleIdentifier
         self.previewDirectoryURL = previewDirectoryURL?.standardizedFileURL
-            ?? CmuxGhosttyConfigPathResolver.configDirectoryURL(
+            ?? CmuxGhosttyConfigPathResolver().configDirectoryURL(
                 currentBundleIdentifier: currentBundleIdentifier,
                 appSupportDirectory: standardizedHome
                     .appendingPathComponent("Library", isDirectory: true)
@@ -34,7 +35,7 @@ struct ConfigSourceEnvironment {
     }
 
     var cmuxConfigURL: URL {
-        CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+        CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectoryURL,
             fileManager: fileManager
@@ -86,7 +87,7 @@ struct ConfigSourceEnvironment {
             collector.append(url)
         }
 
-        for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+        for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectoryURL,
             fileManager: fileManager
@@ -105,7 +106,7 @@ struct ConfigSourceEnvironment {
 
     func writeCmuxConfigSetting(key: String, value: String) throws {
         let url = try materializeCmuxConfigFileIfNeeded()
-        try CmuxGhosttyConfigSettingEditor.writeSetting(
+        try CmuxGhosttyConfigSettingEditor().writeSetting(
             key: key,
             value: value,
             to: url,
@@ -225,7 +226,7 @@ enum ConfigSource: String, CaseIterable, Identifiable {
             let hasStandaloneGhosttyConfig = environment.isRegularFile(at: ghosttyURL)
             let renderedContents = Self.renderSyncedPreview(
                 ghosttyURL: hasStandaloneGhosttyConfig ? ghosttyURL : nil,
-                cmuxURLs: CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                cmuxURLs: CmuxGhosttyConfigPathResolver().loadConfigURLs(
                     currentBundleIdentifier: environment.currentBundleIdentifier,
                     appSupportDirectory: environment.appSupportDirectoryURL,
                     fileManager: environment.fileManager

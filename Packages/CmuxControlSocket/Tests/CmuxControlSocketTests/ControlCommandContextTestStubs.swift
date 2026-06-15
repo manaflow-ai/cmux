@@ -57,6 +57,57 @@ extension ControlPaneContext {
     func controlPaneLast(routing: ControlRoutingSelectors) -> ControlPaneLastResolution { .tabManagerUnavailable }
 }
 
+extension ControlCanvasContext {
+    func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot? { nil }
+    func controlCanvasSetMode(
+        routing: ControlRoutingSelectors,
+        mode: String
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSetFrame(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        frame: ControlCanvasFrame
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasAlign(
+        routing: ControlRoutingSelectors,
+        command: ControlCanvasAlignCommand
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasReveal(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasToggleOverview(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasZoom(
+        routing: ControlRoutingSelectors,
+        direction: ControlCanvasZoomDirection
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasJoin(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        targetSurfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasBreak(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSelectTab(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSetViewport(
+        routing: ControlRoutingSelectors,
+        centerX: Double,
+        centerY: Double,
+        magnification: Double?
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasNewPane(
+        routing: ControlRoutingSelectors,
+        type: String
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+}
+
 extension ControlNotificationContext {
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -261,7 +312,10 @@ extension ControlWorkspaceContext {
         clearConfiguration: Bool
     ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         .notFound(workspaceID: workspaceID)
     }
 
