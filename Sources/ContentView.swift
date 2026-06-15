@@ -19,6 +19,7 @@ import CmuxFileOpen
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxSidebarLayout
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -10308,106 +10309,85 @@ struct VerticalTabsSidebar: View {
     /// itself, so it respects the sidebar snapshot-boundary rule.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
-        let workspaces: [SwiftValue] = tabManager.tabs.enumerated().map { index, workspace in
-            customSidebarWorkspaceValue(workspace, index: index, selectedId: selectedId)
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let c = Calendar.current.dateComponents([.hour, .minute, .second, .weekday], from: now)
-        let hour = c.hour ?? 0, minute = c.minute ?? 0, second = c.second ?? 0
-        let clock: SwiftValue = .object([
-            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
-            "hour": .int(hour),
-            "minute": .int(minute),
-            "second": .int(second),
-            "weekday": .int(c.weekday ?? 0),
-            "epoch": .int(Int(now.timeIntervalSince1970)),
-        ])
-        return [
-            "workspaces": .array(workspaces),
-            "workspaceCount": .int(tabManager.tabs.count),
-            "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
-            "selectedId": .string(selectedId?.uuidString ?? ""),
-            "unreadTotal": .int(sidebarUnread.totalUnreadCount),
-            "clock": clock,
-        ]
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    /// Projects one workspace's live state into the interpreter value tree.
-    /// Optional fields are omitted when absent so interpreted `if let` / ternary
-    /// truthiness behaves; always-present fields default sensibly. Keep this in
-    /// sync with the data keys documented in `docs/custom-sidebars.md`.
-    private func customSidebarWorkspaceValue(_ workspace: Workspace, index: Int, selectedId: UUID?) -> SwiftValue {
+    /// Projects one workspace's live state into the interpreter input snapshot.
+    /// The SwiftValue assembly and optional-field omission rules live in
+    /// `CustomSidebarDataContextBuilder`; keep the projected fields in sync with
+    /// the data keys documented in `docs/custom-sidebars.md`.
+    private func customSidebarWorkspaceSnapshot(_ workspace: Workspace, index: Int, selectedId: UUID?) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = workspace.focusedPanelId
-        var fields: [String: SwiftValue] = [
-            "id": .string(workspace.id.uuidString),
-            "title": .string(workspace.customTitle ?? workspace.title),
-            "selected": .bool(workspace.id == selectedId),
-            "pinned": .bool(workspace.isPinned),
-            "index": .int(index),
-            "directory": .string(workspace.currentDirectory),
-            "ports": .array(workspace.listeningPorts.map { .int($0) }),
-            "portCount": .int(workspace.listeningPorts.count),
-            "unread": .int(sidebarUnread.unreadCount(forWorkspaceId: workspace.id)),
-            "tabs": .array(customSidebarSurfaceValues(workspace, focusedPanelId: focusedPanelId)),
-            "tabCount": .int(workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count }),
-        ]
-        if let description = workspace.customDescription, !description.isEmpty { fields["description"] = .string(description) }
-        if let color = workspace.customColor, !color.isEmpty { fields["color"] = .string(color) }
-        if let git = workspace.sidebarGitBranchesInDisplayOrder().first {
-            fields["branch"] = .string(git.branch)
-            fields["dirty"] = .bool(git.isDirty)
+        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
+        let progress = workspace.progress.map {
+            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
         }
-        let pullRequestValues = workspace.customSidebarPullRequestValues()
-        if let firstPullRequest = pullRequestValues.first {
-            fields["pr"] = firstPullRequest
-            fields["prs"] = .array(pullRequestValues)
+        let remote = workspace.remoteDisplayTarget.map { target in
+            CustomSidebarWorkspaceSnapshot.Remote(
+                target: target,
+                stateRawValue: workspace.remoteConnectionState.rawValue,
+                isConnected: workspace.remoteConnectionState == .connected
+            )
         }
-        if let progress = workspace.progress {
-            var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
-            if let label = progress.label { progressFields["label"] = .string(label) }
-            fields["progress"] = .object(progressFields)
-        }
-        if let message = workspace.latestConversationMessage, !message.isEmpty { fields["latestMessage"] = .string(message) }
-        if let prompt = workspace.latestSubmittedMessage, !prompt.isEmpty { fields["latestPrompt"] = .string(prompt) }
-        if let at = workspace.latestSubmittedAt { fields["latestAt"] = .int(Int(at.timeIntervalSince1970)) }
-        if let target = workspace.remoteDisplayTarget {
-            fields["remote"] = .object([
-                "target": .string(target),
-                "state": .string(workspace.remoteConnectionState.rawValue),
-                "connected": .bool(workspace.remoteConnectionState == .connected),
-            ])
-        }
-        return .object(fields)
+        return CustomSidebarWorkspaceSnapshot(
+            id: workspace.id,
+            title: workspace.customTitle ?? workspace.title,
+            isSelected: workspace.id == selectedId,
+            isPinned: workspace.isPinned,
+            index: index,
+            directory: workspace.currentDirectory,
+            listeningPorts: workspace.listeningPorts,
+            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+            surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
+            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
+            customDescription: workspace.customDescription,
+            customColor: workspace.customColor,
+            gitBranch: firstBranch?.branch,
+            gitIsDirty: firstBranch?.isDirty ?? false,
+            pullRequestValues: workspace.customSidebarPullRequestValues(),
+            progress: progress,
+            latestConversationMessage: workspace.latestConversationMessage,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
+            latestSubmittedAt: workspace.latestSubmittedAt,
+            remote: remote
+        )
     }
 
     /// Projects a workspace's surfaces (terminal/browser/etc. tabs) into the
-    /// interpreter value tree, enriched with per-surface directory, pin, git,
-    /// and ports where available.
-    private func customSidebarSurfaceValues(_ workspace: Workspace, focusedPanelId: UUID?) -> [SwiftValue] {
-        var tabs: [SwiftValue] = []
+    /// interpreter input snapshots, enriched with per-surface directory, pin,
+    /// git, and ports where available.
+    private func customSidebarSurfaceSnapshots(_ workspace: Workspace, focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
+        var surfaces: [CustomSidebarSurfaceSnapshot] = []
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                var surfaceFields: [String: SwiftValue] = [
-                    "id": .string(panelId.uuidString),
-                    "title": .string(tab.title),
-                    "focused": .bool(panelId == focusedPanelId),
-                    "pinned": .bool(workspace.pinnedPanelIds.contains(panelId)),
-                ]
-                if let directory = workspace.panelDirectories[panelId], !directory.isEmpty {
-                    surfaceFields["directory"] = .string(directory)
-                }
-                if let git = workspace.panelGitBranches[panelId] {
-                    surfaceFields["branch"] = .string(git.branch)
-                    surfaceFields["dirty"] = .bool(git.isDirty)
-                }
-                if let ports = workspace.surfaceListeningPorts[panelId], !ports.isEmpty {
-                    surfaceFields["ports"] = .array(ports.map { .int($0) })
-                }
-                tabs.append(.object(surfaceFields))
+                let git = workspace.panelGitBranches[panelId]
+                surfaces.append(
+                    CustomSidebarSurfaceSnapshot(
+                        panelId: panelId,
+                        title: tab.title,
+                        isFocused: panelId == focusedPanelId,
+                        isPinned: workspace.pinnedPanelIds.contains(panelId),
+                        directory: workspace.panelDirectories[panelId],
+                        gitBranch: git?.branch,
+                        gitIsDirty: git?.isDirty ?? false,
+                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
+                    )
+                )
             }
         }
-        return tabs
+        return surfaces
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
