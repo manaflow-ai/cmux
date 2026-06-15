@@ -543,6 +543,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    /// The in-flight raw-input drain loop. Retained (not fire-and-forget) so a
+    /// new `.startDraining` chains strictly after the previous drain and tests
+    /// can await it deterministically via ``drainRawTerminalInputForTesting()``.
+    /// Not observed: it sequences async delivery, not view state.
+    @ObservationIgnored private var rawTerminalInputDrainTask: Task<Void, Never>?
     @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
 
@@ -2827,7 +2832,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: terminalID
         ) {
         case .startDraining:
-            Task { @MainActor [weak self] in
+            // Chain onto any prior drain so sequential bursts deliver strictly
+            // in order, and retain the task so it isn't an orphaned fire-and
+            // -forget (tests await it via `drainRawTerminalInputForTesting()`).
+            let previousDrain = rawTerminalInputDrainTask
+            rawTerminalInputDrainTask = Task { @MainActor [weak self] in
+                await previousDrain?.value
                 await self?.drainRawTerminalInputBuffer()
             }
         case .queued:
@@ -3542,6 +3552,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// store. Test seam: lets tests assert on store contents without sleeping.
     func drainDraftOperationsForTesting() async {
         await draftOperationTail?.value
+    }
+
+    /// Wait until the raw terminal input drain loop has delivered everything
+    /// enqueued so far. Test seam: lets tests assert on sent `terminal.input`
+    /// RPCs deterministically instead of polling with `Task.sleep`, and ensures
+    /// the drain task has finished before the test tears down.
+    func drainRawTerminalInputForTesting() async {
+        await rawTerminalInputDrainTask?.value
     }
 
     /// Save the live ``terminalInputText`` under the currently selected

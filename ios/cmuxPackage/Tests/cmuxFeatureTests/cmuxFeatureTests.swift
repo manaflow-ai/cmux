@@ -2401,16 +2401,17 @@ final class TerminalOutputCollector {
     store.sendTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
     store.sendTerminalRawInput(Data("c".utf8), surfaceID: "live-terminal")
 
-    // Wait for the buffered drain to deliver, then settle so any erroneous
-    // per-keystroke sends would also have landed.
-    var texts: [String] = []
-    for _ in 0..<300 {
-        texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
-        if !texts.isEmpty { break }
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-    try await Task.sleep(nanoseconds: 100_000_000)
-    texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
+    // Drain deterministically instead of sleep-polling: the three synchronous
+    // keystrokes coalesce into one pending chunk before the drain task runs, so
+    // the FIFO delivers a single ordered `terminal.input`. (A regressed
+    // per-keystroke `Task { await submit }` path would have raced multiple
+    // unordered RPCs.) Awaiting the drain seam also guarantees the drain task
+    // finishes before the test tears down, so it can't outlive the store and
+    // crash a sibling test running in parallel.
+    await store.drainRawTerminalInputForTesting()
+    let texts = try await responses.sentRequests()
+        .filter { $0.method == "terminal.input" }
+        .compactMap(\.text)
     #expect(texts == ["abc"])
 }
 
@@ -2449,12 +2450,10 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.sendTerminalRawInput(Data(largePaste.utf8), surfaceID: "live-terminal")
 
-    var texts: [String] = []
-    for _ in 0..<300 {
-        texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
-        if texts.joined() == largePaste { break }
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
+    await store.drainRawTerminalInputForTesting()
+    let texts = try await responses.sentRequests()
+        .filter { $0.method == "terminal.input" }
+        .compactMap(\.text)
     #expect(texts.count == 2)
     #expect(texts.allSatisfy { $0.utf8.count <= MobileTerminalInputSendBuffer.maximumPendingByteCount })
     #expect(texts.joined() == largePaste)
