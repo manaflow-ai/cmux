@@ -328,6 +328,18 @@ struct SettingsControlEngineTests {
         #expect(await harness.engine.export() == exported)
     }
 
+    @Test func exportPreservesAlternateWireFormBinding() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // A string-form shortcut binding decodes to a non-default value, so it is
+        // exported (canonicalized to object form), not dropped as a mismatch.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"shortcuts":{"bindings":{"toggleSidebar":"cmd+b"}}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        let document = await harness.engine.export()
+        #expect(document.settings["shortcuts.bindings"] != nil)
+    }
+
     @Test func exportSkipsTypeMismatchedJSONSetting() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

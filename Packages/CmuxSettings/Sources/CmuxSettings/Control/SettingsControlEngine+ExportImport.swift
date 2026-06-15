@@ -17,14 +17,15 @@ extension SettingsControlEngine {
                 guard overridden else { continue }
             }
             let value = await descriptor.currentValue(in: stores)
-            // Skip a JSON-backed setting whose catalog type cannot faithfully
-            // represent what is actually in cmux.json (e.g. notifications.hooks is
-            // stored as an array but cataloged as a dictionary, so the typed read
-            // falls back to the default). Exporting the misdecoded value would
-            // clobber the user's real value on import.
-            if descriptor.backend == .json,
-               let raw = await stores.json.rawSettingJSON(atDottedPath: descriptor.id),
-               raw != value {
+            // Skip a JSON-backed setting whose raw cmux.json value did not decode
+            // as the catalog type — the typed read then falls back to the default,
+            // and exporting that misrepresentation would clobber the user's real
+            // value on import (e.g. notifications.hooks is stored as an array but
+            // cataloged as a dictionary). A value that decodes to a non-default is
+            // faithful even when its on-disk wire form differs (e.g. string-form
+            // shortcut bindings that canonicalize to the object form), so it is
+            // exported normally.
+            if descriptor.backend == .json, value == descriptor.defaultValue {
                 continue
             }
             settings[descriptor.id] = value

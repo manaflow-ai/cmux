@@ -200,6 +200,19 @@ struct SettingsControlShortcutsTests {
         #expect(try await harness.engine.shortcutGet("toggleSidebar").binding == "cmd+b")
     }
 
+    @Test func getIgnoresOverrideInvalidForAction() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // newTab doesn't allow a bare first stroke, so the app ignores "j";
+        // get must report the default, not the inactive override.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"shortcuts":{"bindings":{"newTab":"j"}}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        let row = try await harness.engine.shortcutGet("newTab")
+        #expect(row.isOverridden == false)
+        #expect(row.binding == row.defaultBinding)
+    }
+
     @Test func unsetClearsLegacyUserDefaultsOverride() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

@@ -210,12 +210,40 @@ extension SettingsControlEngine {
         }
     }
 
+    /// Whether a stored override is actually honored by the runtime for `action`,
+    /// applying the same action-specific rules `shortcutSet` enforces (bare
+    /// first stroke, numbered-digit, system-wide hotkey shape). An override the
+    /// app would ignore is not "effective", so `get`/`list`/conflict treat it as
+    /// absent rather than displaying an inactive binding.
+    func shortcutBindingIsValid(_ shortcut: StoredShortcut, for action: ShortcutAction) -> Bool {
+        if shortcut.isUnbound { return true }
+        if !action.allowsBareFirstStroke, !shortcut.first.hasAnyModifier, shortcut.first.key != "space" {
+            return false
+        }
+        if action.usesNumberedDigitMatching, !Self.isNumberedDigitBinding(shortcut) {
+            return false
+        }
+        if action.usesGlobalHotkey, shortcut.hasChord || !shortcut.first.hasPrimaryModifier {
+            return false
+        }
+        return true
+    }
+
+    /// The override that actually fires for `action`, or its default when no
+    /// override exists or the stored override is invalid for the action.
+    func effectiveOverride(_ action: ShortcutAction, overrides: [String: StoredShortcut]) -> StoredShortcut? {
+        guard let override = overrides[action.rawValue], shortcutBindingIsValid(override, for: action) else {
+            return nil
+        }
+        return override
+    }
+
     func effectiveBinding(_ action: ShortcutAction, overrides: [String: StoredShortcut]) -> StoredShortcut {
-        overrides[action.rawValue] ?? action.defaultShortcut ?? .unbound
+        effectiveOverride(action, overrides: overrides) ?? action.defaultShortcut ?? .unbound
     }
 
     func shortcutRow(_ action: ShortcutAction, overrides: [String: StoredShortcut]) -> ShortcutRow {
-        let override = overrides[action.rawValue]
+        let override = effectiveOverride(action, overrides: overrides)
         let effective = override ?? action.defaultShortcut ?? .unbound
         let defaultBinding = action.defaultShortcut ?? .unbound
         return ShortcutRow(
