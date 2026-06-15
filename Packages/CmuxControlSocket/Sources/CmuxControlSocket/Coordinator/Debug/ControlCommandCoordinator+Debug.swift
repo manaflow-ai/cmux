@@ -74,6 +74,8 @@ extension ControlCommandCoordinator {
             return debugSimulateTerminalFileDrop(request.params)
         case "debug.terminal.read_text":
             return debugReadTerminalText(request.params)
+        case "debug.terminal.scroll_to_row_offset":
+            return debugTerminalScrollToRowOffset(request.params)
         case "debug.terminal.render_stats":
             return debugRenderStats(request.params)
         case "debug.layout":

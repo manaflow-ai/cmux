@@ -14210,10 +14210,14 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        let requestedScrollbackRows = mobileScrollPrefetchRows(params: params)
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: requestedScrollbackRows > 0
+                ? requestedScrollbackRows
+                : TerminalController.mobileReplayScrollbackLineBudget
         )
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")

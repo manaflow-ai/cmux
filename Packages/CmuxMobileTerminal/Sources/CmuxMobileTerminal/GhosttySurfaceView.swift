@@ -8,37 +8,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
-enum TerminalInputDebugLog {
-    private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
-
-    static func log(_ message: String) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        #endif
-        guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
-    }
-
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
-    static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
-    }
-}
-
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
@@ -621,6 +590,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
+    private var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
+    public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -1780,17 +1752,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
         // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. The Mac still owns terminal semantics:
-        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        // deceleration, and momentum. Primary scrollback can be consumed by the
+        // local Ghostty mirror; alt-screen mouse-wheel delivery still belongs
+        // to the Mac.
         guard deltaY != 0 else { return }
+        let scale = max(preferredScreenScale, 1)
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
+        pendingLocalScrollPixels += -Double(deltaY) * Double(scale)
         pendingScrollCell = scrollCell(at: touchPoint)
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
+    private var pendingLocalScrollPixels: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -1805,11 +1781,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+        guard pendingScrollLines != 0 || pendingLocalScrollPixels != 0 else { return }
         let lines = pendingScrollLines
+        let pixelDeltaY = pendingLocalScrollPixels
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        pendingLocalScrollPixels = 0
+        if scrollForwardingPolicy.shouldApplyLocally(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+        ) {
+            applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
+        }
+        guard scrollForwardingPolicy.shouldForwardToHost(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+        ) else {
+            return
+        }
+        guard lines != 0 else { return }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -2106,6 +2096,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func processOutput(_ data: Data) {
         processOutput(data, completion: nil)
+    }
+
+    /// Applies metadata attached to the next terminal output chunk.
+    ///
+    /// Render-grid output carries the authoritative active screen, which lets
+    /// local scrollback stay phone-local on the primary screen while alternate
+    /// screen TUIs still receive host mouse-wheel events.
+    /// - Parameter activeScreen: The active screen from the render-grid frame,
+    ///   or `nil` for raw byte fallback chunks.
+    public func applyTerminalOutputMetadata(
+        activeScreen: MobileTerminalRenderGridFrame.Screen?
+    ) {
+        guard let activeScreen else { return }
+        self.activeScreen = activeScreen
     }
 
     /// Process terminal output and return after the output has been applied.

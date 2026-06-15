@@ -55,7 +55,7 @@ extension TerminalController {
         return payload
     }
 
-    private func mobileScrollPrefetchRows(params: [String: Any]) -> Int {
+    func mobileScrollPrefetchRows(params: [String: Any]) -> Int {
         let requestedRows = (params["max_scrollback_rows"] as? NSNumber)?.intValue ?? 0
         return min(
             max(0, requestedRows),

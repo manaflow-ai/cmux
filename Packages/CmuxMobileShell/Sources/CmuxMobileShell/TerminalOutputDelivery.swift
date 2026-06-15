@@ -29,6 +29,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    var activeScreen: MobileTerminalRenderGridFrame.Screen? {
+        switch payload {
+        case .bytes:
+            nil
+        case .renderGrid(let frame):
+            frame.activeScreen
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

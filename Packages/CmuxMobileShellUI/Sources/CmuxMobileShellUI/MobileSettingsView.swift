@@ -122,6 +122,11 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                    Toggle(isOn: $displaySettings.decouplePrimaryScreenScroll) {
+                        Text(L10n.string("mobile.settings.instantTerminalScroll", defaultValue: "Instant Terminal Scroll"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsInstantTerminalScroll")
+
                     Button {
                         showingShortcuts = true
                     } label: {

@@ -1803,6 +1803,23 @@
         }
       }
     },
+    "mobile.settings.instantTerminalScroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instant Terminal Scroll"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時ターミナルスクロール"
+          }
+        }
+      }
+    },
     "mobile.settings.switchMac": {
       "extractionState": "manual",
       "localizations": {

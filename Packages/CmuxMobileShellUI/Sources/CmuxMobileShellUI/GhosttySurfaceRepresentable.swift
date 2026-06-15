@@ -36,6 +36,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// Whether normal-screen scrollback should move on the phone without a Mac
+    /// round trip. Turning this off restores host-coupled scroll for dogfood
+    /// comparison.
+    var decouplePrimaryScreenScroll: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -59,6 +63,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.decouplePrimaryScreenScroll = decouplePrimaryScreenScroll
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -88,6 +93,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.decouplePrimaryScreenScroll = decouplePrimaryScreenScroll
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // A width change (rotation) is not a text change, so the field-content trigger
@@ -137,6 +143,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
+                    surfaceView.applyTerminalOutputMetadata(activeScreen: chunk.activeScreen)
                     await surfaceView.processOutputAndWait(chunk.data)
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
