@@ -168,6 +168,15 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                "session_id": sessionID
+            ])
+        }
+        let clearResult = terminalPanel.sendNamedKeyResult("ctrl+u")
+        guard clearResult.accepted else {
+            return mobileChatInputError(clearResult)
+        }
         for (index, attachment) in attachments.enumerated() {
             guard let base64 = attachment["data_b64"] as? String else {
                 return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
@@ -185,7 +194,7 @@ extension TerminalController {
             // the shape the client's pending-row reconcile matches. A
             // dropped separator corrupts that shape; surface it.
             let needsSeparator = index < attachments.count - 1 || !text.isEmpty
-            if needsSeparator, let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) {
+            if needsSeparator {
                 let separatorResult = terminalPanel.surface.sendInputResult(" ")
                 switch separatorResult {
                 case .sent, .queued:
@@ -203,9 +212,6 @@ extension TerminalController {
             // Attachment-only send: the image path is sitting pasted at the
             // agent's prompt; submit it so the send actually reaches the
             // agent instead of idling in the line editor.
-            guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
-                return .ok(["submitted": false])
-            }
             let keyResult = terminalPanel.sendNamedKeyResult("return")
             return .ok(["submitted": keyResult.accepted])
         }
@@ -317,5 +323,20 @@ extension TerminalController {
             return nil
         }
         return resolved.workspace.terminalPanel(for: surfaceId)
+    }
+
+    private func mobileChatInputError(_ keyResult: TerminalSurface.NamedKeySendResult) -> V2CallResult {
+        switch keyResult {
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+        case .unknownKey:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+        case .sent, .queued:
+            return .ok(["accepted": true])
+        }
     }
 }
