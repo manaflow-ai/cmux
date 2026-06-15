@@ -1702,6 +1702,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
     var isPinned: Bool
     var isManuallyUnread: Bool
@@ -1814,6 +1818,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
