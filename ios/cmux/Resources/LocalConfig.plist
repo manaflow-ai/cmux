@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- DOGFOOD RIG ONLY (dog fold, not for main): point the app's API/auth
+	     base at the local dev registry on the LAN so the device list and
+	     auth resolve against the rig instead of DEBUG localhost. -->
+	<key>ApiBaseURL</key>
+	<string>http://10.0.0.102:3911</string>
+</dict>
+</plist>

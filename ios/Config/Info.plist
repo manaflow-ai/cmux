@@ -70,6 +70,20 @@
 		     alone would not cover routable private-LAN dev servers. -->
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
+		<!-- DOGFOOD RIG ONLY (dog fold, not for main): allow the app's own
+		     URLSession traffic (auth, /api/devices, push) to reach the local
+		     dev registry over plain HTTP on the LAN. Prod uses HTTPS so this
+		     exception is moot for Release. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>10.0.0.102</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+		</dict>
 	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
