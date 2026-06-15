@@ -222,7 +222,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, laterCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
@@ -253,7 +254,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, laterCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
@@ -284,7 +286,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, laterCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(laterCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(laterCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
