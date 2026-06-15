@@ -2274,12 +2274,11 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// Process-wide, event-driven cache of `RestorableAgentSessionIndex.load()` results, used
-/// by the right-click "Fork Conversation" availability check and the close-history undo
-/// snapshot. `load()` runs `sysctl(KERN_PROCARGS2)` per hook record plus disk reads
-/// (350ms-1.8s on large agent histories), far too expensive to do synchronously on the
-/// main actor, so reloads run on a `Task.detached(priority: .utility)` and callers read
-/// the cached snapshot synchronously.
+/// Process-wide, event-driven cache of `RestorableAgentSessionIndex` results, used by the
+/// right-click "Fork Conversation" availability check and the close-history undo snapshot.
+/// Loading runs disk reads plus process scans that can take 350ms-1.8s on large agent
+/// histories, far too expensive to do synchronously on the main actor, so reloads run on a
+/// `Task.detached(priority: .utility)` and callers read the cached snapshot synchronously.
 ///
 /// Freshness is driven by a watcher on the hook-store directory (`~/.cmuxterm`), which the
 /// `cmux hooks` CLI writes when an agent session starts or updates. The cache reloads
@@ -2326,11 +2325,15 @@ final class SharedLiveAgentIndex: ObservableObject {
         detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry]? = nil
     ) -> RestorableAgentSessionIndex {
         let resolvedRegistry = registry ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let resolvedDetectedSnapshots = detectedSnapshots ?? RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: resolvedRegistry,
+            fileManager: fileManager
+        )
         return RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
-            detectedSnapshots: [:]
+            detectedSnapshots: resolvedDetectedSnapshots
         )
     }
 
