@@ -3,12 +3,9 @@ import GhosttyKit
 import UIKit
 
 extension GhosttySurfaceView {
-    /// Apply the scroll to the phone's local Ghostty mirror immediately. On the
-    /// primary screen this consumes the preloaded local scrollback window, so a
-    /// drag/deceleration feels native while the Mac catches up. On alternate
-    /// screens libghostty turns this into mouse-wheel bytes; the mirror is
-    /// display-only and drops those bytes, so the authoritative Mac response
-    /// remains the visible update for TUIs.
+    /// Apply a primary-screen scrollback gesture to the phone's local Ghostty
+    /// mirror immediately. This consumes the preloaded local scrollback window,
+    /// so a drag/deceleration feels native without waiting for the Mac.
     func applyLocalScrollbackScroll(pixelDeltaY: Double, col: Int, row: Int) {
         guard pixelDeltaY != 0, let surface else { return }
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale

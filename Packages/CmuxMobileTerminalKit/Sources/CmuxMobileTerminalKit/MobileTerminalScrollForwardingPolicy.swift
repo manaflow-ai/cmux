@@ -14,9 +14,17 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
     /// - Parameter activeScreen: The screen currently rendered by the mobile
     ///   Ghostty mirror.
     /// - Returns: `true` when the scroll should be sent to the Mac.
-    public func shouldForwardToHost(
-        activeScreen: MobileTerminalRenderGridFrame.Screen
+    public func shouldApplyLocally(
+        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        decouplePrimaryScreenScroll: Bool
     ) -> Bool {
-        activeScreen == .alternate
+        decouplePrimaryScreenScroll && activeScreen == .primary
+    }
+
+    public func shouldForwardToHost(
+        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        decouplePrimaryScreenScroll: Bool
+    ) -> Bool {
+        activeScreen == .alternate || !decouplePrimaryScreenScroll
     }
 }

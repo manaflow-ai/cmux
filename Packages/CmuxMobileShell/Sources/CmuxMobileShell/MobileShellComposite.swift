@@ -64,6 +64,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
+    private static let terminalReplayScrollbackRows = 600
 
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
@@ -4490,6 +4491,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: [
                         "workspace_id": workspaceID.rawValue,
                         "surface_id": surfaceID,
+                        "max_scrollback_rows": Self.terminalReplayScrollbackRows,
                     ]
                 )
                 let data = try await client.sendRequest(request)

@@ -26,6 +26,7 @@ struct WorkspaceDetailView: View {
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -109,7 +110,8 @@ struct WorkspaceDetailView: View {
                     // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
-                    isComposerActive: store.isComposerPresented
+                    isComposerActive: store.isComposerPresented,
+                    decouplePrimaryScreenScroll: displaySettings.decouplePrimaryScreenScroll
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and

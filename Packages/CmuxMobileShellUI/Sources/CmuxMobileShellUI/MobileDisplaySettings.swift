@@ -22,12 +22,16 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
+    private static let decouplePrimaryScreenScrollKey = "cmux.mobile.decouplePrimaryScreenScroll"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
     /// Default preview line count when nothing is stored (iMessage-style two
     /// lines).
     public static let defaultWorkspacePreviewLineCount = 2
+    /// Default scroll mode: primary scrollback stays on the phone and only
+    /// alternate-screen wheel input is sent to the Mac.
+    public static let defaultDecouplePrimaryScreenScroll = true
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -48,6 +52,13 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Whether normal-screen terminal scrollback moves locally on the phone.
+    /// Turning this off restores the older host round-trip path, useful for
+    /// comparing latency while dogfooding.
+    public var decouplePrimaryScreenScroll: Bool {
+        didSet { defaults.set(decouplePrimaryScreenScroll, forKey: Self.decouplePrimaryScreenScrollKey) }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -60,6 +71,11 @@ public final class MobileDisplaySettings {
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
+        if let storedDecoupledScroll = defaults.object(forKey: Self.decouplePrimaryScreenScrollKey) as? Bool {
+            self.decouplePrimaryScreenScroll = storedDecoupledScroll
+        } else {
+            self.decouplePrimaryScreenScroll = Self.defaultDecouplePrimaryScreenScroll
+        }
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

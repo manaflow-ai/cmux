@@ -2162,7 +2162,8 @@ final class TerminalOutputCollector {
     #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    #expect(replayRequests.first?.maxScrollbackRows == 600)
     for _ in 0..<200 where collector.lines.count < 2 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }

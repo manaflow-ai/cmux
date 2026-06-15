@@ -593,6 +593,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var shouldScrollInitialOutputToBottom = true
     private var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
+    public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -1752,8 +1753,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
         // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. The Mac still owns terminal semantics:
-        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        // deceleration, and momentum. Primary scrollback can be consumed by the
+        // local Ghostty mirror; alt-screen mouse-wheel delivery still belongs
+        // to the Mac.
         guard deltaY != 0 else { return }
         let scale = max(preferredScreenScale, 1)
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
@@ -1786,8 +1788,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         pendingLocalScrollPixels = 0
-        applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
-        guard scrollForwardingPolicy.shouldForwardToHost(activeScreen: activeScreen) else {
+        if scrollForwardingPolicy.shouldApplyLocally(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+        ) {
+            applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
+        }
+        guard scrollForwardingPolicy.shouldForwardToHost(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+        ) else {
             return
         }
         guard lines != 0 else { return }
