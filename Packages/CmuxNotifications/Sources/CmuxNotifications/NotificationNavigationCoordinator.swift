@@ -29,10 +29,24 @@ public final class NotificationNavigationCoordinator {
     private let unreadTargeting: any UnreadWorkspaceTargeting
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
-    /// The focused-mark state machine. Implicitly-unwrapped so `init` can build
-    /// it with a default jump closure that captures `self` (the closure is only
-    /// invoked later, on the main actor). Set exactly once in `init`.
-    private var focusedMarker: FocusedNotificationMarker!
+    private let focusedResolving: any FocusedNotificationResolving
+    private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
+    /// The focused-mark state machine. Lazy so its default jump closure can
+    /// capture `self` (allowed only after all stored properties are initialized);
+    /// the closure is invoked later, on the main actor. `@ObservationIgnored`
+    /// because this is a private internal collaborator that must not participate
+    /// in `@Observable` observation; the enclosing type is `@MainActor`, so the
+    /// lazy initialization is concurrency-safe.
+    @ObservationIgnored
+    private lazy var focusedMarker: FocusedNotificationMarker = FocusedNotificationMarker(
+        resolver: focusedResolving,
+        jumpToLatestUnread: explicitFocusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
+            self.jumpToLatestUnread(
+                excludingNotificationId: excludedNotificationId,
+                excludingWorkspaceId: excludedWorkspaceId
+            )
+        }
+    )
 
     /// Signalled after a jump/open focuses a workspace/surface, so the app-target
     /// `#if DEBUG` jump-unread UI-test recorders (which observe Combine and
@@ -61,16 +75,8 @@ public final class NotificationNavigationCoordinator {
         self.unreadTargeting = unreadTargeting
         self.openRouting = openRouting
         self.clickRouting = clickRouting
-        self.focusedMarker = nil
-        self.focusedMarker = FocusedNotificationMarker(
-            resolver: focusedResolving,
-            jumpToLatestUnread: focusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
-                self.jumpToLatestUnread(
-                    excludingNotificationId: excludedNotificationId,
-                    excludingWorkspaceId: excludedWorkspaceId
-                )
-            }
-        )
+        self.focusedResolving = focusedResolving
+        self.explicitFocusedJump = focusedJump
     }
 
     // MARK: Focused-mark
