@@ -328,7 +328,9 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
               ),
               !argv.isEmpty else {
             return nil
@@ -477,7 +479,9 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -535,6 +539,17 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId, "--fork"] + preserved
+        case .custom:
+            // Custom Vault agents fork via their registration's `forkCommand`
+            // template (nil when the agent has no fork capability).
+            guard let customRegistration else { return nil }
+            let arguments = customForkArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
         default:
             return nil
         }
@@ -546,7 +561,41 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(registration.resumeCommand)
+        customTemplateArguments(
+            template: registration.resumeCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    /// Builds the fork argv from a custom agent's `forkCommand` template, or
+    /// returns empty when the agent declares no fork capability.
+    private static func customForkArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
+        return customTemplateArguments(
+            template: forkCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private static func customTemplateArguments(
+        template: String,
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(template)
         guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,

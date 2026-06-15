@@ -5730,6 +5730,12 @@ struct ContentView: View {
             return .supportedWithoutProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+        case .custom:
+            // Reaching here means `forkCommand != nil` (top guard), i.e. the
+            // agent's registration declares a `forkCommand` template, so it is
+            // fork-able. There is no per-agent fork-capability probe for custom
+            // agents (unlike opencode's version probe), so trust the template.
+            return .supportedWithoutProbe
         default:
             return .unsupported
         }
