@@ -1,23 +1,40 @@
 public import Foundation
 
-/// Pure policy deciding which workspaces stay mounted to minimize layer-tree
+/// Value object deciding which workspaces stay mounted to minimize layer-tree
 /// traversal. Operates only on workspace UUIDs, ordering, and pinning flags;
-/// holds no state and touches no UI.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum WorkspaceMountPolicy {
+/// holds no state and touches no UI. Construct it with the current mount state
+/// and read ``mountedWorkspaceIds``.
+public struct WorkspaceMountPlan: Equatable {
     // Keep only the selected workspace mounted to minimize layer-tree traversal.
     public static let maxMountedWorkspaces = 1
     // During workspace cycling, keep only a minimal handoff pair (selected + retiring).
     public static let maxMountedWorkspacesDuringCycle = 2
 
-    public static func nextMountedWorkspaceIds(
+    private let current: [UUID]
+    private let selected: UUID?
+    private let pinnedIds: Set<UUID>
+    private let orderedTabIds: [UUID]
+    private let isCycleHot: Bool
+    private let maxMounted: Int
+
+    public init(
         current: [UUID],
         selected: UUID?,
         pinnedIds: Set<UUID>,
         orderedTabIds: [UUID],
         isCycleHot: Bool,
         maxMounted: Int
-    ) -> [UUID] {
+    ) {
+        self.current = current
+        self.selected = selected
+        self.pinnedIds = pinnedIds
+        self.orderedTabIds = orderedTabIds
+        self.isCycleHot = isCycleHot
+        self.maxMounted = maxMounted
+    }
+
+    /// The workspace ids that should remain mounted, in priority order.
+    public var mountedWorkspaceIds: [UUID] {
         let existing = Set(orderedTabIds)
         let clampedMax = max(1, maxMounted)
         var ordered = current.filter { existing.contains($0) }
@@ -28,7 +45,7 @@ public enum WorkspaceMountPolicy {
         }
 
         if isCycleHot, let selected {
-            let warmIds = cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
+            let warmIds = Self.cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
             for id in warmIds.reversed() {
                 ordered.removeAll { $0 == id }
                 ordered.insert(id, at: 0)

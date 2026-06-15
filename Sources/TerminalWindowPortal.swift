@@ -206,8 +206,15 @@ final class WindowTerminalHostView: NSView {
     private func shouldPassThroughToTitlebar(at point: NSPoint, hostedTerminalHitView: () -> NSView?) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
-        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else { return false }
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
         if isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) { return true }
+
+        // The portal can overlap the titlebar interaction band when terminal content
+        // reaches the top of the viewport. In that case the terminal remains the
+        // concrete UI target, so mouse reporting must reach Ghostty instead of
+        // falling through to window chrome.
         return hostedTerminalHitView() == nil
     }
 
