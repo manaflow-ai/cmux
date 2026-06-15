@@ -23,6 +23,7 @@ private final class FakeStore: NotificationNavigationStoreReading {
 @MainActor
 private final class FakeWindows: MainWindowContextResolving {
     var orderedTargetsForUnreadJump: [MainWindowTarget] = []
+    var activeWorkspaceIdsForUnreadJump: [UUID] = []
 }
 
 /// Scriptable unread targeting: a per-workspace preferred panel and flash
@@ -248,6 +249,31 @@ struct NotificationNavigationCoordinatorTests {
 
         #expect(unread.clearedJumps.isEmpty)
         #expect(unread.flashedPanels.isEmpty)
+    }
+
+    @Test("workspace-unread jump falls back to the active tab manager when the window-context registry is empty (early-startup/VM timing)")
+    func workspaceUnreadFallsBackToActiveManagerWhenRegistryEmpty() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), panel = UUID()
+        store.workspaceUnreadIndicatorIds = [tab]
+        // Registry lags during early startup: no targets...
+        windows.orderedTargetsForUnreadJump = []
+        // ...but the active tab manager already owns the unread workspace.
+        windows.activeWorkspaceIdsForUnreadJump = [tab]
+        unread.preferredPanelByWorkspace[tab] = panel
+        let coordinator = makeCoordinator(
+            store: store, windows: windows, unreadTargeting: unread, openRouting: openRouting
+        )
+
+        _ = coordinator.jumpToLatestUnread()
+
+        // The active-window fallback opened it (the registry loop had nothing).
+        #expect(openRouting.log.contains { $0.hasPrefix("fallback(tab=\(String(tab.uuidString.prefix(4)))") })
+        #expect(unread.clearedJumps.count == 1)
+        #expect(unread.clearedJumps.first?.0 == tab)
     }
 
     // MARK: - Click action

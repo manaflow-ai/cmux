@@ -140,12 +140,12 @@ public final class NotificationNavigationCoordinator {
         }
 
         // The legacy fallback used the active tab manager's first unread
-        // workspace; `orderedTargetsForUnreadJump` already encodes that ordering
-        // (the active manager's window sorts first), so the first unread id
-        // across all targets matches `tabManager.tabs.first(where:)`.
-        guard let workspaceId = windows.orderedTargetsForUnreadJump
-            .lazy
-            .flatMap(\.workspaceIds)
+        // workspace, which is NOT necessarily in the window-context registry:
+        // during early startup / VM timing the registry lags behind model init,
+        // so `orderedTargetsForUnreadJump` can be empty while the active manager
+        // already owns the unread workspace. Resolve it from the active manager
+        // directly, mirroring the legacy `self.tabManager.tabs.first(where:)`.
+        guard let workspaceId = windows.activeWorkspaceIdsForUnreadJump
             .first(where: { unreadWorkspaceIds.contains($0) }) else {
             return false
         }

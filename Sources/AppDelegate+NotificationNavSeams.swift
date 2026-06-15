@@ -95,6 +95,14 @@ extension AppDelegate: MainWindowContextResolving {
             )
         }
     }
+
+    var activeWorkspaceIdsForUnreadJump: [UUID] {
+        // The active (global) tab manager, independent of the window-context
+        // registry. Mirrors the legacy `self.tabManager.tabs` fallback so an
+        // unread workspace is still resolvable during early startup / VM timing
+        // before any main window registers.
+        tabManager?.tabs.map(\.id) ?? []
+    }
 }
 
 extension AppDelegate: UnreadWorkspaceTargeting {
