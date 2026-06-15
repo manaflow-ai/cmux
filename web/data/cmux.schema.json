@@ -1209,6 +1209,7 @@
               "focusTextBoxInput",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "clearScreenKeepScrollback",
               "focusLeft",
               "focusRight",
               "focusUp",

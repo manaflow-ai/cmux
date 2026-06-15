@@ -101,6 +101,26 @@ extension TerminalSurface {
         return .sent
     }
 
+    /// Clears the focused terminal's screen while preserving scrollback by sending
+    /// Ctrl-L (form-feed) to the running program — exactly as if the user pressed the
+    /// key.
+    ///
+    /// Shells clear the viewport and redraw the prompt while leaving scrollback
+    /// intact, and full-screen TUIs (vim, less, …) simply repaint. Because this is
+    /// ordinary keyboard input rather than an erase sequence injected through the
+    /// PTY-output parser, it never mutates the terminal behind the running program's
+    /// back, so it stays safe on the alternate screen. Ghostty's own ^L-at-a-prompt
+    /// heuristic scrolls the cleared screen into scrollback when shell prompt markers
+    /// are present; unlike `clear_screen` (⌘K), scrollback is never erased.
+    ///
+    /// - Returns: `true` when the keystroke was delivered or queued for the focused
+    ///   terminal, `false` when no live surface could accept it.
+    @MainActor
+    @discardableResult
+    public func clearScreenKeepingScrollback() -> Bool {
+        return sendNamedKey("ctrl-l").accepted
+    }
+
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {
