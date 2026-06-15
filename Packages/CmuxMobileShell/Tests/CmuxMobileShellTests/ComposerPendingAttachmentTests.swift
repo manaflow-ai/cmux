@@ -108,16 +108,16 @@ import Testing
         #expect(composite.composerCanSend(forTerminalID: "term-a") == false)
     }
 
-    @Test func submitClearsAttachmentsForSubmittedTerminal() async {
+    @Test func submitKeepsAttachmentsWhenSendFails() async {
         let composite = Self.makeComposite()
-        // No remoteClient is wired, so the image/text RPCs are no-ops, but the
-        // clear-after-send of the staged set still runs (it does not depend on
-        // the wire).
+        // No remoteClient is wired, so the image send fails (returns false). A
+        // failed send must KEEP the staged attachments so the user can retry,
+        // matching the text-keep-on-failure semantics of submitComposerInput().
         composite.addPendingAttachment(Self.bytes("img"), format: "png", forTerminalID: "term-a")
         composite.terminalInputText = ""
 
         await composite.submitComposer()
 
-        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
     }
 }

@@ -4,6 +4,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import ImageIO
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -50,6 +51,11 @@ struct TerminalComposerView: View {
     @State private var pickerSelection: [PhotosPickerItem] = []
     /// Drives the photo picker's presentation from the attach button.
     @State private var isPickerPresented = false
+    /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
+    /// attachment is staged. The chip row renders these instead of decoding the
+    /// full multi-MB `Data` from inside the view body on every composer
+    /// re-render (e.g. every keystroke).
+    @State private var thumbnailCache = AttachmentThumbnailCache()
 
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
@@ -100,6 +106,19 @@ struct TerminalComposerView: View {
     /// The Mac decodes the image to a temp file with a 10 MB cap; mirror the
     /// clipboard paste path and keep PNG under ~8 MB, otherwise fall back to JPEG.
     private static let maxImageBytes = 8 * 1024 * 1024
+
+    /// Cap how many images one message may carry, so the picker cannot stage an
+    /// unbounded batch of full-resolution photos into observable state.
+    private static let maxAttachmentCount = 10
+
+    /// Total encoded-bytes budget across this terminal's staged attachments.
+    /// New picks past the budget are skipped (the already-staged ones stay), so a
+    /// run of large photos cannot balloon memory regardless of the count cap.
+    private static let maxTotalAttachmentBytes = 32 * 1024 * 1024
+
+    /// Max pixel dimension of the cached chip thumbnail. The chip renders at 56pt;
+    /// 3x covers Retina without holding the full-resolution image.
+    private static let thumbnailMaxPixelSize = 168
 
     var body: some View {
         composerSurface
@@ -267,7 +286,7 @@ struct TerminalComposerView: View {
         .photosPicker(
             isPresented: $isPickerPresented,
             selection: $pickerSelection,
-            maxSelectionCount: nil,
+            maxSelectionCount: Self.maxAttachmentCount,
             matching: .images
         )
         .onChange(of: pickerSelection) { _, items in
@@ -282,8 +301,9 @@ struct TerminalComposerView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { attachment in
-                    AttachmentChip(attachment: attachment) {
+                    AttachmentChip(thumbnail: thumbnailCache.image(for: attachment.id)) {
                         store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
+                        thumbnailCache.remove(attachment.id)
                         requestHeightRemeasure()
                     }
                 }
@@ -309,49 +329,145 @@ struct TerminalComposerView: View {
         guard canSend else { return }
         isFieldFocused = true
         Task { @MainActor in
-            // Sends staged images first (in order), then the text, then clears
-            // the staged set for this terminal.
+            // Sends staged images first (in order), then the text. Acknowledged
+            // attachments are removed from the staged set; a failed send keeps the
+            // rest staged for a retry.
             await store.submitComposer()
-            // The chip row emptied as part of the send; re-measure so the band
-            // shrinks back to the one-line height.
+            // Drop cached thumbnails for attachments that are no longer staged
+            // (the acknowledged ones), keeping any that a failed send left behind.
+            thumbnailCache.retain(ids: pendingAttachments.map(\.id))
+            // The chip row shrank (or emptied) as part of the send; re-measure so
+            // the band tracks the new height.
             requestHeightRemeasure()
         }
     }
 
     /// Encode each picked photo the same way the clipboard paste path does (PNG,
     /// falling back to JPEG when over the ~8 MB cap) and stage it as a pending
-    /// attachment for this terminal. Runs off the picker callback; the selection
-    /// is cleared so re-picking the same asset fires again.
+    /// attachment for this terminal, bounded by both a count cap and a total
+    /// byte budget so a large batch cannot balloon observable state. A small
+    /// thumbnail is downsampled ONCE per attachment and cached by id, so the
+    /// chip row never decodes the full `Data` in the view body. Runs off the
+    /// picker callback; the selection is cleared so re-picking the same asset
+    /// fires again.
     private func stagePickedItems(_ items: [PhotosPickerItem]) {
         Task { @MainActor in
+            // Start from what is already staged so the budget spans the whole
+            // message, not just this batch.
+            var stagedCount = pendingAttachments.count
+            var stagedBytes = pendingAttachments.reduce(0) { $0 + $1.data.count }
             for item in items {
-                guard let raw = try? await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: raw) else { continue }
-                if let png = image.pngData(), png.count <= Self.maxImageBytes {
-                    store.addPendingAttachment(png, format: "png", forTerminalID: terminalID)
-                } else if let jpeg = image.jpegData(compressionQuality: 0.8) {
-                    store.addPendingAttachment(jpeg, format: "jpg", forTerminalID: terminalID)
-                } else if let png = image.pngData() {
-                    store.addPendingAttachment(png, format: "png", forTerminalID: terminalID)
+                guard stagedCount < Self.maxAttachmentCount else { break }
+                guard let raw = try? await item.loadTransferable(type: Data.self) else { continue }
+                // Encode + downsample off the main thread: the full-resolution
+                // decode and the PNG/JPEG re-encode are the expensive parts and
+                // must not block the composer's keyboard/typing.
+                guard let prepared = await Self.prepare(raw) else { continue }
+                // Skip a pick that would blow the total byte budget; the
+                // already-staged attachments stay, and the user can still send.
+                guard stagedBytes + prepared.data.count <= Self.maxTotalAttachmentBytes else { continue }
+                guard let id = store.addPendingAttachment(prepared.data, format: prepared.format, forTerminalID: terminalID) else { continue }
+                if let thumbnail = prepared.thumbnail {
+                    thumbnailCache.set(thumbnail, for: id)
                 }
+                stagedCount += 1
+                stagedBytes += prepared.data.count
             }
             pickerSelection = []
             // A new chip grows the band; ask the host to re-measure.
             requestHeightRemeasure()
         }
     }
+
+    /// The off-main result of preparing one picked image: the encoded bytes to
+    /// send, their format hint, and the small chip thumbnail.
+    private struct PreparedAttachment: Sendable {
+        var data: Data
+        var format: String
+        var thumbnail: UIImage?
+    }
+
+    /// Decode, re-encode (PNG, or JPEG over the per-image cap), and downsample a
+    /// picked image's raw bytes off the main thread. Returns `nil` when the bytes
+    /// are not a decodable image.
+    private static func prepare(_ raw: Data) async -> PreparedAttachment? {
+        await Task.detached(priority: .userInitiated) {
+            guard let image = UIImage(data: raw) else { return nil }
+            guard let (encoded, format) = encode(image) else { return nil }
+            return PreparedAttachment(
+                data: encoded,
+                format: format,
+                thumbnail: downsampledThumbnail(from: raw)
+            )
+        }.value
+    }
+
+    /// Encode a picked image the way the clipboard paste path does: PNG when it
+    /// fits the per-image cap, otherwise JPEG, falling back to PNG.
+    private static func encode(_ image: UIImage) -> (data: Data, format: String)? {
+        if let png = image.pngData(), png.count <= maxImageBytes {
+            return (png, "png")
+        }
+        if let jpeg = image.jpegData(compressionQuality: 0.8) {
+            return (jpeg, "jpg")
+        }
+        if let png = image.pngData() {
+            return (png, "png")
+        }
+        return nil
+    }
+
+    /// Build a small downsampled thumbnail from the original encoded bytes via
+    /// ImageIO, which decodes only a reduced-size image instead of the full
+    /// raster. Returns `nil` if the bytes are not a decodable image.
+    private static func downsampledThumbnail(from data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceThumbnailMaxPixelSize: thumbnailMaxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
 }
 
-/// A removable thumbnail chip for one staged image attachment.
+/// A side cache of downsampled chip thumbnails keyed by attachment id, built
+/// once per attachment at stage time. A reference type so it survives the
+/// composer view's frequent value-type re-creation (held as `@State`); reads in
+/// the view body are cheap dictionary lookups, never a full-`Data` decode.
+@MainActor
+final class AttachmentThumbnailCache {
+    private var images: [UUID: UIImage] = [:]
+
+    func image(for id: UUID) -> UIImage? { images[id] }
+
+    func set(_ image: UIImage, for id: UUID) { images[id] = image }
+
+    func remove(_ id: UUID) { images[id] = nil }
+
+    /// Drop every cached thumbnail whose attachment is no longer staged.
+    func retain(ids: [UUID]) {
+        let keep = Set(ids)
+        images = images.filter { keep.contains($0.key) }
+    }
+}
+
+/// A removable thumbnail chip for one staged image attachment. Renders a
+/// pre-built, downsampled thumbnail (cached by the composer at stage time) so
+/// the view body never decodes the full encoded `Data` on a re-render.
 private struct AttachmentChip: View {
-    let attachment: MobilePendingAttachment
+    let thumbnail: UIImage?
     let onRemove: () -> Void
 
     private let side: CGFloat = 56
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            thumbnail
+            thumbnailView
                 .frame(width: side, height: side)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
@@ -373,9 +489,9 @@ private struct AttachmentChip: View {
     }
 
     @ViewBuilder
-    private var thumbnail: some View {
-        if let uiImage = UIImage(data: attachment.data) {
-            Image(uiImage: uiImage)
+    private var thumbnailView: some View {
+        if let thumbnail {
+            Image(uiImage: thumbnail)
                 .resizable()
                 .scaledToFill()
         } else {

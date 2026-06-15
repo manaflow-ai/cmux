@@ -2712,11 +2712,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - format: A lowercase format hint (`"png"`/`"jpg"`).
     ///   - terminalID: The terminal to stage under; `nil` falls back to the
     ///     selected terminal.
-    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) {
-        guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return }
-        pendingAttachmentsByTerminalID[key, default: []].append(
-            MobilePendingAttachment(data: data, format: format)
-        )
+    /// - Returns: The new attachment's stable id, so the caller can key a side
+    ///   cache (e.g. a downsampled thumbnail) to it; `nil` when nothing was
+    ///   staged (empty bytes or no target terminal).
+    @discardableResult
+    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
+        guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+        let attachment = MobilePendingAttachment(data: data, format: format)
+        pendingAttachmentsByTerminalID[key, default: []].append(attachment)
+        return attachment.id
     }
 
     /// Remove one staged attachment by id. A no-op when the id is not staged.
@@ -2764,23 +2768,51 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `terminal.paste` and answers `method_not_found`), the composed text is
     /// kept so the user can retry instead of silently losing the message.
     public func submitComposerInput() async {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else { return }
+        await submitComposerInput(workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Submit the composer's text to an explicitly captured terminal. Used by
+    /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
+    /// to whatever is selected when the (awaited) image sends return: the target
+    /// is captured once up front and threaded through here, while the draft
+    /// reconciliation still keys on that captured terminal (not the live
+    /// selection).
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste (or the text was
+    ///   empty, i.e. nothing to send), `false` when the send failed so the caller
+    ///   keeps the text for a retry.
+    @discardableResult
+    func submitComposerInput(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
         let text = terminalInputText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard remoteClient != nil else { return }
+        // Empty text is "nothing to send", which is a success from the caller's
+        // point of view (an images-only send has no text to keep on failure).
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        guard remoteClient != nil else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
-        guard !isSubmittingComposerInput else { return }
+        guard !isSubmittingComposerInput else { return false }
         isSubmittingComposerInput = true
         defer { isSubmittingComposerInput = false }
-        // Capture which terminal this text is for: if the user switches terminals
-        // while the ack is in flight, the switch persists the outgoing text as the
-        // SUBMITTED terminal's draft, and the sent text must be cleared from that
-        // key, not from whatever terminal is selected when the ack returns.
-        let submittedTerminalID = selectedTerminalID
-        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
-        guard sent else { return }
-        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+        let sent = await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+        guard sent else { return false }
+        // Reconcile against the CAPTURED terminal, not the live selection: if the
+        // user switched terminals while the ack was in flight, the switch persists
+        // the outgoing text as the captured terminal's draft, and the sent text
+        // must be cleared from that key, not from whatever terminal is selected
+        // when the ack returns.
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
+        return true
     }
 
     /// Send the composer's staged attachments then its text, iMessage-style: the
@@ -2790,23 +2822,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// sent.
     ///
     /// Allowed with empty text as long as at least one attachment is staged; an
-    /// images-only send skips the (no-op) text submit. Captures the submitted
-    /// terminal up front so a mid-flight terminal switch clears the right key.
+    /// images-only send skips the (no-op) text submit.
+    ///
+    /// Captures the target workspace + terminal ONCE up front and threads them
+    /// through both the image sends and the text send, so a terminal switch while
+    /// an (awaited) image send is in flight cannot reroute later images or the
+    /// text to whatever is selected at that moment. Attachments are removed from
+    /// the staged set one at a time, only after each send is acknowledged: a
+    /// failed image send stops the run and keeps the remaining (and failed)
+    /// attachments staged AND keeps the text unsent, so the user can retry
+    /// instead of silently losing photos (matching the text-keep-on-failure
+    /// semantics of ``submitComposerInput()``).
     public func submitComposer() async {
-        let submittedTerminalID = selectedTerminalID
-        let attachments = pendingAttachments(forTerminalID: submittedTerminalID?.rawValue)
+        guard let workspaceID = selectedWorkspace?.id,
+              let submittedTerminalID = selectedTerminalID else {
+            // No target: fall back to the text-only path, which is itself a no-op
+            // without a selected terminal.
+            await submitComposerInput()
+            return
+        }
+        let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
         // Deliver each image first and await it, so the agent's terminal has the
-        // file paths before the text arrives.
+        // file paths before the text arrives. Remove each only after its send is
+        // acknowledged; on failure stop and keep the rest (and the text) staged.
         for attachment in attachments {
-            await submitTerminalPasteImage(attachment.data, format: attachment.format)
+            let sent = await submitTerminalPasteImage(
+                attachment.data,
+                format: attachment.format,
+                workspaceID: workspaceID,
+                terminalID: submittedTerminalID
+            )
+            guard sent else { return }
+            removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
         }
-        // Clear what we sent (only this terminal's staged set) before the text
-        // submit so the chip row empties immediately.
-        if !attachments.isEmpty {
-            clearPendingAttachments(forTerminalID: submittedTerminalID?.rawValue)
-        }
-        // Submit the text (a no-op when empty, e.g. an images-only send).
-        await submitComposerInput()
+        // Submit the text to the captured terminal (a no-op when empty, e.g. an
+        // images-only send). All images acked by here, so the text follows.
+        await submitComposerInput(workspaceID: workspaceID, terminalID: submittedTerminalID)
     }
 
     /// Clear the sent text from wherever it now lives after a successful
@@ -3896,14 +3947,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - data: The encoded image bytes (PNG/JPEG/…).
     ///   - format: A lowercase file-extension hint (e.g. `"png"`). The Mac
     ///     sanitizes it and defaults to `png` for anything unrecognized.
-    public func submitTerminalPasteImage(_ data: Data, format: String) async {
-        guard !data.isEmpty else { return }
+    /// - Returns: `true` when the Mac acknowledged the image, `false` on any
+    ///   failure (no selection, no client, a stale generation, or an RPC error).
+    @discardableResult
+    public func submitTerminalPasteImage(_ data: Data, format: String) async -> Bool {
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
-            return
+            return false
         }
-        guard remoteClient != nil else { return }
-        await sendRemoteTerminalPasteImage(
+        return await submitTerminalPasteImage(
             data,
             format: format,
             workspaceID: workspaceID,
@@ -3911,13 +3963,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Send an image to an explicitly captured terminal. Used by
+    /// ``submitComposer()`` so a mid-send terminal switch cannot reroute a later
+    /// image to whatever is selected when the prior image's ack returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the image, `false` on any
+    ///   failure, so the caller keeps the attachment staged for a retry.
+    @discardableResult
+    func submitTerminalPasteImage(
+        _ data: Data,
+        format: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !data.isEmpty else { return false }
+        guard remoteClient != nil else { return false }
+        return await sendRemoteTerminalPasteImage(
+            data,
+            format: format,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
+    /// - Returns: `true` when the Mac acknowledged the image paste, `false` on
+    ///   any failure (no client, a stale generation, or an RPC error such as an
+    ///   oversized payload or `method_not_found` from an older host). Callers use
+    ///   this to keep the staged attachment on failure instead of dropping it.
+    @discardableResult
     private func sendRemoteTerminalPasteImage(
         _ data: Data,
         format: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
-    ) async {
-        guard let client = remoteClient else { return }
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
         let generation = connectionGeneration
         do {
             #if DEBUG
@@ -3936,13 +4016,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            // The Mac acked the image: treat it as applied even if a reconnect
+            // superseded this client mid-flight (only the per-connection response
+            // bookkeeping is generation-guarded), so a retry does not re-send the
+            // same image.
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
+            return true
         } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
+            return false
         }
     }
 
