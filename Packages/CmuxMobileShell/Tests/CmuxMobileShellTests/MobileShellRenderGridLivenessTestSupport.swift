@@ -116,9 +116,29 @@ actor LivenessHostRouter {
         }
     }
 
+    private var holdWorkspaceList = false
+
+    /// Hold every `workspace.list` response until released, so a test can park a
+    /// connect inside its handshake (the connect awaits `workspace.list`).
+    func setHoldWorkspaceList(_ hold: Bool) {
+        holdWorkspaceList = hold
+        if !hold {
+            let continuations = heldContinuations
+            heldContinuations = []
+            for continuation in continuations { continuation.resume() }
+        }
+    }
+
+    func workspaceListRequestSeen() -> Bool {
+        count(of: "workspace.list") + count(of: "mobile.workspace.list") > 0
+    }
+
     func response(method: String?, id: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
+            if holdWorkspaceList {
+                await park()
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
@@ -163,6 +183,15 @@ actor LivenessHostRouter {
             ])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.attach_ticket.create":
+            // Model a host that does not advertise the mint RPC: the client must
+            // fall back to a synthetic manual ticket and still connect. Uses the
+            // recognized `method_not_found` code so the fallback triggers.
+            return try? Self.errorFrame(
+                id: id,
+                code: "method_not_found",
+                message: "Unknown method mobile.attach_ticket.create"
+            )
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
@@ -183,11 +212,13 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code { error["code"] = code }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
