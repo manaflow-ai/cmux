@@ -19,6 +19,10 @@ public enum SettingsControlError: Error, Sendable, Equatable {
     case importFailed(errors: [String])
     /// A backend read/write failed (I/O, permissions, corrupt config).
     case storage(String)
+    /// A `UserDefaults`-backed setting is also present in `cmux.json`, whose
+    /// managed value the app re-applies on reload — so a UserDefaults write would
+    /// be silently overridden. The user must change it in `cmux.json` instead.
+    case managedInJSON(key: String)
 
     /// The message the CLI prints to stderr.
     public var message: String {
@@ -38,6 +42,8 @@ public enum SettingsControlError: Error, Sendable, Equatable {
             return "import validation failed; no changes applied:\n\(detail)"
         case let .storage(detail):
             return detail
+        case let .managedInJSON(key):
+            return "'\(key)' is managed in ~/.config/cmux/cmux.json, which the app re-applies over UserDefaults on reload. Change it in cmux.json instead (it would otherwise be silently overridden)."
         }
     }
 }

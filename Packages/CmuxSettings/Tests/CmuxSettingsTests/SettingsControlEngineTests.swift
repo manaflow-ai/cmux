@@ -233,6 +233,25 @@ struct SettingsControlEngineTests {
 
     // MARK: - Reset / unset
 
+    @Test func rejectsWriteForSettingManagedInCmuxJson() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // app.appearance is UserDefaults-backed; if it is *also* in cmux.json the
+        // managed-config layer re-applies it on reload, so a UserDefaults write
+        // would be silently overridden — reject with a clear error instead.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"app":{"appearance":"dark"}}"#.write(to: configURL, atomically: true, encoding: .utf8)
+
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.set("app.appearance", rawValue: "light")
+        }
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.unset("app.appearance")
+        }
+        // A setting that is NOT in cmux.json still writes normally.
+        #expect(try await harness.engine.set("app.menuBarOnly", rawValue: "true").value == .bool(true))
+    }
+
     @Test func unsetRestoresDefault() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

@@ -112,7 +112,7 @@ cmux settings get automation.socketPassword             # -> <redacted>
 - Don't tell the user to restart cmux; writes apply live.
 - `import` is all-or-nothing: if any entry is invalid, nothing is applied and the offending entries are reported.
 - To revert, `cmux settings unset <key>` (one) or `cmux settings reset --all --yes` (everything).
-- **Managed `cmux.json` wins.** A setting written into `~/.config/cmux/cmux.json` is *managed*: cmux re-applies it on every reload, so it overrides the per-machine value `cmux settings set`/`unset` writes (this is the same precedence the GUI Settings window is subject to). If `cmux settings set <key>` does not stick, the key is managed in `cmux.json` — change it there with the fallback helper below.
+- **Managed `cmux.json` wins.** A setting written into `~/.config/cmux/cmux.json` is *managed*: cmux re-applies it on every reload, so it overrides the per-machine value `cmux settings set`/`unset` writes (the same precedence the GUI Settings window is subject to). Rather than let a write silently no-op, `cmux settings set`/`unset` **errors** for a key that is managed in `cmux.json` and tells you to change it there — use the fallback helper below (or edit `cmux.json` directly). Keyboard shortcuts are the exception: `shortcuts.bindings` in `cmux.json` is the highest-precedence runtime source, so `cmux settings shortcuts set` always takes effect.
 
 ## Fallback: editing `cmux.json` directly
 

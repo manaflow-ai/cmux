@@ -137,6 +137,14 @@ extension SettingsControlEngine {
         return action
     }
 
+    /// The user's shortcut overrides from `shortcuts.bindings` in `cmux.json`.
+    ///
+    /// This is the **highest-precedence** runtime shortcut source and the one the
+    /// in-app Settings UI recorder writes (the app's resolver checks it before
+    /// the legacy per-action `shortcut.<id>` UserDefaults override and the
+    /// built-in default), so a CLI write here always takes effect. The legacy
+    /// UserDefaults overrides are a pre-`cmux.json` migration artifact the GUI no
+    /// longer writes; they only surface for actions absent from `cmux.json`.
     func currentShortcutBindings() async -> [String: StoredShortcut] {
         await stores.json.value(for: catalog.shortcuts.bindings)
     }

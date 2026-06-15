@@ -94,9 +94,22 @@ public struct SettingsControlEngine: Sendable {
     @discardableResult
     public func set(_ id: String, rawValue: String) async throws -> SettingRow {
         let descriptor = try descriptor(for: id)
+        try await ensureNotManagedInJSON(descriptor)
         let candidate = try parseRawValue(rawValue, for: descriptor)
         try await descriptor.set(candidate, in: stores)
         return await row(for: descriptor)
+    }
+
+    /// Rejects a `UserDefaults`-backed write when the same id is present in
+    /// `cmux.json`: the managed-config layer re-applies the `cmux.json` value over
+    /// `UserDefaults` on reload, so a UserDefaults write would be a silent no-op.
+    /// The user must change it in `cmux.json` instead. No-op for JSON/secret keys
+    /// (which the CLI writes directly to their authoritative source).
+    private func ensureNotManagedInJSON(_ descriptor: CatalogSettingDescriptor) async throws {
+        guard descriptor.backend == .userDefaults else { return }
+        if await stores.json.hasRawValue(atDottedPath: descriptor.id) {
+            throw SettingsControlError.managedInJSON(key: descriptor.id)
+        }
     }
 
     /// Validates and writes a JSON-typed value (as opposed to a raw CLI string).
@@ -114,6 +127,7 @@ public struct SettingsControlEngine: Sendable {
     @discardableResult
     public func unset(_ id: String) async throws -> SettingRow {
         let descriptor = try descriptor(for: id)
+        try await ensureNotManagedInJSON(descriptor)
         try await descriptor.reset(in: stores)
         return await row(for: descriptor)
     }

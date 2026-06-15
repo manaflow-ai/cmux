@@ -107,6 +107,15 @@ public actor JSONConfigStore {
         key.path.lookup(in: loadedRoot()) != nil
     }
 
+    /// Whether the config file currently holds any value at an arbitrary dotted
+    /// path. Used by the settings control layer to detect a `UserDefaults`-backed
+    /// setting that is *also* present in `cmux.json` (where the managed-config
+    /// layer re-applies it over `UserDefaults` on reload), so a CLI write to
+    /// `UserDefaults` isn't silently overridden.
+    public func hasRawValue(atDottedPath dottedPath: String) -> Bool {
+        JSONPath(dottedPath: dottedPath).lookup(in: loadedRoot()) != nil
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.
