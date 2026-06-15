@@ -721,6 +721,70 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
     }
 
+    func testLoadHonorsPairedThemeAndTopLevelForegroundOverrideByColorScheme() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-theme-pair-foreground-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        let originalResourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        setenv("GHOSTTY_RESOURCES_DIR", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            if let originalResourcesDir {
+                setenv("GHOSTTY_RESOURCES_DIR", originalResourcesDir, 1)
+            } else {
+                unsetenv("GHOSTTY_RESOURCES_DIR")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        try """
+        background = #fffcf0
+        foreground = #100f0f
+        """.write(
+            to: themesDir.appendingPathComponent("Flexoki Light", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        background = #100f0f
+        foreground = #cecdc3
+        """.write(
+            to: themesDir.appendingPathComponent("Flexoki Dark", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        try """
+        window-theme = auto
+        theme = light:Flexoki Light,dark:Flexoki Dark
+        foreground = #ff0000
+        """.write(
+            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let lightConfig = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
+        let darkConfig = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(lightConfig.backgroundColor.hexString(), "#FFFCF0")
+        XCTAssertEqual(lightConfig.foregroundColor.hexString(), "#FF0000")
+        XCTAssertEqual(darkConfig.backgroundColor.hexString(), "#100F0F")
+        XCTAssertEqual(darkConfig.foregroundColor.hexString(), "#FF0000")
+    }
+
     func testParseBackgroundOpacityReadsConfigValue() {
         var config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
@@ -1203,8 +1267,8 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.removeObject(forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
     }
 
     func testClaudeCodeIntegrationRespectsStoredPreference() {
@@ -1217,11 +1281,11 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.set(true, forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
 
-        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        defaults.set(false, forKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).claudeCodeHooksEnabled)
     }
 
     func testKiroIntegrationDefaultsToEnabledWithStandardNotificationsWhenUnset() {
@@ -1234,10 +1298,10 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: KiroIntegrationSettings.hooksEnabledKey)
-        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertTrue(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
     func testKiroIntegrationRespectsStoredPreferenceAndNotificationLevel() {
@@ -1250,13 +1314,13 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(false, forKey: KiroIntegrationSettings.hooksEnabledKey)
-        defaults.set(KiroIntegrationSettings.NotificationLevel.verbose.rawValue, forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertFalse(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .verbose)
+        defaults.set(false, forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
+        defaults.set(KiroNotificationLevel.verbose.rawValue, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .verbose)
 
-        defaults.set("unsupported", forKey: KiroIntegrationSettings.notificationLevelKey)
-        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
+        defaults.set("unsupported", forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
     func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {
@@ -1269,8 +1333,8 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
     }
 
     func testSubagentNotificationSuppressionRespectsStoredPreference() {
@@ -1283,11 +1347,11 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
 
-        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
-        XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+        defaults.set(false, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
     }
 
     func testTelemetryDefaultsToEnabledWhenUnset() {
@@ -1300,8 +1364,9 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+        let telemetry = AppCatalogSection().sendAnonymousTelemetry
+        defaults.removeObject(forKey: telemetry.userDefaultsKey)
+        XCTAssertTrue(telemetry.value(in: defaults))
     }
 
     func testTelemetryRespectsStoredPreference() {
@@ -1314,11 +1379,12 @@ final class GhosttyConfigTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(true, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+        let telemetry = AppCatalogSection().sendAnonymousTelemetry
+        defaults.set(true, forKey: telemetry.userDefaultsKey)
+        XCTAssertTrue(telemetry.value(in: defaults))
 
-        defaults.set(false, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
-        XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: telemetry.userDefaultsKey)
+        XCTAssertFalse(telemetry.value(in: defaults))
     }
 
     private func rgb255(_ color: NSColor) -> RGB {

@@ -2,16 +2,26 @@ import CmuxFoundation
 import CoreGraphics
 import Foundation
 
-/// Pure planner for browser-stack sidebar drag/drop: resolves the target
-/// section + index for a workspace move, the preferred target section under an
-/// indicator, and the section-boundary indicator to render while dragging
-/// across sections.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum ExtensionSidebarBrowserStackDropPlanner {
-    public static func move(
+/// Pure planner for browser-stack sidebar drag/drop over an ordered set of rows.
+///
+/// Construct it with the rows currently displayed in the browser stack, then ask
+/// it to resolve the target section + index for a workspace move, the preferred
+/// target section under an indicator, or the section-boundary indicator to
+/// render while dragging across sections. Holds no mutable state.
+public struct ExtensionSidebarBrowserStackDropPlanner {
+    /// The browser-stack rows, in display order, the plan operates over.
+    public let orderedRows: [ExtensionSidebarBrowserStackDropRow]
+
+    /// Creates a planner over the given ordered browser-stack rows.
+    public init(orderedRows: [ExtensionSidebarBrowserStackDropRow]) {
+        self.orderedRows = orderedRows
+    }
+
+    /// Resolves the cross-section move for a dragged workspace dropped at
+    /// `insertionPosition`, optionally pinned to `preferredTargetSectionId`.
+    public func move(
         draggedWorkspaceId: UUID,
         insertionPosition: Int,
-        orderedRows: [ExtensionSidebarBrowserStackDropRow],
         preferredTargetSectionId: String? = nil
     ) -> CmuxSidebarProviderWorkspaceMove? {
         guard let sourceIndex = orderedRows.firstIndex(where: { $0.workspaceId == draggedWorkspaceId }) else {
@@ -50,10 +60,11 @@ public enum ExtensionSidebarBrowserStackDropPlanner {
         )
     }
 
-    public static func preferredSectionId(
+    /// The section a drop on `targetWorkspaceId` should land in, given the
+    /// current drop `indicator`.
+    public func preferredSectionId(
         targetWorkspaceId: UUID,
-        indicator: SidebarDropIndicator?,
-        orderedRows: [ExtensionSidebarBrowserStackDropRow]
+        indicator: SidebarDropIndicator?
     ) -> String? {
         guard let targetIndex = orderedRows.firstIndex(where: { $0.workspaceId == targetWorkspaceId }) else {
             return nil
@@ -73,12 +84,13 @@ public enum ExtensionSidebarBrowserStackDropPlanner {
         return orderedRows[indicatorIndex].sectionId
     }
 
-    public static func sectionBoundaryIndicator(
+    /// The boundary indicator to render when dragging across a section edge, or
+    /// `nil` when the drag is within a single section.
+    public func sectionBoundaryIndicator(
         draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID,
         pointerY: CGFloat?,
-        targetHeight: CGFloat?,
-        orderedRows: [ExtensionSidebarBrowserStackDropRow]
+        targetHeight: CGFloat?
     ) -> SidebarDropIndicator? {
         guard let draggedWorkspaceId,
               let sourceIndex = orderedRows.firstIndex(where: { $0.workspaceId == draggedWorkspaceId }),
@@ -88,7 +100,7 @@ public enum ExtensionSidebarBrowserStackDropPlanner {
         }
         let edge: SidebarDropEdge
         if let pointerY, let targetHeight {
-            edge = SidebarDropPlanner.edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+            edge = SidebarDropPlanner().edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
         } else {
             edge = sourceIndex < targetIndex ? .top : .bottom
         }

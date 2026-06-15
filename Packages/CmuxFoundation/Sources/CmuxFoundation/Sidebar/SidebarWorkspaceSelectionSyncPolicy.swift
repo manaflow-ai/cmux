@@ -3,11 +3,12 @@ public import Foundation
 /// Pure policy reconciling the sidebar's multi-workspace selection against the
 /// live workspace list, and computing shift-click anchor indices. Operates only
 /// on workspace UUIDs and indices; holds no state and touches no UI.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarWorkspaceSelectionSyncPolicy {
+public struct SidebarWorkspaceSelectionSyncPolicy {
+    public init() {}
+
     /// Filters a previous selection down to workspaces that still exist, falling
     /// back to the provided selected workspace when nothing survives.
-    public static func reconciledSelection(
+    public func reconciledSelection(
         previousSelectionIds: Set<UUID>,
         liveWorkspaceIds: [UUID],
         fallbackSelectedWorkspaceId: UUID?
@@ -24,7 +25,7 @@ public enum SidebarWorkspaceSelectionSyncPolicy {
     }
 
     /// Index of the preferred (or first selected) workspace in the live list.
-    public static func anchorIndex(
+    public func anchorIndex(
         preferredWorkspaceId: UUID?,
         selectedWorkspaceIds: Set<UUID>,
         liveWorkspaceIds: [UUID]
@@ -38,7 +39,7 @@ public enum SidebarWorkspaceSelectionSyncPolicy {
     }
 
     /// Workspace id at an existing anchor index, if the index is still valid.
-    public static func anchorWorkspaceId(
+    public func anchorWorkspaceId(
         existingAnchorIndex: Int?,
         liveWorkspaceIds: [UUID]
     ) -> UUID? {
@@ -51,7 +52,7 @@ public enum SidebarWorkspaceSelectionSyncPolicy {
 
     /// Anchor index to use for a shift-click range, deriving one from the
     /// current selection or focus when no anchor exists yet.
-    public static func shiftClickAnchorIndex(
+    public func shiftClickAnchorIndex(
         existingAnchorIndex: Int?,
         selectedWorkspaceIds: Set<UUID>,
         focusedWorkspaceId: UUID?,
@@ -73,7 +74,7 @@ public enum SidebarWorkspaceSelectionSyncPolicy {
     }
 
     /// Resulting anchor index after a workspace click (shift vs plain).
-    public static func anchorIndexAfterWorkspaceClick(
+    public func anchorIndexAfterWorkspaceClick(
         isShiftClick: Bool,
         resolvedShiftAnchorIndex: Int?,
         clickedIndex: Int
@@ -82,7 +83,7 @@ public enum SidebarWorkspaceSelectionSyncPolicy {
     }
 
     /// Anchor index to preserve after the workspace list is reordered.
-    public static func anchorIndexAfterWorkspaceReorder(
+    public func anchorIndexAfterWorkspaceReorder(
         preferredAnchorWorkspaceId: UUID?,
         selectedWorkspaceIds: Set<UUID>,
         focusedWorkspaceId: UUID?,

@@ -104,7 +104,7 @@ public final class SidebarDragAutoScrollController: ObservableObject {
         guard viewportHeight > 0 else { return nil }
 
         let distances = distancesToEdges(mousePoint: mousePoint, viewportHeight: viewportHeight, isFlipped: clipView.isFlipped)
-        return SidebarDragAutoScrollPlanner.plan(distanceToTop: distances.top, distanceToBottom: distances.bottom)
+        return SidebarDragAutoScrollPlanner(distanceToTop: distances.top, distanceToBottom: distances.bottom).plan
     }
 
     private func mousePoint(in clipView: NSClipView) -> CGPoint {
