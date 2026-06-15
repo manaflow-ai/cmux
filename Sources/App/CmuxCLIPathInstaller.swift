@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct CmuxCLIPathInstaller {
@@ -294,7 +295,7 @@ struct CmuxCLIPathInstaller {
     ) {
         group.enter()
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 buffer.append(data)
             case .wouldBlock:

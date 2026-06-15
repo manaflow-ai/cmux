@@ -30,7 +30,7 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
-    @State private var isShowingAddDeviceSheet = true
+    @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -72,6 +72,9 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         rootContent
+        .sheet(isPresented: addDeviceSheetBinding) {
+            pairingSheet
+        }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -127,17 +130,15 @@ struct CMUXMobileRootView: View {
             guard isAuthenticated else {
                 return
             }
-            if let rawURL = pendingAttachURL {
-                pendingAttachURL = nil
-                Task {
-                    await store.connectPairingURL(rawURL)
-                }
+            if consumePendingURLIfReady() {
                 return
             }
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+            guard !isRestoringSession else { return }
+            _ = consumePendingURLIfReady()
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -186,31 +187,54 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            .sheet(isPresented: $isShowingAddDeviceSheet) {
-                PairingView(
-                    pairingCode: $store.pairingCode,
-                    connectionError: store.connectionError,
-                    connectionErrorGuidance: store.connectionErrorGuidance,
-                    connectPairingCode: {
-                        await store.connectPairingInput()
-                    },
-                    connectManualHost: { name, host, port in
-                        await store.connectManualHost(name: name, host: host, port: port)
-                    },
-                    cancelPairing: store.cancelPairing,
-                    cancel: { isShowingAddDeviceSheet = false }
-                )
-                #if os(iOS)
-                .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
-                .presentationDragIndicator(.visible)
-                #endif
-            }
             .onAppear {
                 showAddDevice()
             }
         } else {
             WorkspaceShellView(store: store, signOut: signOut)
         }
+    }
+
+    private var addDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { isShowingAddDeviceSheet },
+            set: { isPresented in
+                if isPresented {
+                    showAddDevice()
+                } else {
+                    dismissAddDeviceSheet()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var pairingSheet: some View {
+        PairingView(
+            pairingCode: $store.pairingCode,
+            connectionError: store.connectionError,
+            connectionErrorGuidance: store.connectionErrorGuidance,
+            versionWarning: store.pairingVersionWarning,
+            connectPairingCode: {
+                await store.connectPairingInput()
+            },
+            acceptVersionWarning: {
+                let result = await store.acceptPairingVersionWarning()
+                clearAttachTicketAuthentication(after: result)
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            },
+            connectManualHost: { name, host, port in
+                await store.connectManualHost(name: name, host: host, port: port)
+            },
+            cancelPairing: cancelPairing,
+            cancel: dismissAddDeviceSheet
+        )
+        #if os(iOS)
+        .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
@@ -330,18 +354,65 @@ struct CMUXMobileRootView: View {
     }
 
     private func connectAttachURL(_ rawURL: String) {
+        guard !authManager.isRestoringSession else {
+            pendingAttachURL = rawURL
+            return
+        }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
-            guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-                pairingResult: result,
-                connectionState: store.connectionState,
-                hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
-            ) else { return }
-            didAuthenticateWithAttachTicket = false
-            syncShellAuthentication(authManager.isAuthenticated)
+            if result == .needsUserApproval {
+                isShowingAddDeviceSheet = true
+            }
+            clearAttachTicketAuthentication(after: result)
         }
+    }
+
+    @discardableResult
+    private func consumePendingURLIfReady() -> Bool {
+        guard let rawURL = pendingAttachURL else { return false }
+        if isRawAttachURL(rawURL) {
+            guard !authManager.isRestoringSession else { return false }
+            pendingAttachURL = nil
+            connectAttachURL(rawURL)
+            return true
+        }
+        guard isAuthenticated else { return false }
+        pendingAttachURL = nil
+        Task {
+            await store.connectPairingURL(rawURL)
+        }
+        return true
+    }
+
+    private func isRawAttachURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL) else { return false }
+        return MobileRootAuthGate.isAttachURL(url)
+    }
+
+    private func cancelPairing() {
+        store.cancelPairing()
+        clearAttachTicketAuthenticationIfNeeded()
+    }
+
+    private func dismissAddDeviceSheet() {
+        isShowingAddDeviceSheet = false
+        if store.pairingVersionWarning != nil {
+            cancelPairing()
+        } else {
+            clearAttachTicketAuthenticationIfNeeded()
+        }
+    }
+
+    private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
+        guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: result,
+            connectionState: store.connectionState,
+            hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
+        ) else { return }
+        didAuthenticateWithAttachTicket = false
+        syncShellAuthentication(authManager.isAuthenticated)
     }
 
     private func clearAttachTicketAuthenticationIfNeeded() {
@@ -355,15 +426,26 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         #if os(iOS)
+        // The hook receives the tokens captured before the local-first clear:
+        // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.unregisterFromServer() }
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
+            await pushCoordinator.unregisterFromServer(
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
         #else
-        let onSignedOut: @Sendable () async -> Void = {}
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { _, _ in }
         #endif
         Task {
-            await authManager.signOut(onSignedOut: onSignedOut)
+            // Local shell teardown first so the whole UI lands signed out
+            // immediately; authManager.signOut clears the local session up
+            // front and only then runs its bounded best-effort server teardown
+            // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
             store.signOut()
+            await authManager.signOut(onSignedOut: onSignedOut)
         }
     }
 

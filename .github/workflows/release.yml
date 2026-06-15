@@ -54,7 +54,9 @@ jobs:
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
-    timeout-minutes: 20
+    # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
+    # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

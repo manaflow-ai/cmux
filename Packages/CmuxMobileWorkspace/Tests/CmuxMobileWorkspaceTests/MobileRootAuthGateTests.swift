@@ -58,6 +58,11 @@ import Testing
             hasActiveUnexpiredTicket: false
         ))
         #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: .needsUserApproval,
+            connectionState: .disconnected,
+            hasActiveUnexpiredTicket: false
+        ))
+        #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: .superseded,
             connectionState: .connected,
             hasActiveUnexpiredTicket: true

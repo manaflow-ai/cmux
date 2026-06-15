@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileOpen
 import SwiftUI
 
 struct ConfigSettingsView: View {
@@ -246,7 +247,7 @@ struct ConfigSettingsView: View {
 
     private func openCurrentSourceInEditor() {
         guard let url = materializedCmuxConfigURL() else { return }
-        PreferredEditorSettings.open(url)
+        PreferredEditorService(defaults: .standard).open(url)
     }
 
     private func revealCurrentSourceInFinder() {

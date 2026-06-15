@@ -23,10 +23,27 @@ import UserNotifications
 public final class MobilePushCoordinator {
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
+    /// The system-notification surface used by the cold dismiss lane. Owned here
+    /// (not via the store) because a silent dismiss push can wake the app in the
+    /// background before any scene — and therefore any store — exists.
+    private let deliveredNotificationClearer: any DeliveredNotificationClearing
+    /// Durable phone→Mac dismiss outbox for swipes that arrive before any shell
+    /// store exists (a background launch from Notification Center). Backed by
+    /// the same `UserDefaults` key the store's own queue uses, so the store's
+    /// flush-on-subscribe delivers these too.
+    @ObservationIgnored private let pendingDismissQueue: PendingNotificationDismissQueue
     // UserDefaults is Apple-documented thread-safe; a synchronous read mirrors
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
+
+    /// APNs `aps.category` the web sets on every cmux terminal push (see
+    /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
+    /// ``UNNotificationCategory`` registered below carries
+    /// `.customDismissAction`, so a swipe/clear delivers
+    /// `UNNotificationDismissActionIdentifier` to the app and we can forward the
+    /// dismiss to the Mac. Keep these two ids in sync.
+    public static let dismissSyncCategoryIdentifier = "cmux.terminal"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
@@ -56,17 +73,27 @@ public final class MobilePushCoordinator {
     ///     ``NoopAnalytics`` for previews/tests.
     ///   - defaults: The store backing the opt-in flag (must match the suite the
     ///     registration service uses). Defaults to `.standard`.
+    ///   - deliveredNotificationClearer: The system-notification seam used to
+    ///     remove banners for a background dismiss push. Defaults to the real
+    ///     `UNUserNotificationCenter`-backed conformance.
+    ///   - pendingDismissQueue: The durable phone→Mac dismiss outbox shared (via
+    ///     `UserDefaults`) with the shell store, used when a swipe arrives before
+    ///     any store exists. Defaults to the standard-defaults-backed queue.
     ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
     ///     `Date.init`.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         defaults: UserDefaults = .standard,
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
+        pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         now: @escaping () -> Date = Date.init
     ) {
         self.registration = registration
         self.analytics = analytics
         self.defaults = defaults
+        self.deliveredNotificationClearer = deliveredNotificationClearer
+        self.pendingDismissQueue = pendingDismissQueue
         self.now = now
     }
 
@@ -86,11 +113,23 @@ public final class MobilePushCoordinator {
         applyPendingDeeplinkIfReady()
     }
 
-    /// Install the notification-center delegate and, if already opted in,
-    /// re-assert remote registration so a rotated token re-uploads. Call once at
-    /// launch from the AppDelegate.
+    /// Install the notification-center delegate, register the dismiss-sync
+    /// notification category, and, if already opted in, re-assert remote
+    /// registration so a rotated token re-uploads. Call once at launch from the
+    /// AppDelegate.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
-        UNUserNotificationCenter.current().delegate = delegate
+        let center = UNUserNotificationCenter.current()
+        center.delegate = delegate
+        // The category must carry `.customDismissAction` so a swipe/clear of a
+        // cmux banner delivers `UNNotificationDismissActionIdentifier` to the
+        // delegate; that is what lets us tell the Mac the user dismissed it.
+        let dismissSyncCategory = UNNotificationCategory(
+            identifier: Self.dismissSyncCategoryIdentifier,
+            actions: [],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        center.setNotificationCategories([dismissSyncCategory])
         if isEnabled {
             UIApplication.shared.registerForRemoteNotifications()
         }
@@ -142,9 +181,11 @@ public final class MobilePushCoordinator {
         await registration.syncTokenIfPossible()
     }
 
-    /// Remove the cached token from the server (on sign-out).
-    public func unregisterFromServer() async {
-        await registration.unregisterFromServer()
+    /// Remove the cached token from the server (on sign-out), authenticating
+    /// with the credentials captured before the local-first sign-out cleared
+    /// the live token store.
+    public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
+        await registration.unregisterFromServer(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the
@@ -228,6 +269,44 @@ public final class MobilePushCoordinator {
             "resolved_workspace": .bool(pending.workspaceId != nil),
             "resolved_surface": .bool(pending.surfaceId != nil),
         ])
+    }
+
+    /// Forward a phone-side notification dismissal to the paired Mac so it marks
+    /// the notification read and clears its own banner. Fire-and-forget over the
+    /// attach channel; carries only the opaque notification id, never content.
+    ///
+    /// Durable: a swipe can background-launch the app from Notification Center
+    /// before any scene — and therefore any store — exists. In that case the id
+    /// is parked in ``PendingNotificationDismissQueue`` and the store flushes it
+    /// on its next successful (re)subscribe. With a store, the store's own
+    /// enqueue-first send provides the same guarantee for a down channel.
+    /// - Parameter notificationId: The stable id of the dismissed notification.
+    ///   For a remote push this is `request.identifier` (the `apns-collapse-id`),
+    ///   with `cmux.notificationId` as a fallback.
+    public func handleDismiss(notificationId: String?) async {
+        guard let notificationId else { return }
+        let trimmed = notificationId.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        guard let store else {
+            pendingDismissQueue.enqueue([trimmed])
+            return
+        }
+        await store.dismissNotification(ids: [trimmed])
+    }
+
+    /// Handle a silent Mac→iOS dismiss push (the cold lane, fanned out to every
+    /// registered device after a Mac-side clear). Removes the matching
+    /// delivered banners directly through the system-notification seam — the
+    /// store may not exist yet on a background wake — while the badge was
+    /// already applied by the system from the push's `aps.badge`.
+    /// - Parameter ids: The dismissed stable notification ids from
+    ///   `cmux.dismissedIds`.
+    public func handleRemoteDismiss(ids: [String]) async {
+        let trimmed = ids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmed.isEmpty else { return }
+        await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 }
 #endif
