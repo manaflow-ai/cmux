@@ -19578,8 +19578,13 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = claudeExecutablePath
+        let launchPath = bundledClaudeWrapperExecutablePath() ?? claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        if launchPath != claudeExecutablePath {
+            setenv("CMUX_CUSTOM_CLAUDE_PATH", claudeExecutablePath, 1)
+            setenv("CMUX_CLAUDE_WRAPPER_SKIP_NODE_OPTIONS", "1", 1)
+            setenv("CMUX_CLAUDE_WRAPPER_ASSUME_SOCKET_AVAILABLE", "1", 1)
+        }
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
             executablePath: executablePath,

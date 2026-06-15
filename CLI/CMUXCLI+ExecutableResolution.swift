@@ -219,6 +219,19 @@ extension CMUXCLI {
         return directory
     }
 
+    func bundledClaudeWrapperExecutablePath() -> String? {
+        guard let directory = bundledProviderBinDirectory() else {
+            return nil
+        }
+        let wrapperPath = URL(fileURLWithPath: directory, isDirectory: true)
+            .appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+            .path
+        guard FileManager.default.isExecutableFile(atPath: wrapperPath) else {
+            return nil
+        }
+        return wrapperPath
+    }
+
     private func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {
         cmuxAppBundleResourceBinComponentIndex(path).map { index in
             URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 4
