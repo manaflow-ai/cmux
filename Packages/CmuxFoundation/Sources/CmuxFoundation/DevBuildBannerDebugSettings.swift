@@ -1,19 +1,24 @@
 public import Foundation
 
 /// Controls visibility of the DEBUG dev-build banner in the sidebar footer.
-/// Pure value namespace reading from an injected `UserDefaults`.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum DevBuildBannerDebugSettings {
+/// Reads from an injected `UserDefaults`.
+public struct DevBuildBannerDebugSettings {
     /// Defaults key backing sidebar dev-build banner visibility.
     public static let sidebarBannerVisibleKey = "showSidebarDevBuildBanner"
     /// Default when the user has not stored a preference.
     public static let defaultShowSidebarBanner = true
 
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     /// Whether the sidebar dev-build banner should be shown.
-    public static func showSidebarBanner(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: sidebarBannerVisibleKey) != nil else {
-            return defaultShowSidebarBanner
+    public var showSidebarBanner: Bool {
+        guard defaults.object(forKey: Self.sidebarBannerVisibleKey) != nil else {
+            return Self.defaultShowSidebarBanner
         }
-        return defaults.bool(forKey: sidebarBannerVisibleKey)
+        return defaults.bool(forKey: Self.sidebarBannerVisibleKey)
     }
 }

@@ -8,8 +8,7 @@ public import Foundation
 /// that ``GhosttyConfig`` and the settings UI share. Stateless config-body
 /// transforms over `String`/`URL` with no single natural receiver; modernization
 /// into an instantiated editor is deferred to the engine lift.
-// lint:allow namespace-type — see TRANSITIONAL note above.
-public enum CmuxGhosttyConfigSettingEditor {
+public struct CmuxGhosttyConfigSettingEditor {
     /// The config key for the sidebar font size.
     public static let sidebarFontSizeKey = "sidebar-font-size"
     /// The default sidebar font size in points.
@@ -28,44 +27,46 @@ public enum CmuxGhosttyConfigSettingEditor {
     /// The largest surface-tab-bar font size cmux allows.
     public static let maxSurfaceTabBarFontSize = 14.0
 
+    public init() {}
+
     /// Clamps a sidebar font size to its allowed range, substituting the default
     /// for non-finite input.
-    public static func clampedSidebarFontSize(_ value: Double) -> Double {
-        guard value.isFinite else { return defaultSidebarFontSize }
-        return min(max(value, minSidebarFontSize), maxSidebarFontSize)
+    public func clampedSidebarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return Self.defaultSidebarFontSize }
+        return min(max(value, Self.minSidebarFontSize), Self.maxSidebarFontSize)
     }
 
     /// The clamped sidebar font size formatted for display.
-    public static func formattedSidebarFontSize(_ value: Double) -> String {
+    public func formattedSidebarFontSize(_ value: Double) -> String {
         formattedFontSize(clampedSidebarFontSize(value))
     }
 
     /// The clamped sidebar font size parsed from a Ghostty config body, or `nil`
     /// when absent.
-    public static func parsedSidebarFontSize(in contents: String) -> Double? {
-        parsedFontSize(in: contents, key: sidebarFontSizeKey, clamp: clampedSidebarFontSize)
+    public func parsedSidebarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: Self.sidebarFontSizeKey, clamp: clampedSidebarFontSize)
     }
 
     /// Clamps a surface-tab-bar font size to its allowed range, substituting the
     /// default for non-finite input.
-    public static func clampedSurfaceTabBarFontSize(_ value: Double) -> Double {
-        guard value.isFinite else { return defaultSurfaceTabBarFontSize }
-        return min(max(value, minSurfaceTabBarFontSize), maxSurfaceTabBarFontSize)
+    public func clampedSurfaceTabBarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return Self.defaultSurfaceTabBarFontSize }
+        return min(max(value, Self.minSurfaceTabBarFontSize), Self.maxSurfaceTabBarFontSize)
     }
 
     /// The clamped surface-tab-bar font size formatted for display.
-    public static func formattedSurfaceTabBarFontSize(_ value: Double) -> String {
+    public func formattedSurfaceTabBarFontSize(_ value: Double) -> String {
         formattedFontSize(clampedSurfaceTabBarFontSize(value))
     }
 
     /// The clamped surface-tab-bar font size parsed from a Ghostty config body,
     /// or `nil` when absent.
-    public static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
-        parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    public func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: Self.surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).
-    public static func formattedFontSize(_ value: Double) -> String {
+    public func formattedFontSize(_ value: Double) -> String {
         let scaled = Int((value * 100).rounded())
         let whole = scaled / 100
         let fraction = abs(scaled % 100)
@@ -79,7 +80,7 @@ public enum CmuxGhosttyConfigSettingEditor {
     }
 
     /// Reads the last occurrence of `key` from a Ghostty config body and clamps it to the setting's range.
-    private static func parsedFontSize(
+    private func parsedFontSize(
         in contents: String,
         key: String,
         clamp: (Double) -> Double
@@ -95,7 +96,7 @@ public enum CmuxGhosttyConfigSettingEditor {
     }
 
     /// The last value assigned to `key` in a Ghostty config body, or `nil`.
-    public static func parsedValue(for key: String, in contents: String) -> String? {
+    public func parsedValue(for key: String, in contents: String) -> String? {
         var latestValue: String?
         for line in contents.components(separatedBy: .newlines) {
             guard let setting = parsedSetting(in: line), setting.key == key else {
@@ -108,7 +109,7 @@ public enum CmuxGhosttyConfigSettingEditor {
 
     /// Returns `contents` with every assignment to `key` replaced by `value`,
     /// appending a new assignment when the key is absent.
-    public static func updatedContents(_ contents: String, setting key: String, value: String) -> String {
+    public func updatedContents(_ contents: String, setting key: String, value: String) -> String {
         var lines = contents.components(separatedBy: "\n")
         if contents.hasSuffix("\n") {
             lines.removeLast()
@@ -134,7 +135,7 @@ public enum CmuxGhosttyConfigSettingEditor {
 
     /// Writes `value` for `key` to the config at `url`, following symlinks and
     /// creating intermediate directories as needed.
-    public static func writeSetting(
+    public func writeSetting(
         key: String,
         value: String,
         to url: URL,
@@ -153,7 +154,7 @@ public enum CmuxGhosttyConfigSettingEditor {
         try updated.write(to: writeURL, atomically: true, encoding: .utf8)
     }
 
-    private static func parsedSetting(in line: String) -> (key: String, value: String)? {
+    private func parsedSetting(in line: String) -> (key: String, value: String)? {
         var trimmed = line.trimmingCharacters(in: .whitespaces)
         // Strip a leading UTF-8 BOM so a BOM-encoded first line still matches its
         // key (otherwise the setting reads as absent and a duplicate is appended).
@@ -171,7 +172,7 @@ public enum CmuxGhosttyConfigSettingEditor {
         return (key, value)
     }
 
-    private static func configWriteURL(for url: URL, fileManager: FileManager) -> URL {
+    private func configWriteURL(for url: URL, fileManager: FileManager) -> URL {
         guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
             return url
         }

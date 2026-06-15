@@ -4020,7 +4020,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
         let fourth = UUID()
         let previousSelection: Set<UUID> = [second, third]
 
-        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let result = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
             previousSelectionIds: previousSelection,
             liveWorkspaceIds: [first, third, fourth, second],
             fallbackSelectedWorkspaceId: second
@@ -4028,7 +4028,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
 
         XCTAssertEqual(result, previousSelection)
         XCTAssertEqual(
-            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+            SidebarWorkspaceSelectionSyncPolicy().anchorIndex(
                 preferredWorkspaceId: second,
                 selectedWorkspaceIds: result,
                 liveWorkspaceIds: [first, third, fourth, second]
@@ -4043,7 +4043,7 @@ final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
         let second = UUID()
         let removed = UUID()
 
-        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let result = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
             previousSelectionIds: [removed],
             liveWorkspaceIds: [first, second],
             fallbackSelectedWorkspaceId: second
@@ -7104,14 +7104,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b])
     }
@@ -7122,14 +7122,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b, c],
             selected: c,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c, a])
     }
@@ -7138,14 +7138,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let a = UUID()
         let b = UUID()
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [b, a],
             selected: nil,
             pinnedIds: [],
             orderedTabIds: [a],
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [a])
     }
@@ -7155,14 +7155,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b, a])
     }
@@ -7172,14 +7172,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b],
             selected: nil,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 0
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [a])
     }
@@ -7191,14 +7191,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let d = UUID()
         let orderedTabIds: [UUID] = [a, b, c, d]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: c,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c])
     }
@@ -7209,14 +7209,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a, b, c],
             selected: b,
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b])
     }
@@ -7227,14 +7227,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let c = UUID()
         let orderedTabIds: [UUID] = [a, b, c]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: c,
             pinnedIds: [a],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
             maxMounted: 2
-        )
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [c, a])
     }
@@ -7244,14 +7244,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
 
-        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+        let next = WorkspaceMountPlan(
             current: [a],
             selected: b,
             pinnedIds: [a],
             orderedTabIds: orderedTabIds,
             isCycleHot: true,
-            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
-        )
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+        ).mountedWorkspaceIds
 
         XCTAssertEqual(next, [b, a])
     }
@@ -7262,35 +7262,35 @@ final class WorkspaceMountPolicyTests: XCTestCase {
 final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        SidebarWorkspaceShortcutHintMetrics().resetCacheForTesting()
     }
 
     override func tearDown() {
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        SidebarWorkspaceShortcutHintMetrics().resetCacheForTesting()
         super.tearDown()
     }
 
     func testHintWidthCachesRepeatedMeasurements() {
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 0)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 0)
 
-        let first = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        let first = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘1")
         XCTAssertGreaterThan(first, 0)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 1)
 
-        let second = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        let second = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘1")
         XCTAssertEqual(second, first)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 1)
 
-        _ = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘2")
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 2)
+        _ = SidebarWorkspaceShortcutHintMetrics().hintWidth(for: "⌘2")
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics().measurementCountForTesting(), 2)
     }
 
     func testSlotWidthAppliesMinimumAndDebugInset() {
-        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: nil, debugXOffset: 999)
+        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: nil, debugXOffset: 999)
         XCTAssertEqual(nilLabelWidth, 28)
 
-        let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
-        let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
+        let base = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: "⌘1", debugXOffset: 0)
+        let widened = SidebarWorkspaceShortcutHintMetrics().slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
     }
 }
