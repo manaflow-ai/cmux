@@ -184,7 +184,7 @@ struct WorkspaceCoordinatorTests {
     // MARK: Groups
 
     @Test
-    func createWorkspaceGroupAdoptsChildrenAndKeepsSectionContiguous() {
+    func createWorkspaceGroupAdoptsChildrenAndKeepsSectionContiguous() throws {
         let (model, host, groups, _) = makeWorld()
         let child1 = CoordinatorStubTab()
         let other = CoordinatorStubTab()
@@ -196,7 +196,7 @@ struct WorkspaceCoordinatorTests {
             childWorkspaceIds: [child1.id, child2.id]
         )
 
-        let group = try! #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
         #expect(group.name == "Group 1")
         let anchorId = group.anchorWorkspaceId
         #expect(anchorId == child1.id)
@@ -223,12 +223,12 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() {
+    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
@@ -243,12 +243,12 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func ungroupKeepsMemberPositionsAndDropsMembership() {
+    func ungroupKeepsMemberPositionsAndDropsMembership() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
         let orderBefore = model.tabs.map(\.id)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -297,13 +297,13 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func setWorkspaceGroupAnchorHoistsNewAnchorToSectionFront() {
+    func setWorkspaceGroupAnchorHoistsNewAnchorToSectionFront() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
 
         groups.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: b.id)
 
