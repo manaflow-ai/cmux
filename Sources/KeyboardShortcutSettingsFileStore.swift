@@ -986,28 +986,30 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let browserSearchSettings = BrowserSearchSettingsStore()
+
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchEngineKey] = .string(engine.rawValue)
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.searchEngineKey] = .string(engine.rawValue)
         }
         if let raw = jsonString(section["customSearchEngineName"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineNameKey] = .string(
-                BrowserSearchSettings.normalizedCustomSearchEngineName(raw)
-                    ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineNameKey] = .string(
+                browserSearchSettings.normalizedCustomSearchEngineName(raw)
+                    ?? BrowserSearchSettingsStore.defaultCustomSearchEngineName
             )
         }
         if let raw = jsonString(section["customSearchEngineURLTemplate"]) {
-            if BrowserSearchSettings.isValidSearchURLTemplate(raw) {
-                snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineURLTemplateKey] = .string(raw)
+            if browserSearchSettings.isValidSearchURLTemplate(raw) {
+                snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineURLTemplateKey] = .string(raw)
             } else {
                 logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
             }
         }
         if let value = jsonBool(section["showSearchSuggestions"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.searchSuggestionsEnabledKey] = .bool(value)
         }
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
