@@ -19,7 +19,7 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     /// Identifier of the member workspace that positions this group.
     /// Always present and always points to a workspace in the window's tabs
-    /// whose `groupId == self.id`.
+    /// whose `groupId == self.id`. Closing this workspace dissolves the group.
     public var anchorWorkspaceId: UUID
     /// Group-level color override (hex string). When nil, falls back to the
     /// cwd-config color resolved from `cmux.json` for the anchor's cwd, then

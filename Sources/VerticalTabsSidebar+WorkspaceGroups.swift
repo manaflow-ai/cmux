@@ -30,7 +30,6 @@ extension VerticalTabsSidebar {
                 partial + notificationStore.unreadCount(forTabId: workspaceId)
             }
         }()
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
@@ -85,7 +84,7 @@ extension VerticalTabsSidebar {
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             shortcutDigit: nil,
-            shortcutModifierSymbol: modifierSymbol,
+            shortcutModifierSymbol: nil,
             showsShortcutHint: showsHintForAnchor,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
