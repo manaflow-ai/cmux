@@ -3028,10 +3028,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // images-only send snapshots empty text, which the text submit no-ops.
         let submittedText = terminalInputText
         let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+        // Capture the submit-time session + connection identity ONCE up front and
+        // re-check it before every subsequent send. The captured terminal already
+        // pins the target surface, but it does NOT pin the session/transport the
+        // bytes flow through: each image RPC is awaited, and a sign-out, account
+        // switch, Mac switch, or reconnect that lands during that await replaces
+        // `remoteClient` (and bumps these generations) WITHOUT cancelling this
+        // loop. `sendRemoteTerminalPasteImage` returns true even when a superseded
+        // connection answered, so without this guard the loop would keep going and
+        // send the next staged image, then the captured text, through whatever
+        // session is now current, leaking the previous user's / previous Mac's
+        // unsent content into a different session. `signInGeneration` covers
+        // sign-out + account switch; `connectionGeneration` covers Mac switch,
+        // reconnect, and disconnect. On mismatch we abort the WHOLE submit (stop
+        // the loop, do not send the text) and leave everything staged for a retry.
+        let submitSignInGeneration = signInGeneration
+        let submitConnectionGeneration = connectionGeneration
         // Deliver each image first and await it, so the agent's terminal has the
         // file paths before the text arrives. Remove each only after its send is
         // acknowledged; on failure stop and keep the rest (and the text) staged.
         for attachment in attachments {
+            // Re-check the captured session/connection still matches before each
+            // image send (the previous iteration's send was awaited). A mismatch
+            // means the session or transport was replaced mid-submit; abort
+            // without sending so nothing leaks into the new session. Attachments
+            // are left staged (no removal happened for this iteration).
+            guard isComposerSubmitIdentityCurrent(
+                signIn: submitSignInGeneration,
+                connection: submitConnectionGeneration
+            ) else { return }
             // Re-check the attachment is still staged for the captured terminal
             // before uploading it. The user can delete a not-yet-acked chip while
             // an earlier image's send is in flight; that removes it from
@@ -3051,6 +3076,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard sent else { return }
             removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
         }
+        // Re-check the captured identity one last time before the text send. The
+        // final image's send was awaited above, so a sign-out / Mac switch /
+        // reconnect could have landed after it; abort (keep the text staged in the
+        // field) rather than paste the user's message into the now-current
+        // session.
+        guard isComposerSubmitIdentityCurrent(
+            signIn: submitSignInGeneration,
+            connection: submitConnectionGeneration
+        ) else { return }
         // Submit the captured text to the captured terminal (a no-op when empty,
         // e.g. an images-only send). All images acked by here, so the text
         // follows. Passing the snapshot (not the live field) keeps this immune to
@@ -3060,6 +3094,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: submittedTerminalID,
             capturedText: submittedText
         )
+    }
+
+    /// Whether the session + connection identity captured at the start of a
+    /// ``submitComposer()`` run still matches the current one. Re-checked before
+    /// every image send and before the text send so a sign-out, account switch,
+    /// Mac switch, or reconnect that lands while an (awaited) image RPC is in
+    /// flight aborts the rest of the submit instead of routing the next image or
+    /// the captured text through a now-current, different session.
+    ///
+    /// `signInGeneration` is bumped by ``signOut()`` (sign-out + account switch);
+    /// `connectionGeneration` is bumped whenever the remote client/transport is
+    /// replaced (Mac switch, reconnect, disconnect). Either bump invalidates the
+    /// in-flight submit.
+    ///
+    /// Internal (not private) so tests can drive the captured-identity recheck.
+    func isComposerSubmitIdentityCurrent(signIn: Int, connection: UUID) -> Bool {
+        signIn == signInGeneration && connection == connectionGeneration
+    }
+
+    /// Bump the connection generation so any composer submit (or other
+    /// generation-guarded operation) in flight against the previous connection is
+    /// treated as superseded. Internal (not private) so a test can model a
+    /// mid-submit connection swap that the pairing/reconnect flow performs in
+    /// production without standing up the full handshake.
+    func bumpConnectionGenerationForTesting() {
+        connectionGeneration = UUID()
     }
 
     /// Clear the sent text from wherever it now lives after a successful

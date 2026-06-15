@@ -318,3 +318,33 @@ func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> Mobile
     )
     return store
 }
+
+/// Install a fresh `remoteClient` on an already-built store, backed by `router`.
+/// Models the new transport a reconnect / account switch / Mac switch installs:
+/// the mid-submit identity guard must abort BEFORE any further image or the text
+/// reaches this second router, so a test can assert that router recorded nothing.
+@MainActor
+func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHostRouter) throws {
+    let runtime = RoutingTestRuntime(
+        transportFactory: RoutingTransportFactory(router: router)
+    )
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56586)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: RoutingHostRouter.workspaceID,
+        terminalID: RoutingHostRouter.terminalA,
+        macDeviceID: "test-mac-2",
+        macDisplayName: "Test Mac 2",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(3600)
+    )
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+}

@@ -250,4 +250,86 @@ import Testing
         #expect(remaining.first?.id != firstID, "the acknowledged first image was cleared")
         #expect(store.terminalInputText == "keep me")
     }
+
+    /// A sign-out (which bumps `signInGeneration`) BETWEEN the first and second
+    /// image send aborts the whole submit: no second image and no text reach the
+    /// new session's transport, so the previous account's unsent content never
+    /// leaks into the next account that signs in mid-flight.
+    @Test func signOutMidSendAbortsAndDoesNotLeakToNewSession() async throws {
+        let firstRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: firstRouter)
+        let termA = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("img-1"), format: "png", forTerminalID: termA)
+        store.addPendingAttachment(Self.bytes("img-2"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "secret"
+
+        await firstRouter.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+
+        // Park the first image, sign out (bumps signInGeneration and tears down the
+        // session), then sign back in on a DIFFERENT transport (the new account).
+        // Release the held first image. The loop must abort at its identity recheck
+        // before sending the second image or the text to the new session.
+        await firstRouter.awaitFirstPasteImageReached()
+        store.signOut()
+        let newRouter = RoutingHostRouter()
+        try installFreshRemoteClient(on: store, router: newRouter)
+        await firstRouter.releaseFirstPasteImage()
+        await submit.value
+
+        // The first image reached the OLD session (it was already in flight); the
+        // second image and the text never sent at all.
+        #expect(await firstRouter.recordedPasteImages().count == 1)
+        #expect(await firstRouter.recordedPastes().isEmpty)
+        // Nothing leaked onto the new session's transport.
+        #expect(await newRouter.recordedPasteImages().isEmpty, "no image must reach the new session")
+        #expect(await newRouter.recordedPastes().isEmpty, "no text must reach the new session")
+    }
+
+    /// A connection swap (a reconnect / Mac switch that bumps
+    /// `connectionGeneration` and installs a fresh `remoteClient`) BETWEEN the
+    /// first and second image send aborts the whole submit: no second image and no
+    /// text reach the new connection, and because a plain connection swap does NOT
+    /// wipe the composer (unlike sign-out), the staged attachments and the text are
+    /// preserved for a retry.
+    @Test func connectionSwapMidSendAbortsAndKeepsStaged() async throws {
+        let firstRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: firstRouter)
+        let termA = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: termA))
+
+        store.addPendingAttachment(Self.bytes("img-1"), format: "png", forTerminalID: termA)
+        store.addPendingAttachment(Self.bytes("img-2"), format: "png", forTerminalID: termA)
+        store.terminalInputText = "keep me"
+
+        await firstRouter.setHoldFirstPasteImage(true)
+        let submit = Task { await store.submitComposer() }
+
+        // Park the first image, swap the connection mid-flight (bump the generation
+        // and install a fresh client onto a second router), then release. The loop
+        // must abort at its identity recheck before reaching the second image or
+        // the text.
+        await firstRouter.awaitFirstPasteImageReached()
+        store.bumpConnectionGenerationForTesting()
+        let newRouter = RoutingHostRouter()
+        try installFreshRemoteClient(on: store, router: newRouter)
+        await firstRouter.releaseFirstPasteImage()
+        await submit.value
+
+        // Only the in-flight first image reached the old connection; nothing else.
+        #expect(await firstRouter.recordedPasteImages().count == 1)
+        #expect(await firstRouter.recordedPastes().isEmpty)
+        // Nothing leaked onto the swapped-in connection.
+        #expect(await newRouter.recordedPasteImages().isEmpty, "no image must reach the new connection")
+        #expect(await newRouter.recordedPastes().isEmpty, "no text must reach the new connection")
+        // The first image was acked by the old connection, so it cleared; the
+        // second (unsent) attachment and the text stay staged for a retry. The
+        // abort itself clears nothing.
+        let remaining = store.pendingAttachments(forTerminalID: termA)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.data == Self.bytes("img-2"))
+        #expect(store.terminalInputText == "keep me")
+    }
 }
