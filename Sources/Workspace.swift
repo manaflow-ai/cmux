@@ -128,6 +128,7 @@ extension Workspace {
             workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
+            customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
@@ -216,7 +217,7 @@ extension Workspace {
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
         applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle)
+        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -392,6 +393,9 @@ extension Workspace {
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource: CustomTitleSource? = customTitle != nil
+            ? (panelCustomTitleSources[panelId] ?? .user)
+            : nil
         let directory: String? = {
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
@@ -608,6 +612,7 @@ extension Workspace {
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
+            customTitleSource: customTitleSource,
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
@@ -1832,7 +1837,7 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         if snapshot.isManuallyUnread {
@@ -2463,6 +2468,12 @@ final class Workspace: Identifiable, ObservableObject {
     let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?
+    /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
+    /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
+    /// custom title is set. A present title with absent provenance is
+    /// treated as `.user` so auto-naming never overwrites a title it
+    /// cannot prove it owns.
+    @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
@@ -2686,6 +2697,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
+    /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
+    /// An entry may be absent for a title carried across panel moves or
+    /// restored from older snapshots; absent provenance is treated as `.user`.
+    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
@@ -3207,6 +3222,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.processTitle = title
         self.title = title
         self.customTitle = nil
+        self.customTitleSource = nil
         self.customDescription = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4111,25 +4127,42 @@ final class Workspace: Identifiable, ObservableObject {
         return max(rawTarget, pinnedCount)
     }
 
-    func setPanelCustomTitle(panelId: UUID, title: String?) {
-        guard panels[panelId] != nil else { return }
+    /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
-            guard previous != nil else { return }
+            guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
+            panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else { return }
+            guard previous != trimmed else {
+                // Same text: a user write still claims ownership so a later
+                // auto write cannot replace a title the user re-confirmed.
+                if source == .user { panelCustomTitleSources[panelId] = .user }
+                return true
+            }
             panelCustomTitles[panelId] = trimmed
+            panelCustomTitleSources[panelId] = source
         }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
+        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
         bonsplitController.updateTab(
             tabId,
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        return true
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -4358,9 +4391,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Title Management
 
+    /// Who set a custom title. Auto-naming (AI-generated titles) must never
+    /// overwrite a user-set title; this enum carries that distinction for
+    /// workspace and panel custom titles, and round-trips through session
+    /// persistence.
+    enum CustomTitleSource: String, Codable, Sendable {
+        case user
+        case auto
+    }
+
     var hasCustomTitle: Bool {
         let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !trimmed.isEmpty
+    }
+
+    /// The provenance of the current custom title, normalizing legacy state:
+    /// `nil` when no custom title is set; `.user` when a title exists but
+    /// provenance was never recorded (pre-provenance snapshots, carried moves).
+    var effectiveCustomTitleSource: CustomTitleSource? {
+        hasCustomTitle ? (customTitleSource ?? .user) : nil
     }
 
     var hasCustomDescription: Bool {
@@ -4409,15 +4458,27 @@ final class Workspace: Identifiable, ObservableObject {
         return normalizedLineEndings
     }
 
-    func setCustomTitle(_ title: String?) {
+    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
             customTitle = nil
+            customTitleSource = nil
             self.title = processTitle
         } else {
             customTitle = trimmed
+            customTitleSource = source
             self.title = trimmed
         }
+        return true
     }
 
     func setCustomDescription(_ description: String?) {
@@ -5040,6 +5101,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
@@ -7150,6 +7212,7 @@ final class Workspace: Identifiable, ObservableObject {
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
         let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource = panelCustomTitleSources[panelId]
         let wasPinned = pinnedPanelIds.contains(panelId)
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
@@ -7208,6 +7271,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {
             panelCustomTitles[panelId] = customTitle
+            panelCustomTitleSources[panelId] = customTitleSource ?? .user
         }
         if wasPinned {
             pinnedPanelIds.insert(panelId)
@@ -8619,6 +8683,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
+            panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
         }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
@@ -8659,6 +8724,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
+            panelCustomTitleSources.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -11448,6 +11514,9 @@ extension Workspace: BonsplitDelegate {
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
+                customTitleSource: panelCustomTitles[panelId] != nil
+                    ? (panelCustomTitleSources[panelId] ?? .user)
+                    : nil,
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,

@@ -760,7 +760,9 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Amp için cmux entegrasyon kancalarını etkinleştirir. Devre dışı bırakıldığında, paketlenmiş eklenti kaldırılmaya gerek kalmadan etkin olmayan durumda kalır.",
-          "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+          "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar.",
+          "workspaceAutoNaming": "Ajan konuşma içeriğinden çalışma alanlarının ve sekmelerin yapay zekâ ile otomatik adlandırılması (isteğe bağlı). Etkinleştirildiğinde cmux, desteklenen ajan oturumlarını her ajanın kendi ikili dosyasını kullanarak kısa başlıklara özetler; elle yapılan yeniden adlandırmalar her zaman önceliklidir.",
+          "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz."
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
@@ -790,6 +792,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "sidebar": {
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",

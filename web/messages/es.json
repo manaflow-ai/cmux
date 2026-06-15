@@ -760,7 +760,9 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Habilita los hooks de integración de cmux para Amp. Cuando está desactivado, el complemento incluido permanece inactivo sin necesidad de eliminarlo.",
-          "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed."
+          "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
+          "workspaceAutoNaming": "Nombrado automático opcional de espacios de trabajo y pestañas mediante IA a partir del contenido de la conversación del agente. Cuando está activado, cmux resume las sesiones de agentes compatibles en títulos cortos usando el binario propio de cada agente; los renombrados manuales siempre prevalecen.",
+          "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla."
         },
         "app": {
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
@@ -790,6 +792,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "sidebar": {
+          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {
           "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",
