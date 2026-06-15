@@ -106,6 +106,12 @@ public struct SettingsControlEngine: Sendable {
     /// write would be a silent no-op and the CLI would report a false success.
     /// The user must change it in `cmux.json` instead. JSON-backed keys are
     /// exempt — the CLI writes them to `cmux.json`, their authoritative source.
+    ///
+    /// This catches the common case where the `cmux.json` key equals the catalog
+    /// id. A handful of managed keys use a different `cmux.json` spelling than the
+    /// catalog id (e.g. `sidebar.branchLayout` → `sidebar.branchVerticalLayout`);
+    /// that alias mapping lives in the app's config parser, not the catalog, so
+    /// those aliased managed settings are not detected here.
     private func ensureNotManagedInJSON(_ descriptor: CatalogSettingDescriptor) async throws {
         guard descriptor.backend != .json else { return }
         if await stores.json.hasRawValue(atDottedPath: descriptor.id) {

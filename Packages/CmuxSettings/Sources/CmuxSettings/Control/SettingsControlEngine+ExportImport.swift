@@ -16,7 +16,18 @@ extension SettingsControlEngine {
                 let overridden = await descriptor.isOverridden(in: stores)
                 guard overridden else { continue }
             }
-            settings[descriptor.id] = await descriptor.currentValue(in: stores)
+            let value = await descriptor.currentValue(in: stores)
+            // Skip a JSON-backed setting whose catalog type cannot faithfully
+            // represent what is actually in cmux.json (e.g. notifications.hooks is
+            // stored as an array but cataloged as a dictionary, so the typed read
+            // falls back to the default). Exporting the misdecoded value would
+            // clobber the user's real value on import.
+            if descriptor.backend == .json,
+               let raw = await stores.json.rawSettingJSON(atDottedPath: descriptor.id),
+               raw != value {
+                continue
+            }
+            settings[descriptor.id] = value
         }
         return SettingsDocument(settings: settings)
     }
@@ -43,6 +54,13 @@ extension SettingsControlEngine {
                 // write cannot be rolled back if a later entry fails, so a failed
                 // import must never have rotated a credential. Set secrets
                 // explicitly with `cmux settings set` instead.
+                continue
+            }
+            // A setting managed in cmux.json is re-applied on reload, so importing
+            // it to UserDefaults would be a silent no-op — reject up front (the
+            // same guard `set`/`unset` apply), keeping import all-or-nothing.
+            if descriptor.backend != .json, await stores.json.hasRawValue(atDottedPath: descriptor.id) {
+                errors.append(SettingsControlError.managedInJSON(key: id).message)
                 continue
             }
             do {

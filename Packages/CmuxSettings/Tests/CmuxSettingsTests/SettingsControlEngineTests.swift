@@ -328,6 +328,29 @@ struct SettingsControlEngineTests {
         #expect(await harness.engine.export() == exported)
     }
 
+    @Test func exportSkipsTypeMismatchedJSONSetting() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // notifications.hooks is cataloged as a dict but stored at runtime as an
+        // array; exporting the misdecoded default {} would clobber the real value.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"notifications":{"hooks":[{"event":"x"}]}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        let document = await harness.engine.export()
+        #expect(document.settings["notifications.hooks"] == nil)
+    }
+
+    @Test func importRejectsSettingManagedInCmuxJson() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"app":{"appearance":"dark"}}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        let document = SettingsDocument(settings: ["app.appearance": .string("light")])
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.importDocument(document)
+        }
+    }
+
     @Test func importIsAllOrNothing() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

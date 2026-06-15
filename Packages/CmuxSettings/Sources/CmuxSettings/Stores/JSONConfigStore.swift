@@ -129,6 +129,16 @@ public actor JSONConfigStore {
         return object.mapValues { SettingJSONValue(jsonObject: $0) }
     }
 
+    /// The `Sendable` value at an arbitrary dotted path, regardless of shape, or
+    /// `nil` when absent. Lets the settings control layer compare the *actual*
+    /// `cmux.json` content against a catalog-typed read, so it can avoid exporting
+    /// a setting whose catalog type cannot faithfully represent the stored value
+    /// (e.g. `notifications.hooks` stored as an array but cataloged as a dict).
+    public func rawSettingJSON(atDottedPath dottedPath: String) -> SettingJSONValue? {
+        guard let raw = JSONPath(dottedPath: dottedPath).lookup(in: loadedRoot()) else { return nil }
+        return SettingJSONValue(jsonObject: raw)
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.
