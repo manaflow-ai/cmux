@@ -1,6 +1,7 @@
 import CmuxCanvas
 
 extension CanvasRootView {
+    /// Creates a canvas root view using the production clock for minimap auto-hide timing.
     public convenience init(
         model: CanvasModel,
         commandScrollHintText: String,
