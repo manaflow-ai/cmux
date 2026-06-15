@@ -1576,6 +1576,7 @@ html { scroll-behavior: smooth; }
   function parseMathSegments(text) {
     var raw = String(text || '');
     var segments = [];
+    var noClosingAfter = Object.create(null);
     var lastTextStart = 0;
     var i = 0;
 
@@ -1611,8 +1612,16 @@ html { scroll-behavior: smooth; }
       }
 
       var contentStart = i + openLength;
+      if (noClosingAfter[closeToken] != null && contentStart >= noClosingAfter[closeToken]) {
+        i += openLength;
+        continue;
+      }
+
       var closeIndex = findClosingMathDelimiter(raw, contentStart, closeToken);
       if (closeIndex < 0) {
+        // Once a suffix has no close token, later openers of the same kind
+        // cannot close either; do not rescan that tail for malformed notes.
+        noClosingAfter[closeToken] = contentStart;
         i += openLength;
         continue;
       }
