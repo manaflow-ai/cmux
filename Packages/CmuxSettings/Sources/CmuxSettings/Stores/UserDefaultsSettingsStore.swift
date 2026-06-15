@@ -74,6 +74,14 @@ public actor UserDefaultsSettingsStore {
         key.hasStoredValue(in: underlyingDefaults)
     }
 
+    /// Removes a raw UserDefaults entry by its storage key. Used by the settings
+    /// control layer to clear legacy per-action shortcut overrides
+    /// (`shortcut.<action>`) that are not modeled as catalog keys but still
+    /// participate in runtime shortcut resolution.
+    public func removeRawValue(forKey storageKey: String) {
+        underlyingDefaults.removeObject(forKey: storageKey)
+    }
+
     /// Removes the stored overrides for every UserDefaults-backed entry in
     /// ``keys``. Entries whose ``AnySettingKey/kind`` is
     /// ``AnySettingKey/Kind/jsonConfig`` are ignored; reset them via the

@@ -252,6 +252,19 @@ struct SettingsControlEngineTests {
         #expect(try await harness.engine.set("app.menuBarOnly", rawValue: "true").value == .bool(true))
     }
 
+    @Test func rejectsSecretWriteWhenManagedInCmuxJson() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // A managed automation.socketPassword in cmux.json is re-applied on reload,
+        // so writing the secret file would be a false success — reject it.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"automation":{"socketPassword":"managed"}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.set("automation.socketPassword", rawValue: "new")
+        }
+    }
+
     @Test func unsetRestoresDefault() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

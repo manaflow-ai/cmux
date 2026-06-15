@@ -185,6 +185,33 @@ struct SettingsControlShortcutsTests {
         #expect(!one.conflicts(with: twoShift, selfUsesNumberedDigitMatching: true, otherUsesNumberedDigitMatching: true))
     }
 
+    @Test func malformedBindingDoesNotDropValidOnes() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        // A user's cmux.json with one valid binding and one malformed value.
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"shortcuts":{"bindings":{"toggleSidebar":"cmd+b","newTab":123}}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+
+        // The valid binding survives the malformed sibling (per-entry decode).
+        #expect(try await harness.engine.shortcutGet("toggleSidebar").binding == "cmd+b")
+        // And a later set does not erase it.
+        _ = try await harness.engine.shortcutSet("openSettings", combo: "cmd+ctrl+opt+6", force: true)
+        #expect(try await harness.engine.shortcutGet("toggleSidebar").binding == "cmd+b")
+    }
+
+    @Test func unsetClearsLegacyUserDefaultsOverride() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let legacyKey = "shortcut.openSettings"
+        let suite = UserDefaults(suiteName: harness.suiteName)!
+        suite.set(Data("legacy".utf8), forKey: legacyKey)
+        #expect(suite.object(forKey: legacyKey) != nil)
+
+        _ = try await harness.engine.shortcutUnset("openSettings")
+        #expect(UserDefaults(suiteName: harness.suiteName)!.object(forKey: legacyKey) == nil)
+    }
+
     @Test func storedShortcutDecodesEveryJSONForm() {
         #expect(StoredShortcut.decodeFromJSON("cmd+t") == StoredShortcut(first: ShortcutStroke(key: "t", command: true)))
         #expect(StoredShortcut.decodeFromJSON(["ctrl+b", "c"])

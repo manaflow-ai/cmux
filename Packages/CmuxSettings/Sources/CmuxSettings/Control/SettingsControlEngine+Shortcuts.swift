@@ -120,12 +120,16 @@ extension SettingsControlEngine {
         var bindings = await currentShortcutBindings()
         bindings.removeValue(forKey: action.rawValue)
         try await writeShortcutBindings(bindings)
+        await clearLegacyUserDefaultsOverride(action)
         return shortcutRow(action, overrides: bindings)
     }
 
     /// Clears every shortcut override, reverting all actions to defaults.
     public func shortcutsReset() async throws {
         try await writeShortcutBindings([:])
+        for action in ShortcutAction.allCases {
+            await clearLegacyUserDefaultsOverride(action)
+        }
     }
 
     // MARK: - Helpers
@@ -144,9 +148,30 @@ extension SettingsControlEngine {
     /// the legacy per-action `shortcut.<id>` UserDefaults override and the
     /// built-in default), so a CLI write here always takes effect. The legacy
     /// UserDefaults overrides are a pre-`cmux.json` migration artifact the GUI no
-    /// longer writes; they only surface for actions absent from `cmux.json`.
+    /// longer writes; ``shortcutUnset(_:)`` / ``shortcutsReset()`` clear them so a
+    /// reset truly reverts to the default.
+    ///
+    /// Decoded entry-by-entry (not through the all-or-nothing typed dict decode)
+    /// so a single malformed binding can't collapse the whole section to empty
+    /// and make a later set/unset erase every other valid override.
     func currentShortcutBindings() async -> [String: StoredShortcut] {
-        await stores.json.value(for: catalog.shortcuts.bindings)
+        guard let raw = await stores.json.rawObject(atDottedPath: catalog.shortcuts.bindings.id) else {
+            return [:]
+        }
+        var bindings: [String: StoredShortcut] = [:]
+        for (action, value) in raw {
+            if let shortcut = StoredShortcut.decodeFromJSON(value.jsonObject) {
+                bindings[action] = shortcut
+            }
+        }
+        return bindings
+    }
+
+    /// Clears the legacy per-action `shortcut.<id>` UserDefaults override so a
+    /// `cmux.json`-cleared binding actually reverts to the default rather than
+    /// falling back to a stale pre-migration UserDefaults value.
+    func clearLegacyUserDefaultsOverride(_ action: ShortcutAction) async {
+        await stores.defaults.removeRawValue(forKey: "shortcut.\(action.rawValue)")
     }
 
     func currentShortcutWhenClauses() async -> [String: String] {

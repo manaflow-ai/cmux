@@ -116,6 +116,19 @@ public actor JSONConfigStore {
         JSONPath(dottedPath: dottedPath).lookup(in: loadedRoot()) != nil
     }
 
+    /// The object at an arbitrary dotted path as `Sendable` value-typed entries,
+    /// or `nil` when absent or not an object. Lets the settings control layer
+    /// decode a container (e.g. `shortcuts.bindings`) entry-by-entry, tolerating a
+    /// single malformed entry instead of losing the whole section the way an
+    /// all-or-nothing typed decode would. The conversion happens inside the actor
+    /// so no non-`Sendable` `Any` crosses the isolation boundary.
+    public func rawObject(atDottedPath dottedPath: String) -> [String: SettingJSONValue]? {
+        guard let object = JSONPath(dottedPath: dottedPath).lookup(in: loadedRoot()) as? [String: Any] else {
+            return nil
+        }
+        return object.mapValues { SettingJSONValue(jsonObject: $0) }
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.

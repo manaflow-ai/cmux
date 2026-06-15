@@ -100,13 +100,14 @@ public struct SettingsControlEngine: Sendable {
         return await row(for: descriptor)
     }
 
-    /// Rejects a `UserDefaults`-backed write when the same id is present in
-    /// `cmux.json`: the managed-config layer re-applies the `cmux.json` value over
-    /// `UserDefaults` on reload, so a UserDefaults write would be a silent no-op.
-    /// The user must change it in `cmux.json` instead. No-op for JSON/secret keys
-    /// (which the CLI writes directly to their authoritative source).
+    /// Rejects a `UserDefaults`- or secret-backed write when the same id is
+    /// present in `cmux.json`: the managed-config layer re-applies the `cmux.json`
+    /// value (including a managed `automation.socketPassword`) on reload, so the
+    /// write would be a silent no-op and the CLI would report a false success.
+    /// The user must change it in `cmux.json` instead. JSON-backed keys are
+    /// exempt — the CLI writes them to `cmux.json`, their authoritative source.
     private func ensureNotManagedInJSON(_ descriptor: CatalogSettingDescriptor) async throws {
-        guard descriptor.backend == .userDefaults else { return }
+        guard descriptor.backend != .json else { return }
         if await stores.json.hasRawValue(atDottedPath: descriptor.id) {
             throw SettingsControlError.managedInJSON(key: descriptor.id)
         }
