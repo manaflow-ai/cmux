@@ -214,6 +214,7 @@
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DF60000000000000000000F3 /* CmuxDogfoodFeedbackSink in Frameworks */ = {isa = PBXBuildFile; productRef = DF60000000000000000000F2 /* CmuxDogfoodFeedbackSink */; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
 		E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000E /* CmuxEventLogWriter.swift */; };
@@ -1775,6 +1776,7 @@
 				5E55300000000000000000C3 /* CmuxCommandPaletteUI in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
+				DF60000000000000000000F3 /* CmuxDogfoodFeedbackSink in Frameworks */,
 				C0DE46000000000000000001 /* CMUXExtensionHostSupport in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
@@ -3039,6 +3041,7 @@
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
+				DF60000000000000000000F1 /* XCLocalSwiftPackageReference "CmuxDogfoodFeedbackSink" */,
 				C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				C750300000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalEngine" */,
@@ -4595,6 +4598,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxFeedback;
 		};
+		DF60000000000000000000F1 /* XCLocalSwiftPackageReference "CmuxDogfoodFeedbackSink" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxDogfoodFeedbackSink;
+		};
 		C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxFeedbackUI;
@@ -4873,6 +4880,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */;
 			productName = CmuxFeedback;
+		};
+		DF60000000000000000000F2 /* CmuxDogfoodFeedbackSink */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DF60000000000000000000F1 /* XCLocalSwiftPackageReference "CmuxDogfoodFeedbackSink" */;
+			productName = CmuxDogfoodFeedbackSink;
 		};
 		C9A2D00000000000000000D2 /* CmuxFeedbackUI */ = {
 			isa = XCSwiftPackageProductDependency;
