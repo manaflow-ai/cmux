@@ -49,10 +49,21 @@ final class ComposerDictationController {
     /// so partials append rather than overwrite.
     private var baseText: String = ""
 
-    /// The callback that writes merged text back into the composer. Held only
-    /// while listening; cleared on teardown so a late callback cannot mutate the
+    /// The callback that writes merged text back into the composer. Held while
+    /// listening AND through a graceful stop (so the final result can refine the
+    /// committed text); cleared on cleanup so a late callback cannot mutate the
     /// store after the user left.
     private var onText: ((String) -> Void)?
+
+    /// Pending watchdog that force-finishes a graceful stop if the recognition
+    /// task never delivers a final result. Cancelled when the final result (or an
+    /// error) lands first, or when a hard cancel supersedes the graceful stop.
+    private var finalizeTimeout: Task<Void, Never>?
+
+    /// How long a graceful stop waits for the recognition task's final result
+    /// before force-finishing cleanup, so the controller cannot hang in
+    /// `.stopping` if no final result ever arrives.
+    private static let finalizeTimeoutSeconds: Double = 2.5
 
     init() {
         self.recognizer = SFSpeechRecognizer()
@@ -82,6 +93,8 @@ final class ComposerDictationController {
     ///     every partial and the final result.
     func toggle(existingText: String, onText: @escaping (String) -> Void) {
         if state.isListening {
+            // The visible Stop button: finalize gracefully so the last spoken
+            // words are not dropped.
             stop()
         } else if state.canCancelPendingStart {
             cancelPendingStart()
@@ -130,15 +143,53 @@ final class ComposerDictationController {
         }
     }
 
-    /// Stop dictation and tear everything down: cancel the task, end the request,
-    /// remove the audio tap, stop the engine, and deactivate the audio session.
-    /// Idempotent and safe to call from any teardown point (second tap, send,
-    /// focus loss, `onDisappear`, terminal switch).
+    /// Gracefully stop dictation, finalizing the transcript before cleanup. Used
+    /// for the visible Stop button, the stop right before send, and field focus
+    /// loss: the user intends to keep what they said.
+    ///
+    /// Flushes buffered audio (`endAudio()`) and stops the engine, but does NOT
+    /// cancel the recognition task or drop `onText`. The state moves to
+    /// `.stopping` and the in-flight task is left to deliver its final result,
+    /// which `onText` applies to the composer (refining the last partial) before
+    /// cleanup runs in `finishGraceful()`. A watchdog force-finishes if no final
+    /// result arrives, so the controller cannot hang in `.stopping`.
+    ///
+    /// The latest partial is already committed to the composer (every partial
+    /// wrote through `onText` while listening), so the user's words are preserved
+    /// even if the final result is only a refinement or never arrives.
     func stop() {
-        if state == .listening { state = .stopping }
+        // Only a live listening session can be finalized. From any other state a
+        // graceful stop is a no-op except for clearing a stuck-open mic: fall back
+        // to a hard cancel so callers (focus loss, send) always settle the state.
+        guard state == .listening else {
+            cancel()
+            return
+        }
+        state = .stopping
+        // Flush buffered audio so a late FINAL result can include the tail, then
+        // stop capturing. The task and `onText` stay alive to receive that result.
+        request?.endAudio()
+        stopEngineAndSession()
+        // Watchdog: if no final result (or error) lands, force cleanup so the
+        // controller returns to idle instead of hanging in `.stopping`.
+        finalizeTimeout?.cancel()
+        finalizeTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.finalizeTimeoutSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.finishGraceful()
+        }
+    }
+
+    /// Hard-cancel dictation and tear everything down immediately: cancel the
+    /// task, end the request, remove the audio tap, stop the engine, deactivate
+    /// the session, and drop the callback. Used when the user navigates away
+    /// (`onDisappear`, terminal switch) where losing the unrecognized tail is
+    /// acceptable. Idempotent and safe to call from any state.
+    func cancel() {
+        if state == .listening || state == .stopping { state = .stopping }
         teardown()
-        // Preserve a terminal `unavailable`; otherwise return to idle. A stop from
-        // an already-idle state is a harmless no-op (teardown is all nil-checks).
+        // Preserve a terminal `unavailable`; otherwise return to idle. A cancel
+        // from an already-idle state is a harmless no-op (teardown is nil-checks).
         if state != .unavailable {
             state = .idle
         }
@@ -247,9 +298,16 @@ final class ComposerDictationController {
                     ))
                 }
                 // A final result or an error (end-of-stream, recognition failure)
-                // tears down so the mic does not stay hot.
+                // settles the session so the mic does not stay hot. If a graceful
+                // stop is already in flight (`.stopping`), this is the awaited
+                // final result: apply it (done above) and finish cleanup. While
+                // still listening, the stream ended on its own; cancel to idle.
                 if isFinal || failed {
-                    self.stop()
+                    if self.state == .stopping {
+                        self.finishGraceful()
+                    } else {
+                        self.cancel()
+                    }
                 }
             }
         }
@@ -265,14 +323,29 @@ final class ComposerDictationController {
         state = .unavailable
     }
 
-    /// Cancel the recognition task, end and drop the request, remove the audio
-    /// tap, stop the engine, deactivate the audio session, and clear the
-    /// callback. Safe to call repeatedly; every reference is nil-checked.
-    private func teardown() {
+    /// Finish a graceful stop after the recognition task delivered its final
+    /// result (or the watchdog fired): drop the task/request and callback, and
+    /// return to idle. The engine and session are already stopped by `stop()`.
+    /// A no-op once the controller has left `.stopping` (final result and
+    /// watchdog can race; whichever lands first wins, the other is ignored).
+    private func finishGraceful() {
+        guard state == .stopping else { return }
+        finalizeTimeout?.cancel()
+        finalizeTimeout = nil
+        // The task already finalized; cancelling a finished task is a no-op, and
+        // it guarantees no late callback survives if the watchdog won the race.
         task?.cancel()
         task = nil
-        request?.endAudio()
         request = nil
+        onText = nil
+        baseText = ""
+        state = .idle
+    }
+
+    /// Stop the audio engine, remove the input tap, and deactivate the audio
+    /// session. Shared by the graceful stop (which keeps the recognition task and
+    /// callback alive) and the hard `teardown()`. Safe to call repeatedly.
+    private func stopEngineAndSession() {
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -280,11 +353,24 @@ final class ComposerDictationController {
         // failed start that installed the tap before `start()` threw does not
         // leak it onto the input node.
         audioEngine.inputNode.removeTap(onBus: 0)
-        onText = nil
-        baseText = ""
         // Deactivate the audio session so other audio (and the system) reclaim it.
         // Failure here is non-fatal: the engine is already stopped.
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Cancel the recognition task, end and drop the request, remove the audio
+    /// tap, stop the engine, deactivate the audio session, and clear the
+    /// callback. Safe to call repeatedly; every reference is nil-checked.
+    private func teardown() {
+        finalizeTimeout?.cancel()
+        finalizeTimeout = nil
+        task?.cancel()
+        task = nil
+        request?.endAudio()
+        request = nil
+        stopEngineAndSession()
+        onText = nil
+        baseText = ""
     }
 }
 #endif

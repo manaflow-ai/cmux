@@ -188,8 +188,9 @@ struct TerminalComposerView: View {
             // composer the user has already left. Without this, a switch right
             // after a big pick leaves the encode running unobserved.
             stagingTask.task?.cancel()
-            // Never leave the mic hot after the composer leaves the screen.
-            dictation.stop()
+            // Never leave the mic hot after the composer leaves the screen; the
+            // user navigated away, so hard-cancel (losing the tail is fine).
+            dictation.cancel()
         }
         .onChange(of: terminalID) { _, _ in
             // Defense in depth: if SwiftUI ever reuses this view's identity across
@@ -198,8 +199,8 @@ struct TerminalComposerView: View {
             // encode does not stage onto, or burn CPU for, the new terminal.
             stagingTask.task?.cancel()
             // A terminal switch must stop dictation so the live transcript does not
-            // bleed into the incoming terminal's draft.
-            dictation.stop()
+            // bleed into the incoming terminal's draft. Hard-cancel, not finalize.
+            dictation.cancel()
         }
         .onChange(of: isFieldFocused) { _, focused in
             // Mirror the field's focus into the store so a terminal switch knows
@@ -207,7 +208,8 @@ struct TerminalComposerView: View {
             // on the incoming composer) or merely looking at the default-open
             // field (keyboard stays down).
             store.composerFieldFocusChanged(focused)
-            // The field losing focus stops dictation cleanly (the user moved on).
+            // The field losing focus stops dictation gracefully (the user moved on
+            // but keeps the draft, so the last words are finalized into it).
             if !focused {
                 dictation.stop()
             }
@@ -420,8 +422,9 @@ struct TerminalComposerView: View {
     private func send() {
         // Allowed with empty text as long as an attachment is staged.
         guard canSend else { return }
-        // Stop dictation before sending so the final transcript is committed and
-        // the mic does not keep capturing into a now-empty field.
+        // Stop dictation gracefully before sending. Every partial already wrote
+        // into `terminalInputText`, so the latest spoken words are committed and
+        // read by `submitComposer()` below.
         dictation.stop()
         isFieldFocused = true
         Task { @MainActor in

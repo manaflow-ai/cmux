@@ -97,4 +97,62 @@ import Testing
             #expect(!(state.canStart && state.canCancelPendingStart))
         }
     }
+
+    // MARK: - Graceful stop vs hard cancel
+
+    @Test func onlyListeningCanFinalizeGracefully() {
+        // A graceful stop finalizes only a live session; from any other state the
+        // controller hard-cancels instead, so there is no live task to await.
+        #expect(ComposerDictationState.listening.canFinalize)
+        #expect(!ComposerDictationState.idle.canFinalize)
+        #expect(!ComposerDictationState.requestingPermission.canFinalize)
+        #expect(!ComposerDictationState.stopping.canFinalize)
+        #expect(!ComposerDictationState.unavailable.canFinalize)
+    }
+
+    @Test func stoppingIsTheOnlyFinalizingWaitState() {
+        // `.stopping` marks the transient wait for the final result; it is neither
+        // capturing (`isListening`) nor accepting a new start (`canStart`).
+        #expect(ComposerDictationState.stopping.isStopping)
+        #expect(!ComposerDictationState.stopping.isListening)
+        #expect(!ComposerDictationState.stopping.canStart)
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .unavailable,
+        ] {
+            #expect(!state.isStopping)
+        }
+    }
+
+    @Test func finalizeAndStartAreMutuallyExclusivePerState() {
+        // A state is never both ready to start a fresh session and ready to
+        // finalize a live one, so the graceful-stop and start paths never collide.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(!(state.canStart && state.canFinalize))
+        }
+    }
+
+    @Test func gracefulStopFinalizesOnlyFromListening() {
+        // Mirrors the controller's `stop()` branch: a graceful stop finalizes from
+        // `.listening` and otherwise falls back to a hard cancel (which finalizes
+        // from no state). The two paths partition the states with no overlap.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            let takesGracefulPath = state.canFinalize
+            #expect(takesGracefulPath == (state == .listening))
+        }
+    }
 }

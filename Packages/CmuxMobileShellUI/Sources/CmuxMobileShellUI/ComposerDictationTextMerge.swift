@@ -36,6 +36,18 @@ enum ComposerDictationState: Equatable {
     /// start and returns to idle so recognition never begins, rather than being
     /// ignored and letting the mic come on anyway when permission later resolves.
     var canCancelPendingStart: Bool { self == .requestingPermission }
+
+    /// Whether a graceful stop can finalize from this state. True only while
+    /// ``listening``: a graceful stop flushes buffered audio and waits for the
+    /// recognition task's final result. From any other state there is no live
+    /// session to finalize, so the controller hard-cancels instead.
+    var canFinalize: Bool { self == .listening }
+
+    /// Whether the controller is mid-teardown, waiting for the recognition task's
+    /// final result before returning to idle. The mic is no longer capturing but
+    /// the session has not fully settled. Distinguishes a graceful stop's transient
+    /// wait from both the active ``listening`` state and the resting ``idle``.
+    var isStopping: Bool { self == .stopping }
 }
 
 /// Pure text-merge for live dictation, factored out so it is host-testable
