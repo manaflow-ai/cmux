@@ -50,30 +50,3 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         return !hasClickAction
     }
 }
-
-/// An opaque value handle for one registered main window, surfaced by
-/// ``MainWindowContextResolving``. The coordinator never sees the concrete
-/// `MainWindowContext` or `NSWindow`; it routes by `windowId` and consults the
-/// workspace ids the window currently owns, exactly as the legacy
-/// `context.tabManager.tabs` scan did.
-public struct MainWindowTarget: Sendable, Equatable, Identifiable {
-    public let windowId: UUID
-    /// The ids of the workspaces this window currently owns, in the window's
-    /// own tab order (mirrors `context.tabManager.tabs.map(\.id)`).
-    public let workspaceIds: [UUID]
-
-    public var id: UUID { windowId }
-
-    public init(windowId: UUID, workspaceIds: [UUID]) {
-        self.windowId = windowId
-        self.workspaceIds = workspaceIds
-    }
-}
-
-/// A notification click action the coordinator can dispatch without knowing
-/// how it is performed. The single case mirrors the app-target
-/// `TerminalNotificationClickAction`; the coordinator forwards it to
-/// ``NotificationClickRouting`` and never performs the side effect itself.
-public enum NotificationNavClickAction: Sendable, Equatable {
-    case revealInFinder(path: String)
-}

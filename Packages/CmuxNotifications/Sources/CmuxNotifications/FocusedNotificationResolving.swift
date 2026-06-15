@@ -101,30 +101,3 @@ public protocol FocusedNotificationResolving: AnyObject {
     /// `notificationStore.markLatestNotificationAsOldestUnread(forTabId:surfaceId:)`.
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID?
 }
-
-/// The focused workspace/surface for the focused-mark flow. Mirrors the
-/// app-target `FocusedNotificationTarget`; the marker only sees this value.
-public struct FocusedNotificationTarget: Sendable, Equatable {
-    public let tabId: UUID
-    public let surfaceId: UUID?
-
-    public init(tabId: UUID, surfaceId: UUID?) {
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-    }
-}
-
-/// An opaque handle for a focused panel within a workspace, surfaced by
-/// ``FocusedNotificationResolving/focusedPanel(forTabId:surfaceId:)``. The
-/// marker routes every panel predicate/mutation by `tabId`/`panelId` and never
-/// holds the concrete `Workspace`. Mirrors the app-target
-/// `FocusedPanelNotificationTarget` (workspace + panelId), reduced to ids.
-public struct FocusedPanel: Sendable, Hashable {
-    public let tabId: UUID
-    public let panelId: UUID
-
-    public init(tabId: UUID, panelId: UUID) {
-        self.tabId = tabId
-        self.panelId = panelId
-    }
-}
