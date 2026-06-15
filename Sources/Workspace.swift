@@ -1793,20 +1793,26 @@ extension Workspace {
             // or legacy slug and current workspace root. This avoids filesystem
             // probes on the main actor and keeps moved projects from restoring
             // the old absolute path.
+            let restoredNoteProjectRoot = NoteSupport.restoredProjectRoot(
+                forStoredNotePath: snapshotMarkdown.filePath,
+                currentDirectory: currentDirectory
+            )
+            let restoredNoteSlug = snapshotMarkdown.noteSlug.flatMap { try? NoteSupport.validateSlug($0) }
+            let restoredNoteBodyPath = snapshotMarkdown.noteBodyPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasProjectNoteMetadata = restoredNoteSlug != nil || !(restoredNoteBodyPath?.isEmpty ?? true)
+            if hasProjectNoteMetadata,
+               let projectRoot = restoredNoteProjectRoot,
+               !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
+                return nil
+            }
+
             let restorePath: String
-            if let noteBodyPath = snapshotMarkdown.noteBodyPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let noteBodyPath = restoredNoteBodyPath,
                !noteBodyPath.isEmpty,
-               let projectRoot = NoteSupport.restoredProjectRoot(
-                    forStoredNotePath: snapshotMarkdown.filePath,
-                    currentDirectory: currentDirectory
-               ) {
+               let projectRoot = restoredNoteProjectRoot {
                 restorePath = CmuxNoteStore.absoluteBodyPath(bodyPath: noteBodyPath, projectRoot: projectRoot)
-            } else if let rawSlug = snapshotMarkdown.noteSlug,
-               let slug = try? NoteSupport.validateSlug(rawSlug),
-               let projectRoot = NoteSupport.restoredProjectRoot(
-                    forStoredNotePath: snapshotMarkdown.filePath,
-                    currentDirectory: currentDirectory
-               ) {
+            } else if let slug = restoredNoteSlug,
+               let projectRoot = restoredNoteProjectRoot {
                 restorePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
             } else {
                 restorePath = snapshotMarkdown.filePath
@@ -1818,8 +1824,9 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if let rawSlug = snapshotMarkdown.noteSlug,
-               let slug = try? NoteSupport.validateSlug(rawSlug) {
+            if let slug = restoredNoteSlug,
+               let projectRoot = restoredNoteProjectRoot,
+               NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
                 markdownPanel.markAsProjectNote(
                     slug: slug,
                     id: snapshotMarkdown.noteID,

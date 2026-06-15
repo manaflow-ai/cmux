@@ -523,6 +523,30 @@ import Testing
         #expect(store.move(sourcePath: note, intoFolder: sub) != nil)
     }
 
+    @Test @MainActor func storeMutationsRejectHiddenNotesMetadata() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-meta"
+        )
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-meta"
+        )
+        let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
+        let index = (notesDir as NSString).appendingPathComponent("index.json")
+        let workspaceMarker = (root as NSString).appendingPathComponent(NotesTreeStorage.workspaceMarkerName)
+        let hidden = (root as NSString).appendingPathComponent(".hidden.md")
+        try write("{}", to: index)
+        try write("{}", to: workspaceMarker)
+        try write("secret", to: hidden)
+
+        #expect(store.move(sourcePath: index, intoFolder: root) == nil)
+        #expect(store.rename(path: workspaceMarker, toName: "renamed") == nil)
+        store.delete(path: hidden)
+        #expect(fm.fileExists(atPath: index))
+        #expect(fm.fileExists(atPath: workspaceMarker))
+        #expect(fm.fileExists(atPath: hidden))
+    }
+
     /// An indexed note filed into the tree must keep its index record through
     /// later tree moves, folder renames, and deletes — regression for raw
     /// FileManager tree operations silently orphaning `index.json` bodyPaths.

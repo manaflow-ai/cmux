@@ -418,6 +418,20 @@ struct NotesTreePanelView: NSViewRepresentable {
             return walk(store.rootNodes)
         }
 
+        private func moveSource(from pasteboard: NSPasteboard) -> (path: String, node: NotesTreeNode)? {
+            guard let source = pasteboard.string(forType: NotesTreePanelView.movePasteboardType),
+                  let node = findNode(path: source),
+                  !node.isVirtual,
+                  store.isMutablePath(node.path)
+            else { return nil }
+            switch node.kind {
+            case .note, .folder, .sessionFolder:
+                return (node.path, node)
+            case .terminalFolder, .pastFolder:
+                return nil
+            }
+        }
+
         // MARK: Drag-to-move
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
@@ -492,22 +506,22 @@ struct NotesTreePanelView: NSViewRepresentable {
             let destNode = dropDestination(for: item, in: outlineView)
             if let destNode, case .pastFolder = destNode.kind { return [] }
             if let destNode, case .terminalFolder = destNode.kind {
-                guard let source = pb.string(forType: NotesTreePanelView.movePasteboardType),
-                      source.lowercased().hasSuffix(".md") else { return [] }
+                guard let source = moveSource(from: pb),
+                      case .note = source.node.kind else { return [] }
                 outlineView.setDropItem(destNode, dropChildIndex: NSOutlineViewDropOnItemIndex)
                 return .move
             }
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.
-            if let source = pb.string(forType: NotesTreePanelView.movePasteboardType) {
+            if let source = moveSource(from: pb) {
                 // A session folder must not be nested under another session.
-                if pb.string(forType: NotesTreePanelView.sessionFlagPasteboardType) == "1",
+                if case .sessionFolder = source.node.kind,
                    let destNode, case .sessionFolder = destNode.kind {
                     return []
                 }
-                if NotesTreeStorage.isWithin(child: destFolder, orEqualTo: source) { return [] }
-                if (source as NSString).deletingLastPathComponent == (destFolder as NSString).standardizingPath {
+                if NotesTreeStorage.isWithin(child: destFolder, orEqualTo: source.path) { return [] }
+                if (source.path as NSString).deletingLastPathComponent == (destFolder as NSString).standardizingPath {
                     return []
                 }
                 outlineView.setDropItem(destNode, dropChildIndex: NSOutlineViewDropOnItemIndex)
@@ -534,9 +548,10 @@ struct NotesTreePanelView: NSViewRepresentable {
             let destNode = dropDestination(for: item, in: outlineView)
             if let destNode, case .pastFolder = destNode.kind { return false }
             if let destNode, case .terminalFolder(let terminal) = destNode.kind {
-                guard let source = pb.string(forType: NotesTreePanelView.movePasteboardType),
+                guard let source = moveSource(from: pb),
+                      case .note = source.node.kind,
                       let target = onResolveTerminalNoteTarget(terminal),
-                      let attached = store.attachNote(path: source, toTerminal: terminal, target: target)
+                      let attached = store.attachNote(path: source.path, toTerminal: terminal, target: target)
                 else { return false }
                 reloadNow()
                 selectRow(forPath: attached)
@@ -556,13 +571,11 @@ struct NotesTreePanelView: NSViewRepresentable {
             // within the tree we move it rather than duplicate it). Index-owned
             // flat notes route through the flat store so the index's bodyPath
             // moves with the file.
-            if let source = pb.string(forType: NotesTreePanelView.movePasteboardType) {
-                let treeOwnedSource = store.resolvedRootPath.map {
-                    NotesTreeStorage.isWithin(child: source, orEqualTo: $0)
-                } ?? false
+            if let source = moveSource(from: pb) {
+                let treeOwnedSource = isTreeOwned(source.node)
                 let moved = treeOwnedSource
-                    ? store.move(sourcePath: source, intoFolder: destFolder)
-                    : store.moveFlatNote(path: source, intoFolder: destFolder)
+                    ? store.move(sourcePath: source.path, intoFolder: destFolder)
+                    : store.moveFlatNote(path: source.path, intoFolder: destFolder)
                 guard let moved else { return false }
                 reloadNow()
                 selectRow(forPath: moved)

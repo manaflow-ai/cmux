@@ -1111,7 +1111,21 @@ final class NotesTreeStore: ObservableObject {
         let standardized = (path as NSString).standardizingPath
         if standardized == (notesDir as NSString).standardizingPath { return false }
         if let root = resolvedRootPath, standardized == (root as NSString).standardizingPath { return false }
+        if Self.containsProtectedNotesComponent(path: standardized, notesDir: notesDir) { return false }
         return true
+    }
+
+    private static func containsProtectedNotesComponent(path: String, notesDir: String) -> Bool {
+        let root = (notesDir as NSString).standardizingPath
+        guard path.hasPrefix(root + "/") else { return false }
+        let relative = path.dropFirst(root.count + 1)
+        return relative.split(separator: "/").contains { component in
+            let name = String(component)
+            return name.hasPrefix(".") ||
+                name == "index.json" ||
+                name == NotesTreeStorage.workspaceMarkerName ||
+                name == NotesTreeStorage.sessionMarkerName
+        }
     }
 
     /// Ensure the workspace root exists and return the mutation target directory.
