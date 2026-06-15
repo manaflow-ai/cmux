@@ -14,6 +14,7 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 ## Contents
 
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
+- `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 
 ## Usage
 

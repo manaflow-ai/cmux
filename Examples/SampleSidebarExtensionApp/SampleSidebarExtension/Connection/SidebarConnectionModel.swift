@@ -6,24 +6,27 @@ import CmuxExtensionKit
 @Observable
 @MainActor
 final class SidebarConnectionModel {
-    private(set) var snapshot: CMUXSidebarSnapshot?
+    private(set) var snapshot: CmuxSidebarSnapshot?
     private(set) var errorText: String?
 
     @ObservationIgnored
     private var host: CmuxSidebarHost?
 
-    @ObservationIgnored
-    private var cmux: CmuxHost?
-
     func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
-        cmux = context.cmux
         errorText = nil
     }
 
-    func connectionErrorDidChange(_ message: String?) {
-        errorText = message.map(Self.localizedHostMessage)
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
+        switch status {
+        case .connected:
+            errorText = nil
+        case .waitingForHost:
+            errorText = String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux")
+        case .error(let message):
+            errorText = message
+        }
     }
 
     var insights: SidebarInsightModel? {
@@ -34,77 +37,52 @@ final class SidebarConnectionModel {
         host?.refresh()
     }
 
-    func selectWorkspace(_ id: UUID) {
+    func selectWorkspace(_ id: UUID) async {
         guard let host else { return }
-        Task { @MainActor in
-            let result = await host.selectWorkspace(id)
-            if result.accepted {
-                errorText = nil
-            } else {
-                errorText = result.message ?? String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
-            }
-        }
+        await apply { try await host.selectWorkspace(id) }
     }
 
-    func selectSurface(workspaceID: UUID, surfaceID: UUID) {
+    func selectSurface(workspaceID: UUID, surfaceID: UUID) async {
         guard let host else { return }
-        Task { @MainActor in
-            let result = await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID)
-            apply(result)
-        }
+        await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
     }
 
-    func selectPreviousWorkspace() {
-        guard let cmux else { return }
-        Task { @MainActor in
-            apply(await cmux.selectPreviousWorkspace())
-        }
-    }
-
-    func selectNextWorkspace() {
-        guard let cmux else { return }
-        Task { @MainActor in
-            apply(await cmux.selectNextWorkspace())
-        }
-    }
-
-    func selectPreviousSurface() {
+    func selectPreviousWorkspace() async {
         guard let host else { return }
-        Task { @MainActor in
-            apply(await host.selectPreviousSurface())
-        }
+        await apply { try await host.selectPreviousWorkspace() }
     }
 
-    func selectNextSurface() {
+    func selectNextWorkspace() async {
         guard let host else { return }
-        Task { @MainActor in
-            apply(await host.selectNextSurface())
-        }
+        await apply { try await host.selectNextWorkspace() }
     }
 
-    func createTerminalSurface(in workspaceID: UUID?) {
+    func selectPreviousSurface() async {
         guard let host else { return }
-        Task { @MainActor in
-            apply(await host.createTerminalSurface(in: workspaceID))
-        }
+        await apply { try await host.selectPreviousSurface() }
     }
 
-    private func apply(_ result: CMUXExtensionActionResult) {
-        if result.accepted {
+    func selectNextSurface() async {
+        guard let host else { return }
+        await apply { try await host.selectNextSurface() }
+    }
+
+    func createTerminalSurface(in workspaceID: UUID?) async {
+        guard let host else { return }
+        await apply { try await host.createTerminalSurface(in: workspaceID) }
+    }
+
+    private func apply(_ operation: () async throws -> Void) async {
+        do {
+            try await operation()
             errorText = nil
-        } else {
-            errorText = result.message ?? String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
+        } catch CmuxSidebarActionError.rejected(let message) {
+            errorText = message
+        } catch CmuxSidebarActionError.cancelled {
+            errorText = nil
+        } catch {
+            errorText = String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
         }
     }
 
-    private static func localizedHostMessage(_ message: String) -> String {
-        switch message {
-        case "Waiting for cmux":
-            return String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux")
-        case "cmux did not send a workspace snapshot":
-            return String(localized: "sampleSidebar.emptySnapshot", defaultValue: "cmux did not send a workspace snapshot")
-        default:
-            return message
-        }
-    }
 }

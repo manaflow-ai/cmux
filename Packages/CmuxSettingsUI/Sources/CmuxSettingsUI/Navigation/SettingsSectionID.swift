@@ -14,7 +14,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case app
     case terminal
     case textBox
+    /// Mobile pairing and sync settings.
+    case mobile
     case sidebarAppearance
+    /// User/agent-authored custom sidebars: enable gate and renderer choice.
+    case customSidebars
     case betaFeatures
     case automation
     case browser
@@ -34,7 +38,9 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "App"
         case .terminal: return "Terminal"
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .sidebarAppearance: return "Sidebar"
+        case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
         case .browser: return "Browser"
@@ -54,7 +60,9 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
+        case .mobile: return "iphone"
         case .sidebarAppearance: return "sidebar.left"
+        case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
         case .browser: return "globe"
@@ -76,8 +84,10 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
+        case .mobile: return "ios iphone ipad mobile pairing local network sync"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
-        case .betaFeatures: return "beta experimental unstable dock right sidebar"
+        case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
+        case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini"
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"

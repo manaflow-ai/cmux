@@ -21,12 +21,11 @@ public struct SocketControlSettings {
     public static let launchTagEnvKey = "CMUX_TAG"
     /// Base bundle identifier shared by all debug builds.
     public static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
-    private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     /// Legacy stable socket path used before the Application Support location.
     public static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
 
-    /// The stable build's default socket path (Application Support, falling back to `/tmp`).
+    /// The stable build's default socket path (within ``CmuxStateDirectory``, falling back to `/tmp`).
     public static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
     }
@@ -365,7 +364,7 @@ public struct SocketControlSettings {
         )
     }
 
-    /// The per-user stable socket path (`cmux-<uid>.sock` in Application Support, `/tmp` fallback).
+    /// The per-user stable socket path (`cmux-<uid>.sock` in ``CmuxStateDirectory``, `/tmp` fallback).
     public static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
         stableSocketDirectoryURL()?
             .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
@@ -447,15 +446,18 @@ public struct SocketControlSettings {
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 
-    /// The Application Support `cmux` directory, if it can be resolved.
+    /// The directory holding the control socket and its marker files.
+    ///
+    /// Resolves to ``CmuxStateDirectory`` (`~/.local/state/cmux`) rather than
+    /// Application Support: the separately-signed `cmux` CLI connects to this
+    /// socket on every agent hook, and a different-identity process reaching into
+    /// the app's Application Support data triggers the macOS Sequoia "access data
+    /// from other apps" prompt (https://github.com/manaflow-ai/cmux/issues/5146).
     public static func stableSocketDirectoryURL(fileManager: FileManager = .default) -> URL? {
-        guard let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return appSupportDirectory.appendingPathComponent(socketDirectoryName, isDirectory: true)
+        CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
     }
 
-    /// The Application Support stable socket file URL, if it can be resolved.
+    /// The stable control socket file URL (within ``CmuxStateDirectory``), if it can be resolved.
     public static func stableSocketFileURL(fileManager: FileManager = .default) -> URL? {
         stableSocketDirectoryURL(fileManager: fileManager)?
             .appendingPathComponent(stableSocketFileName, isDirectory: false)

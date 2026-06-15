@@ -1,18 +1,25 @@
+import CmuxFileWatch
 import Foundation
 
 /// Typed read/write/observe access to settings persisted in the cmux JSON config file.
 ///
-/// The store is an `actor`. All reads, writes, and reset are `async`. There
-/// are no locks; cross-thread access is serialized through actor isolation.
-/// The store only accepts ``JSONKey``; a ``DefaultsKey`` is rejected at
-/// compile time. There are no runtime store/key-mismatch traps.
+/// The store is an `actor`. All reads, writes, and reset are `async`, serialized
+/// through actor isolation. The store only accepts ``JSONKey``; a ``DefaultsKey``
+/// is rejected at compile time. There are no runtime store/key-mismatch traps.
+///
+/// For the rare caller that has no `await` available — e.g. a `@MainActor`
+/// window-creation hook that must read a value before its first suspension point
+/// — ``snapshotValue(for:)`` is a `nonisolated` synchronous read. It reads the
+/// (small) config file directly rather than sharing the actor's cache, so it
+/// needs no lock and always reflects what is on disk. Callers that *can* `await`
+/// should use ``value(for:)``, which is backed by the in-memory cache.
 ///
 /// JSONC (`// line` and `/* block */` comments, trailing commas) is tolerated
 /// on read via the injected ``JSONCSanitizer``. Writes round-trip through
 /// `JSONSerialization` with sorted, pretty-printed output; comment-preserving
 /// edits are a follow-up.
 ///
-/// Observation uses a single ``JSONConfigFileWatcher`` owned by the store
+/// Observation uses a single ``CmuxFileWatch/FileWatcher`` owned by the store
 /// and fans out file-change events to per-subscriber `AsyncStream<Void>`
 /// signals. One file event causes exactly one cache invalidation and one
 /// notification per active subscriber, regardless of how many keys are being
@@ -32,7 +39,7 @@ public actor JSONConfigStore {
     public nonisolated let fileURL: URL
 
     private let sanitizer: JSONCSanitizer
-    private let watcher: JSONConfigFileWatcher
+    private let watcher: FileWatcher
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
@@ -52,7 +59,7 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
-        self.watcher = JSONConfigFileWatcher(fileURL: fileURL)
+        self.watcher = FileWatcher(path: fileURL.path)
     }
 
     deinit {
@@ -62,6 +69,22 @@ public actor JSONConfigStore {
     /// Returns the current value for the key.
     public func value<Value>(for key: JSONKey<Value>) -> Value {
         let root = loadedRoot()
+        let raw = key.path.lookup(in: root)
+        return Value.decodeFromJSON(raw) ?? key.defaultValue
+    }
+
+    /// Synchronously returns the current value for `key`, read directly from the
+    /// config file without hopping onto the actor.
+    ///
+    /// Use this only where an `await` is impossible — for example a `@MainActor`
+    /// window-creation hook that must read a value before its first suspension
+    /// point. It re-reads the (small) config file each call rather than sharing
+    /// the actor's cache, so it stays lock-free and always reflects what is on
+    /// disk, at the cost of a file read per call. Writes are atomic (temp +
+    /// rename), so a concurrent read sees either the whole old or whole new file.
+    /// Callers that *can* `await` should prefer ``value(for:)``, which is cached.
+    public nonisolated func snapshotValue<Value>(for key: JSONKey<Value>) -> Value {
+        let root = (try? readFromDisk()) ?? [:]
         let raw = key.path.lookup(in: root)
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
@@ -152,7 +175,7 @@ public actor JSONConfigStore {
     }
 
     /// Spawns the watcher-consumer task on the first subscribe. The task
-    /// drains ``JSONConfigFileWatcher/events`` and fans out to every
+    /// drains the ``CmuxFileWatch/FileWatcher`` events and fans out to every
     /// registered subscriber after invalidating the cache.
     private func ensureWatcherTask() {
         guard watcherTask == nil else { return }
@@ -180,7 +203,12 @@ public actor JSONConfigStore {
         return cachedRoot
     }
 
-    private func readFromDisk() throws -> [String: Any] {
+    /// Reads and decodes the config root from disk. A missing or empty file
+    /// decodes to an empty root; a present-but-unparseable file throws so
+    /// callers can refuse to overwrite it. `nonisolated` so the synchronous
+    /// ``snapshotValue(for:)`` can call it without hopping onto the actor; it
+    /// only touches the `nonisolated` `fileURL` and the `Sendable` `sanitizer`.
+    private nonisolated func readFromDisk() throws -> [String: Any] {
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)

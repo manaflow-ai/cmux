@@ -76,6 +76,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
+      {
+        id: "newBrowserWorkspace",
+        combos: [["⌥", "⌘", "N"]],
+        description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },
+        note: {
+          en: "like New Workspace, but the first surface is a browser pane with the address bar focused",
+          ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
+        },
+      },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
         id: "goToWorkspace",
@@ -169,6 +178,20 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "canvas",
+    titleKey: "canvas",
+    blurbKey: "canvasBlurb",
+    shortcuts: [
+      { id: "toggleCanvasLayout", combos: [["⌃", "⌘", "C"]], description: { en: "Toggle canvas layout", ja: "キャンバスレイアウトを切り替え" } },
+      { id: "canvasRevealFocusedPane", combos: [["⌃", "⌘", "R"]], description: { en: "Reveal focused pane", ja: "フォーカス中のペインを表示" } },
+      { id: "canvasOverview", combos: [["⌃", "⌘", "O"]], description: { en: "Toggle overview zoom", ja: "全体表示を切り替え" } },
+      { id: "canvasZoomIn", combos: [["⌥", "⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
+      { id: "canvasZoomOut", combos: [["⌥", "⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
+      { id: "canvasZoomReset", combos: [["⌥", "⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      { id: "canvasTidy", combos: [["⌃", "⌘", "T"]], description: { en: "Tidy panes into a grid", ja: "ペインをグリッドに整列" } },
+    ],
+  },
+  {
     id: "browser",
     titleKey: "browser",
     shortcuts: [
@@ -185,8 +208,32 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
       { id: "browserZoomReset", combos: [["⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      {
+        id: "markdownZoomIn",
+        combos: [["⌘", "="]],
+        description: { en: "Markdown viewer: zoom in", ja: "Markdownビューア: 拡大" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
+      {
+        id: "markdownZoomOut",
+        combos: [["⌘", "-"]],
+        description: { en: "Markdown viewer: zoom out", ja: "Markdownビューア: 縮小" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
+      {
+        id: "markdownZoomReset",
+        combos: [["⌘", "0"]],
+        description: { en: "Markdown viewer: actual size", ja: "Markdownビューア: 実寸表示" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
       { id: "toggleBrowserDeveloperTools", combos: [["⌥", "⌘", "I"]], description: { en: "Toggle browser developer tools", ja: "ブラウザ開発者ツールを切り替え" } },
       { id: "showBrowserJavaScriptConsole", combos: [["⌥", "⌘", "C"]], description: { en: "Show browser JavaScript console", ja: "ブラウザJavaScriptコンソールを表示" } },
+      {
+        id: "toggleBrowserFocusMode",
+        combos: [["⌥", "⌘", "↩"]],
+        description: { en: "Enter browser focus mode", ja: "ブラウザフォーカスモードに入る" },
+        note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
+      },
       {
         id: "toggleReactGrab",
         combos: [["⌘", "⇧", "G"]],
@@ -202,6 +249,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     id: "diff-viewer",
     titleKey: "diffViewer",
     shortcuts: [
+      {
+        id: "openDiffViewer",
+        combos: [["⌃", "⌘", "⇧", "D"]],
+        description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
+      },
       {
         id: "diffViewerScrollDown",
         combos: [["J"]],

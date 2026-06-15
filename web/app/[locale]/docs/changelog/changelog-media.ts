@@ -26,6 +26,161 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.16": {
+    title:
+      "Freeform 2D Canvas, AI Auto-Naming, Per-Workspace Env Vars, Left/Right Option as Alt",
+    features: [
+      {
+        title: "Freeform 2D Canvas Layout",
+        description:
+          "Arrange a workspace's panes anywhere on a zoomable 2D canvas instead of a fixed split grid, with a polished minimap for navigation.",
+      },
+      {
+        title: "AI Auto-Naming for Workspaces and Tabs",
+        description:
+          "Opt in to have cmux name your workspaces and tabs from the agent conversation running inside them, so a wall of sessions stays readable at a glance.",
+      },
+      {
+        title: "Per-Workspace Environment Variables",
+        description:
+          "Set environment variables on a workspace and every shell it spawns inherits them, so per-project configuration no longer has to live in your shell profile.",
+      },
+      {
+        title: "Left and Right Option as Alt",
+        description:
+          "macos-option-as-alt now distinguishes the left and right Option keys, sending sided modifier bits to the terminal. One of our most-requested terminal fixes.",
+      },
+      {
+        title: "iOS Beta Polish",
+        description:
+          "A redesigned workspace list with groups, unread dots, and last-activity previews; smoother terminal scrolling; cross-device notification dismiss-sync with an authoritative unread badge; and a TestFlight push-notification fix.",
+      },
+    ],
+  },
+  "0.64.15": {
+    title:
+      "Diff Viewer Review Comments, Rebindable ⌘1-9 + Shortcut When-Clauses, In-Process Custom Sidebars, iOS Terminal Composer",
+    features: [
+      {
+        title: "Review Comments in the Diff Viewer",
+        description:
+          "Comment on changed lines in the diff viewer, persisted per repo. Attach the comment set to a terminal TextBox to hand structured review feedback straight to an agent.",
+      },
+      {
+        title: "Rebindable Shortcuts with When-Clauses",
+        description:
+          "The Select Workspace and Surface 1…9 shortcuts (⌘1-9) can finally be rebound, and every shortcut supports VS Code-style `when` context clauses so a binding only applies where you want it.",
+      },
+      {
+        title: "Custom Sidebars, In-Process by Default",
+        description:
+          "Custom sidebars now render in-process by default with a dedicated Settings section, instant toggling, live-resize repaint, and example sidebars to start from.",
+      },
+      {
+        title: "iOS Beta: Composer, Toolbar, Multi-Mac",
+        description:
+          "An iMessage-style terminal composer with per-terminal drafts, a customizable terminal toolbar, a multi-Mac host switcher, clipboard image paste, and notification forwarding only while you're away from the Mac.",
+      },
+      {
+        title: "Stability Under Load",
+        description:
+          "Fixes for the macOS 26 launch hang, a macOS 27 beta launch crash, SSH typing lag, sidebar livelocks with many workspaces, white-on-white light themes, and a UI freeze when closing tabs.",
+      },
+    ],
+  },
+  "0.64.14": {
+    title:
+      "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",
+    features: [
+      {
+        title: "iPhone Companion App (Beta)",
+        description:
+          "Pair an iPhone with your Mac from the new Mobile Connect window and attach to your terminals from your phone, with opt-in forwarding of terminal notifications. The iOS beta ships on TestFlight as cmux BETA.",
+      },
+      {
+        title: "Cross-Window Workspace Drag",
+        description:
+          "Drag a workspace out of one window's sidebar and drop it into another window's sidebar to move it, including grouped workspaces.",
+      },
+      {
+        title: "Out-of-Process Custom Sidebars",
+        description:
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The omnibar selects the whole URL on the first focusing click (Chrome parity), browser chrome scales with the tab bar font size, a typing beachball with large histories is fixed, and hidden panes no longer stop actively-playing audio or video.",
+      },
+      {
+        title: "Agent Session Fixes",
+        description:
+          "Claude resume keeps cmux hooks attached so notifications and status tracking survive resumes, Agent Hibernation works for node-backed Claude sessions, and Codex resume preserves CODEX_HOME and pane order.",
+      },
+    ],
+  },
+  "0.64.13": {
+    title:
+      "Browser Focus Mode, SSH Agent Forwarding, Custom Sidebars (Beta), Major Stability Fixes",
+    features: [
+      {
+        title: "Browser Focus Mode",
+        description:
+          "Browser panes get a focus mode that strips away the surrounding chrome so a single page can take over the pane while you read or work in it.",
+      },
+      {
+        title: "SSH Agent Forwarding",
+        description:
+          "`cmux ssh` now forwards your local SSH agent, so remote sessions can use your local keys for git pushes and further hops without copying private keys onto the remote.",
+      },
+      {
+        title: "Vibe-Codable Custom Sidebars (Beta)",
+        description:
+          "Build your own sidebar with a runtime Swift interpreter, behind the Beta Features flag. Edit the sidebar source, validate it from the CLI, and reload it live without rebuilding the app.",
+      },
+      {
+        title: "Browser Mouse Back & Forward",
+        description:
+          "The browser now responds to the dedicated back and forward buttons on a mouse, so side-button navigation works the way it does in a normal browser.",
+      },
+      {
+        title: "Major Stability & Performance Fixes",
+        description:
+          "Fixed a settings-observation leak that grew the app to 4.4 GB over a day, a browser render loop burning ~39% of the main thread on every CoreAnimation commit, a WebKit crash after sleep/wake, a 100% CPU hang in the Markdown and file-preview editor, and child processes launching under Rosetta on Apple Silicon.",
+      },
+    ],
+  },
+  "0.64.12": {
+    title:
+      "Diff Viewer Shortcut, Markdown Zoom, Prompt & Remote SSH Fixes",
+    features: [
+      {
+        title: "Diff Viewer Shortcut",
+        description:
+          "Open the diff viewer with a keyboard shortcut, configurable and editable in Settings alongside every other cmux shortcut.",
+      },
+      {
+        title: "Markdown Viewer Zoom",
+        description:
+          "The Markdown viewer gains font size and zoom controls, so you can scale rendered docs up or down without leaving the pane.",
+      },
+      {
+        title: "Feed Behind Beta Features",
+        description:
+          "The Feed is now gated behind Beta Features and off by default, mirroring how the Dock is gated, so it only appears when you opt in.",
+      },
+      {
+        title: "Prompt & Remote SSH Fixes",
+        description:
+          "Starship and other custom bash prompts no longer go static: the prompt bootstrap composes with your existing PROMPT_COMMAND instead of overwriting it. And `cmux ssh` now reports remote PTY allocation failures loudly instead of failing silently when a plain ssh would have worked.",
+      },
+      {
+        title: "Restored Sidebar Views & Scrollback Colors",
+        description:
+          "The right-click sidebar view switcher and built-in views (Default Workspaces, Project Worktrees, and others) are back after a 0.64.11 regression. Restored session scrollback no longer keeps a previous theme's colors, fixing white-on-white history after a theme change.",
+      },
+    ],
+  },
   "0.64.11": {
     title:
       "Workspace Groups, Focus & Recently Closed History, Agent Hibernation, Detachable SSH",

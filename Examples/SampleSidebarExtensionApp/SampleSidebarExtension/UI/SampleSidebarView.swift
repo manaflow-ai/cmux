@@ -62,7 +62,7 @@ struct SampleSidebarView: View {
     private func actionBar(_ insights: SidebarInsightModel) -> some View {
         HStack(spacing: 6) {
             Button {
-                model.selectPreviousWorkspace()
+                Task { @MainActor in await model.selectPreviousWorkspace() }
             } label: {
                 Image(systemName: "chevron.up")
                     .frame(width: 18, height: 18)
@@ -71,7 +71,7 @@ struct SampleSidebarView: View {
             .help(String(localized: "sampleSidebar.previousWorkspace", defaultValue: "Previous workspace"))
 
             Button {
-                model.selectNextWorkspace()
+                Task { @MainActor in await model.selectNextWorkspace() }
             } label: {
                 Image(systemName: "chevron.down")
                     .frame(width: 18, height: 18)
@@ -83,7 +83,7 @@ struct SampleSidebarView: View {
                 .frame(height: 18)
 
             Button {
-                model.selectPreviousSurface()
+                Task { @MainActor in await model.selectPreviousSurface() }
             } label: {
                 Image(systemName: "chevron.left")
                     .frame(width: 18, height: 18)
@@ -92,7 +92,7 @@ struct SampleSidebarView: View {
             .help(String(localized: "sampleSidebar.previousSurface", defaultValue: "Previous surface"))
 
             Button {
-                model.selectNextSurface()
+                Task { @MainActor in await model.selectNextSurface() }
             } label: {
                 Image(systemName: "chevron.right")
                     .frame(width: 18, height: 18)
@@ -101,7 +101,7 @@ struct SampleSidebarView: View {
             .help(String(localized: "sampleSidebar.nextSurface", defaultValue: "Next surface"))
 
             Button {
-                model.createTerminalSurface(in: insights.selectedWorkspace?.id)
+                Task { @MainActor in await model.createTerminalSurface(in: insights.selectedWorkspace?.id) }
             } label: {
                 Image(systemName: "plus.rectangle.on.rectangle")
                     .frame(width: 18, height: 18)
@@ -132,9 +132,11 @@ struct SampleSidebarView: View {
                 ForEach(insights.allWorkspaces) { insight in
                     WorkspaceInsightRow(
                         insight: insight,
-                        action: { model.selectWorkspace(insight.id) },
+                        action: {
+                            Task { @MainActor in await model.selectWorkspace(insight.id) }
+                        },
                         surfaceAction: { surfaceID in
-                            model.selectSurface(workspaceID: insight.id, surfaceID: surfaceID)
+                            Task { @MainActor in await model.selectSurface(workspaceID: insight.id, surfaceID: surfaceID) }
                         }
                     )
                 }

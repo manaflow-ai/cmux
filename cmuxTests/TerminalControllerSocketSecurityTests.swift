@@ -1,6 +1,9 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
+import CmuxTerminal
+import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -257,6 +260,139 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
+    func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes"],
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+    }
+
+    func testRemoteConfigureExplicitEmptyAgentSocketSuppressesForwardAgentFallback() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes"],
+                "ssh_auth_sock": "",
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
+    func testRemoteConfigureUsesLastForwardAgentOption() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes", "ForwardAgent=no"],
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
     func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",
@@ -315,6 +451,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
+        let socketPath = makeSocketPath("alias-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = ["window": "window:2"]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_sessions",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_sessions",
+            params: params,
+            to: socketPath
+        )
+        try assertUnsupportedWorkspaceWindowAlias(workerEnvelope)
+    }
+
     func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
         let socketPath = makeSocketPath("heartbeat-worker")
         let tabManager = TabManager()
@@ -344,8 +508,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
         case "system.capabilities":
             let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
-            XCTAssertTrue(methods.contains("system.ping"), file: file, line: line)
-            XCTAssertTrue(methods.contains("system.capabilities"), file: file, line: line)
+            let advertisedMethods = Set(methods)
+            let expectedMethods: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "mobile.host.status",
+                "mobile.attach_ticket.create",
+                "mobile.workspace.list",
+                "workspace.list",
+                "workspace.create",
+                "mobile.terminal.create",
+                "terminal.create",
+                "mobile.terminal.input",
+                "terminal.input",
+                "mobile.terminal.replay",
+                "terminal.replay",
+                "mobile.terminal.viewport",
+                "terminal.viewport",
+                "mobile.events.subscribe",
+                "mobile.events.unsubscribe",
+            ]
+            XCTAssertTrue(
+                expectedMethods.isSubset(of: advertisedMethods),
+                "Missing capabilities: \(expectedMethods.subtracting(advertisedMethods).sorted())",
+                file: file,
+                line: line
+            )
         default:
             XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
         }
@@ -946,17 +1134,17 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let defaults = UserDefaults.standard
-        let previousSuppressionDefault = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
             if let previousSuppressionDefault {
-                defaults.set(previousSuppressionDefault, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousSuppressionDefault, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
         }
 
@@ -1373,6 +1561,19 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
     }
 
+    private func assertUnsupportedWorkspaceWindowAlias(
+        _ envelope: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(envelope["ok"] as? Bool, false, file: file, line: line)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(error["code"] as? String, "invalid_params", file: file, line: line)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(data["unsupported_param"] as? String, "window", file: file, line: line)
+        XCTAssertEqual(data["supported_param"] as? String, "window_id", file: file, line: line)
+    }
+
     private nonisolated func sendV2Request(
         method: String,
         params: [String: Any],
@@ -1496,6 +1697,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ])
         }
         return line
+    }
+
+    private func makeExistingAgentSocketPath() throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let url = directory.appendingPathComponent("agent.sock")
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: url.path, contents: Data()),
+            "Expected to create \(url.path)"
+        )
+        return url.path
     }
 
     private nonisolated func posixError(_ operation: String) -> NSError {

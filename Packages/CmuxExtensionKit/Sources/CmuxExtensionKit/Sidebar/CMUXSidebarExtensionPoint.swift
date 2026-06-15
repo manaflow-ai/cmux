@@ -1,15 +1,16 @@
 import Foundation
 
 /// Public identifiers for the CMUX sidebar ExtensionKit surface.
-public enum CMUXSidebarExtensionPoint {
+@_spi(CmuxHostTransport)
+public enum CmuxSidebarExtensionPoint {
     /// Base extension point identifier third-party sidebar extensions register against.
     ///
     /// Production builds use this value verbatim. Dev/dogfood builds may scope the point
-    /// per build tag (e.g. `com.manaflow.cmux.sidebar.my-tag`) so that concurrent debug
+    /// per build tag (e.g. `com.cmuxterm.app.debug.my-tag.cmux.sidebar`) so that concurrent debug
     /// builds and their bundled sample extensions don't share one extension point. The
     /// per-tag value is injected at build time (see ``identifierInfoPlistKey``) and never
     /// committed to source.
-    public static let baseIdentifier = "com.manaflow.cmux.sidebar"
+    public static let baseIdentifier = "com.cmuxterm.app.cmux.sidebar"
 
     /// Info.plist key a bundle may declare to override the extension point identifier.
     ///

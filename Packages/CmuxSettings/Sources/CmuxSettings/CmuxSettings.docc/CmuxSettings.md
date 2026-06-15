@@ -46,7 +46,6 @@ principles:
 
 ### JSON config internals
 
-- ``JSONConfigFileWatcher``
 - ``JSONCSanitizer``
 - ``JSONPath``
 - ``CmuxConfigLocation``

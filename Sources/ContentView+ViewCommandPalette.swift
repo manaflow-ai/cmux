@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 
 extension ContentView {

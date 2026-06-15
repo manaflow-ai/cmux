@@ -1,16 +1,14 @@
 import { getTranslations } from "next-intl/server";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
 import { SiteHeader } from "../../components/site-header";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../../../lib/download";
 
 type SearchValue = string | string[] | undefined;
 type SearchParams = Record<string, SearchValue>;
 
 type LinkKind = "ssh" | "prompt" | "rules";
-
-const downloadURL =
-  "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg";
 
 const definitions: Record<
   LinkKind,
@@ -327,7 +325,12 @@ export default async function DeeplinkPage({
       <SiteHeader section={t("section")} />
       <main className="mx-auto w-full max-w-2xl px-6 py-12">
         <div className="mb-8 flex items-center gap-4">
-          <Image
+          {/* Plain <img> (raw PNG), not next/image, on purpose — same
+              optimizer-bypass as the download confirmation hero (issue #5819).
+              The small logo gains nothing from /_next/image, and the optimizer
+              indirection broke the logo in Safari (WebKit `Vary: Accept` cache
+              mishandling). Matches the plain <img> the site header uses. */}
+          <img
             src="/logo.png"
             alt=""
             width={44}
@@ -353,12 +356,12 @@ export default async function DeeplinkPage({
             >
               {t("open")}
             </a>
-            <a
-              href={downloadURL}
+            <Link
+              href={DOWNLOAD_CONFIRMATION_HREF}
               className="inline-flex items-center rounded-full border border-border px-5 py-2.5 text-[15px] font-medium transition-colors hover:bg-code-bg"
             >
               {t("download")}
-            </a>
+            </Link>
           </div>
         ) : (
           <div className="mb-6 rounded-lg border border-border bg-code-bg px-4 py-3 text-[14px] text-muted">

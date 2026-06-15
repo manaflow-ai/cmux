@@ -4,23 +4,22 @@ import SwiftUI
 
 @main
 @Observable
-@MainActor
-final class TabsVisibleSidebarExtension: CmuxSidebarExtension {
-    static let manifest = CMUXExtensionManifest(
+final class TabsVisibleSidebarExtension: @MainActor CmuxSidebarExtension {
+    static let manifest = CmuxExtensionManifest(
         id: "co.manaflow.TabsVisibleSidebar.Extension",
-        displayName: "Tabs Visible Sidebar",
-        requestedScopes: [
+        displayName: String(localized: "tabsVisible.manifest.displayName", defaultValue: "Tabs Visible Sidebar"),
+        readScopes: [
             .workspaceList,
             .workspaceMetadata,
             .surfaceMetadata,
         ],
-        requestedActionScopes: [
+        actionScopes: [
             .selectWorkspace,
             .selectSurface,
         ]
     )
 
-    private(set) var snapshot: CMUXSidebarSnapshot?
+    private(set) var snapshot: CmuxSidebarSnapshot?
     private(set) var errorText: String?
     var expandedWorkspaceIDs: Set<UUID> = []
 
@@ -43,15 +42,22 @@ final class TabsVisibleSidebarExtension: CmuxSidebarExtension {
         }
     }
 
-    func connectionErrorDidChange(_ message: String?) {
-        errorText = message
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
+        switch status {
+        case .connected:
+            errorText = nil
+        case .waitingForHost:
+            errorText = String(localized: "tabsVisible.waitingForHost", defaultValue: "Waiting for cmux")
+        case .error(let message):
+            errorText = message
+        }
     }
 
     func selectWorkspace(_ workspaceID: UUID) {
         guard let host else { return }
         expandedWorkspaceIDs.insert(workspaceID)
         Task { @MainActor in
-            apply(await host.selectWorkspace(workspaceID))
+            await apply { try await host.selectWorkspace(workspaceID) }
         }
     }
 
@@ -59,15 +65,18 @@ final class TabsVisibleSidebarExtension: CmuxSidebarExtension {
         guard let host else { return }
         expandedWorkspaceIDs.insert(workspaceID)
         Task { @MainActor in
-            apply(await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID))
+            await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
         }
     }
 
-    private func apply(_ result: CMUXExtensionActionResult) {
-        if result.accepted {
+    private func apply(_ operation: () async throws -> Void) async {
+        do {
+            try await operation()
             errorText = nil
-        } else {
-            errorText = result.message ?? String(localized: "tabsVisible.actionDenied", defaultValue: "cmux did not allow that action")
+        } catch CmuxSidebarActionError.rejected(let message) {
+            errorText = message
+        } catch {
+            errorText = String(localized: "tabsVisible.actionDenied", defaultValue: "cmux did not allow that action")
         }
     }
 }

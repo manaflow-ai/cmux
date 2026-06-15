@@ -13,11 +13,12 @@ public enum SocketPathVariant: Equatable, Sendable {
     /// A local debug/dev build, optionally tag-scoped by `slug`.
     case dev(slug: String?)
 
-    /// The Application Support marker file name that records this variant's last socket path.
-    public var appSupportFileName: String {
+    /// The marker file name (within ``CmuxStateDirectory``) that records this
+    /// variant's last socket path.
+    public var markerFileName: String {
         switch self {
         case .stable:
-            return SocketPathMarkerFiles.stableAppSupportFileName
+            return SocketPathMarkerFiles.stableMarkerFileName
         case .nightly(let slug):
             if let slug = Self.sanitizedSlug(slug) {
                 return "nightly-\(slug)-last-socket-path"

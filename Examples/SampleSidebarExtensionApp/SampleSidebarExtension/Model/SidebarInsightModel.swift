@@ -17,7 +17,7 @@ struct SidebarInsightModel {
     var allWorkspaces: [WorkspaceInsight]
     var focusQueue: [WorkspaceInsight]
 
-    init(snapshot: CMUXSidebarSnapshot) {
+    init(snapshot: CmuxSidebarSnapshot) {
         let insights = snapshot.workspaces.map {
             WorkspaceInsight(workspace: $0, selectedWorkspaceID: snapshot.selectedWorkspaceID)
         }
@@ -56,7 +56,7 @@ struct WorkspaceInsight: Identifiable {
     var latestNotification: String?
     var surfaces: [SurfaceInsight]
 
-    init(workspace: CMUXSidebarWorkspace, selectedWorkspaceID: UUID?) {
+    init(workspace: CmuxSidebarWorkspace, selectedWorkspaceID: UUID?) {
         id = workspace.id
         title = workspace.title
         subtitle = workspace.detail ?? workspace.rootPath?.lastPathComponent ?? workspace.projectRootPath?.lastPathComponent ?? ""
@@ -86,11 +86,11 @@ struct WorkspaceInsight: Identifiable {
 struct SurfaceInsight: Identifiable {
     var id: UUID
     var title: String
-    var kind: CMUXSidebarSurfaceKind
+    var kind: CmuxSidebarSurfaceKind
     var isFocused: Bool
     var unreadCount: Int
 
-    init(surface: CMUXSidebarSurface) {
+    init(surface: CmuxSidebarSurface) {
         id = surface.id
         title = surface.title
         kind = surface.kind

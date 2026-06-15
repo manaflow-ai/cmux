@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFileOpen
+import CmuxSettings
 import SwiftUI
 
 #if DEBUG
@@ -72,6 +74,29 @@ private func addFileExplorerExternalOpenItems(
         openItem.target = target
         openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
         menu.addItem(openItem)
+    }
+}
+
+/// Perform the configured double-click action for a FILE in the file explorer.
+///
+/// Shared by every file-activation gesture (the outline view's double-click and
+/// the search results list's double-click / Return) so the behavior stays
+/// consistent across surfaces. Callers must guard for local providers and skip
+/// directories before calling this — only readable local files reach here.
+@MainActor
+private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
+    let action = FileExplorerDoubleClickActionSettings.resolvedAction()
+    let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
+    switch FileExplorerDoubleClickActionSettings.fileActivation(
+        action: action,
+        hasPreferredEditorCommand: hasPreferredEditor
+    ) {
+    case .preview:
+        onOpenFilePreview(path)
+    case .defaultEditor:
+        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
+    case .preferredEditor:
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
     }
 }
 
@@ -602,6 +627,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
         }
 
+        @MainActor
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
             guard row >= 0,
@@ -616,8 +642,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
 
-            guard store.provider is LocalFileExplorerProvider else { return }
-            onOpenFilePreview(node.path)
+            // Editor/preferred-editor actions operate on local file paths via
+            // NSWorkspace; for non-local providers fall back to the cmux preview
+            // (consistent with the search-results path and the documented
+            // remote-provider behavior).
+            guard store.provider is LocalFileExplorerProvider else {
+                onOpenFilePreview(node.path)
+                return
+            }
+            performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -719,6 +752,7 @@ final class FileExplorerContainerView: NSView {
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
+    private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
@@ -1010,17 +1044,14 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        let nextRootPath = store.rootPath
-        let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
-        let nextContentRevision = store.contentRevision
-        let searchScopeChanged = nextRootPath != currentRootPath ||
-            nextProviderIsLocal != currentProviderIsLocal
-        let contentRevisionChanged = nextContentRevision != currentContentRevision
-
-        currentRootPath = nextRootPath
-        currentProviderIsLocal = nextProviderIsLocal
-        currentContentRevision = nextContentRevision
+        let nextRootPath = store.rootPath, nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
+        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
+        currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
+        currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
+        if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
@@ -1035,7 +1066,8 @@ final class FileExplorerContainerView: NSView {
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
         guard presentation != nextPresentation else {
-            if presentation == .find {
+            // Re-selecting the active presentation is a no-op unless visibility drifted.
+            if presentation == .find, !isSearchVisible {
                 isSearchVisible = true
                 updateSearchLayout()
             }
@@ -1059,18 +1091,23 @@ final class FileExplorerContainerView: NSView {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        headerView.isHidden = !hasContent && !hasStatus
+        applyHidden(headerView, !hasContent && !hasStatus)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
-        emptyLabel.stringValue = hasStatus
+        let nextEmptyText = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
-        emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
-        loadingIndicator.isHidden = !isLoading
-        if isLoading {
-            loadingIndicator.startAnimation(nil)
-        } else {
-            loadingIndicator.stopAnimation(nil)
+        if emptyLabel.stringValue != nextEmptyText {
+            emptyLabel.stringValue = nextEmptyText
+        }
+        applyHidden(emptyLabel, canShowTree || searchCanShow || isLoading)
+        // Toggle the spinner only when the loading state actually changes.
+        if applyHidden(loadingIndicator, !isLoading) {
+            if isLoading {
+                loadingIndicator.startAnimation(nil)
+            } else {
+                loadingIndicator.stopAnimation(nil)
+            }
         }
     }
 
@@ -1237,11 +1274,29 @@ final class FileExplorerContainerView: NSView {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? searchBarVisibleHeight : 0
-        searchScrollView.isHidden = !showSearch
-        scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
-        needsLayout = true
+        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
+
+        // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
+        // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
+        var changed = false
+        if applyHidden(searchBarView, !showSearch) { changed = true }
+        if searchBarHeightConstraint.constant != nextSearchBarHeight {
+            searchBarHeightConstraint.constant = nextSearchBarHeight
+            changed = true
+        }
+        if applyHidden(searchScrollView, !showSearch) { changed = true }
+        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if changed {
+            needsLayout = true
+        }
+    }
+
+    /// Sets `isHidden` only when it changes (a redundant write still fires KVO), returning whether it changed.
+    @discardableResult
+    private func applyHidden(_ view: NSView, _ hidden: Bool) -> Bool {
+        guard view.isHidden != hidden else { return false }
+        view.isHidden = hidden
+        return true
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
@@ -1481,10 +1536,18 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        coordinator.onOpenFilePreview(searchSnapshot.results[row].path)
+        let path = searchSnapshot.results[row].path
+        // Editor/preferred-editor actions operate on local file paths via
+        // NSWorkspace; for non-local providers fall back to the cmux preview.
+        guard coordinator.store.provider is LocalFileExplorerProvider else {
+            coordinator.onOpenFilePreview(path)
+            return
+        }
+        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
@@ -1749,7 +1812,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             if onModeShortcut?(mode, window) == true {
                 return
             }
@@ -1888,11 +1951,13 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func update(displayPath: String) {
+        guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
     }
 
     func updateQuickSearch(query: String?) {
+        guard quickSearchQuery != query else { return }
         quickSearchQuery = query
         applyHeaderState()
     }
@@ -2089,7 +2154,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     private var quickSearchQuery = ""
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             if fileExplorerCoordinator?.handleModeShortcut(mode, in: window) == true {
                 return
             }

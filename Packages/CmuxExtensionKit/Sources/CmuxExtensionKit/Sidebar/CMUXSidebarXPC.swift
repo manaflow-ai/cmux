@@ -11,51 +11,51 @@ import Foundation
 }
 
 @_spi(CmuxHostTransport)
-public enum CMUXSidebarXPCCodec {
+public enum CmuxSidebarXPCCodec {
     public static let maximumSnapshotPayloadBytes = 512 * 1024
     public static let maximumManifestPayloadBytes = 64 * 1024
     public static let maximumActionPayloadBytes = 8 * 1024
     public static let maximumActionResultPayloadBytes = 8 * 1024
 
-    public static func encodeSnapshot(_ snapshot: CMUXSidebarSnapshot) throws -> NSData {
+    public static func encodeSnapshot(_ snapshot: CmuxSidebarSnapshot) throws -> NSData {
         try encode(snapshot, kind: "snapshot", maximumBytes: maximumSnapshotPayloadBytes)
     }
 
-    public static func decodeSnapshot(_ payload: NSData) throws -> CMUXSidebarSnapshot {
+    public static func decodeSnapshot(_ payload: NSData) throws -> CmuxSidebarSnapshot {
         try validatePayloadSize(payload, kind: "snapshot", maximumBytes: maximumSnapshotPayloadBytes)
-        return try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: payload as Data)
+        return try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: payload as Data)
     }
 
-    public static func encodeManifest(_ manifest: CMUXExtensionManifest) throws -> NSData {
+    public static func encodeManifest(_ manifest: CmuxExtensionManifest) throws -> NSData {
         try encode(manifest, kind: "manifest", maximumBytes: maximumManifestPayloadBytes)
     }
 
-    public static func decodeManifest(_ payload: NSData) throws -> CMUXExtensionManifest {
+    public static func decodeManifest(_ payload: NSData) throws -> CmuxExtensionManifest {
         try validatePayloadSize(payload, kind: "manifest", maximumBytes: maximumManifestPayloadBytes)
-        return try JSONDecoder().decode(CMUXExtensionManifest.self, from: payload as Data)
+        return try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload as Data)
     }
 
-    public static func encodeAction(_ action: CMUXSidebarAction) throws -> NSData {
+    public static func encodeAction(_ action: CmuxSidebarAction) throws -> NSData {
         try encode(action, kind: "action", maximumBytes: maximumActionPayloadBytes)
     }
 
-    public static func decodeAction(_ payload: NSData) throws -> CMUXSidebarAction {
+    public static func decodeAction(_ payload: NSData) throws -> CmuxSidebarAction {
         try validatePayloadSize(payload, kind: "action", maximumBytes: maximumActionPayloadBytes)
-        return try JSONDecoder().decode(CMUXSidebarAction.self, from: payload as Data)
+        return try JSONDecoder().decode(CmuxSidebarAction.self, from: payload as Data)
     }
 
-    public static func encodeActionResult(_ result: CMUXExtensionActionResult) throws -> NSData {
+    public static func encodeActionResult(_ result: CmuxSidebarActionResult) throws -> NSData {
         try encode(result, kind: "actionResult", maximumBytes: maximumActionResultPayloadBytes)
     }
 
-    public static func decodeActionResult(_ payload: NSData) throws -> CMUXExtensionActionResult {
+    public static func decodeActionResult(_ payload: NSData) throws -> CmuxSidebarActionResult {
         try validatePayloadSize(payload, kind: "actionResult", maximumBytes: maximumActionResultPayloadBytes)
-        return try JSONDecoder().decode(CMUXExtensionActionResult.self, from: payload as Data)
+        return try JSONDecoder().decode(CmuxSidebarActionResult.self, from: payload as Data)
     }
 
     private static func validatePayloadSize(_ payload: NSData, kind: String, maximumBytes: Int) throws {
         guard payload.length <= maximumBytes else {
-            throw CMUXExtensionValidationError.payloadTooLarge(
+            throw CmuxExtensionValidationError.payloadTooLarge(
                 kind: kind,
                 actualBytes: payload.length,
                 maximumBytes: maximumBytes

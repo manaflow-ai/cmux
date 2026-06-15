@@ -1,4 +1,4 @@
-@_spi(CmuxHostTransport) import CMUXExtensionClient
+@_spi(CmuxHostTransport) import CMUXExtensionHostSupport
 import AppKit
 import SwiftUI
 

@@ -1,5 +1,9 @@
+import CmuxSession
+import CmuxWorkspaceNavigation
 import Darwin
+import CmuxCore
 import XCTest
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -474,11 +478,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             isNavigable: true
         )
 
-        let snapshot = FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+        let snapshot = FocusHistoryMenuSnapshot.recentlyFocused(
             back: FocusHistoryMenuSnapshot(items: [older], totalItemCount: 1, isLimited: false),
             forward: FocusHistoryMenuSnapshot(items: [newer], totalItemCount: 1, isLimited: false),
-            maxItemCount: 1
-        )
+            maxItemCount: 1)
 
         XCTAssertTrue(snapshot.isLimited)
         XCTAssertEqual(snapshot.totalItemCount, 2)
@@ -1956,6 +1959,19 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         remoteWorkspace.setCustomTitle("Remote Mac mini")
         let identityFile = "~/.ssh/id_ed25519"
         let expandedIdentityFile = (identityFile as NSString).expandingTildeInPath
+        let originalAgentSocketPath = "/tmp/cmux-original-restore-agent.sock"
+        let restoredAgentSocketPath = "/tmp/cmux-current-restore-agent-\(UUID().uuidString).sock"
+        XCTAssertTrue(FileManager.default.createFile(atPath: restoredAgentSocketPath, contents: Data()))
+        defer { try? FileManager.default.removeItem(atPath: restoredAgentSocketPath) }
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        setenv("SSH_AUTH_SOCK", restoredAgentSocketPath, 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
         let configuration = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
             port: 2222,
@@ -1965,13 +1981,15 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "ControlMaster=auto",
                 "ControlPersist=60s",
                 "StrictHostKeyChecking=accept-new",
+                "ForwardAgent=yes",
             ],
             localProxyPort: nil,
             relayPort: 64002,
             relayID: "relay-restore-test",
             relayToken: String(repeating: "d", count: 64),
             localSocketPath: "/tmp/cmux-restore-test.sock",
-            terminalStartupCommand: "ssh dev@example.com"
+            terminalStartupCommand: "ssh dev@example.com",
+            agentSocketPath: originalAgentSocketPath
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
@@ -1992,9 +2010,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let remoteSnapshot = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Remote Mac mini" }?.remote
@@ -2004,6 +2026,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(remoteSnapshot.identityFile, expandedIdentityFile)
         XCTAssertEqual(remoteSnapshot.sshOptions, [
             "StrictHostKeyChecking=accept-new",
+            "ForwardAgent=yes",
         ])
 
         let restored = TabManager()
@@ -2020,8 +2043,63 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
         )
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.agentSocketPath, restoredAgentSocketPath)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
+    }
+
+    func testSessionSnapshotRestoreOmitsSSHAgentEnvironmentWhenSocketUnavailable() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Without Agent")
+        let originalAgentSocketPath = "/tmp/cmux-original-missing-agent.sock"
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ForwardAgent=yes",
+            ],
+            localProxyPort: nil,
+            relayPort: 64002,
+            relayID: "relay-missing-agent-test",
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-missing-agent-test.sock",
+            terminalStartupCommand: "ssh dev@example.com",
+            agentSocketPath: originalAgentSocketPath
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let remoteSnapshot = try XCTUnwrap(
+            snapshot.workspaces.first { $0.customTitle == "Remote Without Agent" }?.remote
+        )
+        XCTAssertEqual(remoteSnapshot.sshOptions, ["ForwardAgent=yes"])
+
+        unsetenv("SSH_AUTH_SOCK")
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(
+            restored.tabs.first { $0.customTitle == "Remote Without Agent" }
+        )
+        XCTAssertEqual(
+            restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
+            "ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
+        )
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
     func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
@@ -2070,9 +2148,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let persistedWorkspace = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Persistent SSH" }
@@ -2948,9 +3030,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
 
         let restored = TabManager()

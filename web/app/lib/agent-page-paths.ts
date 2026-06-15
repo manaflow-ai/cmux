@@ -32,6 +32,7 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
   { path: "/blog/cmux-vault", title: "cmux Vault" },
   { path: "/blog/passkey-auth", title: "Passkey auth in the cmux browser" },
@@ -56,6 +57,7 @@ export const agentReadablePages = [
   { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
+  { path: "/docs/workspace-groups", title: "Workspace Groups" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
   { path: "/docs/custom-commands", title: "Custom Commands" },
@@ -86,6 +88,7 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/assets", title: "Brand Assets" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },

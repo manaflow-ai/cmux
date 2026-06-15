@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -872,13 +873,6 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
-    /// by cwd we can skip enumerating other project dirs entirely.
-    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
-        // "/Users/x/y" -> "-Users-x-y"
-        return path.replacingOccurrences(of: "/", with: "-")
-    }
-
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
@@ -907,7 +901,9 @@ final class SessionIndexStore: ObservableObject {
         }
 
         if let cwdFilter {
-            let dirName = encodeClaudeProjectDir(cwdFilter)
+            // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
+            // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
+            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
@@ -1366,7 +1362,7 @@ final class SessionIndexStore: ObservableObject {
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
             if Task.isCancelled { return [] }
