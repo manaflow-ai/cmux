@@ -6,6 +6,7 @@ Regression test: `cmux claude-teams` injects the tmux-style auto-mode env.
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -125,6 +126,8 @@ fs.writeFileSync(
         env["TMUX_PANE"] = "%999"
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "__HOST_TERM_PROGRAM__"
+        env["CMUX_SURFACE_ID"] = "surface:test"
+        env["CMUX_WORKSPACE_ID"] = "workspace:test"
         env["NODE_OPTIONS"] = node_options
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
@@ -139,7 +142,6 @@ fs.writeFileSync(
                 "--password",
                 explicit_socket_password,
                 "claude-teams",
-                "--version",
             ],
             capture_output=True,
             text=True,
@@ -183,13 +185,35 @@ fs.writeFileSync(
             print(f"FAIL: CMUX_CLAUDE_TEAMS_CMUX_BIN does not exist: {cmux_bin_value!r}")
             raise SystemExit(1)
 
+        expected_wrapper_hooks = Path(cli_path).with_name("cmux-claude-wrapper").exists()
         argv_lines = argv_log.read_text(encoding="utf-8").splitlines()
-        if argv_lines[:2] != ["--teammate-mode", "auto"]:
-            print(f"FAIL: expected launcher to prepend --teammate-mode auto, got {argv_lines!r}")
+        original_arg_start = 0
+        if "--settings" in argv_lines:
+            settings_index = argv_lines.index("--settings")
+            if settings_index + 1 >= len(argv_lines):
+                print(f"FAIL: expected --settings to have a JSON value, got {argv_lines!r}")
+                raise SystemExit(1)
+            try:
+                settings = json.loads(argv_lines[settings_index + 1])
+            except json.JSONDecodeError as exc:
+                print(f"FAIL: expected --settings JSON, got {argv_lines[settings_index + 1]!r}: {exc}")
+                raise SystemExit(1)
+            hooks = settings.get("hooks", {})
+            if "SessionStart" not in hooks or "UserPromptSubmit" not in hooks:
+                print(f"FAIL: expected claude-teams wrapper to inject session hooks, got {hooks.keys()!r}")
+                raise SystemExit(1)
+            original_arg_start = settings_index + 2
+        elif expected_wrapper_hooks:
+            print(f"FAIL: expected bundled claude-teams launch to inject hook settings, got {argv_lines!r}")
             raise SystemExit(1)
+        if "--session-id" in argv_lines:
+            session_index = argv_lines.index("--session-id")
+            if session_index + 2 > original_arg_start:
+                original_arg_start = session_index + 2
 
-        if "--version" not in argv_lines:
-            print(f"FAIL: expected launcher to preserve user args, got {argv_lines!r}")
+        original_argv = argv_lines[original_arg_start:]
+        if original_argv[:2] != ["--teammate-mode", "auto"]:
+            print(f"FAIL: expected launcher to prepend --teammate-mode auto, got {argv_lines!r}")
             raise SystemExit(1)
 
         tmux_env_value = read_text(tmux_env_log)
@@ -243,7 +267,7 @@ def main() -> int:
         "--trace-warnings",
     )
     if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` exited non-zero")
+        print("FAIL: `cmux claude-teams` exited non-zero")
         print(f"exit={proc.returncode}")
         print(f"stdout={proc.stdout.strip()}")
         print(f"stderr={proc.stderr.strip()}")
@@ -284,7 +308,7 @@ def main() -> int:
         "--max-old-space-size 2048 --trace-warnings",
     )
     if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` with existing heap flag exited non-zero")
+        print("FAIL: `cmux claude-teams` with existing heap flag exited non-zero")
         print(f"exit={proc.returncode}")
         print(f"stdout={proc.stdout.strip()}")
         print(f"stderr={proc.stderr.strip()}")
@@ -329,7 +353,7 @@ def main() -> int:
             tmpdir=str(bad_tmpdir),
         )
     if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` should still succeed when TMPDIR is unusable")
+        print("FAIL: `cmux claude-teams` should still succeed when TMPDIR is unusable")
         print(f"exit={proc.returncode}")
         print(f"stdout={proc.stdout.strip()}")
         print(f"stderr={proc.stderr.strip()}")
