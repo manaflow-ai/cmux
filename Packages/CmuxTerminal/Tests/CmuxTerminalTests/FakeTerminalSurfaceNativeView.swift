@@ -15,5 +15,5 @@ final class FakeTerminalSurfaceNativeView: NSView {
     func forceRefreshSurface() -> Bool { true }
 }
 
-extension FakeTerminalSurfaceNativeView: @MainActor TerminalSurfaceHosting {}
-extension FakeTerminalSurfaceNativeView: @MainActor TerminalSurfaceNativeViewing {}
+extension FakeTerminalSurfaceNativeView: @preconcurrency TerminalSurfaceHosting {}
+extension FakeTerminalSurfaceNativeView: TerminalSurfaceNativeViewing {}
