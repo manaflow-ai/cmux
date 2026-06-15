@@ -7536,7 +7536,7 @@ final class Workspace: Identifiable, ObservableObject {
         title customTitle: String? = nil,
         focus: Bool = false,
         onInput: @escaping @Sendable (Data) -> Void,
-        onResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)? = nil
+        onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
         guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
         else { return nil }
