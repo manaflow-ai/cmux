@@ -2,11 +2,8 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxFoundation
+import CmuxTestSupport
 import SwiftUI
-
-final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { false }
-}
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
@@ -827,7 +824,7 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -1350,7 +1347,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 }
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
                         isHoveringHost || nextHoveringWindowChrome || popoverVisibilityState.isShown(in: nextWindowNumber)
@@ -1438,7 +1435,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarObservedHoverWindowNumber"] = hoveredWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedHostWindowNumber"] = hostWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedPinned"] = String(shouldPinControls)
@@ -1654,7 +1651,7 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
             guard window != nil else { return }
             let frameInWindow = convert(bounds, to: nil)
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarHostFrameInWindow"] = NSStringFromRect(frameInWindow)
             }
             #endif
@@ -1767,7 +1764,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
+        ShortcutHintModifierPolicy().isCurrentWindow(
             hostWindowNumber: hostWindow?.windowNumber,
             hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
             eventWindowNumber: eventWindow?.windowNumber,
@@ -1776,8 +1773,8 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 
     private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
-              ShortcutHintModifierPolicy.isCurrentWindow(
+        guard ShortcutHintModifierPolicy().shouldShowCommandHints(for: modifierFlags),
+              ShortcutHintModifierPolicy().isCurrentWindow(
                 hostWindowNumber: hostWindow?.windowNumber,
                 hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
                 eventWindowNumber: eventWindow?.windowNumber,
@@ -1798,8 +1795,8 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
-                  ShortcutHintModifierPolicy.isCurrentWindow(
+            guard ShortcutHintModifierPolicy().shouldShowCommandHints(for: NSEvent.modifierFlags),
+                  ShortcutHintModifierPolicy().isCurrentWindow(
                     hostWindowNumber: self.hostWindow?.windowNumber,
                     hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
                     eventWindowNumber: nil,
@@ -1898,7 +1895,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
-        let containerView = NSView()
+        let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         let toggleSidebar = { [weak containerView] in

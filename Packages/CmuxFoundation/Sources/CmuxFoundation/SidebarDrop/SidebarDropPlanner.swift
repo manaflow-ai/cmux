@@ -5,9 +5,10 @@ public import Foundation
 /// indicator to render, the final insertion index, cross-window insertion
 /// landing, and workspace drop-target hit testing, all clamped to the legal
 /// pinned/unpinned regions. No UI or AppKit dependencies.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarDropPlanner {
-    public static func indicator(
+public struct SidebarDropPlanner {
+    public init() {}
+
+    public func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],
@@ -49,7 +50,7 @@ public enum SidebarDropPlanner {
         return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
     }
 
-    public static func targetIndex(
+    public func targetIndex(
         draggedTabId: UUID,
         targetTabId: UUID?,
         indicator: SidebarDropIndicator?,
@@ -104,7 +105,7 @@ public enum SidebarDropPlanner {
     ///   - pointerY: Pointer y within the hovered row, used to pick the edge.
     ///   - targetHeight: The hovered row's height, paired with `pointerY`.
     /// - Returns: The clamped insertion index and the indicator to render.
-    public static func crossWindowInsertion(
+    public func crossWindowInsertion(
         targetTabId: UUID?,
         draggedIsPinned: Bool,
         indicator: SidebarDropIndicator?,
@@ -144,7 +145,7 @@ public enum SidebarDropPlanner {
     /// dragged into a window with no existing pins must still land at the front
     /// (index `0`), not wherever the pointer happens to be, otherwise it would
     /// sit below unpinned rows and break the leading-pinned-segment invariant.
-    private static func legalCrossWindowInsertionPosition(
+    private func legalCrossWindowInsertionPosition(
         proposedInsertionPosition: Int,
         draggedIsPinned: Bool,
         tabIds: [UUID],
@@ -172,7 +173,7 @@ public enum SidebarDropPlanner {
     }
 
     /// Returns whether sidebar rows should publish frame anchors for workspace drop targeting.
-    public static func shouldCollectWorkspaceDropTargets(
+    public func shouldCollectWorkspaceDropTargets(
         draggedTabId: UUID?,
         isBonsplitWorkspaceDropActive: Bool = false
     ) -> Bool {
@@ -184,7 +185,7 @@ public enum SidebarDropPlanner {
         case existingWorkspace(UUID)
     }
 
-    public static func workspaceAction(
+    public func workspaceAction(
         for point: CGPoint,
         targets: [WorkspaceDropTarget]
     ) -> WorkspaceDropAction? {
@@ -210,7 +211,7 @@ public enum SidebarDropPlanner {
         )
     }
 
-    private static func workspaceAction(
+    private func workspaceAction(
         for point: CGPoint,
         in target: WorkspaceDropTarget,
         orderedTargets: [WorkspaceDropTarget]
@@ -234,7 +235,7 @@ public enum SidebarDropPlanner {
         return .existingWorkspace(target.workspaceId)
     }
 
-    private static func legalNewWorkspaceInsertionIndex(
+    private func legalNewWorkspaceInsertionIndex(
         _ proposedInsertion: Int,
         orderedTargets: [WorkspaceDropTarget]
     ) -> Int {
@@ -247,7 +248,7 @@ public enum SidebarDropPlanner {
         return max(clamped, pinnedCount)
     }
 
-    private static func workspaceIndicator(
+    private func workspaceIndicator(
         forInsertionIndex insertionIndex: Int,
         orderedTargets: [WorkspaceDropTarget]
     ) -> SidebarDropIndicator {
@@ -258,7 +259,7 @@ public enum SidebarDropPlanner {
         return SidebarDropIndicator(tabId: orderedTargets[clampedInsertion].workspaceId, edge: .top)
     }
 
-    private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {
+    private func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {
         let clampedInsertion = max(0, min(insertionPosition, tabIds.count))
         if clampedInsertion >= tabIds.count {
             return SidebarDropIndicator(tabId: nil, edge: .bottom)
@@ -266,7 +267,7 @@ public enum SidebarDropPlanner {
         return SidebarDropIndicator(tabId: tabIds[clampedInsertion], edge: .top)
     }
 
-    private static func insertionPositionForIndicator(_ indicator: SidebarDropIndicator, tabIds: [UUID]) -> Int? {
+    private func insertionPositionForIndicator(_ indicator: SidebarDropIndicator, tabIds: [UUID]) -> Int? {
         if let tabId = indicator.tabId {
             guard let targetTabIndex = tabIds.firstIndex(of: tabId) else { return nil }
             return indicator.edge == .bottom ? targetTabIndex + 1 : targetTabIndex
@@ -274,12 +275,12 @@ public enum SidebarDropPlanner {
         return tabIds.count
     }
 
-    private static func preferredEdge(fromIndex: Int, targetTabId: UUID, tabIds: [UUID]) -> SidebarDropEdge {
+    private func preferredEdge(fromIndex: Int, targetTabId: UUID, tabIds: [UUID]) -> SidebarDropEdge {
         guard let targetIndex = tabIds.firstIndex(of: targetTabId) else { return .top }
         return fromIndex < targetIndex ? .bottom : .top
     }
 
-    private static func legalInsertionPosition(
+    private func legalInsertionPosition(
         draggedTabId: UUID,
         proposedInsertionPosition: Int,
         tabIds: [UUID],
@@ -309,13 +310,13 @@ public enum SidebarDropPlanner {
         return clampedInsertion
     }
 
-    public static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
+    public func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
         guard targetHeight > 0 else { return .top }
         let clampedY = min(max(locationY, 0), targetHeight)
         return clampedY < (targetHeight / 2) ? .top : .bottom
     }
 
-    private static func resolvedTargetIndex(from sourceIndex: Int, insertionPosition: Int, totalCount: Int) -> Int {
+    private func resolvedTargetIndex(from sourceIndex: Int, insertionPosition: Int, totalCount: Int) -> Int {
         let clampedInsertion = max(0, min(insertionPosition, totalCount))
         let adjusted = clampedInsertion > sourceIndex ? clampedInsertion - 1 : clampedInsertion
         return max(0, min(adjusted, max(0, totalCount - 1)))

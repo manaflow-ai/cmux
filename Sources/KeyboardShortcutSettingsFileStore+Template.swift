@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import CmuxSocketControl
 import CmuxSettings
@@ -58,7 +59,7 @@ extension CmuxSettingsFileStore {
         return [
             [
                 "app": [
-                    "language": LanguageSettings.defaultLanguage.rawValue,
+                    "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
@@ -70,17 +71,17 @@ extension CmuxSettingsFileStore {
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",
-                    "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
-                    "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
+                    "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
+                    "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
-                    "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
-                    "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
-                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
-                    "hideTabCloseButton": CloseTabWarningSettings.defaultHideTabCloseButton,
-                    "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
-                    "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
+                    "sendAnonymousTelemetry": AppCatalogSection().sendAnonymousTelemetry.defaultValue,
+                    "confirmQuit": AppCatalogSection().confirmQuitMode.defaultValue.rawValue,
+                    "warnBeforeClosingTab": AppCatalogSection().warnBeforeClosingTab.defaultValue,
+                    "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                    "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
+                    "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
+                    "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
                 ],
             ],
             [
@@ -167,15 +168,15 @@ extension CmuxSettingsFileStore {
                 "automation": [
                     "socketControlMode": SocketControlSettings.defaultMode.rawValue,
                     "socketPassword": "",
-                    "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
+                    "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
                     "ripgrepBinaryPath": "",
-                    "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
-                    "ampIntegration": AmpIntegrationSettings.defaultHooksEnabled,
-                    "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
-                    "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
-                    "kiroIntegration": KiroIntegrationSettings.defaultHooksEnabled,
-                    "kiroNotificationLevel": KiroIntegrationSettings.defaultNotificationLevel.rawValue,
+                    "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
+                    "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,
+                    "cursorIntegration": IntegrationsCatalogSection().cursorHooksEnabled.defaultValue,
+                    "geminiIntegration": IntegrationsCatalogSection().geminiHooksEnabled.defaultValue,
+                    "kiroIntegration": IntegrationsCatalogSection().kiroHooksEnabled.defaultValue,
+                    "kiroNotificationLevel": IntegrationsCatalogSection().kiroNotificationLevel.defaultValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],
@@ -208,6 +209,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                ],
+            ],
+            [
+                "fileExplorer": [
+                    "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
                 ],
             ],
             [

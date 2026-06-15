@@ -9,16 +9,17 @@ public import Foundation
 /// the engine and ``GhosttyConfig`` recurse through. These stateless
 /// bundle-id→URL transforms have no natural receiver type; modernization into
 /// an instantiated, dependency-injected resolver is deferred to the engine lift.
-// lint:allow namespace-type — see TRANSITIONAL note above.
-public enum CmuxGhosttyConfigPathResolver {
+public struct CmuxGhosttyConfigPathResolver {
     /// The bundle identifier of the released cmux app, used as the canonical
     /// config location and the fallback for dev/nightly/staging channels.
     public static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let releaseFallbackChannelSuffixes = ["debug", "nightly", "staging"]
 
+    public init() {}
+
     /// The path cmux writes edits to: always `config.ghostty` under the active
     /// bundle's Application Support directory.
-    public static func editableConfigURL(
+    public func editableConfigURL(
         currentBundleIdentifier: String?,
         appSupportDirectory: URL
     ) -> URL {
@@ -31,7 +32,7 @@ public enum CmuxGhosttyConfigPathResolver {
 
     /// The currently active config URL if one exists on disk, otherwise the
     /// editable target that a first write should create.
-    public static func activeOrEditableConfigURL(
+    public func activeOrEditableConfigURL(
         currentBundleIdentifier: String?,
         appSupportDirectory: URL,
         fileManager: FileManager = .default
@@ -50,14 +51,14 @@ public enum CmuxGhosttyConfigPathResolver {
 
     /// The ordered list of cmux-managed config files to load, applying the
     /// release-channel fallback when the current bundle has none of its own.
-    public static func loadConfigURLs(
+    public func loadConfigURLs(
         currentBundleIdentifier: String?,
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
         guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
             return preferredExistingConfigURLs(
-                for: releaseBundleIdentifier,
+                for: Self.releaseBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
             )
@@ -73,7 +74,7 @@ public enum CmuxGhosttyConfigPathResolver {
         }
         if allowsReleaseFallback(currentBundleIdentifier) {
             let releaseURLs = preferredExistingConfigURLs(
-                for: releaseBundleIdentifier,
+                for: Self.releaseBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
             )
@@ -85,17 +86,17 @@ public enum CmuxGhosttyConfigPathResolver {
     }
 
     /// The Application Support directory that holds the config files for a bundle.
-    public static func configDirectoryURL(
+    public func configDirectoryURL(
         currentBundleIdentifier: String?,
         appSupportDirectory: URL
     ) -> URL {
         guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
-            return appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
+            return appSupportDirectory.appendingPathComponent(Self.releaseBundleIdentifier, isDirectory: true)
         }
         return appSupportDirectory.appendingPathComponent(currentBundleIdentifier, isDirectory: true)
     }
 
-    private static func preferredExistingConfigURLs(
+    private func preferredExistingConfigURLs(
         for bundleIdentifier: String,
         appSupportDirectory: URL,
         fileManager: FileManager
@@ -114,7 +115,7 @@ public enum CmuxGhosttyConfigPathResolver {
         return []
     }
 
-    private static func isNonEmptyConfigFile(_ url: URL, fileManager: FileManager) -> Bool {
+    private func isNonEmptyConfigFile(_ url: URL, fileManager: FileManager) -> Bool {
         var isDirectory = ObjCBool(false)
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else {
@@ -128,11 +129,11 @@ public enum CmuxGhosttyConfigPathResolver {
         return isNonEmptyRegularFile(url, fileManager: fileManager)
     }
 
-    private static func isNonEmptySymlinkTarget(_ url: URL, fileManager: FileManager) -> Bool {
+    private func isNonEmptySymlinkTarget(_ url: URL, fileManager: FileManager) -> Bool {
         isNonEmptyRegularFile(url.resolvingSymlinksInPath(), fileManager: fileManager)
     }
 
-    private static func isNonEmptyRegularFile(_ url: URL, fileManager: FileManager) -> Bool {
+    private func isNonEmptyRegularFile(_ url: URL, fileManager: FileManager) -> Bool {
         guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
               let type = attrs[.type] as? FileAttributeType,
               type == .typeRegular,
@@ -142,17 +143,17 @@ public enum CmuxGhosttyConfigPathResolver {
         return size.intValue > 0
     }
 
-    private static func allowsReleaseFallback(_ bundleIdentifier: String) -> Bool {
-        releaseFallbackChannelSuffixes.contains { channelSuffix in
+    private func allowsReleaseFallback(_ bundleIdentifier: String) -> Bool {
+        Self.releaseFallbackChannelSuffixes.contains { channelSuffix in
             matchesChannelBundleIdentifier(bundleIdentifier, channelSuffix: channelSuffix)
         }
     }
 
-    private static func matchesChannelBundleIdentifier(
+    private func matchesChannelBundleIdentifier(
         _ bundleIdentifier: String,
         channelSuffix: String
     ) -> Bool {
-        let channelBundleIdentifier = "\(releaseBundleIdentifier).\(channelSuffix)"
+        let channelBundleIdentifier = "\(Self.releaseBundleIdentifier).\(channelSuffix)"
         return bundleIdentifier == channelBundleIdentifier
             || bundleIdentifier.hasPrefix("\(channelBundleIdentifier).")
     }
