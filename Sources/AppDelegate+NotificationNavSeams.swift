@@ -3,17 +3,217 @@ import Bonsplit
 import CmuxNotifications
 import Foundation
 
-/// App-side adapters that let `AppDelegate` satisfy the `CmuxNotifications`
-/// navigation seams the `NotificationNavigationCoordinator` depends on. Each
-/// method body is the original `AppDelegate` resolver/mutator (lifted out of the
-/// jump/open cluster), now reached through a protocol so the coordinator never
-/// touches `TabManager`, `Workspace`, `MainWindowContext`, or `NSWindow`.
+/// App-side adapter that lets the `CmuxNotifications` navigation seams reach
+/// `AppDelegate` WITHOUT forming a retain cycle. The coordinator (and the
+/// `NotificationClickPerformer`) store their seams as strong `any …` refs, so if
+/// `AppDelegate` injected `self` the graph would be
+/// `AppDelegate → coordinator → AppDelegate` (a strong cycle). Production is a
+/// forever-singleton, but the app-host tests create/replace `AppDelegate`, so a
+/// cycle pins the test instance and it can never deallocate.
 ///
-/// Legal per CONVENTIONS §6: these extend the app-owned `AppDelegate`, keeping
-/// the window mechanics, `#if DEBUG` UI-test recorders, and Combine app-side
-/// while the orchestration moves into the package.
-extension AppDelegate: NotificationNavigationStoreReading {
+/// The fix: this adapter holds a `weak var owner: AppDelegate?` and conforms to
+/// every seam by forwarding to internal `AppDelegate` helpers. `AppDelegate`
+/// builds the coordinator and click performer from the adapter, so the graph is
+/// `AppDelegate → {adapter, coordinator}; coordinator → adapter (strong);
+/// adapter → AppDelegate (weak)` — no strong path back to `AppDelegate`.
+///
+/// The package keeps STRONG seam storage on purpose: its own tests pass fakes
+/// that are only retained by the coordinator. Weakness is introduced here, on
+/// the app side, exactly at the `owner` edge. When the owner is alive (the only
+/// case that occurs in production and in the package tests) every method is
+/// byte-identical to the old `AppDelegate` conformance; when it has deallocated
+/// each method degrades to the same empty/no-op/false/nil the seams already use
+/// for missing late-bound state.
+///
+/// Legal per CONVENTIONS §6: the adapter is app-target-owned and keeps the window
+/// mechanics, `#if DEBUG` UI-test recorders, and Combine app-side while the
+/// orchestration stays in the package.
+@MainActor
+final class NotificationNavSeamAdapter:
+    NotificationNavigationStoreReading,
+    MainWindowContextResolving,
+    UnreadWorkspaceTargeting,
+    NotificationOpenRouting,
+    FinderRevealing,
+    FocusedNotificationResolving
+{
+    weak var owner: AppDelegate?
+
+    init(owner: AppDelegate) {
+        self.owner = owner
+    }
+
+    // MARK: NotificationNavigationStoreReading
+
     var orderedNotifications: [NotificationNavSnapshot] {
+        owner?.orderedNotificationsForNav ?? []
+    }
+
+    var workspaceUnreadIndicatorIds: Set<UUID> {
+        owner?.workspaceUnreadIndicatorIdsForNav ?? []
+    }
+
+    func hasManualUnread(forTabId tabId: UUID) -> Bool {
+        owner?.navStoreHasManualUnread(forTabId: tabId) ?? false
+    }
+
+    func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
+        owner?.navStoreHasRestoredUnreadIndicator(forTabId: tabId) ?? false
+    }
+
+    func markRead(id: UUID) {
+        owner?.navMarkRead(id: id)
+    }
+
+    // MARK: MainWindowContextResolving
+
+    var orderedTargetsForUnreadJump: [MainWindowTarget] {
+        owner?.orderedTargetsForUnreadJump ?? []
+    }
+
+    var activeWorkspaceIdsForUnreadJump: [UUID] {
+        owner?.activeWorkspaceIdsForUnreadJump ?? []
+    }
+
+    // MARK: UnreadWorkspaceTargeting
+
+    func preferredUnreadPanelIdForJump(workspaceId: UUID) -> UUID? {
+        owner?.preferredUnreadPanelIdForJump(workspaceId: workspaceId) ?? nil
+    }
+
+    func shouldTriggerManualUnreadJumpFlash(workspaceId: UUID, panelId: UUID) -> Bool {
+        owner?.shouldTriggerManualUnreadJumpFlash(workspaceId: workspaceId, panelId: panelId) ?? false
+    }
+
+    func triggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
+        owner?.triggerUnreadIndicatorDismissFlash(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
+        owner?.clearUnreadAfterJump(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    // MARK: NotificationOpenRouting
+
+    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        owner?.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId) ?? false
+    }
+
+    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        owner?.openInWindow(
+            windowId: windowId,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId
+        ) ?? false
+    }
+
+    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        owner?.openInActiveWindowFallback(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId
+        ) ?? false
+    }
+
+    func tabTitle(forTabId tabId: UUID) -> String? {
+        owner?.tabTitle(forTabId: tabId) ?? nil
+    }
+
+    // MARK: FinderRevealing
+
+    func fileExists(atPath path: String) -> Bool {
+        owner?.finderFileExists(atPath: path) ?? false
+    }
+
+    func selectFileInFinder(path: String) -> Bool {
+        owner?.finderSelectFile(path: path) ?? false
+    }
+
+    func openDirectoryInFinder(path: String) -> Bool {
+        owner?.finderOpenDirectory(path: path) ?? false
+    }
+
+    // MARK: FocusedNotificationResolving
+
+    var hasNotificationStore: Bool {
+        owner?.hasNotificationStore ?? false
+    }
+
+    func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
+        owner?.focusedTarget(preferredWindowToken: preferredWindowToken) ?? nil
+    }
+
+    func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
+        owner?.focusedPanel(forTabId: tabId, surfaceId: surfaceId) ?? nil
+    }
+
+    func panelHasRestoredUnread(_ panel: FocusedPanel) -> Bool {
+        owner?.panelHasRestoredUnread(panel) ?? false
+    }
+
+    func workspaceHasContributingRestoredUnread(_ panel: FocusedPanel) -> Bool {
+        owner?.workspaceHasContributingRestoredUnread(panel) ?? false
+    }
+
+    func panelIsManualUnread(_ panel: FocusedPanel) -> Bool {
+        owner?.panelIsManualUnread(panel) ?? false
+    }
+
+    func panelIsRepresentativeForWorkspaceManualUnread(_ panel: FocusedPanel) -> Bool {
+        owner?.panelIsRepresentativeForWorkspaceManualUnread(panel) ?? false
+    }
+
+    func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        owner?.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId) ?? false
+    }
+
+    func storeHasManualUnread(forTabId tabId: UUID) -> Bool {
+        owner?.storeHasManualUnread(forTabId: tabId) ?? false
+    }
+
+    func storeHasRestoredUnread(forTabId tabId: UUID) -> Bool {
+        owner?.storeHasRestoredUnread(forTabId: tabId) ?? false
+    }
+
+    func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
+        owner?.workspaceIsUnread(forTabId: tabId) ?? false
+    }
+
+    func storeMarkRead(forTabId tabId: UUID) {
+        owner?.storeMarkRead(forTabId: tabId)
+    }
+
+    func storeMarkUnread(forTabId tabId: UUID) {
+        owner?.storeMarkUnread(forTabId: tabId)
+    }
+
+    func storeClearManualUnread(forTabId tabId: UUID) {
+        owner?.storeClearManualUnread(forTabId: tabId)
+    }
+
+    func markPanelRead(_ panel: FocusedPanel) {
+        owner?.markPanelRead(panel)
+    }
+
+    func markPanelUnread(_ panel: FocusedPanel) {
+        owner?.markPanelUnread(panel)
+    }
+
+    func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
+        owner?.markLatestNotificationAsOldestUnread(forTabId: tabId, surfaceId: surfaceId) ?? nil
+    }
+}
+
+/// Internal helpers the `NotificationNavSeamAdapter` forwards to. These are the
+/// original seam bodies, lifted off the protocol conformances (which now live on
+/// the adapter) and kept on `AppDelegate` so they retain access to the
+/// late-bound window/tab/store state. Behavior is byte-identical to the previous
+/// `AppDelegate: <seam>` conformances.
+extension AppDelegate {
+    // MARK: NotificationNavigationStoreReading helpers
+
+    var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
         return notificationStore.notifications.map { notification in
             NotificationNavSnapshot(
@@ -26,19 +226,19 @@ extension AppDelegate: NotificationNavigationStoreReading {
         }
     }
 
-    var workspaceUnreadIndicatorIds: Set<UUID> {
+    var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
         notificationStore?.workspaceUnreadIndicatorIds ?? []
     }
 
-    func hasManualUnread(forTabId tabId: UUID) -> Bool {
+    func navStoreHasManualUnread(forTabId tabId: UUID) -> Bool {
         notificationStore?.hasManualUnread(forTabId: tabId) ?? false
     }
 
-    func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
+    func navStoreHasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
         notificationStore?.hasRestoredUnreadIndicator(forTabId: tabId) ?? false
     }
 
-    func markRead(id: UUID) {
+    func navMarkRead(id: UUID) {
         notificationStore?.markRead(id: id)
     }
 
@@ -74,9 +274,9 @@ extension AppDelegate: NotificationNavigationStoreReading {
             excludingWorkspaceId: excludedWorkspaceId
         )
     }
-}
 
-extension AppDelegate: MainWindowContextResolving {
+    // MARK: MainWindowContextResolving helpers
+
     var orderedTargetsForUnreadJump: [MainWindowTarget] {
         // Mirrors the ordering `openLatestWorkspaceUnread` built inline: the
         // preferred registered context (from the key/main window) first, then
@@ -103,9 +303,9 @@ extension AppDelegate: MainWindowContextResolving {
         // before any main window registers.
         tabManager?.tabs.map(\.id) ?? []
     }
-}
 
-extension AppDelegate: UnreadWorkspaceTargeting {
+    // MARK: UnreadWorkspaceTargeting helpers
+
     /// Resolves a workspace for unread-jump operations, falling back to the
     /// active tab manager when the window-context registry has not populated yet
     /// (early startup / VM timing). `workspaceFor(tabId:)` only consults
@@ -136,9 +336,9 @@ extension AppDelegate: UnreadWorkspaceTargeting {
     func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
         unreadJumpWorkspace(forTabId: workspaceId)?.clearUnreadAfterJump(panelId: panelId)
     }
-}
 
-extension AppDelegate: NotificationOpenRouting {
+    // MARK: NotificationOpenRouting helpers
+
     func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
     }
@@ -163,26 +363,26 @@ extension AppDelegate: NotificationOpenRouting {
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
     }
-}
 
-extension AppDelegate: FinderRevealing {
-    func fileExists(atPath path: String) -> Bool {
+    // MARK: FinderRevealing helpers
+
+    func finderFileExists(atPath path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }
 
-    func selectFileInFinder(path: String) -> Bool {
+    func finderSelectFile(path: String) -> Bool {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         // `activateFileViewerSelecting` returns no status; the legacy
         // `revealInFinder` returned `true` on this branch.
         return true
     }
 
-    func openDirectoryInFinder(path: String) -> Bool {
+    func finderOpenDirectory(path: String) -> Bool {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
-}
 
-extension AppDelegate: FocusedNotificationResolving {
+    // MARK: FocusedNotificationResolving helpers
+
     var hasNotificationStore: Bool {
         notificationStore != nil
     }

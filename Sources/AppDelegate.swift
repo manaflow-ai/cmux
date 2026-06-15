@@ -680,16 +680,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the `NSWorkspace`/`FileManager` side effect through `FinderRevealing`. The
     /// single instance is shared by both the navigation coordinator and the
     /// `UNUserNotificationCenter` delegate path (`performTerminalNotificationClickAction`).
-    lazy var notificationClickPerformer = NotificationClickPerformer(finder: self)
+    /// Weak-owner adapter that satisfies every notification-nav seam by
+    /// forwarding to `AppDelegate` helpers. The coordinator and click performer
+    /// strong-ref this adapter; the adapter weak-refs `AppDelegate`, so there is
+    /// no `AppDelegate → coordinator → AppDelegate` retain cycle (which would pin
+    /// the app-host test instance). See `AppDelegate+NotificationNavSeams.swift`.
+    lazy var notificationNavSeams = NotificationNavSeamAdapter(owner: self)
+
+    lazy var notificationClickPerformer = NotificationClickPerformer(finder: notificationNavSeams)
 
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(
-            store: self,
-            windows: self,
-            unreadTargeting: self,
-            openRouting: self,
+            store: notificationNavSeams,
+            windows: notificationNavSeams,
+            unreadTargeting: notificationNavSeams,
+            openRouting: notificationNavSeams,
             clickRouting: notificationClickPerformer,
-            focusedResolving: self,
+            focusedResolving: notificationNavSeams,
             // Route the focused-mark jump through `AppDelegate.jumpToLatestUnread`
             // so its `#if DEBUG` `jumpUnreadInvoked` recorder and nil-store guard
             // still fire exactly as before; map the resolved notification back to
