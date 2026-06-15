@@ -29,7 +29,7 @@ public final class CanvasRootView: NSView {
     /// The latest descriptors, by panel id, for mount/chrome lookups.
     var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
-    private var isWorkspaceVisible = true
+    var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?

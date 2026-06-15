@@ -5,6 +5,10 @@ extension CanvasRootView {
     private static let minimapAutoHideDelay: Duration = .seconds(3)
 
     func updateMinimap(reveal: Bool = false) {
+        guard isWorkspaceVisible else {
+            resetMinimapVisibility()
+            return
+        }
         let visible = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
         let focusedPaneID = model.layout.panes.first { pane in
             pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
