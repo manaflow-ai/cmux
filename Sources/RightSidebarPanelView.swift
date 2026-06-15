@@ -2,6 +2,8 @@ import AppKit
 import Bonsplit
 import CMUXWorkstream
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -213,6 +215,7 @@ struct RightSidebarPanelView: View {
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
     private var notesEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
@@ -233,6 +236,26 @@ struct RightSidebarPanelView: View {
         )
     }
 
+    private var focusShortcutHintAnimationValue: Bool {
+        alwaysShowShortcutHints || (showModifierHoldHints && focusShortcutHintMonitor.isModifierPressed)
+    }
+
+    private func startShortcutHintMonitorsIfNeeded() {
+        guard showModifierHoldHints else {
+            stopShortcutHintMonitors()
+            return
+        }
+        modeShortcutHintMonitor.start()
+        focusShortcutHintMonitor.start()
+        closeShortcutHintMonitor.start()
+    }
+
+    private func stopShortcutHintMonitors() {
+        modeShortcutHintMonitor.stop()
+        focusShortcutHintMonitor.stop()
+        closeShortcutHintMonitor.stop()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             modeBar
@@ -240,34 +263,34 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
+        .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)
         )
         .background(
-            WindowAccessor { window in
-                modeShortcutHintMonitor.setHostWindow(window)
-                focusShortcutHintMonitor.setHostWindow(window)
-                closeShortcutHintMonitor.setHostWindow(window)
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                let hintWindow = showModifierHoldHints ? window : nil
+                modeShortcutHintMonitor.setHostWindow(hintWindow)
+                focusShortcutHintMonitor.setHostWindow(hintWindow)
+                closeShortcutHintMonitor.setHostWindow(hintWindow)
             }
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
-            modeShortcutHintMonitor.start()
-            focusShortcutHintMonitor.start()
-            closeShortcutHintMonitor.start()
+            startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
             synchronizeDockLifecycle()
         }
         .onDisappear {
-            modeShortcutHintMonitor.stop()
-            focusShortcutHintMonitor.stop()
-            closeShortcutHintMonitor.stop()
+            stopShortcutHintMonitors()
             synchronizeDockLifecycle(isRightSidebarVisible: false)
+        }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            startShortcutHintMonitorsIfNeeded()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
             synchronizeDockLifecycle(mode: mode)
@@ -300,10 +323,11 @@ struct RightSidebarPanelView: View {
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
-                        showsShortcutHint: titlebarShortcutHintShouldShow(
+                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
                             alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed
+                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                            modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -365,10 +389,11 @@ struct RightSidebarPanelView: View {
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
-        let showsShortcutHint = titlebarShortcutHintShouldShow(
+        let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: closeShortcutHintMonitor.isModifierPressed
+            modifierPressed: closeShortcutHintMonitor.isModifierPressed,
+            modifierHoldHintsEnabled: showModifierHoldHints
         )
         return ZStack {
             Button(action: onClose) {
@@ -418,10 +443,11 @@ struct RightSidebarPanelView: View {
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
-        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+        let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: focusShortcutHintMonitor.isModifierPressed
+            modifierPressed: focusShortcutHintMonitor.isModifierPressed,
+            modifierHoldHintsEnabled: showModifierHoldHints
         )
         if showsFocusShortcutHint {
             ShortcutHintPill(

@@ -774,7 +774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
     private lazy var updateController = UpdateController(log: updateLog)
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog)
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
@@ -6539,7 +6539,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.syncBonsplitTabShortcutHintEligibility()
+        if let coordinator = keyboardFocusCoordinator(for: window) {
+            coordinator.syncBonsplitTabShortcutHintEligibility()
+            return
+        }
+        for context in mainWindowContexts.values {
+            context.keyboardFocusCoordinator.syncBonsplitTabShortcutHintEligibility()
+        }
     }
 
     fileprivate struct TerminalKeyboardFocusRequest {

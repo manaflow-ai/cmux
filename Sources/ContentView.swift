@@ -1005,6 +1005,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2738,6 +2739,10 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
+            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
         })
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
@@ -10470,6 +10475,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -10887,13 +10893,18 @@ struct VerticalTabsSidebar: View {
             SidebarTrailingBorder()
         }
         .background(
-            WindowAccessor { window in
-                modifierKeyMonitor.setHostWindow(window)
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            modifierKeyMonitor.start()
+            if showModifierHoldHints {
+                modifierKeyMonitor.setHostWindow(observedWindow)
+                modifierKeyMonitor.start()
+            } else {
+                modifierKeyMonitor.stop()
+            }
             dragState.clearDrag()
             isBonsplitWorkspaceDropTargetCollectionActive = false
             // Defensive reset: if a prior simulation died without running
@@ -10925,6 +10936,16 @@ struct VerticalTabsSidebar: View {
                 tabId: nil,
                 reason: "sidebar_disappear"
             )
+        }
+        .onChange(of: showModifierHoldHints) { _, enabled in
+            if enabled {
+                modifierKeyMonitor.setHostWindow(observedWindow)
+                modifierKeyMonitor.start()
+            } else {
+                modifierKeyMonitor.stop()
+                frozenShortcutHintsTabId = nil
+                frozenShortcutHintsValue = false
+            }
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -12285,7 +12306,7 @@ struct VerticalTabsSidebar: View {
                         group: group,
                         memberWorkspaceIds: memberWorkspaceIds,
                         renderContext: renderContext,
-                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
                     )
                 case .workspace(let tab):
                     workspaceRow(
@@ -12440,7 +12461,7 @@ struct VerticalTabsSidebar: View {
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
-        let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
+        let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
             live: liveShowsModifierShortcutHints,
             currentTabId: tab.id,
@@ -12748,173 +12769,6 @@ private struct SidebarExternalDropDelegate: DropDelegate {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
-    }
-}
-
-@MainActor
-@Observable
-final class WindowScopedShortcutHintModifierMonitor {
-    private(set) var isModifierPressed = false
-
-    private let activation: ShortcutHintModifierActivation
-    private let allowsHintsForWindow: (NSWindow) -> Bool
-    @ObservationIgnored private weak var hostWindow: NSWindow?
-    @ObservationIgnored private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
-    @ObservationIgnored private var hostWindowDidResignKeyObserver: NSObjectProtocol?
-    @ObservationIgnored private var flagsMonitor: Any?
-    @ObservationIgnored private var keyDownMonitor: Any?
-    @ObservationIgnored private var appResignObserver: NSObjectProtocol?
-    @ObservationIgnored private var pendingShowWorkItem: DispatchWorkItem?
-
-    init(
-        activation: ShortcutHintModifierActivation = .commandOrControl,
-        allowsHintsForWindow: @escaping (NSWindow) -> Bool = { _ in true }
-    ) {
-        self.activation = activation
-        self.allowsHintsForWindow = allowsHintsForWindow
-    }
-
-    func setHostWindow(_ window: NSWindow?) {
-        guard hostWindow !== window else { return }
-        removeHostWindowObservers()
-        hostWindow = window
-        guard let window else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
-            }
-        }
-
-        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func start() {
-        guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags, eventWindow: nil)
-            return
-        }
-
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags, eventWindow: event.window)
-            return event
-        }
-
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyDown(event)
-            return event
-        }
-
-        appResignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func stop() {
-        if let flagsMonitor {
-            NSEvent.removeMonitor(flagsMonitor)
-            self.flagsMonitor = nil
-        }
-        if let keyDownMonitor {
-            NSEvent.removeMonitor(keyDownMonitor)
-            self.keyDownMonitor = nil
-        }
-        if let appResignObserver {
-            NotificationCenter.default.removeObserver(appResignObserver)
-            self.appResignObserver = nil
-        }
-        removeHostWindowObservers()
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func handleKeyDown(_ event: NSEvent) {
-        guard isCurrentWindow(eventWindow: event.window) else { return }
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy().isCurrentWindow(
-            hostWindowNumber: hostWindow?.windowNumber,
-            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-            eventWindowNumber: eventWindow?.windowNumber,
-            keyWindowNumber: NSApp.keyWindow?.windowNumber
-        )
-    }
-
-    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard let hostWindow,
-              isCurrentWindow(eventWindow: eventWindow),
-              allowsHintsForWindow(hostWindow),
-              activation.shouldShowHints(for: modifierFlags) else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        queueHintShow()
-    }
-
-    private func queueHintShow() {
-        guard !isModifierPressed else { return }
-        guard pendingShowWorkItem == nil else { return }
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingShowWorkItem = nil
-            guard let hostWindow = self.hostWindow,
-                  self.isCurrentWindow(eventWindow: nil),
-                  self.allowsHintsForWindow(hostWindow),
-                  self.activation.shouldShowHints(for: NSEvent.modifierFlags) else {
-                return
-            }
-            self.isModifierPressed = true
-        }
-
-        pendingShowWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + ShortcutHintModifierPolicy.intentionalHoldDelay, execute: workItem)
-    }
-
-    private func cancelPendingHintShow(resetVisible: Bool) {
-        pendingShowWorkItem?.cancel()
-        pendingShowWorkItem = nil
-        if resetVisible, isModifierPressed {
-            isModifierPressed = false
-        }
-    }
-
-    private func removeHostWindowObservers() {
-        if let hostWindowDidBecomeKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
-            self.hostWindowDidBecomeKeyObserver = nil
-        }
-        if let hostWindowDidResignKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
-            self.hostWindowDidResignKeyObserver = nil
-        }
     }
 }
 

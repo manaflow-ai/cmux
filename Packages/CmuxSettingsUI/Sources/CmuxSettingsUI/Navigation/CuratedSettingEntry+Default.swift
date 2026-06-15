@@ -145,6 +145,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Keyboard shortcuts
             .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged"),
+            .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
