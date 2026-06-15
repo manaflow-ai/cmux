@@ -155,7 +155,7 @@
 614	Sources/PortScanner.swift
 614	cmuxTests/SessionIndexViewTests.swift
 608	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
-605	Sources/SettingsNavigation.swift
+598	Sources/SettingsNavigation.swift
 604	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift

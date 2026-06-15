@@ -351,10 +351,9 @@ public struct SettingsWindowRoot: View {
                     // and lets the SceneStorage-restored sidebar entry
                     // drive a deep scroll if it was a setting hit.
                     let section = selectedSection
-                    let selectedEntry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)
-                        : selectedEntry?.anchorID ?? selectedSidebarEntryID
+                        : searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
                     postNavigationRequest(
                         target: section,
                         anchorID: anchor,
