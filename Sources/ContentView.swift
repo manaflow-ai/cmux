@@ -10611,6 +10611,7 @@ struct VerticalTabsSidebar: View {
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
         let numberedWorkspaceShortcutIds: [UUID]
+        let workspaceGroupUnreadCountById: [UUID: Int]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10645,6 +10646,16 @@ struct VerticalTabsSidebar: View {
             tabs: tabs,
             groupsById: workspaceGroupById
         )
+        let workspaceGroupUnreadCountById = workspaceRenderItems.reduce(into: [UUID: Int]()) { counts, item in
+            guard case .groupHeader(let group, let memberWorkspaceIds) = item else { return }
+            guard group.isCollapsed else {
+                counts[group.id] = 0
+                return
+            }
+            counts[group.id] = memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                partial + sidebarUnread.unreadCount(forWorkspaceId: workspaceId)
+            }
+        }
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let numberedWorkspaceShortcutIds = workspaceRenderItems.compactMap(\.numberedShortcutWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
@@ -10674,7 +10685,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds,
-            numberedWorkspaceShortcutIds: numberedWorkspaceShortcutIds
+            numberedWorkspaceShortcutIds: numberedWorkspaceShortcutIds,
+            workspaceGroupUnreadCountById: workspaceGroupUnreadCountById
         )
 
         ZStack(alignment: .bottomLeading) {

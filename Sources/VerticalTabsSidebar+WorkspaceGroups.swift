@@ -24,12 +24,9 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let anchorUnreadCount: Int = {
-            guard group.isCollapsed else { return 0 }
-            return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                partial + notificationStore.unreadCount(forTabId: workspaceId)
-            }
-        }()
+        let anchorUnreadCount = group.isCollapsed
+            ? renderContext.workspaceGroupUnreadCountById[group.id, default: 0]
+            : 0
         let showsHintForAnchor = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
