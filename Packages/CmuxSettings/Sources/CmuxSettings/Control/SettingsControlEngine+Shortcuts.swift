@@ -35,22 +35,43 @@ extension SettingsControlEngine {
             )
         }
 
+        // Numbered actions (e.g. Select Surface 1…9) are matched by digit. The
+        // app drops a non-digit binding on reload, so reject it up front instead
+        // of reporting a false success.
+        if action.usesNumberedDigitMatching, !proposed.isUnbound, !Self.isNumberedDigitBinding(proposed) {
+            throw SettingsControlError.invalidShortcut(
+                action: actionID,
+                reason: "this action is matched by number: bind it to a 1–9 key (e.g. 'cmd+1')."
+            )
+        }
+
         var bindings = await currentShortcutBindings()
 
         if !proposed.isUnbound, !force {
+            // Two bindings only truly conflict when their keystrokes collide AND
+            // their focus contexts can coexist without priority routing resolving
+            // the overlap — matching the app's router and Settings UI, so
+            // context-separated bindings (browser-only vs markdown-only) are not
+            // falsely rejected.
+            let whenClauses = await currentShortcutWhenClauses()
+            let actionWhen = effectiveWhenClause(action, whenClauses)
             for other in ShortcutAction.allCases where other != action {
                 let otherBinding = effectiveBinding(other, overrides: bindings)
-                if otherBinding.conflicts(
+                guard otherBinding.conflicts(
                     with: proposed,
                     selfUsesNumberedDigitMatching: other.usesNumberedDigitMatching,
                     otherUsesNumberedDigitMatching: action.usesNumberedDigitMatching
-                ) {
-                    throw SettingsControlError.shortcutConflict(
-                        action: actionID,
-                        conflictingAction: other.rawValue,
-                        binding: proposed.configIdentifier
-                    )
-                }
+                ) else { continue }
+                let otherWhen = effectiveWhenClause(other, whenClauses)
+                guard ShortcutWhenClause.bindingsCollide(
+                    otherWhen, lhsHasPriority: other.hasPriorityShortcutRouting,
+                    actionWhen, rhsHasPriority: action.hasPriorityShortcutRouting
+                ) else { continue }
+                throw SettingsControlError.shortcutConflict(
+                    action: actionID,
+                    conflictingAction: other.rawValue,
+                    binding: proposed.configIdentifier
+                )
             }
         }
 
@@ -85,6 +106,30 @@ extension SettingsControlEngine {
 
     func currentShortcutBindings() async -> [String: StoredShortcut] {
         await stores.json.value(for: catalog.shortcuts.bindings)
+    }
+
+    func currentShortcutWhenClauses() async -> [String: String] {
+        await stores.json.value(for: catalog.shortcuts.when)
+    }
+
+    /// The action's effective focus context: a parsed `shortcuts.when` override
+    /// if present and valid, else the action's built-in default clause.
+    func effectiveWhenClause(_ action: ShortcutAction, _ overrides: [String: String]) -> ShortcutWhenClause {
+        if let raw = overrides[action.rawValue], let parsed = ShortcutWhenClause.parse(raw) {
+            return parsed
+        }
+        return action.defaultFocusWhenClause
+    }
+
+    /// Whether a binding's matched stroke is a `1`–`9` digit (single-stroke: the
+    /// first stroke; chord: the second). Numbered actions require this.
+    static func isNumberedDigitBinding(_ shortcut: StoredShortcut) -> Bool {
+        func isDigit(_ stroke: ShortcutStroke) -> Bool {
+            guard let value = Int(stroke.key) else { return false }
+            return (1...9).contains(value)
+        }
+        if let second = shortcut.second { return isDigit(second) }
+        return isDigit(shortcut.first)
     }
 
     func writeShortcutBindings(_ bindings: [String: StoredShortcut]) async throws {

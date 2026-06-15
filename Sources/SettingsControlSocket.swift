@@ -18,7 +18,10 @@ extension TerminalController {
     /// The pure-read `settings.control.*` methods. Every other (mutating)
     /// method triggers a live config reload after it succeeds, so adding a write
     /// here would wrongly suppress that reload — keep this list reads-only.
-    private static let settingsControlReadMethods: Set<String> = [
+    ///
+    /// `nonisolated` so the worker-lane (`nonisolated`) handler can read it
+    /// without hopping to the main actor (`TerminalController` is `@MainActor`).
+    private nonisolated static let settingsControlReadMethods: Set<String> = [
         "settings.control.list",
         "settings.control.get",
         "settings.control.describe",

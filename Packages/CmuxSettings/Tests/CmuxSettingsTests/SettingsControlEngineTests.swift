@@ -370,6 +370,34 @@ struct SettingsControlEngineTests {
         #expect(try await engine.shortcutGet("newTab").isOverridden == false)
     }
 
+    @Test func shortcutNumberedActionRequiresDigit() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+        // A non-digit binding for a numbered action is rejected (the app would
+        // drop it on reload), not a false success.
+        await #expect(throws: SettingsControlError.self) {
+            try await engine.shortcutSet("selectSurfaceByNumber", combo: "ctrl+a")
+        }
+        // A 1–9 digit binding is accepted.
+        let row = try await engine.shortcutSet("selectSurfaceByNumber", combo: "cmd+5", force: true)
+        #expect(row.binding == "cmd+5")
+    }
+
+    @Test func shortcutContextSeparatedBindingsDoNotConflict() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let engine = harness.engine
+        // browserZoomIn (browser focus) and markdownZoomIn (markdown focus) can
+        // share a keystroke because their focus contexts cannot coexist.
+        _ = try await engine.shortcutSet("browserZoomIn", combo: "cmd+ctrl+opt+8", force: true)
+        // No conflict is thrown even though the keystroke matches browserZoomIn.
+        let row = try await engine.shortcutSet("markdownZoomIn", combo: "cmd+ctrl+opt+8")
+        // Re-rendered in canonical modifier order (cmd, shift, opt, ctrl).
+        #expect(row.binding == "cmd+opt+ctrl+8")
+        #expect(row.isOverridden)
+    }
+
     @Test func numberedDigitFamilyConflictPredicate() {
         let one = StoredShortcut(first: ShortcutStroke(key: "1", command: true))
         let two = StoredShortcut(first: ShortcutStroke(key: "2", command: true))
