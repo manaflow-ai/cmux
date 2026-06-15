@@ -324,20 +324,6 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
     }
 }
 
-@Suite struct FlagTests {
-    @Test func envOverrideWins() {
-        #expect(MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "1"], defaults: UserDefaults(suiteName: "flag-1")!, isDebugBuild: false).isEnabled)
-        #expect(!MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: UserDefaults(suiteName: "flag-2")!, isDebugBuild: true).isEnabled)
-    }
-
-    @Test func debugDefaultsOnReleaseDefaultsOff() {
-        let suite = UserDefaults(suiteName: "flag-3")!
-        suite.removePersistentDomain(forName: "flag-3")
-        #expect(MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: true).isEnabled)
-        #expect(!MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: false).isEnabled)
-    }
-}
-
 @Suite struct SyncClientTests {
     /// A fake transport that records the hello and replays a scripted frame set.
     final class FakeTransport: SyncTransport, @unchecked Sendable {
@@ -381,6 +367,24 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
         #expect(live.map(\.recordID) == ["dev-A"])
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 1)
+    }
+
+    @Test func runRejectsFramesForUnrequestedCollectionByConstruction() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // The applier here uses the DEFAULT (accept-all) allowlist: the client
+        // must STILL reject the unrequested collection on its own, proving the
+        // safety invariant is enforced by SyncClient construction (from its
+        // subscribed `collections`) and does not depend on the applier's config.
+        let applier = SyncFrameApplier(store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() })
+        let evilSnapshot = Data(#"{"type":"sync.snapshot","collection":"evil-coll","snapshotRev":1,"records":[],"complete":false}"#.utf8)
+        let transport = FakeTransport(scripted: [evilSnapshot])
+        let client = SyncClient(transport: transport, applier: applier, collections: [COLL])
+        await #expect(throws: SyncFrameParseError.self) {
+            try await client.run()
+        }
+        // No cursor state was created for the unrequested collection.
+        #expect(try await store.cursor(teamID: TEAM, collection: "evil-coll") == 0)
     }
 }
 

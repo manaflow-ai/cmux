@@ -29,15 +29,16 @@ public struct SyncClient: Sendable {
     private let transport: any SyncTransport
     private let applier: SyncFrameApplier
     private let collections: [String]
+    private let allowedCollections: Set<String>
     private let onApplied: (@Sendable () async -> Void)?
     private let codec = SyncFrameCodec()
 
-    /// Construct the client. The `applier` MUST be built with
-    /// `allowedCollections` equal to (a superset of) `collections`: the applier
-    /// rejects frames for any collection outside its allowlist, which is what
-    /// stops a misbehaving endpoint from growing buffers/cursor state for an
-    /// unbounded set of unrequested collection names. The composition root owns
-    /// both and is responsible for keeping the two lists in sync.
+    /// Construct the client. The subscribed `collections` are also the allowlist:
+    /// `run()` rejects any inbound frame for a collection outside this set BY
+    /// CONSTRUCTION (independent of how the injected `applier` was configured), so
+    /// a misbehaving endpoint cannot grow buffers/cursor state for an unbounded
+    /// set of unrequested collection names. The safety invariant is enforced by
+    /// the client, not left to each caller to remember.
     public init(
         transport: any SyncTransport,
         applier: SyncFrameApplier,
@@ -47,7 +48,19 @@ public struct SyncClient: Sendable {
         self.transport = transport
         self.applier = applier
         self.collections = collections
+        self.allowedCollections = Set(collections)
         self.onApplied = onApplied
+    }
+
+    /// The collection a server frame targets, or nil for a presence/unknown frame
+    /// (which carries no sync collection and is not subject to the allowlist).
+    private func frameCollection(_ frame: SyncServerFrame) -> String? {
+        switch frame {
+        case let .snapshot(collection, _, _, _, _): return collection
+        case let .delta(collection, _, _): return collection
+        case let .tick(collection, _): return collection
+        case .unknown: return nil
+        }
     }
 
     /// Run one subscription session: send hello, then apply frames until the
@@ -84,6 +97,16 @@ public struct SyncClient: Sendable {
                 } catch {
                     await applier.resetInFlight()
                     throw error // a malformed sync frame: reset + reconnect to resync
+                }
+                // Enforce the subscribed-collection allowlist BY CONSTRUCTION: a
+                // sync frame for a collection this client never subscribed to is a
+                // misbehaving/compromised endpoint trying to grow per-collection
+                // buffers + cursor state for an unbounded set of names. Reset and
+                // reconnect rather than apply it. (Presence/unknown frames carry no
+                // collection and pass through to be ignored by the applier.)
+                if let collection = frameCollection(frame), !allowedCollections.contains(collection) {
+                    await applier.resetInFlight()
+                    throw SyncFrameParseError.malformed("frame for unrequested collection \(collection)")
                 }
                 // Only fire the UI-invalidation callback when a sync commit
                 // actually happened. A presence frame (.unknown), an incomplete
