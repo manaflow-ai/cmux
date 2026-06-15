@@ -760,7 +760,9 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Active les hooks d’intégration cmux pour Amp. Lorsqu’ils sont désactivés, le plugin fourni reste inactif sans avoir besoin d’être supprimé.",
-          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
+          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed.",
+          "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
+          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
@@ -791,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+        },
         "fileExplorer": {
           "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
           "doubleClickAction": "Ce que fait un double-clic (ou l’appui sur Return dans un résultat de recherche) sur un fichier dans l’explorateur de fichiers. `preview` ouvre l’aperçu de fichier intégré à cmux (comportement par défaut et historique). `defaultEditor` ouvre le fichier avec l’app macOS par défaut pour ce type de fichier. `preferredEditor` ouvre avec la commande `app.preferredEditor`, avec repli vers l’app par défaut lorsqu’aucune commande n’est définie. S’applique uniquement aux fichiers ; les dossiers se développent/se replient toujours, et les explorateurs de fichiers non locaux (distants) ouvrent toujours l’aperçu cmux."
@@ -799,7 +804,8 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux."
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
+          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -54,6 +54,10 @@ MARKETING_VERSION_OVERRIDE="${IOS_BETA_MARKETING_VERSION:-}"
 NO_UPLOAD=0
 EXTERNAL=0
 KEEP_ARTIFACTS=0
+# After a successful upload, upload-testflight.sh sets the build's TestFlight
+# "What to Test" notes from the top ios/CHANGELOG.md entry. --skip-notes turns
+# that off (passed straight through).
+SKIP_NOTES=0
 HOST_FILTER=""
 # When the fleet is busy, wait for a cloud slot rather than degrading to a local
 # Release archive on this Mac (which is slow and eats the user's CPU). Mirrors
@@ -90,6 +94,10 @@ download it, then export/re-sign/verify/upload via upload-testflight.sh.
                      falling back to a local build (default 1200).
   --local            Build the Release archive locally on this Mac instead of the
                      fleet. Used automatically when no hq cloud script is present.
+  --skip-notes       Do not set the build's TestFlight "What to Test" notes after
+                     upload. By default a successful upload pushes the top
+                     ios/CHANGELOG.md entry (Internal block, or External with
+                     --external) so testers see what changed.
   --keep-artifacts   Keep the downloaded archive + export dir.
 
 Signing/upload credentials are resolved by upload-testflight.sh (ASC API key via
@@ -104,6 +112,7 @@ while [[ $# -gt 0 ]]; do
     --no-upload) NO_UPLOAD=1; shift ;;
     --marketing-version) MARKETING_VERSION_OVERRIDE="${2:-}"; shift 2 ;;
     --external) EXTERNAL=1; shift ;;
+    --skip-notes) SKIP_NOTES=1; shift ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --host) HOST_FILTER="${2:-}"; shift 2 ;;
     --wait) WAIT_SECONDS="${2:-}"; shift 2 ;;
@@ -267,6 +276,7 @@ UPLOAD="$IOS_DIR/scripts/upload-testflight.sh"
 
 upload_args=( --lane "$LANE" --archive-path "$ARCHIVE_PATH" )
 [[ "$EXTERNAL" -eq 1 ]] && upload_args+=( --external )
+[[ "$SKIP_NOTES" -eq 1 ]] && upload_args+=( --skip-notes )
 # --no-upload maps to --export-only: upload-testflight.sh exports the IPA,
 # re-signs it with the full Release entitlements, and gates it on
 # aps-environment=production before exiting ahead of altool. The re-sign +

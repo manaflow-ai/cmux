@@ -110,6 +110,15 @@ extension ControlCommandCoordinator {
                 payload["created_surface_ref"] = ref(.surface, createdID)
                 payload["created_tab_id"] = .string(createdID.uuidString)
                 payload["created_tab_ref"] = tabRef(createdID)
+            case .routedToRemote:
+                // Routed to the remote tmux mirror as `new-window`; the tab
+                // arrives via %window-add, so there is no created id yet.
+                payload["accepted"] = .bool(true)
+                payload["routed"] = .string("remote-tmux")
+                payload["created_surface_id"] = .null
+                payload["created_surface_ref"] = .null
+                payload["created_tab_id"] = .null
+                payload["created_tab_ref"] = .null
             case .closed(let closed, let skippedPinned):
                 payload["closed"] = .int(Int64(closed))
                 payload["skipped_pinned"] = .int(Int64(skippedPinned))
