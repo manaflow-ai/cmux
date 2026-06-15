@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
+        },
         "fileExplorer": {
           "description": "Impostazioni dell’esplora file (albero dei file) nella barra laterale destra.",
           "doubleClickAction": "Definisce cosa succede quando fai doppio clic (o premi Return su un risultato di ricerca) su un file nell’esplora file. `preview` apre l’anteprima file integrata di cmux (comportamento predefinito e storico). `defaultEditor` apre il file con l’app macOS predefinita per quel tipo di file. `preferredEditor` apre con il comando `app.preferredEditor`, ricadendo sull’app predefinita quando non è impostato. Si applica solo ai file; le cartelle si espandono/chiudono sempre e gli esplora file non locali (remoti) aprono sempre l’anteprima di cmux."

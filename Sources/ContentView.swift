@@ -991,6 +991,7 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1252,8 +1253,8 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = 276
-    private static let maximumRightSidebarWidth: CGFloat = 1200
+    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
+    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
@@ -1298,7 +1299,8 @@ struct ContentView: View {
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth
+                        availableWidth: availableWidth,
+                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
@@ -1343,15 +1345,25 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
-    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+    static func clampedRightSidebarWidth(
+        _ candidate: CGFloat,
+        availableWidth: CGFloat,
+        configuredMaximumWidth: CGFloat? = nil
+    ) -> CGFloat {
         let minimumWidth = Self.minimumRightSidebarWidth
         let sanitizedCandidate = candidate.isFinite ? candidate : 220
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        let maximumWidth = min(
-            Self.maximumRightSidebarWidth,
-            max(minimumWidth, availableWidthCap)
+        let availableWidthCap = max(
+            minimumWidth,
+            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
         )
+        let configuredOrDefaultCap: CGFloat
+        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
+            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
+        } else {
+            configuredOrDefaultCap = Self.maximumRightSidebarWidth
+        }
+        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
         return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
@@ -1400,10 +1412,18 @@ struct ContentView: View {
         return 1920
     }
 
+    private var rightSidebarConfiguredMaximumWidth: CGFloat? {
+        guard let width = RightSidebarWidthSettings().configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
+            return nil
+        }
+        return CGFloat(width)
+    }
+
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
+            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
         )
     }
 
@@ -2978,6 +2998,14 @@ struct ContentView: View {
             let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
+            clampRightSidebarWidthIfNeeded()
+            if rightSidebarVisible {
+                schedulePortalGeometrySynchronize()
+            }
             updateSidebarResizerBandState()
         })
 
@@ -12239,7 +12267,7 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
-        let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
@@ -13267,10 +13295,10 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with a stable drop-hit height. Closure
+    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate
+    /// `@Observable` store reference (snapshot-boundary rule).
+    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -13287,9 +13315,11 @@ struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
-    @State var metadataRowsExpanded = false
-    @State var metadataBlocksExpanded = false
+    @State private var rowHeight: CGFloat = 1
+    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+
+    private static let maxWrappedTitleLines = 8
+    private static let maxDisplayedTitleCharacters = 2048
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13517,6 +13547,18 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private var rowHeightProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    rowHeight = max(proxy.size.height, 1)
+                }
+                .onChange(of: proxy.size.height) { newHeight in
+                    rowHeight = max(newHeight, 1)
+                }
+        }
+    }
+
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13608,12 +13650,10 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles
-            ? SidebarWorkspaceRowDropMetrics.maxWrappedTitleLines
-            : 1
-        let dropTargetHeight = workspaceDropTargetHeight(
-            snapshot: workspaceSnapshot,
-            effectiveSubtitle: effectiveSubtitle
+        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
+            maxDisplayedLines: titleLineLimit,
+            maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
@@ -13642,7 +13682,7 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(workspaceSnapshot.title)
+                Text(displayedTitle)
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(titleLineLimit)
@@ -13658,7 +13698,10 @@ struct TabItemView: View, Equatable {
                 // row. (Matches the group-header plus-button pattern.)
                 if canCloseWorkspace {
                     Button(action: {
-                        closeWorkspace(method: "button")
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: scaledFontSize(9), weight: .medium))
@@ -13700,7 +13743,6 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
-                        isExpanded: $metadataRowsExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13712,7 +13754,6 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
-                        isExpanded: $metadataBlocksExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13946,6 +13987,7 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
+        .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -13953,7 +13995,10 @@ struct TabItemView: View, Equatable {
         }
         .overlay {
             MiddleClickCapture {
-                closeWorkspace(method: "middleClick")
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
         .overlay(alignment: .top) {
@@ -13967,13 +14012,26 @@ struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
-            await openPendingFinderDirectoryRequest()
+            guard let request = workspaceFinderDirectoryOpenRequest else { return }
+            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+            workspaceFinderDirectoryOpenRequest = nil
         }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
         ) { _ in
-            refreshWorkspaceSnapshotAfterObservation(source: "immediate")
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            cmuxDebugLog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=immediate " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            refreshWorkspaceSnapshot()
         }
         .onReceive(
             tab.sidebarObservationPublisher
@@ -13983,14 +14041,24 @@ struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
-            refreshWorkspaceSnapshotAfterObservation(source: "debounced")
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            cmuxDebugLog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=debounced " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(dropTargetHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -14026,7 +14094,7 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    func refreshWorkspaceSnapshot(force: Bool = false) {
+    private func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
             current: workspaceSnapshotStorage,
@@ -15113,24 +15181,31 @@ private struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
+    private static let maxDisplayedLines = 12
+    private static let maxDisplayedCharacters = 4096
 
     var body: some View {
-        let renderedMarkdown = SidebarMarkdownRenderer(markdown: markdown).workspaceDescription
+        let displayMarkdown = markdown.sidebarBoundedDisplayString(
+            maxDisplayedLines: Self.maxDisplayedLines,
+            maxDisplayedCharacters: Self.maxDisplayedCharacters
+        )
+        let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
             } else {
-                Text(markdown)
+                Text(displayMarkdown)
             }
         }
         .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
-        .lineLimit(SidebarWorkspaceRowDropMetrics.maxDescriptionLines)
+        .lineLimit(Self.maxDisplayedLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
-        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown))
+        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown, displayMarkdown: displayMarkdown))
         .onAppear {
 #if DEBUG
             let newlineCount = markdown.reduce(into: 0) { count, character in
@@ -15163,22 +15238,54 @@ private struct SidebarWorkspaceDescriptionText: View {
         isActive ? activeForegroundColor : .secondary.opacity(0.95)
     }
 
-    private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
+    private func accessibilityText(renderedMarkdown: AttributedString?, displayMarkdown: String) -> String {
         if let renderedMarkdown {
             return String(renderedMarkdown.characters)
         }
-        return markdown
+        return displayMarkdown
+    }
+}
+
+private extension String {
+    func sidebarBoundedDisplayString(maxDisplayedLines: Int, maxDisplayedCharacters: Int) -> String {
+        var result = ""
+        result.reserveCapacity(maxDisplayedCharacters)
+        var lineCount = 1
+        var characterCount = 0
+        var truncated = false
+
+        for character in self {
+            if characterCount >= maxDisplayedCharacters {
+                truncated = true
+                break
+            }
+            if character == "\n" {
+                if lineCount >= maxDisplayedLines {
+                    truncated = true
+                    break
+                }
+                lineCount += 1
+            }
+            result.append(character)
+            characterCount += 1
+        }
+
+        guard truncated else { return self }
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "..." : trimmed + "..."
     }
 }
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
-    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -15209,10 +15316,8 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit else {
-            return entries
-        }
-        return Array(entries.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit))
+        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
+        return Array(entries.prefix(collapsedEntryLimit))
     }
 
     private var helpText: String {
@@ -15224,7 +15329,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit
+        entries.count > collapsedEntryLimit
     }
 }
 
@@ -15329,12 +15434,14 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
-    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedBlockLimit = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -15364,14 +15471,12 @@ private struct SidebarMetadataMarkdownBlocks: View {
     }
 
     private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit else {
-            return blocks
-        }
-        return Array(blocks.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit))
+        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
+        return Array(blocks.prefix(collapsedBlockLimit))
     }
 
     private var shouldShowToggle: Bool {
-        blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit
+        blocks.count > collapsedBlockLimit
     }
 }
 
@@ -15381,25 +15486,29 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    private static let maxDisplayedLines = 12
+    private static let maxDisplayedCharacters = 4096
 
     var body: some View {
         // Render inline (memoized) so the FIRST render is already attributed.
         // Parsing in onAppear into @State performed a guaranteed nil ->
         // attributed swap on every first appearance, changing the row's height
         // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
-        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(block.markdown)
+        let displayMarkdown = Self.displayMarkdown(from: block.markdown)
+        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
                     .foregroundColor(foregroundColor)
             } else {
-                Text(block.markdown)
+                Text(displayMarkdown)
                     .foregroundColor(foregroundColor)
             }
         }
         .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
-        .lineLimit(SidebarWorkspaceRowDropMetrics.maxMetadataBlockLines)
+        .lineLimit(Self.maxDisplayedLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
@@ -15407,6 +15516,13 @@ private struct SidebarMetadataMarkdownBlockRow: View {
 
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary
+    }
+
+    private static func displayMarkdown(from markdown: String) -> String {
+        markdown.sidebarBoundedDisplayString(
+            maxDisplayedLines: maxDisplayedLines,
+            maxDisplayedCharacters: maxDisplayedCharacters
+        )
     }
 }
 

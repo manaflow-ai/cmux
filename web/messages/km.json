@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
+        },
         "fileExplorer": {
           "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
           "doubleClickAction": "កំណត់អ្វីដែលកើតឡើងពេលចុចពីរដង (ឬចុច Return លើលទ្ធផលស្វែងរក) លើឯកសារនៅក្នុងកម្មវិធីរុករកឯកសារ។ `preview` បើកការមើលជាមុនឯកសារ cmux ដែលភ្ជាប់មកជាមួយ (ជាលំនាំដើម និងជាឥរិយាបថចាស់)។ `defaultEditor` បើកដោយប្រើកម្មវិធីលំនាំដើមរបស់ macOS សម្រាប់ប្រភេទឯកសារនោះ។ `preferredEditor` បើកដោយប្រើពាក្យបញ្ជា `app.preferredEditor` ហើយត្រឡប់ទៅកម្មវិធីលំនាំដើម ប្រសិនបើមិនបានកំណត់។ អនុវត្តតែលើឯកសារ; ថតតែងតែពង្រីក/បង្រួម ហើយកម្មវិធីរុករកឯកសារដែលមិនមែនក្នុងមូលដ្ឋាន (ពីចម្ងាយ) តែងតែបើកការមើលជាមុនរបស់ cmux។"

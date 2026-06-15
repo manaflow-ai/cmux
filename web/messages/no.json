@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+        },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
           "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen."

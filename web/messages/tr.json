@@ -793,6 +793,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
+        },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
           "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar."

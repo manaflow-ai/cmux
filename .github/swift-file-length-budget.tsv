@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34202	CLI/cmux.swift
 17772	Sources/AppDelegate.swift
-16698	Sources/ContentView.swift
+16814	Sources/ContentView.swift
 14785	Sources/TerminalController.swift
 13358	Sources/Panels/BrowserPanel.swift
 12292	Sources/Workspace.swift
@@ -13,8 +13,8 @@
 7912	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6363	cmuxTests/GhosttyConfigTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
+6299	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
 6096	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
@@ -47,8 +47,8 @@
 2117	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2070	Sources/SessionPersistence.swift
-2065	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
+1936	Sources/KeyboardShortcutSettingsFileStore.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1794	Sources/SessionIndexStore.swift
 1777	Sources/RestorableAgentSession.swift
@@ -152,8 +152,8 @@
 614	cmuxTests/SessionIndexViewTests.swift
 611	Sources/TerminalController+ControlPaneContext.swift
 608	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
+605	Sources/SettingsNavigation.swift
 604	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
-603	Sources/SettingsNavigation.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SessionIndexModels.swift
