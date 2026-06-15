@@ -10610,7 +10610,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
-        let numberedWorkspaceShortcutIds: [UUID]
+        let workspaceShortcutDigitById: [UUID: Int]
         let workspaceGroupUnreadCountById: [UUID: Int]
 
         var workspaceIds: [UUID] { tabIds }
@@ -10658,6 +10658,16 @@ struct VerticalTabsSidebar: View {
         }
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let numberedWorkspaceShortcutIds = workspaceRenderItems.compactMap(\.numberedShortcutWorkspaceId)
+        let workspaceShortcutDigitById = (1...9).reduce(into: [UUID: Int]()) { digits, digit in
+            guard let workspaceId = WorkspaceShortcutMapper.workspaceId(
+                forDigit: digit,
+                workspaceIds: numberedWorkspaceShortcutIds
+            ),
+                  digits[workspaceId] == nil else {
+                return
+            }
+            digits[workspaceId] = digit
+        }
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10685,7 +10695,7 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds,
-            numberedWorkspaceShortcutIds: numberedWorkspaceShortcutIds,
+            workspaceShortcutDigitById: workspaceShortcutDigitById,
             workspaceGroupUnreadCountById: workspaceGroupUnreadCountById
         )
 
@@ -12332,10 +12342,7 @@ struct VerticalTabsSidebar: View {
             tab: tab,
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                id: tab.id,
-                workspaceIds: renderContext.numberedWorkspaceShortcutIds
-            ),
+            workspaceShortcutDigit: renderContext.workspaceShortcutDigitById[tab.id],
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
