@@ -10,12 +10,14 @@ public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
+    @State private var remoteTmux: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
+        _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
     }
 
     public var body: some View {
@@ -33,6 +35,8 @@ public struct BetaFeaturesSection: View {
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
+                SettingsCardDivider()
+                remoteTmuxRow
             }
         }
     }
@@ -102,6 +106,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmux",
+            String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"),
+            subtitle: remoteTmux.current
+                ? String(localized: "settings.betaFeatures.remoteTmux.subtitleOn", defaultValue: "Mirrors a remote host's tmux sessions in the sidebar over ssh tmux -CC; sessions become workspaces and windows become tabs. Quitting cmux leaves the remote tmux server running.")
+                : String(localized: "settings.betaFeatures.remoteTmux.subtitleOff", defaultValue: "Hides remote tmux mirroring until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmux.current }, set: { remoteTmux.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
         }
     }
 }

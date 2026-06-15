@@ -65,6 +65,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         paneViews[session.paneID]?.frame = documentRect(fromCanvas: session.lastFrame)
         guidesView.setGuides(result.guides)
         updateJoinHighlight(for: session, at: documentPoint)
+        updateMinimap()
         callbacks.onViewportGeometryChanged(window)
     }
 
@@ -103,6 +104,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             recomputeDocumentGeometry()
             applyAllPaneFrames()
             updateLifecycle()
+            updateMinimap()
             callbacks.onLayoutChanged()
             callbacks.onFocusPanel(panelId)
             callbacks.onViewportGeometryChanged(window)
@@ -113,6 +115,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
+        updateMinimap()
         callbacks.onLayoutChanged()
         callbacks.onViewportGeometryChanged(window)
     }
@@ -158,6 +161,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         reconcilePanes()
         applyZOrder()
         applyAllPaneFrames()
+        updateMinimap()
         guard let paneID = model.paneID(containing: panelId) else { return }
         dragSession = DragSession(
             paneID: paneID,

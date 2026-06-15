@@ -444,38 +444,14 @@ final class CmuxSettingsFileStore {
                 logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
             }
         }
-        if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
-            snapshot.managedUserDefaults[SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey] = .bool(value)
-        } else if section.keys.contains("workspaceInheritWorkingDirectory") {
-            logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
-        }
+        applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
         }
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
             snapshot.managedUserDefaults[SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.userDefaultsKey] = .bool(!value)
-        }
-        if let value = jsonBool(section["focusPaneOnFirstClick"]) {
-            snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
-        }
-        if let value = jsonString(section["preferredEditor"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().preferredEditor.userDefaultsKey] = .string(value)
-        }
-        if let value = jsonBool(section["openSupportedFilesInCmux"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["reorderOnNotification"]) {
-            snapshot.managedUserDefaults[SettingCatalog().app.reorderOnNotification.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["iMessageMode"]) {
-            snapshot.managedUserDefaults[IMessageModeSettings.key] = .bool(value)
-        }
-        if let value = jsonBool(section["sendAnonymousTelemetry"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().sendAnonymousTelemetry.userDefaultsKey] = .bool(value)
         }
         var parsedConfirmQuitMode: ConfirmQuitMode?
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
@@ -496,21 +472,6 @@ final class CmuxSettingsFileStore {
                 snapshot.legacyDerivedManagedUserDefaultKeys.insert(confirmQuitKey)
             }
         }
-        if let value = jsonBool(section["warnBeforeClosingTab"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().warnBeforeClosingTab.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["warnBeforeClosingTabXButton"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["hideTabCloseButton"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().hideTabCloseButton.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["renameSelectsExistingName"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().renameSelectsExistingName.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["commandPaletteSearchesAllSurfaces"]) {
-            snapshot.managedUserDefaults[AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey] = .bool(value)
-        }
     }
 
     private func parseNotificationsSection(
@@ -518,18 +479,7 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let value = jsonBool(section["dockBadge"]) {
-            snapshot.managedUserDefaults[NotificationBadgeSettings.dockBadgeEnabledKey] = .bool(value)
-        }
-        if let value = jsonBool(section["showInMenuBar"]) {
-            snapshot.managedUserDefaults[MenuBarExtraSettings.showInMenuBarKey] = .bool(value)
-        }
-        if let value = jsonBool(section["unreadPaneRing"]) {
-            snapshot.managedUserDefaults[NotificationPaneRingSettings.enabledKey] = .bool(value)
-        }
-        if let value = jsonBool(section["paneFlash"]) {
-            snapshot.managedUserDefaults[NotificationPaneFlashSettings.enabledKey] = .bool(value)
-        }
+        applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
             guard allowed.contains(raw) else {
@@ -538,12 +488,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
-        if let raw = jsonString(section["customSoundFilePath"]) {
-            snapshot.managedUserDefaults[NotificationSoundSettings.customFilePathKey] = .string(raw)
-        }
-        if let raw = jsonString(section["command"]) {
-            snapshot.managedUserDefaults[NotificationSoundSettings.customCommandKey] = .string(raw)
-        }
+        applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
     }
 
     private func parseTerminalSection(
@@ -551,23 +496,7 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let value = jsonBool(section["showScrollBar"]) {
-            snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
-        } else if section.keys.contains("showScrollBar") {
-            logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
-        }
-
-        if let value = jsonBool(section["copyOnSelect"]) {
-            snapshot.managedUserDefaults[TerminalCopyOnSelectSettings.copyOnSelectKey] = .bool(value)
-        } else if section.keys.contains("copyOnSelect") {
-            logInvalid("terminal.copyOnSelect", sourcePath: sourcePath)
-        }
-
-        if let value = jsonBool(section["autoResumeAgentSessions"]) {
-            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
-        } else if section.keys.contains("autoResumeAgentSessions") {
-            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
-        }
+        applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
 
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
@@ -712,58 +641,28 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let value = jsonBool(section["hideAllDetails"]) {
-            snapshot.managedUserDefaults[SettingCatalog().sidebar.hideAllDetails.userDefaultsKey] = .bool(value)
+        for setting in SidebarSettingsFileMapping.booleanSettings {
+            if let value = jsonBool(section[setting.jsonKey]) {
+                snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
+            }
         }
-        if let value = jsonBool(section["wrapWorkspaceTitles"]) {
-            snapshot.managedUserDefaults[SidebarWorkspaceTitleWrapSettings.key] = .bool(value)
-        }
-        if let value = jsonBool(section["showWorkspaceDescription"]) {
-            snapshot.managedUserDefaults[SettingCatalog().sidebar.showWorkspaceDescription.userDefaultsKey] = .bool(value)
-        }
+
         if let raw = jsonString(section["branchLayout"]) {
-            switch raw {
-            case "vertical":
-                snapshot.managedUserDefaults[SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey] = .bool(true)
-            case "inline":
-                snapshot.managedUserDefaults[SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey] = .bool(false)
-            default:
+            if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {
+                snapshot.managedUserDefaults[
+                    SidebarCatalogSection().branchVerticalLayout.userDefaultsKey
+                ] = .bool(value)
+            } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
-        if let value = jsonBool(section["stackBranchDirectory"]) {
-            snapshot.managedUserDefaults[SettingCatalog().sidebar.stackBranchDirectory.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["pathLastSegmentOnly"]) {
-            snapshot.managedUserDefaults[SettingCatalog().sidebar.pathLastSegmentOnly.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["showNotificationMessage"]) {
-            snapshot.managedUserDefaults[SettingCatalog().sidebar.showNotificationMessage.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
-        if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
-        if let value = jsonBool(section["watchGitStatus"]) { snapshot.managedUserDefaults[SidebarWorkspaceDetailDefaults.watchGitStatusKey] = .bool(value) }
-        if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SettingCatalog().sidebar.makePullRequestsClickable.userDefaultsKey] = .bool(value) }
-        if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
-        }
-        if let value = jsonBool(section["openPortLinksInCmuxBrowser"]) {
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey] = .bool(value)
-        }
-        if let value = jsonBool(section["showSSH"]) {
-            snapshot.managedUserDefaults["sidebarShowSSH"] = .bool(value)
-        }
-        if let value = jsonBool(section["showPorts"]) {
-            snapshot.managedUserDefaults["sidebarShowPorts"] = .bool(value)
-        }
-        if let value = jsonBool(section["showLog"]) {
-            snapshot.managedUserDefaults["sidebarShowLog"] = .bool(value)
-        }
-        if let value = jsonBool(section["showProgress"]) {
-            snapshot.managedUserDefaults["sidebarShowProgress"] = .bool(value)
-        }
-        if let value = jsonBool(section["showCustomMetadata"]) {
-            snapshot.managedUserDefaults["sidebarShowStatusPills"] = .bool(value)
+
+        if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
+            snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
+                RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
+            )
+        } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
+            logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
         }
     }
 
@@ -934,30 +833,8 @@ final class CmuxSettingsFileStore {
                 return
             }
         }
-        if let value = jsonBool(section["claudeCodeIntegration"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey] = .bool(value)
-        }
-        if let raw = jsonString(section["claudeBinaryPath"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeCustomClaudePath.userDefaultsKey] = .string(raw)
-        }
-        if let raw = jsonString(section["ripgrepBinaryPath"]) {
-            snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
-        }
-        if let value = jsonBool(section["suppressSubagentNotifications"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["ampIntegration"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().ampHooksEnabled.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["cursorIntegration"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().cursorHooksEnabled.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["geminiIntegration"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().geminiHooksEnabled.userDefaultsKey] = .bool(value)
-        }
-        if let value = jsonBool(section["kiroIntegration"]) {
-            snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey] = .bool(value)
-        }
+        applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if let raw = jsonString(section["kiroNotificationLevel"]) {
             if KiroNotificationLevel(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
@@ -986,38 +863,36 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let browserSearchSettings = BrowserSearchSettingsStore()
+
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchEngineKey] = .string(engine.rawValue)
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.searchEngineKey] = .string(engine.rawValue)
         }
         if let raw = jsonString(section["customSearchEngineName"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineNameKey] = .string(
-                BrowserSearchSettings.normalizedCustomSearchEngineName(raw)
-                    ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineNameKey] = .string(
+                browserSearchSettings.normalizedCustomSearchEngineName(raw)
+                    ?? BrowserSearchSettingsStore.defaultCustomSearchEngineName
             )
         }
         if let raw = jsonString(section["customSearchEngineURLTemplate"]) {
-            if BrowserSearchSettings.isValidSearchURLTemplate(raw) {
-                snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineURLTemplateKey] = .string(raw)
+            if browserSearchSettings.isValidSearchURLTemplate(raw) {
+                snapshot.managedUserDefaults[BrowserSearchSettingsStore.customSearchEngineURLTemplateKey] = .string(raw)
             } else {
                 logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
             }
         }
-        if let value = jsonBool(section["showSearchSuggestions"]) {
-            snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
-        }
+        applyBooleanSettings(BrowserSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        applyStringSettings(BrowserSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
                 logInvalid("browser.theme", sourcePath: sourcePath)
                 return
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
-        }
-        if let value = jsonBool(section["discardHiddenWebViews"]) {
-            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
         }
         if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
             guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
@@ -1026,46 +901,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
-        if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
-        }
-        if let value = jsonBool(section["interceptTerminalOpenCommandInCmuxBrowser"]) {
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey] = .bool(value)
-        }
-        if let values = jsonStringArray(section["hostsToOpenInEmbeddedBrowser"]) {
-            let normalized = values
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.browserHostWhitelistKey] = .string(normalized.joined(separator: "\n"))
-        } else if section.keys.contains("hostsToOpenInEmbeddedBrowser") {
-            logInvalid("browser.hostsToOpenInEmbeddedBrowser", sourcePath: sourcePath)
-        }
-        if let values = jsonStringArray(section["urlsToAlwaysOpenExternally"]) {
-            let normalized = values
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.browserExternalOpenPatternsKey] = .string(
-                normalized.joined(separator: "\n")
-            )
-        } else if section.keys.contains("urlsToAlwaysOpenExternally") {
-            logInvalid("browser.urlsToAlwaysOpenExternally", sourcePath: sourcePath)
-        }
-        if let values = jsonStringArray(section["insecureHttpHostsAllowedInEmbeddedBrowser"]) {
-            let normalized = values
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            snapshot.managedUserDefaults[BrowserInsecureHTTPSettings.allowlistKey] = .string(
-                normalized.joined(separator: "\n")
-            )
-        } else if section.keys.contains("insecureHttpHostsAllowedInEmbeddedBrowser") {
-            logInvalid("browser.insecureHttpHostsAllowedInEmbeddedBrowser", sourcePath: sourcePath)
-        }
-        if let value = jsonBool(section["showImportHintOnBlankTabs"]) {
-            snapshot.managedUserDefaults[BrowserImportHintSettings.showOnBlankTabsKey] = .bool(value)
-        }
-        if let raw = jsonString(section["reactGrabVersion"]) {
-            snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
-        }
+        applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseWorkspaceGroupsSection(
@@ -1093,6 +929,11 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
+        if let value = jsonBool(section["showModifierHoldHints"]) {
+            snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showModifierHoldHints") {
+            logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
+        }
         for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
@@ -1825,6 +1666,51 @@ final class CmuxSettingsFileStore {
         }
         guard let data = try? JSONEncoder().encode(backups) else { return }
         defaults.set(data, forKey: Self.backupsDefaultsKey)
+    }
+
+    private func applyBooleanSettings(
+        _ settings: [SettingsFileBooleanMapping],
+        from section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        for setting in settings {
+            if let value = jsonBool(section[setting.jsonKey]) {
+                snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
+            } else if let invalidPath = setting.invalidPath, section.keys.contains(setting.jsonKey) {
+                logInvalid(invalidPath, sourcePath: sourcePath)
+            }
+        }
+    }
+
+    private func applyStringSettings(
+        _ settings: [SettingsFileStringMapping],
+        from section: [String: Any],
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        for setting in settings {
+            if let raw = jsonString(section[setting.jsonKey]) {
+                snapshot.managedUserDefaults[setting.defaultsKey] = .string(raw)
+            }
+        }
+    }
+
+    private func applyNormalizedStringArraySettings(
+        _ settings: [SettingsFileStringArrayMapping],
+        from section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        for setting in settings {
+            if let values = jsonStringArray(section[setting.jsonKey]) {
+                let normalized = values
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                snapshot.managedUserDefaults[setting.defaultsKey] = .string(normalized.joined(separator: "\n"))
+            } else if section.keys.contains(setting.jsonKey) {
+                logInvalid(setting.invalidPath, sourcePath: sourcePath)
+            }
+        }
     }
 
     private func logInvalid(_ path: String, sourcePath: String) {

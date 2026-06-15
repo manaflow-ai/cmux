@@ -248,15 +248,17 @@ public protocol ControlSidebarContext: AnyObject {
         insertFirst: Bool
     ) -> ControlSidebarDragToSplitResolution
 
-    /// Creates a `new_pane` split off the focused panel; returns the new
-    /// panel id, or `nil` on failure (focus allowance is read app-side from
-    /// the active socket-command policy, as the original did).
+    /// Creates a `new_pane` split off the focused panel (focus allowance is
+    /// read app-side from the active socket-command policy, as the original
+    /// did). Terminal splits on a remote tmux mirror workspace are routed to
+    /// the remote instead of created locally — the resolution distinguishes
+    /// that from failure.
     func controlSidebarCreatePaneSplit(
         isBrowser: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
-    ) -> UUID?
+    ) -> ControlSidebarPaneSplitResolution
 
     /// Creates a `new_surface` in a pane (UUID-or-index argument, focused
     /// pane otherwise).
