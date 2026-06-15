@@ -1,3 +1,4 @@
+public import CmuxAgentChat
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -43,6 +44,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isFocused: Bool
         /// Whether the terminal surface is ready, if reported.
         public let isReady: Bool?
+        /// The best chat-capable agent session bound to this terminal, when the
+        /// host discovered one while building the workspace list.
+        public let chatSession: ChatSessionDescriptor?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -50,6 +54,19 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
             case isReady = "is_ready"
+            case chatSession = "chat_session"
+        }
+
+        /// Decodes required terminal metadata strictly while treating
+        /// `chat_session` as a lossy first-paint optimization.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isFocused = try container.decode(Bool.self, forKey: .isFocused)
+            isReady = try container.decodeIfPresent(Bool.self, forKey: .isReady)
+            chatSession = try? container.decode(ChatSessionDescriptor.self, forKey: .chatSession)
         }
     }
 
@@ -71,6 +88,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     /// - Returns: The decoded response.
     /// - Throws: A decoding error if the payload is malformed.
     public static func decode(_ data: Data) throws -> MobileSyncWorkspaceListResponse {
-        try JSONDecoder().decode(Self.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Self.self, from: data)
     }
 }

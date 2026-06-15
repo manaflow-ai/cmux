@@ -10,12 +10,14 @@ struct ChatSessionOrderingTests {
     private func session(
         _ id: String,
         _ state: ChatAgentState,
-        ago: TimeInterval
+        ago: TimeInterval,
+        terminalID: String? = nil
     ) -> ChatSessionDescriptor {
         ChatSessionDescriptor(
             id: id,
             agentKind: .claude,
             title: id,
+            terminalID: terminalID,
             state: state,
             lastActivityAt: Self.base.addingTimeInterval(-ago)
         )
@@ -58,5 +60,14 @@ struct ChatSessionOrderingTests {
             session("ended-new", .ended, ago: 1),
         ])
         #expect(result.map(\.id) == ["ended-new", "ended-old"])
+    }
+
+    @Test("per-terminal selection keeps live sessions from being shadowed by ended records")
+    func perTerminalSelectionKeepsLiveSession() {
+        let result = ChatSessionDescriptor.openableByTerminal([
+            session("ended-new", .ended, ago: 1, terminalID: "terminal-1"),
+            session("idle-old", .idle, ago: 100, terminalID: "terminal-1"),
+        ])
+        #expect(result.map(\.id) == ["idle-old"])
     }
 }

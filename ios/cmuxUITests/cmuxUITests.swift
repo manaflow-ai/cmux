@@ -4,6 +4,10 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
+    private let terminalRowTimeout: TimeInterval = 20
+    private let remoteSelectionTimeout: TimeInterval = 40
+    private let composerHittabilityTimeout: TimeInterval = 4
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -511,21 +515,16 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
+        let rows = waitForTerminalRows(in: app, timeout: terminalRowTimeout) {
+            $0.dropFirst(index).first == expectedLabel
+        }
         XCTAssertEqual(
-            result,
-            .completed,
-            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
+            rows.dropFirst(index).first,
+            expectedLabel,
+            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(rows))",
             file: file,
             line: line
         )
-        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
@@ -537,25 +536,24 @@ final class cmuxUITests: XCTestCase {
     ) {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
-        let labelExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                expectedLabels.allSatisfy { index, expectedLabel in
-                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
-                }
-            },
-            object: app
-        )
-        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        if result != .completed {
+        let rows = waitForTerminalRows(in: app, timeout: terminalRowTimeout) { rows in
+            expectedLabels.allSatisfy { index, expectedLabel in
+                rows.dropFirst(index).first == expectedLabel
+            }
+        }
+        let matched = expectedLabels.allSatisfy { index, expectedLabel in
+            rows.dropFirst(index).first == expectedLabel
+        }
+        if !matched {
             XCTFail(
-                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(rows))",
                 file: file,
                 line: line
             )
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+            XCTAssertEqual(rows.dropFirst(index).first, expectedLabel, file: file, line: line)
         }
     }
 
@@ -609,14 +607,14 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        // 20s: a saturated CI runner can take well past the old 8s default for
+        // A saturated CI runner can take well past the old 8s default for
         // the create round-trip + the new surface (and its composer band) to
         // mount and report the selection. This is a wait-until, so a fast run
         // still returns immediately.
         let didSelect = await server.waitForSelection(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            timeout: 20
+            timeout: remoteSelectionTimeout
         )
         if !didSelect {
             let selection = await server.selectionDescription()
@@ -790,7 +788,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func terminalRowLabels(in app: XCUIApplication) -> [String] {
-        terminalRows(in: app).enumerated().map { index, row in
+        terminalRowLabels(terminalRows(in: app))
+    }
+
+    private func terminalRowLabels(_ rows: [String]) -> [String] {
+        rows.enumerated().map { index, row in
             "\(index):\(row)"
         }
     }
@@ -802,6 +804,24 @@ final class cmuxUITests: XCTestCase {
         return surface.label
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    @MainActor
+    private func waitForTerminalRows(
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        matching predicate: ([String]) -> Bool
+    ) -> [String] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var rows = terminalRows(in: app)
+        while Date() < deadline {
+            rows = terminalRows(in: app)
+            if predicate(rows) {
+                return rows
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return terminalRows(in: app)
     }
 
     @MainActor
@@ -909,6 +929,18 @@ final class cmuxUITests: XCTestCase {
             return frame
         }
         return nil
+    }
+
+    @MainActor
+    private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return element.isHittable
     }
 
     @MainActor
@@ -1116,9 +1148,16 @@ final class cmuxUITests: XCTestCase {
             "cycle \(cycle): compose button shifted OFF-SCREEN RIGHT. composeFrame=\(composeFrame) window=\(windowFrame) surface=\(surface)",
             file: file, line: line
         )
+        let didBecomeHittable = waitForHittable(
+            app.buttons[Composer.composeButton],
+            timeout: composerHittabilityTimeout
+        )
+        let settledComposeFrame = app.buttons[Composer.composeButton].frame
+        let settledKeyboardInfo = kb.exists ? "\(kb.frame)" : "absent"
+        let settledFieldInfo = fieldEl.exists ? "\(fieldEl.frame)" : "absent"
         XCTAssertTrue(
-            app.buttons[Composer.composeButton].isHittable,
-            "cycle \(cycle): compose button must stay tappable. composeFrame=\(composeFrame) keyboard=\(kbInfo) field=\(fieldInfo) surface=\(surface)",
+            didBecomeHittable,
+            "cycle \(cycle): compose button must stay tappable. composeFrame=\(settledComposeFrame) keyboard=\(settledKeyboardInfo) field=\(settledFieldInfo) surface=\(surface)",
             file: file, line: line
         )
         // Item-4 edge case: a presented composer must not be left with the chrome

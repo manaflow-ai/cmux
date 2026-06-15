@@ -109,6 +109,16 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID).map(\.descriptor)
     }
 
+    /// Lists chat-capable sessions for known workspace/terminal ids.
+    ///
+    /// This is the bounded workspace-list path: unrelated historical records
+    /// are neither swept nor sorted.
+    func sessionDescriptors(
+        workspaceAndTerminalIDs: [String: Set<String>]
+    ) -> [ChatSessionDescriptor] {
+        registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs).map(\.descriptor)
+    }
+
     /// Adopts a Claude session cmux detected by terminal title but that
     /// never registered via a hook (e.g. launched through a shell wrapper
     /// that bypasses cmux's hook injection), so it gains a chat session and
@@ -127,9 +137,9 @@ final class AgentChatTranscriptService {
         surfaceID: String,
         workingDirectory: String
     ) -> Bool {
-        let alreadyBound = registry.sessions(workspaceID: workspaceID)
-            .contains { $0.surfaceID == surfaceID && $0.state != .ended }
-        if alreadyBound { return true }
+        if registry.hasLiveSession(workspaceID: workspaceID, surfaceID: surfaceID) {
+            return true
+        }
         // A claude detected by title before it has written its transcript jsonl
         // (the launch race) resolves to nothing. List-level adoption runs this
         // on every workspace-list RPC and every "claude" title change across

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxControlSocket
 import CmuxSettings
@@ -13844,11 +13845,18 @@ class TerminalController {
             for workspace in visibleWorkspaces {
                 adoptDetectedAgentSessions(workspace: workspace)
             }
+            let terminalIDsByWorkspaceID = Dictionary(uniqueKeysWithValues: visibleWorkspaces.map {
+                ($0.id.uuidString, Set(mobileTerminalPanels(in: $0).map { $0.id.uuidString }))
+            })
+            let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
+                workspaceTerminalIDsByWorkspaceID: terminalIDsByWorkspaceID
+            )
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
                     isSelected: workspace.id == tabManager.selectedTabId,
-                    requestedTerminalID: requestedTerminalID
+                    requestedTerminalID: requestedTerminalID,
+                    chatSessionsByTerminalID: chatSessionsByWorkspaceID[workspace.id.uuidString] ?? [:]
                 )
             }
             if let requestedTerminalID,
@@ -13867,7 +13875,7 @@ class TerminalController {
             guard let app = AppDelegate.shared else {
                 return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
             }
-            var flattened: [[String: Any]] = []
+            var listedWorkspaces: [(workspace: Workspace, isSelected: Bool)] = []
             // `listMainWindowSummaries()` already dedupes window ids, but guard
             // against the same window or workspace appearing twice anyway: a
             // workspace lives in exactly one window, and ids are globally unique.
@@ -13880,16 +13888,23 @@ class TerminalController {
                     // See the scoped branch: adopt title-detected agents so the
                     // chat toggle is known as the rows load, across every window.
                     adoptDetectedAgentSessions(workspace: workspace)
-                    flattened.append(
-                        mobileWorkspacePayload(
-                            workspace: workspace,
-                            isSelected: workspace.id == selectedWorkspaceID,
-                            requestedTerminalID: requestedTerminalID
-                        )
-                    )
+                    listedWorkspaces.append((workspace, workspace.id == selectedWorkspaceID))
                 }
             }
-            workspaces = flattened
+            let terminalIDsByWorkspaceID = Dictionary(uniqueKeysWithValues: listedWorkspaces.map { item in
+                (item.workspace.id.uuidString, Set(mobileTerminalPanels(in: item.workspace).map { $0.id.uuidString }))
+            })
+            let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
+                workspaceTerminalIDsByWorkspaceID: terminalIDsByWorkspaceID
+            )
+            workspaces = listedWorkspaces.map { item in
+                mobileWorkspacePayload(
+                    workspace: item.workspace,
+                    isSelected: item.isSelected,
+                    requestedTerminalID: requestedTerminalID,
+                    chatSessionsByTerminalID: chatSessionsByWorkspaceID[item.workspace.id.uuidString] ?? [:]
+                )
+            }
         }
 
         var payload: [String: Any] = [
@@ -13915,13 +13930,15 @@ class TerminalController {
     private func mobileWorkspacePayload(
         workspace: Workspace,
         isSelected: Bool,
-        requestedTerminalID: UUID?
+        requestedTerminalID: UUID?,
+        chatSessionsByTerminalID: [String: [ChatSessionDescriptor]]
     ) -> [String: Any] {
+        let chatService = AgentChatTranscriptService.shared
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
-            return [
+            var payload: [String: Any] = [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(
@@ -13932,6 +13949,13 @@ class TerminalController {
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
+            if let descriptor = ChatSessionDescriptor.openable(
+                chatSessionsByTerminalID[terminal.id.uuidString] ?? []
+            ).first,
+               let chatPayload = chatService.wirePayload(descriptor) {
+                payload["chat_session"] = chatPayload
+            }
+            return payload
         }
 
         return [

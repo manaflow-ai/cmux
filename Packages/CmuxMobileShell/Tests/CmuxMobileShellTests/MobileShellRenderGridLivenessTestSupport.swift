@@ -64,6 +64,8 @@ actor LivenessHostRouter {
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var hasActiveSubscription = false
+    private var includesWorkspaceListChatSession = false
+    private var includesEndedWorkspaceListChatSession = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
 
     func record(method: String?, topics: [String]?) {
@@ -98,6 +100,18 @@ actor LivenessHostRouter {
         hasActiveSubscription = false
     }
 
+    /// Add or remove the first-paint chat-session descriptor from subsequent
+    /// `mobile.workspace.list` responses.
+    func setIncludesWorkspaceListChatSession(_ include: Bool) {
+        includesWorkspaceListChatSession = include
+    }
+
+    /// Add or remove an ended chat-session descriptor bound to another
+    /// terminal in the same workspace-list response.
+    func setIncludesEndedWorkspaceListChatSession(_ include: Bool) {
+        includesEndedWorkspaceListChatSession = include
+    }
+
     /// Resume every held request so parked continuations do not leak past the
     /// end of the test.
     func releaseAllHeld() {
@@ -114,25 +128,13 @@ actor LivenessHostRouter {
     func response(method: String?, id: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": "Live Workspace",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "live-terminal",
-                                "title": "Terminal",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                ],
-            ])
+            return try? Self.resultFrame(
+                id: id,
+                result: Self.workspaceListResult(
+                    includeChatSession: includesWorkspaceListChatSession,
+                    includeEndedChatSession: includesEndedWorkspaceListChatSession
+                )
+            )
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
@@ -176,6 +178,67 @@ actor LivenessHostRouter {
             "result": result,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+
+    private static func workspaceListResult(
+        includeChatSession: Bool,
+        includeEndedChatSession: Bool
+    ) -> [String: Any] {
+        var terminal: [String: Any] = [
+            "id": "live-terminal",
+            "title": "Terminal",
+            "current_directory": "/Users/test/project",
+            "is_ready": true,
+            "is_focused": true,
+        ]
+        if includeChatSession {
+            terminal["chat_session"] = [
+                "session_id": "seeded-session",
+                "agent_kind": "claude",
+                "kind": "agent",
+                "title": "Seeded chat session",
+                "workspace_id": "live-workspace",
+                "terminal_id": "live-terminal",
+                "cwd": "/Users/test/project",
+                "state": [
+                    "state": "needs_input",
+                    "since": "2026-06-14T05:00:00Z",
+                ],
+                "last_activity_at": "2026-06-14T05:01:00Z",
+            ]
+        }
+        var terminals = [terminal]
+        if includeEndedChatSession {
+            terminals.append([
+                "id": "ended-terminal",
+                "title": "Ended Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": false,
+                "chat_session": [
+                    "session_id": "ended-session",
+                    "agent_kind": "claude",
+                    "kind": "agent",
+                    "title": "Ended chat session",
+                    "workspace_id": "live-workspace",
+                    "terminal_id": "ended-terminal",
+                    "cwd": "/Users/test/project",
+                    "state": ["state": "ended"],
+                    "last_activity_at": "2026-06-14T04:00:00Z",
+                ],
+            ])
+        }
+        return [
+            "workspaces": [
+                [
+                    "id": "live-workspace",
+                    "title": "Live Workspace",
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": terminals,
+                ],
+            ],
+        ]
     }
 
     private static func errorFrame(id: String?, message: String) throws -> Data {
