@@ -86,6 +86,7 @@ public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeS
     private func finishDraining() {
         pending.removeAll(keepingCapacity: true)
         pendingHead = 0
+        queuedSurfaceIds.removeAll(keepingCapacity: true)
         isDraining = false
     }
 }
