@@ -6779,7 +6779,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         case "$*" in
         *mobile.host.ensure*)
         cat <<'JSON'
-        {"host_service":{"is_running":true,"port":58465,"configured_port":58465,"routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"100.64.1.2","port":58465},"priority":0}],"uses_ephemeral_fallback":false,"active_connection_count":0,"last_error":null},"capabilities":["terminal.viewport.v1"]}
+        {"host_service":{"is_running":true,"port":58465,"configured_port":58465,"routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"fd7a:115c:a1e0::1","port":58465},"priority":0}],"uses_ephemeral_fallback":false,"active_connection_count":0,"last_error":null},"capabilities":["terminal.viewport.v1"]}
         JSON
         exit 0
         ;;
@@ -6791,7 +6791,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         ;;
         esac
         cat <<'JSON'
-        {"ticket":{"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-mini","macDisplayName":"Mac mini","routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"100.64.1.2","port":58465},"priority":0}],"expiresAt":"2096-10-02T07:06:40Z","auth_token":"secret"}}
+        {"ticket":{"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-mini","macDisplayName":"Mac mini","routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"fd7a:115c:a1e0::1","port":58465},"priority":0}],"expiresAt":"2096-10-02T07:06:40Z","auth_token":"secret"}}
         JSON
         """.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
@@ -6877,7 +6877,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected"), result.stdout)
         XCTAssertTrue(result.stdout.contains("remote_window_id=\(remoteWindowID.uppercased())"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("tunnel=127.0.0.1:49321 -> 100.64.1.2:58465"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tunnel=127.0.0.1:49321 -> [fd7a:115c:a1e0::1]:58465"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         XCTAssertEqual(state.commands.first, "new_window")
@@ -6898,14 +6898,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["remote_mac_local_endpoint"] as? String, "127.0.0.1:49321")
-        XCTAssertEqual(configureParams["remote_mac_forward_target"] as? String, "100.64.1.2:58465")
+        XCTAssertEqual(configureParams["remote_mac_forward_target"] as? String, "[fd7a:115c:a1e0::1]:58465")
         XCTAssertEqual(configureParams["remote_mac_window_id"] as? String, remoteWindowID.uppercased())
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         XCTAssertTrue(sshOptions.contains("ConnectionAttempts=3"))
         XCTAssertTrue(sshOptions.contains("ServerAliveInterval=10"))
         XCTAssertTrue(sshOptions.contains("ServerAliveCountMax=3"))
         XCTAssertTrue(sshOptions.contains("ExitOnForwardFailure=yes"))
-        XCTAssertTrue(sshOptions.contains("LocalForward=127.0.0.1:49321 100.64.1.2:58465"))
+        XCTAssertTrue(sshOptions.contains("LocalForward=127.0.0.1:49321 [fd7a:115c:a1e0::1]:58465"))
     }
 
     @MainActor

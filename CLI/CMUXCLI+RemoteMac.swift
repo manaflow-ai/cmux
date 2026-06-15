@@ -75,7 +75,9 @@ extension CMUXCLI {
         if !hasSSHOptionKey(sshOptions, key: "ExitOnForwardFailure") {
             sshOptions.append("ExitOnForwardFailure=yes")
         }
-        sshOptions.append("LocalForward=127.0.0.1:\(options.localPort) \(remoteHost):\(remotePort)")
+        let localEndpoint = remoteMacSSHForwardEndpoint(host: "127.0.0.1", port: options.localPort)
+        let forwardTarget = remoteMacSSHForwardEndpoint(host: remoteHost, port: remotePort)
+        sshOptions.append("LocalForward=\(localEndpoint) \(forwardTarget)")
 
         let workspaceName = options.workspaceName ?? "cmux:\(options.destination)"
         let attachURL = try tunneled.attachURL().absoluteString
@@ -105,14 +107,14 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 decorateConfigureParams: { params in
-                    params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
-                    params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+                    params["remote_mac_local_endpoint"] = localEndpoint
+                    params["remote_mac_forward_target"] = forwardTarget
                     params["remote_mac_window_id"] = remoteWindow.id
                 }
             ) { payload in
                 payload["remote_mac_attach_url"] = attachURL
-                payload["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
-                payload["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+                payload["remote_mac_local_endpoint"] = localEndpoint
+                payload["remote_mac_forward_target"] = forwardTarget
                 payload["remote_mac_window_id"] = remoteWindow.id
                 if let remoteWindowRef = remoteWindow.ref {
                     payload["remote_mac_window_ref"] = remoteWindowRef
@@ -126,7 +128,7 @@ extension CMUXCLI {
         if !jsonOutput {
             print("remote_window_id=\(remoteWindow.id)")
             print("attach_url=\(attachURL)")
-            print("tunnel=127.0.0.1:\(options.localPort) -> \(remoteHost):\(remotePort)")
+            print("tunnel=\(localEndpoint) -> \(forwardTarget)")
         }
     }
 
@@ -303,6 +305,13 @@ extension CMUXCLI {
             return
         }
         _ = try? sendV1Command("close_window \(windowRaw)", client: client)
+    }
+
+    private func remoteMacSSHForwardEndpoint(host: String, port: Int) -> String {
+        if host.contains(":") && !(host.hasPrefix("[") && host.hasSuffix("]")) {
+            return "[\(host)]:\(port)"
+        }
+        return "\(host):\(port)"
     }
 
     private func parseNewWindowID(_ response: String) -> String {

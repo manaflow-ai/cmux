@@ -163,6 +163,39 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlPath") })
     }
 
+    @Test("remote Mac tunnel decode rejects invalid persisted endpoints")
+    func remoteMacTunnelDecodeRejectsInvalidEndpoints() throws {
+        let payload = Data(
+            """
+            {
+              "localHost": "127.0.0.1",
+              "localPort": 70000,
+              "remoteHost": "bad host",
+              "remotePort": 61848,
+              "remoteWindowID": "33333333-3333-3333-3333-333333333333"
+            }
+            """.utf8
+        )
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(WorkspaceRemoteMacTunnel.self, from: payload)
+        }
+    }
+
+    @Test("remote Mac tunnel brackets IPv6 hosts in SSH LocalForward")
+    func remoteMacTunnelBracketsIPv6ForwardEndpoints() throws {
+        let tunnel = try #require(WorkspaceRemoteMacTunnel(
+            localEndpoint: "[::1]:49321",
+            forwardTarget: "fd7a:115c:a1e0::1:61848"
+        ))
+
+        #expect(tunnel.localHost == "::1")
+        #expect(tunnel.remoteHost == "fd7a:115c:a1e0::1")
+        #expect(tunnel.localEndpoint == "[::1]:49321")
+        #expect(tunnel.forwardTarget == "[fd7a:115c:a1e0::1]:61848")
+        #expect(tunnel.localForwardSSHOption == "LocalForward=[::1]:49321 [fd7a:115c:a1e0::1]:61848")
+    }
+
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")
     func proxyBrokerTransportKey() {
         let base = makeConfiguration(sshOptions: ["ForwardAgent=yes", "ControlMaster=auto"])
