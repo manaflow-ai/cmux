@@ -254,6 +254,33 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 
+    func testWorkspaceVisibleBrowserPanelBlocksHiddenWebViewDiscard() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: URL(string: "about:blank"),
+                focus: true
+            )
+        )
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(
+            false,
+            reason: "test.transientSwiftUIHide",
+            now: Date(timeIntervalSinceNow: -7200)
+        )
+        _ = workspace.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "test.reconcile")
+
+        XCTAssertFalse(panel.discardHiddenWebViewForMemory(reason: "test.discard"))
+    }
+
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
     // a discard countdown that elapsed across system sleep must restart from
     // wake instead of discarding the webview immediately after wake, while
