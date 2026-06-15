@@ -508,14 +508,19 @@ HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionS
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #
-# cmux injects its hook configuration via --settings. Claude Code resolves
-# multiple --settings CLI flags with first-wins precedence, so a user's own
-# `claude --settings ...` (or an alias built on it) is silently ignored inside
-# cmux even though it works in a plain terminal (issue #2816). Deep-merge the
-# user's settings into ours and pass a single combined --settings: hook arrays
-# are concatenated (so both cmux and user hooks run) and the user's other keys
-# win. Requires `node`; if node is missing or the merge fails we fall back to
-# the previous behavior (no worse than before).
+# cmux injects its hook configuration via --settings. Passing it as a separate
+# flag alongside a user's own --settings is fragile: with two --settings on the
+# command line Claude Code reads only ONE of them (a pure replace, not a merge),
+# and which one is undocumented and has already changed across CLI versions --
+# first-wins on <=2.1.168 (the user's flag was dropped: the original #2816
+# symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
+# --settings is dropped, silently breaking cmux notifications/status). Either
+# way one side is lost. Deep-merge the user's settings into ours and pass a
+# SINGLE combined --settings so Claude Code never sees multiple --settings: hook
+# arrays are concatenated (so both cmux and user hooks run) and the user's other
+# keys win. This is precedence-agnostic -- it does not rely on the CLI's
+# multi-flag behavior. Requires `node`; if node is missing or the merge fails we
+# fall back to the previous behavior (no worse than before).
 CMUX_FILTERED_ARGS=()
 CMUX_USER_SETTINGS=()
 cmux_collect_settings_value=false
@@ -582,8 +587,11 @@ const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString(
 // split() leaves one trailing "" from printf terminating NUL; slice it off
 // rather than filtering all empties, so an explicit empty --settings= reaches
 // load("") -> JSON.parse throws -> merge fails loudly (warning + fallback)
-// instead of being silently dropped. reverse() makes the FIRST --settings win a
-// scalar conflict, matching Claude Code first-wins CLI precedence (issue #2816).
+// instead of being silently dropped. The wrapper emits exactly one --settings,
+// so Claude Code never sees multiples; its multi-flag precedence (first-wins
+// <=2.1.168, last-wins >=2.1.169, undocumented) is irrelevant here. Among
+// repeated USER --settings, reverse() makes the earliest-listed value win the
+// scalar conflict (issue #2816).
 try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
 catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
 process.stdout.write(JSON.stringify(acc));

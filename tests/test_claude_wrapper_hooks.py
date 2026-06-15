@@ -647,10 +647,13 @@ def test_live_socket_merges_inline_settings_form(failures: list[str]) -> None:
     expect(real_argv[-1] == "hello", f"inline settings: positional arg dropped, got {real_argv}", failures)
 
 
-def test_live_socket_repeated_settings_preserve_first_wins(failures: list[str]) -> None:
-    # Claude Code resolves repeated --settings with first-wins precedence. When
-    # the wrapper folds them into the hook settings it must keep that ordering:
-    # the FIRST user --settings wins a scalar conflict over later ones.
+def test_live_socket_repeated_settings_user_value_wins_conflict(failures: list[str]) -> None:
+    # The wrapper folds repeated user --settings into ONE merged payload, so
+    # Claude Code never sees multiple --settings and its own multi-flag
+    # precedence (which changed from first-wins on <=2.1.168 to last-wins on
+    # >=2.1.169) is irrelevant. Among the user's own repeated --settings, the
+    # earliest-listed value wins a scalar conflict. Asserted on the WRAPPER
+    # OUTPUT (a single merged --settings in argv).
     code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
         argv=[
@@ -659,26 +662,26 @@ def test_live_socket_repeated_settings_preserve_first_wins(failures: list[str]) 
             "hi",
         ],
     )
-    expect(code == 0, f"first-wins: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"merged: wrapper exited {code}: {stderr}", failures)
     expect(
         real_argv.count("--settings") == 1,
-        f"first-wins: expected one merged --settings, got {real_argv}",
+        f"merged: expected one combined --settings, got {real_argv}",
         failures,
     )
     settings = parse_settings_arg(real_argv)
     expect(
         settings.get("effortLevel") == "high",
-        f"first-wins: first --settings should win the conflict, got {settings}",
+        f"merged: earliest user --settings should win the conflict, got {settings}",
         failures,
     )
     expect(
         settings.get("a") == 1 and settings.get("b") == 2,
-        f"first-wins: non-conflicting user keys should all survive, got {settings}",
+        f"merged: non-conflicting user keys should all survive, got {settings}",
         failures,
     )
     expect(
         settings.get("preferredNotifChannel") == "notifications_disabled",
-        f"first-wins: cmux hook settings lost, got {settings}",
+        f"merged: cmux hook settings lost, got {settings}",
         failures,
     )
 
@@ -1342,7 +1345,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
-    test_live_socket_repeated_settings_preserve_first_wins(failures)
+    test_live_socket_repeated_settings_user_value_wins_conflict(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
