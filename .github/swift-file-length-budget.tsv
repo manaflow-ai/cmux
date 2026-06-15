@@ -122,7 +122,6 @@
 716	Sources/TaskManagerSnapshot.swift
 715	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 715	Sources/AppleScriptSupport.swift
-712	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 710	Sources/TerminalSSHSessionDetector.swift
 707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
@@ -139,6 +138,7 @@
 680	Sources/FileExplorerSearchController.swift
 677	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
+665	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 655	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift

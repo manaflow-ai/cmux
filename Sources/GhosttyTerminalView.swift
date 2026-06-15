@@ -4555,7 +4555,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return surface
         }
         guard window != nil else { return nil }
-        terminalSurface?.attachToView(self)
+        terminalSurface?.attachToViewForInputDemand(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
         return surface

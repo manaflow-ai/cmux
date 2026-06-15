@@ -478,53 +478,6 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func claudeCommandShimStateForSurface(view: any TerminalSurfaceNativeViewing) -> (isReady: Bool, shim: ClaudeCommandShim?) {
-        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
-            claudeCommandShimInstallCompleted = true
-            return (true, nil)
-        }
-
-        if claudeCommandShimInstallCompleted {
-            return (true, claudeCommandShim)
-        }
-
-        if claudeCommandShimInstallTask == nil {
-            let surfaceId = id
-            // Explicit captures and arguments: the region-based isolation
-            // checker cannot analyze the legacy closure's implicit captures
-            // and in-closure default-argument evaluation (same effective body).
-            let temporaryDirectory = FileManager.default.temporaryDirectory
-            let installOperation: @Sendable () async -> ClaudeCommandShim? = { [wrapperURL, surfaceId, temporaryDirectory] in
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: wrapperURL,
-                    surfaceId: surfaceId,
-                    temporaryDirectory: temporaryDirectory,
-                    fileManager: .default
-                )
-            }
-            let installTask = Task.detached(priority: .utility, operation: installOperation)
-            claudeCommandShimInstallTask = installTask
-            Task { @MainActor [weak self, weak view] in
-                let shim = await installTask.value
-                guard let self else { return }
-                self.claudeCommandShim = shim
-                self.claudeCommandShimInstallCompleted = true
-                self.claudeCommandShimInstallTask = nil
-                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
-                if let view, view.window != nil {
-                    self.createSurface(for: view, source: .normal)
-                } else if let attachedView = self.attachedView, attachedView.window != nil {
-                    self.createSurface(for: attachedView, source: .normal)
-                } else {
-                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
-                }
-            }
-        }
-
-        return (false, nil)
-    }
-
-    @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing) {
         createSurface(for: view, source: .normal)
     }
@@ -547,7 +500,7 @@ extension TerminalSurface {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view)
+        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
         guard claudeShimState.isReady else { return }
         let claudeShim = claudeShimState.shim
 #if DEBUG
@@ -605,7 +558,7 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
-        if source == .scheduledRestore {
+        if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)

@@ -99,8 +99,6 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
             #expect(spawned == Array(ids.prefix(expectedSpawnCount)))
         }
 
-        await delayer.waitForDelayCount(ids.count)
-        delayer.releaseNextDelay()
         #expect(spawned == ids)
     }
 
@@ -197,6 +195,26 @@ private final class ManualRestoreSpawnDelay: TerminalSurfaceRestoreSpawnDelayCan
         surface.createSurface(for: nativeView)
 
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func inputDemandForRestorePacedTerminalBypassesPendingRestoreQueue() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+        surface.createSurface(for: nativeView, source: .inputDemand)
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
