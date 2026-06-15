@@ -3288,6 +3288,61 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func updateWindowTitleForSelectedTab() {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+            updateWindowTitle(for: nil)
+            return
+        }
+        updateWindowTitle(for: tab)
+    }
+
+    private func updateWindowTitle(for tab: Workspace?) {
+        let title = windowTitle(for: tab)
+        guard let targetWindow = window else { return }
+        targetWindow.title = title
+    }
+
+    /// The name to display for `tab` across window chrome — the custom title
+    /// bar, `NSWindow.title`, and the toolbar command label.
+    ///
+    /// A workspace group's anchor is represented everywhere by the group itself
+    /// (the sidebar draws only the group header, never a separate anchor row,
+    /// per `SidebarWorkspaceRenderItem`), so for an anchor the single source of
+    /// truth for the displayed name is the group's `name`. The anchor's own
+    /// `title` is merely seeded equal to the group name at creation and would
+    /// otherwise drift when the group is renamed.
+    func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
+        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
+            return group.name
+        }
+        return tab.title
+    }
+
+    private func windowTitle(for tab: Workspace?) -> String {
+        let fallbackTitle = String(localized: "window.title.appName", defaultValue: "cmux")
+        guard let tab else { return fallbackTitle }
+        let focusedPanelTitle = tab.focusedPanelId.flatMap { panelId in
+            tab.panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let workspaceTitle = resolvedWorkspaceDisplayTitle(for: tab)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var components: [String] = []
+        if !workspaceTitle.isEmpty {
+            components.append(workspaceTitle)
+        }
+        if let focusedPanelTitle, !focusedPanelTitle.isEmpty, !components.contains(focusedPanelTitle) {
+            components.append(focusedPanelTitle)
+        }
+        if !components.isEmpty {
+            let separator = String(localized: "window.title.separator", defaultValue: " - ")
+            return components.joined(separator: separator)
+        }
+        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedDirectory.isEmpty ? fallbackTitle : trimmedDirectory
+    }
+
     func focusTab(
         _ tabId: UUID,
         surfaceId: UUID? = nil,
