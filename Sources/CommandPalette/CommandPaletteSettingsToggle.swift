@@ -223,10 +223,13 @@ enum CommandPaletteSettingsToggleCommands {
                     "editor",
                     "external",
                 ],
-                defaultValue: CmdClickSupportedFileRouteSettings.defaultValue,
-                defaultsKey: CmdClickSupportedFileRouteSettings.key,
+                defaultValue: AppCatalogSection().openSupportedFilesInCmux.defaultValue,
+                defaultsKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey,
                 didSet: { _, _, notificationCenter in
-                    CmdClickSupportedFileRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                    FileRouteSettingsStore(
+                        defaults: .standard,
+                        notificationCenter: notificationCenter
+                    ).notifySupportedFileRouteDidChange()
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -240,10 +243,13 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.openMarkdownInCmuxViewer", "markdown", "md", "viewer", "preview", "file"],
-                defaultValue: CmdClickMarkdownRouteSettings.defaultValue,
-                defaultsKey: CmdClickMarkdownRouteSettings.key,
+                defaultValue: AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
+                defaultsKey: AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey,
                 didSet: { _, _, notificationCenter in
-                    CmdClickMarkdownRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                    FileRouteSettingsStore(
+                        defaults: .standard,
+                        notificationCenter: notificationCenter
+                    ).notifyMarkdownRouteDidChange()
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -332,8 +338,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.sendAnonymousTelemetry", "telemetry", "analytics", "crash", "reports", "privacy"],
-                defaultValue: TelemetrySettings.defaultSendAnonymousTelemetry,
-                defaultsKey: TelemetrySettings.sendAnonymousTelemetryKey
+                defaultValue: AppCatalogSection().sendAnonymousTelemetry.defaultValue,
+                defaultsKey: AppCatalogSection().sendAnonymousTelemetry.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeQuit",
@@ -343,9 +349,9 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.confirmQuit", "app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
-                isOn: { defaults in QuitWarningSettings.isEnabled(defaults: defaults) },
+                isOn: { defaults in QuitConfirmationStore(defaults: defaults).isEnabled },
                 setOn: { newValue, defaults, _ in
-                    QuitWarningSettings.setEnabled(newValue, defaults: defaults)
+                    QuitConfirmationStore(defaults: defaults).setEnabled(newValue)
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -356,8 +362,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.warnBeforeClosingTab", "warn", "close", "tab", "confirmation", "cmd-w"],
-                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTab,
-                defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
+                defaultValue: AppCatalogSection().warnBeforeClosingTab.defaultValue,
+                defaultsKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
@@ -378,8 +384,8 @@ enum CommandPaletteSettingsToggleCommands {
                     "button",
                     "confirmation",
                 ],
-                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
-                defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+                defaultValue: AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                defaultsKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "hideTabCloseButton",
@@ -389,8 +395,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.hideTabCloseButton", "hide", "close", "tab", "x", "button"],
-                defaultValue: CloseTabWarningSettings.defaultHideTabCloseButton,
-                defaultsKey: CloseTabWarningSettings.hideTabCloseButtonKey
+                defaultValue: AppCatalogSection().hideTabCloseButton.defaultValue,
+                defaultsKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "renameSelectsExistingName",
@@ -400,8 +406,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.renameSelectsExistingName", "rename", "select", "name", "title", "command", "palette"],
-                defaultValue: CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
-                defaultsKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+                defaultValue: AppCatalogSection().renameSelectsExistingName.defaultValue,
+                defaultsKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "commandPaletteSearchesAllSurfaces",
@@ -414,8 +420,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.commandPaletteSearchesAllSurfaces", "command", "palette", "search", "surfaces", "workspace"],
-                defaultValue: CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
-                defaultsKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey
+                defaultValue: AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
+                defaultsKey: AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "terminalShowScrollBar",
@@ -750,8 +756,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: automation,
                 keywords: ["automation.claudeCodeIntegration", "claude", "code", "hooks", "agent", "integration"],
-                defaultValue: ClaudeCodeIntegrationSettings.defaultHooksEnabled,
-                defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey
+                defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",
@@ -773,8 +779,8 @@ enum CommandPaletteSettingsToggleCommands {
                     "notifications",
                     "hooks",
                 ],
-                defaultValue: AgentSubagentNotificationSettings.defaultSuppressNotifications,
-                defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
+                defaultValue: IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
@@ -784,8 +790,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: automation,
                 keywords: ["automation.cursorIntegration", "cursor", "hooks", "agent", "integration"],
-                defaultValue: CursorIntegrationSettings.defaultHooksEnabled,
-                defaultsKey: CursorIntegrationSettings.hooksEnabledKey
+                defaultValue: IntegrationsCatalogSection().cursorHooksEnabled.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().cursorHooksEnabled.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "geminiIntegration",
@@ -795,8 +801,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: automation,
                 keywords: ["automation.geminiIntegration", "gemini", "hooks", "agent", "integration"],
-                defaultValue: GeminiIntegrationSettings.defaultHooksEnabled,
-                defaultsKey: GeminiIntegrationSettings.hooksEnabledKey
+                defaultValue: IntegrationsCatalogSection().geminiHooksEnabled.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().geminiHooksEnabled.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "kiroIntegration",
@@ -806,8 +812,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: automation,
                 keywords: ["automation.kiroIntegration", "kiro", "cli", "hooks", "agent", "integration"],
-                defaultValue: KiroIntegrationSettings.defaultHooksEnabled,
-                defaultsKey: KiroIntegrationSettings.hooksEnabledKey
+                defaultValue: IntegrationsCatalogSection().kiroHooksEnabled.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "browserSearchSuggestions",
