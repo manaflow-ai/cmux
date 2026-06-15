@@ -353,7 +353,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Unknown settings subcommand '\(subcommand)'. Run 'cmux settings --help'.")
             }
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux settings [open [target]|path|docs|<target>]")
+                throw CLIError(message: "Usage: cmux settings open [target]   (run 'cmux settings --help' for read/write subcommands)")
             }
             try openSettingsTarget(
                 targetRaw,
