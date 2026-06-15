@@ -662,6 +662,26 @@ class TabManager: ObservableObject {
     private func sidebarMetadataSettingsDidChange() {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
+        refreshRemotePortScanningEnablement()
+    }
+
+    /// Last ports-visibility enablement fanned out to remote sessions; gates
+    /// the `UserDefaults.didChangeNotification` firehose to actual transitions.
+    private var lastRemotePortScanningEnabled: Bool?
+
+    /// Propagates the sidebar ports-visibility settings to every live remote
+    /// session so that disabling `sidebar.showPorts` (or enabling
+    /// `sidebar.hideAllDetails`) actually stops the backend ssh port-scan loop,
+    /// not just the sidebar display (issue #6123). New remote workspaces pick
+    /// up the current value at creation, so this only needs to react to a
+    /// change for already-connected sessions.
+    private func refreshRemotePortScanningEnablement() {
+        let enabled = Workspace.remotePortScanningEnabledFromSettings()
+        guard enabled != lastRemotePortScanningEnabled else { return }
+        lastRemotePortScanningEnabled = enabled
+        for tab in tabs where tab.isRemoteWorkspace {
+            tab.applyRemotePortScanningEnabled(enabled)
+        }
     }
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
@@ -935,7 +955,8 @@ class TabManager: ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        workspaceEnvironment: [String: String] = [:]
     ) -> Workspace {
         Workspace(
             title: title,
@@ -945,7 +966,8 @@ class TabManager: ObservableObject {
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            workspaceEnvironment: workspaceEnvironment
         )
     }
 
@@ -1022,6 +1044,7 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:],
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
@@ -1085,7 +1108,8 @@ class TabManager: ObservableObject {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                workspaceEnvironment: workspaceEnvironment
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
@@ -1649,12 +1673,17 @@ class TabManager: ObservableObject {
         workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
     }
 
-    func setCustomTitle(tabId: UUID, title: String?) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        tabs[index].setCustomTitle(title)
-        if selectedTabId == tabId {
+    /// Sets, replaces, or clears a workspace custom title. Returns whether the
+    /// write landed (`.auto` writes are rejected over user-set titles; see
+    /// ``Workspace/setCustomTitle(_:source:)``).
+    @discardableResult
+    func setCustomTitle(tabId: UUID, title: String?, source: Workspace.CustomTitleSource = .user) -> Bool {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        let applied = tabs[index].setCustomTitle(title, source: source)
+        if applied, selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
+        return applied
     }
 
     func clearCustomTitle(tabId: UUID) {
@@ -2746,6 +2775,20 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
         let keepsPersistentRemoteSurfaceOpen =
             tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+        if !keepsPersistentRemoteSurfaceOpen,
+           tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
+            let relayPort: Int?
+            if tab.remoteConfiguration?.transport == .ssh {
+                relayPort = tab.remoteConfiguration?.relayPort
+            } else {
+                relayPort = nil
+            }
+            tab.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
+            )
+        }
         let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
@@ -2766,9 +2809,8 @@ class TabManager: ObservableObject {
             return
         }
 
-        // Exiting the last non-persistent SSH surface should demote the workspace back to a
-        // local one. Route through Workspace close handling so remote teardown and replacement
-        // panel logic run before TabManager considers removing the workspace itself.
+        // Route the last remote child exit through Workspace close handling so remote teardown
+        // and replacement-panel logic run before TabManager considers removing the workspace.
         if handlesRemoteExitThroughWorkspace {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return

@@ -96,6 +96,13 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var polledRemotePorts: [Int] = []
     var remotePortPollBaselinePorts: Set<Int>?
     var keepPolledRemotePortsUntilTTYScan = false
+    /// Whether remote listening-port discovery (TTY-scoped scan bursts and the
+    /// host-wide/delta poll fallback) may spawn ssh. The app derives this from
+    /// the sidebar ports-visibility settings (`sidebar.showPorts` and
+    /// `sidebar.hideAllDetails`) via ``updateRemotePortScanningEnabled(_:)``;
+    /// when ports are not displayed there is nothing for the scans to populate,
+    /// so the whole ssh-spawning path is suspended.
+    var remotePortScanningEnabled = true
     var bootstrapRemoteTTYResolved = false
     var bootstrapRemoteTTYRetryTask: Task<Void, Never>?
     var bootstrapRemoteTTYRetryToken: UUID?

@@ -183,10 +183,10 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
-                    "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
-                    "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
-                    "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-                    "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                    "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                    "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
+                    "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
+                    "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
@@ -209,6 +209,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                ],
+            ],
+            [
+                "fileExplorer": [
+                    "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
                 ],
             ],
             [

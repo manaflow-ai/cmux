@@ -3,19 +3,29 @@ import Foundation
 /// Pure Swift ranking engine over a prepared corpus: scores entries with
 /// ``CommandPaletteFuzzyMatcher``, applies history boosts, and returns the
 /// top results in deterministic order (score, rank, title, index).
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum CommandPaletteSearchEngine {
-    private static let titleMatchBonus = 2000
+///
+/// The engine is a value object bound to one corpus: construct it with the
+/// `entries` to rank, then call `search(query:…)` to produce results.
+public struct CommandPaletteSearchEngine<Payload: Sendable>: Sendable {
+    private static var titleMatchBonus: Int { 2000 }
 
-    private struct ScoredEntry<Payload>: Sendable where Payload: Sendable {
+    /// The corpus this engine ranks.
+    public let entries: [CommandPaletteSearchCorpusEntry<Payload>]
+
+    /// Binds the engine to a corpus.
+    public init(entries: [CommandPaletteSearchCorpusEntry<Payload>]) {
+        self.entries = entries
+    }
+
+    private struct ScoredEntry: Sendable {
         let entry: CommandPaletteSearchCorpusEntry<Payload>
         let index: Int
         let score: Int
     }
 
-    private static func scoredEntryIsBetter<Payload: Sendable>(
-        _ lhs: ScoredEntry<Payload>,
-        than rhs: ScoredEntry<Payload>
+    private static func scoredEntryIsBetter(
+        _ lhs: ScoredEntry,
+        than rhs: ScoredEntry
     ) -> Bool {
         if lhs.score != rhs.score { return lhs.score > rhs.score }
         if lhs.entry.rank != rhs.entry.rank { return lhs.entry.rank < rhs.entry.rank }
@@ -24,15 +34,15 @@ public enum CommandPaletteSearchEngine {
         return lhs.index < rhs.index
     }
 
-    private static func scoredEntryIsWorse<Payload: Sendable>(
-        _ lhs: ScoredEntry<Payload>,
-        than rhs: ScoredEntry<Payload>
+    private static func scoredEntryIsWorse(
+        _ lhs: ScoredEntry,
+        than rhs: ScoredEntry
     ) -> Bool {
         scoredEntryIsBetter(rhs, than: lhs)
     }
 
-    private static func siftUpWorstScoredEntryHeap<Payload: Sendable>(
-        _ heap: inout [ScoredEntry<Payload>],
+    private static func siftUpWorstScoredEntryHeap(
+        _ heap: inout [ScoredEntry],
         from startIndex: Int
     ) {
         var child = startIndex
@@ -44,8 +54,8 @@ public enum CommandPaletteSearchEngine {
         }
     }
 
-    private static func siftDownWorstScoredEntryHeap<Payload: Sendable>(
-        _ heap: inout [ScoredEntry<Payload>],
+    private static func siftDownWorstScoredEntryHeap(
+        _ heap: inout [ScoredEntry],
         from startIndex: Int
     ) {
         var parent = startIndex
@@ -66,9 +76,9 @@ public enum CommandPaletteSearchEngine {
         }
     }
 
-    private static func appendScoredEntry<Payload: Sendable>(
-        _ scoredEntry: ScoredEntry<Payload>,
-        to scoredEntries: inout [ScoredEntry<Payload>],
+    private static func appendScoredEntry(
+        _ scoredEntry: ScoredEntry,
+        to scoredEntries: inout [ScoredEntry],
         limit: Int?
     ) {
         guard let limit else {
@@ -90,16 +100,14 @@ public enum CommandPaletteSearchEngine {
         siftDownWorstScoredEntryHeap(&scoredEntries, from: 0)
     }
 
-    /// Searches `entries` for `query`, boosting each payload by
+    /// Searches the corpus for `query`, boosting each payload by
     /// `historyBoost(payload, queryIsEmpty)`.
-    public static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
+    public func search(
         query: String,
         resultLimit: Int? = nil,
         historyBoost: (Payload, Bool) -> Int
     ) -> [CommandPaletteSearchCorpusResult<Payload>] {
         search(
-            entries: entries,
             query: query,
             resultLimit: resultLimit,
             historyBoost: historyBoost,
@@ -108,15 +116,13 @@ public enum CommandPaletteSearchEngine {
     }
 
     /// Searches with a cooperative cancellation probe checked every 16 entries.
-    public static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
+    public func search(
         query: String,
         resultLimit: Int? = nil,
         historyBoost: (Payload, Bool) -> Int,
         shouldCancel: @escaping () -> Bool
     ) -> [CommandPaletteSearchCorpusResult<Payload>] {
         search(
-            entries: entries,
             query: query,
             resultLimit: resultLimit,
             historyBoost: historyBoost,
@@ -124,8 +130,7 @@ public enum CommandPaletteSearchEngine {
         )
     }
 
-    private static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
+    private func search(
         query: String,
         resultLimit: Int?,
         historyBoost: (Payload, Bool) -> Int,
@@ -137,7 +142,7 @@ public enum CommandPaletteSearchEngine {
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let queryIsEmpty = preparedQuery.isEmpty
         let limitedResultCount = resultLimit.map { min($0, entries.count) }
-        var scoredEntries: [ScoredEntry<Payload>] = []
+        var scoredEntries: [ScoredEntry] = []
         scoredEntries.reserveCapacity(limitedResultCount ?? entries.count)
 
         func shouldCancelSearch(at index: Int) -> Bool {
@@ -148,7 +153,7 @@ public enum CommandPaletteSearchEngine {
         if queryIsEmpty {
             for (index, entry) in entries.enumerated() {
                 if shouldCancelSearch(at: index) { return [] }
-                appendScoredEntry(
+                Self.appendScoredEntry(
                     ScoredEntry(
                         entry: entry,
                         index: index,
@@ -161,13 +166,13 @@ public enum CommandPaletteSearchEngine {
         } else {
             for (index, entry) in entries.enumerated() {
                 if shouldCancelSearch(at: index) { return [] }
-                guard let fuzzyScore = weightedScore(
+                guard let fuzzyScore = Self.weightedScore(
                     preparedQuery: preparedQuery,
                     entry: entry
                 ) else {
                     continue
                 }
-                appendScoredEntry(
+                Self.appendScoredEntry(
                     ScoredEntry(
                         entry: entry,
                         index: index,
@@ -181,7 +186,7 @@ public enum CommandPaletteSearchEngine {
 
         if shouldCancel?() == true { return [] }
 
-        scoredEntries.sort { scoredEntryIsBetter($0, than: $1) }
+        scoredEntries.sort { Self.scoredEntryIsBetter($0, than: $1) }
 
         let outputCount = resultLimit.map { min($0, scoredEntries.count) } ?? scoredEntries.count
         var results: [CommandPaletteSearchCorpusResult<Payload>] = []
@@ -214,7 +219,7 @@ public enum CommandPaletteSearchEngine {
         return results
     }
 
-    private static func weightedScore<Payload: Sendable>(
+    private static func weightedScore(
         preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         entry: CommandPaletteSearchCorpusEntry<Payload>
     ) -> Int? {
