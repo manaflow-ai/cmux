@@ -31,6 +31,7 @@ struct ShortcutEventFocusContextCache {
 extension KeyboardShortcutSettings.Action {
     enum ShortcutContext: Equatable {
         case application
+        case mainWorkspace
         case nonBrowserPanel
         case browserPanel
         case markdownPanel
@@ -44,6 +45,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return true
+            case .mainWorkspace:
+                return !rightSidebarFocused
             case .nonBrowserPanel:
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
@@ -69,6 +72,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return .always
+            case .mainWorkspace:
+                return .not(.atom(.sidebarFocus))
             case .nonBrowserPanel:
                 return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel:
@@ -83,6 +88,12 @@ extension KeyboardShortcutSettings.Action {
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application {
                 return true
+            }
+            if self == .mainWorkspace {
+                return other != .rightSidebarFocus
+            }
+            if other == .mainWorkspace {
+                return self != .rightSidebarFocus
             }
             if self == other {
                 return true
@@ -127,6 +138,17 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
+        case .selectSurfaceByNumber,
+             .selectSurface1,
+             .selectSurface2,
+             .selectSurface3,
+             .selectSurface4,
+             .selectSurface5,
+             .selectSurface6,
+             .selectSurface7,
+             .selectSurface8,
+             .selectSurface9:
+            return .mainWorkspace
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,

@@ -3,25 +3,60 @@ import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
+    private static func configuredShortcutIfPresent(for action: Action) -> (exists: Bool, shortcut: StoredShortcut?) {
+        if let managedShortcut = settingsFileStore.override(for: action) {
+            return (true, managedShortcut.isUnbound ? nil : managedShortcut)
+        }
+
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return (false, nil)
+        }
+        return (true, shortcut.isUnbound ? nil : shortcut)
+    }
+
+    private static func legacySurfaceSelectionShortcutIfPresent(for action: Action) -> (exists: Bool, shortcut: StoredShortcut?) {
+        guard let digit = action.surfaceSelectionDigit else { return (false, nil) }
+
+        let legacy = configuredShortcutIfPresent(for: .selectSurfaceByNumber)
+        guard legacy.exists else { return (false, nil) }
+        guard var shortcut = legacy.shortcut else { return (true, nil) }
+
+        // Preserve legacy modifiers and stroke shape: chorded shortcuts replace the
+        // second-stroke digit, while single-stroke shortcuts replace the primary key.
+        if shortcut.hasChord {
+            shortcut.chordKey = String(digit)
+        } else {
+            shortcut.key = String(digit)
+        }
+        return (true, shortcut)
+    }
+
     static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)
         #endif
 
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound ? nil : managedShortcut
+        let configured = configuredShortcutIfPresent(for: action)
+        if configured.exists {
+            return configured.shortcut
         }
 
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
+        let legacySurfaceSelection = legacySurfaceSelectionShortcutIfPresent(for: action)
+        if legacySurfaceSelection.exists {
+            return legacySurfaceSelection.shortcut
         }
-        return shortcut.isUnbound ? nil : shortcut
+
+        let defaultShortcut = action.defaultShortcut
+        return defaultShortcut.isUnbound ? nil : defaultShortcut
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
         shortcutIfBound(for: action) ?? .unbound
+    }
+
+    static func hasExplicitShortcutConfiguration(for action: Action) -> Bool {
+        configuredShortcutIfPresent(for: action).exists
     }
 
     static func menuShortcut(for action: Action) -> StoredShortcut {
@@ -62,8 +97,20 @@ extension KeyboardShortcutSettings {
     /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a
     /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
     /// detection so the same keystroke can be context-routed.
+    ///
+    /// A per-surface action (`selectSurface1…9`) with no `when` override of its
+    /// own inherits a legacy `shortcuts.when.selectSurfaceByNumber` override, so a
+    /// user who scoped only the legacy family keeps that predicate after the split
+    /// into per-surface actions — regardless of whether they also rebound the keys.
     static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
-        settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
+        if let clause = settingsFileStore.whenClause(for: action) {
+            return clause
+        }
+        if action.surfaceSelectionDigit != nil,
+           let legacyClause = settingsFileStore.whenClause(for: .selectSurfaceByNumber) {
+            return legacyClause
+        }
+        return action.shortcutContext.defaultWhenClause
     }
 
     /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.

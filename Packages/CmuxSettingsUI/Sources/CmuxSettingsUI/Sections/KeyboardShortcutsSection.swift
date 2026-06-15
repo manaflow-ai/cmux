@@ -294,13 +294,13 @@ public struct KeyboardShortcutsSection: View {
     }
 
     /// Mirrors legacy `KeyboardShortcutSettings.settingsVisibleActions`:
-    /// filters out `.showHideAllWindows` (owned by Global Hotkey section)
+    /// filters out `.showHideAllWindows` and legacy `.selectSurfaceByNumber`,
     /// then re-orders so `focusRightSidebar`, `toggleRightSidebar`, and
     /// `findInDirectory` sit immediately after `markOldestUnreadAndJumpNext`
     /// or `jumpToUnread` (the unread navigation cluster), so colocated
     /// sidebar/find shortcuts appear together in the settings UI.
     private static var settingsVisibleActions: [ShortcutAction] {
-        let base = ShortcutAction.allCases.filter { $0 != .showHideAllWindows }
+        let base = ShortcutAction.allCases.filter { $0 != .showHideAllWindows && $0 != .selectSurfaceByNumber }
         let colocated: [ShortcutAction] = [
             .focusRightSidebar,
             .toggleRightSidebar,
@@ -384,7 +384,7 @@ public struct KeyboardShortcutsSection: View {
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
-        for other in ShortcutAction.allCases where other != action {
+        for other in ShortcutAction.allCases where other != action && other != .selectSurfaceByNumber {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
             // cannot decide the overlap. Context-disjoint clauses (e.g.

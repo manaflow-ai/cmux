@@ -13174,14 +13174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
-            if digit == 9 {
-                tabManager?.selectLastSurface()
-            } else {
-                tabManager?.selectSurface(at: digit - 1)
-            }
+        // Numeric shortcuts for surfaces within the focused pane (9 = last).
+        if let digit = configuredSurfaceSelectionDigit(event: event) {
+            selectSurfaceForShortcutDigit(digit)
             return true
         }
 
@@ -14645,6 +14640,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func configuredSurfaceSelectionDigit(event: NSEvent) -> Int? {
+        for action in KeyboardShortcutSettings.Action.surfaceSelectionActions {
+            if matchConfiguredShortcut(event: event, action: action),
+               let digit = action.surfaceSelectionDigit {
+                return digit
+            }
+        }
+
+        let legacyAction = KeyboardShortcutSettings.Action.selectSurfaceByNumber
+        guard let legacyDigit = numberedConfiguredShortcutDigit(event: event, action: legacyAction),
+              let action = KeyboardShortcutSettings.Action.surfaceSelectionAction(forDigit: legacyDigit),
+              shortcutWhenClauseAllows(action: legacyAction, event: event),
+              !KeyboardShortcutSettings.hasExplicitShortcutConfiguration(for: action) else {
+            return nil
+        }
+        return legacyDigit
+    }
+
+    private func selectSurfaceForShortcutDigit(_ digit: Int) {
+        if digit == 9 {
+            tabManager?.selectLastSurface()
+        } else {
+            tabManager?.selectSurface(at: digit - 1)
+        }
     }
 
     private func matchConfiguredDirectionalShortcut(

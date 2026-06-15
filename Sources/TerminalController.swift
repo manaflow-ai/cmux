@@ -10664,33 +10664,56 @@ class TerminalController {
             return "ERROR: Usage: set_shortcut <name> <combo|clear>"
         }
 
-        let name = parts[0].lowercased()
+        let rawName = parts[0]
+        let name = rawName.lowercased()
         let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
 
         let action: KeyboardShortcutSettings.Action?
-        switch name {
-        case "focus_left", "focusleft":
-            action = .focusLeft
-        case "focus_right", "focusright":
-            action = .focusRight
-        case "focus_up", "focusup":
-            action = .focusUp
-        case "focus_down", "focusdown":
-            action = .focusDown
-        case "split_right", "splitright":
-            action = .splitRight
-        case "split_down", "splitdown":
-            action = .splitDown
-        case "workspace_digits", "workspace_number", "select_workspace_by_number":
-            action = .selectWorkspaceByNumber
-        case "surface_digits", "surface_number", "select_surface_by_number":
-            action = .selectSurfaceByNumber
-        default:
-            action = nil
+        if let rawAction = KeyboardShortcutSettings.Action(rawValue: rawName) {
+            action = rawAction
+        } else {
+            switch name {
+            case "focus_left", "focusleft":
+                action = .focusLeft
+            case "focus_right", "focusright":
+                action = .focusRight
+            case "focus_up", "focusup":
+                action = .focusUp
+            case "focus_down", "focusdown":
+                action = .focusDown
+            case "split_right", "splitright":
+                action = .splitRight
+            case "split_down", "splitdown":
+                action = .splitDown
+            case "workspace_digits", "workspace_number", "select_workspace_by_number":
+                action = .selectWorkspaceByNumber
+            case "surface_digits", "surface_number", "select_surface_by_number":
+                action = .selectSurfaceByNumber
+            case "surface_1", "surface1", "select_surface_1":
+                action = .selectSurface1
+            case "surface_2", "surface2", "select_surface_2":
+                action = .selectSurface2
+            case "surface_3", "surface3", "select_surface_3":
+                action = .selectSurface3
+            case "surface_4", "surface4", "select_surface_4":
+                action = .selectSurface4
+            case "surface_5", "surface5", "select_surface_5":
+                action = .selectSurface5
+            case "surface_6", "surface6", "select_surface_6":
+                action = .selectSurface6
+            case "surface_7", "surface7", "select_surface_7":
+                action = .selectSurface7
+            case "surface_8", "surface8", "select_surface_8":
+                action = .selectSurface8
+            case "surface_9", "surface9", "select_surface_9", "select_last_surface":
+                action = .selectSurface9
+            default:
+                action = nil
+            }
         }
 
         guard let action else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
+            return "ERROR: Unknown shortcut name. Use an action id such as selectSurface1, or a supported alias such as focus_left, split_right, workspace_digits, surface_1, select_last_surface."
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {

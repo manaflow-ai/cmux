@@ -97,6 +97,15 @@ enum KeyboardShortcutSettings {
         case nextSurface
         case prevSurface
         case selectSurfaceByNumber
+        case selectSurface1
+        case selectSurface2
+        case selectSurface3
+        case selectSurface4
+        case selectSurface5
+        case selectSurface6
+        case selectSurface7
+        case selectSurface8
+        case selectSurface9
         case nextSidebarTab
         case prevSidebarTab
         case focusHistoryBack
@@ -215,6 +224,11 @@ enum KeyboardShortcutSettings {
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
+            case .selectSurface1, .selectSurface2, .selectSurface3, .selectSurface4,
+                 .selectSurface5, .selectSurface6, .selectSurface7, .selectSurface8:
+                let format = String(localized: "shortcut.selectSurface.label", defaultValue: "Select Surface %@")
+                return String.localizedStringWithFormat(format, String(surfaceSelectionDigit ?? 1))
+            case .selectSurface9: return String(localized: "shortcut.selectLastSurface.label", defaultValue: "Select Last Surface")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
@@ -295,7 +309,8 @@ enum KeyboardShortcutSettings {
 
         var isPublicShortcutAction: Bool {
             switch self {
-            case .switchRightSidebarToFiles,
+            case .selectSurfaceByNumber,
+                 .switchRightSidebarToFiles,
                  .switchRightSidebarToFind,
                  .switchRightSidebarToSessions,
                  .switchRightSidebarToFeed,
@@ -456,7 +471,25 @@ enum KeyboardShortcutSettings {
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .selectSurfaceByNumber:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+                return .unbound
+            case .selectSurface1:
+                return Self.surfaceSelectionDefaultShortcut(digit: 1)
+            case .selectSurface2:
+                return Self.surfaceSelectionDefaultShortcut(digit: 2)
+            case .selectSurface3:
+                return Self.surfaceSelectionDefaultShortcut(digit: 3)
+            case .selectSurface4:
+                return Self.surfaceSelectionDefaultShortcut(digit: 4)
+            case .selectSurface5:
+                return Self.surfaceSelectionDefaultShortcut(digit: 5)
+            case .selectSurface6:
+                return Self.surfaceSelectionDefaultShortcut(digit: 6)
+            case .selectSurface7:
+                return Self.surfaceSelectionDefaultShortcut(digit: 7)
+            case .selectSurface8:
+                return Self.surfaceSelectionDefaultShortcut(digit: 8)
+            case .selectSurface9:
+                return Self.surfaceSelectionDefaultShortcut(digit: 9)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
@@ -551,6 +584,35 @@ enum KeyboardShortcutSettings {
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
             }
+        }
+
+        static let surfaceSelectionActions: [Action] = [
+            .selectSurface1,
+            .selectSurface2,
+            .selectSurface3,
+            .selectSurface4,
+            .selectSurface5,
+            .selectSurface6,
+            .selectSurface7,
+            .selectSurface8,
+            .selectSurface9,
+        ]
+
+        static func surfaceSelectionAction(forDigit digit: Int) -> Action? {
+            guard (1...surfaceSelectionActions.count).contains(digit) else { return nil }
+            return surfaceSelectionActions[digit - 1]
+        }
+
+        var surfaceSelectionDigit: Int? {
+            Self.surfaceSelectionActions.firstIndex(of: self).map { $0 + 1 }
+        }
+
+        private static func surfaceSelectionDefaultShortcut(digit: Int) -> StoredShortcut {
+            StoredShortcut(key: String(digit), command: false, shift: false, option: false, control: true)
+        }
+
+        var participatesInShortcutConflictDetection: Bool {
+            self != .selectSurfaceByNumber
         }
 
         func tooltip(_ base: String) -> String {
@@ -757,7 +819,7 @@ enum KeyboardShortcutSettings {
     private static func reservedSystemWideHotkeyShortcuts(excluding currentAction: Action) -> [StoredShortcut] {
         var reserved: [StoredShortcut] = []
 
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases where action != currentAction && action.participatesInShortcutConflictDetection {
             let shortcut = systemWideConflictShortcut(for: action)
             guard !shortcut.isUnbound else { continue }
             if shortcut.hasChord {
@@ -810,7 +872,7 @@ enum KeyboardShortcutSettings {
         for proposedShortcut: StoredShortcut,
         excluding currentAction: Action
     ) -> Action? {
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases where action != currentAction && action.participatesInShortcutConflictDetection {
             let configuredShortcut = shortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,

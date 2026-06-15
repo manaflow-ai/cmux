@@ -91,7 +91,16 @@ extension ShortcutAction {
             return nil
         case .nextSurface: return ShortcutStroke(key: "]", command: true, shift: true)
         case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
-        case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
+        case .selectSurfaceByNumber: return nil
+        case .selectSurface1: return Self.surfaceSelectionDefaultStroke(digit: 1)
+        case .selectSurface2: return Self.surfaceSelectionDefaultStroke(digit: 2)
+        case .selectSurface3: return Self.surfaceSelectionDefaultStroke(digit: 3)
+        case .selectSurface4: return Self.surfaceSelectionDefaultStroke(digit: 4)
+        case .selectSurface5: return Self.surfaceSelectionDefaultStroke(digit: 5)
+        case .selectSurface6: return Self.surfaceSelectionDefaultStroke(digit: 6)
+        case .selectSurface7: return Self.surfaceSelectionDefaultStroke(digit: 7)
+        case .selectSurface8: return Self.surfaceSelectionDefaultStroke(digit: 8)
+        case .selectSurface9: return Self.surfaceSelectionDefaultStroke(digit: 9)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
@@ -128,5 +137,9 @@ extension ShortcutAction {
         case .diffViewerScrollToTop: return nil
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
         }
+    }
+
+    private static func surfaceSelectionDefaultStroke(digit: Int) -> ShortcutStroke {
+        ShortcutStroke(key: String(digit), control: true)
     }
 }
