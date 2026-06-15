@@ -6239,6 +6239,142 @@
           }
         }
       }
+    },
+    "mobile.workspaces.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはまだありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a workspace to start a terminal session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを作成してターミナルセッションを開始してください。"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.search.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するワークスペースはありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.search.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a different workspace name, terminal, or recent activity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペース名、ターミナル、または最近のアクティビティで検索してください。"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をクリア"
+          }
+        }
+      }
+    },
+    "mobile.terminal.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals in this workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースにはターミナルがありません"
+          }
+        }
+      }
+    },
+    "mobile.terminal.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a terminal to start sending commands from your phone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを作成して、iPhone からコマンドを送信できるようにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.debug.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Debug Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグログをコピー"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
