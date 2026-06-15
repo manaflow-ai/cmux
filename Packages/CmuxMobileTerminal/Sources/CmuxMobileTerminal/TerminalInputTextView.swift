@@ -12,6 +12,10 @@ final class TerminalInputTextView: UITextView {
     /// Mac, which injects the resulting file path into the terminal. Clipboard
     /// *text* does not use this path; it rides ``onText``.
     var onPasteImage: ((Data, String) -> Void)?
+    /// Fired when a pasted image is too large to send even after trying a
+    /// compressed JPEG fallback, so the host can surface a "too large" notice
+    /// instead of the paste silently doing nothing.
+    var onPasteImageTooLarge: (() -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
@@ -932,26 +936,38 @@ final class TerminalInputTextView: UITextView {
     /// Read the system clipboard for the Paste button. An image is forwarded via
     /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
     /// and the Mac injects the resulting file path); plain text rides the normal
-    /// ``onText`` input path. Images win when both are present. A large image
-    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
+    /// ``onText`` input path. Images win when both are present. Accessing the
     /// pasteboard contents here is what shows iOS's one-shot paste banner, which
     /// is the expected confirmation for an explicit Paste tap.
+    ///
+    /// The image must fit the mobile sync frame budget once base64-encoded, so we
+    /// try PNG first, then a compressed JPEG, and send the first candidate whose
+    /// actual serialized size fits via ``MobilePasteImageSizing/fits(imageData:)``.
+    /// The base64 frame cap (~8 MB), not the Mac's 10 MB raw clipboard cap, is the
+    /// binding limit because base64 inflates the bytes ~4/3 before they are sent.
+    /// The encoders run lazily and a non-fitting encoding is released before the
+    /// next is produced, so we never hold both the PNG and the JPEG fallback at
+    /// once (a large pasteboard image could otherwise spike memory). If neither
+    /// encoding fits we drop the image and fire ``onPasteImageTooLarge`` so the
+    /// host can tell the user, rather than failing silently.
     private func handlePasteAction() {
         let pasteboard = UIPasteboard.general
         if pasteboard.hasImages, let image = pasteboard.image {
-            let maxImageBytes = 8 * 1024 * 1024
-            if let png = image.pngData(), png.count <= maxImageBytes {
-                onPasteImage?(png, "png")
-                return
+            let sizing = MobilePasteImageSizing()
+            // Measure-then-send: a brief double-encode on an explicit user paste is
+            // fine; this is not a hot path and the lazy encoders keep peak memory
+            // to one encoding at a time.
+            if let fitting = sizing.firstEncodingThatFits([
+                (label: "png", encode: { image.pngData() }),
+                (label: "jpg", encode: { image.jpegData(compressionQuality: 0.8) }),
+            ]) {
+                onPasteImage?(fitting.data, fitting.label)
+            } else {
+                // We have an image but no encoding fits the frame budget; tell the
+                // user instead of silently sending nothing or pasting text.
+                onPasteImageTooLarge?()
             }
-            if let jpeg = image.jpegData(compressionQuality: 0.8) {
-                onPasteImage?(jpeg, "jpg")
-                return
-            }
-            if let png = image.pngData() {
-                onPasteImage?(png, "png")
-                return
-            }
+            return
         }
         if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
             onText?(string)

@@ -1616,6 +1616,23 @@
         }
       }
     },
+    "mobile.paste.imageTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image is too large to paste. Try a smaller image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像が大きすぎて貼り付けできません。小さい画像でお試しください。"
+          }
+        }
+      }
+    },
     "mobile.preview.attachedTerminalName": {
       "extractionState": "manual",
       "localizations": {

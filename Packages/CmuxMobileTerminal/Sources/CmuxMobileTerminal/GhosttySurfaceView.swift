@@ -74,6 +74,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// reveal-after-hide and the present-while-suppressed paths so the draft and its
     /// focus return together. Optional.
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView)
+    /// The user pasted an image that is too large to send even after trying a
+    /// compressed JPEG, so nothing was uploaded. The host should surface a
+    /// user-visible "too large" notice. Optional.
+    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView)
 }
 
 public extension GhosttySurfaceViewDelegate {
@@ -85,6 +89,7 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without a composer can ignore the focus request.
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
+    func ghosttySurfaceViewDidFailToPasteImageTooLarge(_ surfaceView: GhosttySurfaceView) {}
 }
 
 @MainActor
@@ -901,6 +906,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
+        }
+        inputProxy.onPasteImageTooLarge = { [weak self] in
+            guard let self else { return }
+            TerminalInputDebugLog.log("surface.onPasteImageTooLarge")
+            self.delegate?.ghosttySurfaceViewDidFailToPasteImageTooLarge(self)
         }
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)
