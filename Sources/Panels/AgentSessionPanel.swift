@@ -87,3 +87,38 @@ final class AgentSessionPanel: Panel {
         _ = reason
     }
 }
+
+
+// MARK: - Find support
+
+extension AgentSessionPanel: FindablePanel {
+    /// Shows the web view's find panel.
+    @discardableResult
+    func startFind() -> Bool {
+        sendFindPanelAction(.showFindInterface)
+    }
+
+    /// Jumps to the next match in the web view.
+    func findNext() {
+        _ = sendFindPanelAction(.nextMatch)
+    }
+
+    /// Jumps to the previous match in the web view.
+    func findPrevious() {
+        _ = sendFindPanelAction(.previousMatch)
+    }
+
+    /// Hiding the web view find panel is not supported by `WKWebView`.
+    func hideFind() {}
+
+    /// Sends a find action to the agent session web view.
+    @discardableResult
+    private func sendFindPanelAction(_ action: NSTextFinder.Action) -> Bool {
+        guard let webView = rendererSession.webView else { return false }
+        return NSApp.sendAction(
+            NSSelectorFromString("performFindPanelAction:"),
+            to: webView,
+            from: action.menuItemSender
+        )
+    }
+}

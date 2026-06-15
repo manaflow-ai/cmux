@@ -12,6 +12,9 @@ struct ProjectBuildSettingsTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives focus into the settings filter text field when requested.
+    @FocusState private var focus: ProjectPanelSearchFocus?
+
     var body: some View {
         let computedRows = rows
         VStack(alignment: .leading, spacing: 0) {
@@ -21,6 +24,12 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: panel.focusState.request) { _, newValue in
+            if newValue == .settings {
+                focus = .settings
+                panel.focusState.request = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -37,6 +46,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .focused($focus, equals: .settings)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))

@@ -798,11 +798,13 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil
+            || focusedBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
         selectedTerminalPanel?.hasSelection() == true
+            || focusedFindablePanel?.hasSelectionForFind == true
     }
 
     @discardableResult
@@ -828,24 +830,26 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        return startFindInFocusedNonTerminalPanel()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+
+        focusedFindablePanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -854,7 +858,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findNext()
+        findNextInFocusedNonTerminalPanel()
     }
 
     func findPrevious() {
@@ -863,7 +867,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findPrevious()
+        findPreviousInFocusedNonTerminalPanel()
     }
 
     @discardableResult
@@ -944,7 +948,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.hideFind()
+        hideFindInFocusedNonTerminalPanel()
     }
 
     func makeWorkspaceForCreation(
@@ -6113,4 +6117,42 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
+}
+
+
+// MARK: - Find routing for non-terminal panels
+
+extension TabManager {
+    /// The focused panel if it supports global find commands.
+    var focusedFindablePanel: FindablePanel? {
+        guard let tab = selectedWorkspace, let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? FindablePanel
+    }
+
+    /// Opens find in the focused browser or findable panel.
+    func startFindInFocusedNonTerminalPanel() -> Bool {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        return focusedFindablePanel?.startFind() ?? false
+    }
+
+    /// Navigates to the next find result in the focused browser or findable panel.
+    func findNextInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.findNext()
+        focusedFindablePanel?.findNext()
+    }
+
+    /// Navigates to the previous find result in the focused browser or findable panel.
+    func findPreviousInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.findPrevious()
+        focusedFindablePanel?.findPrevious()
+    }
+
+    /// Hides find UI in the focused browser or findable panel.
+    func hideFindInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.hideFind()
+        focusedFindablePanel?.hideFind()
+    }
 }

@@ -19,6 +19,9 @@ struct ProjectFilesTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives focus into the files filter text field when requested.
+    @FocusState private var focus: ProjectPanelSearchFocus?
+
     var body: some View {
         let rows = flattenedRows
         VStack(alignment: .leading, spacing: 0) {
@@ -36,6 +39,12 @@ struct ProjectFilesTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onChange(of: panel.focusState.request) { _, newValue in
+            if newValue == .files {
+                focus = .files
+                panel.focusState.request = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -46,6 +55,7 @@ struct ProjectFilesTabView: View {
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
+                .focused($focus, equals: .files)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""
