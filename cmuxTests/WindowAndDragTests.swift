@@ -3058,7 +3058,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             defer { try? handle.close() }
             return String(data: handle.availableData, encoding: .utf8) ?? ""
         }
-        XCTAssertEqual(try await pipeRead.value, "edited")
+        let oldPipeContent = try await pipeRead.value
+        XCTAssertEqual(oldPipeContent, "edited")
         await save.value
 
         XCTAssertTrue(panel.isDirty)
