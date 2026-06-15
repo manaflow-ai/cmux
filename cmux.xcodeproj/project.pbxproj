@@ -213,6 +213,7 @@
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
+		DBW0DEBD00000000DBW0DEBD /* CmuxDebugWindowsUI in Frameworks */ = {isa = PBXBuildFile; productRef = DBW0DEBE00000000DBW0DEBE /* CmuxDebugWindowsUI */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
@@ -1775,6 +1776,7 @@
 				5E55300000000000000000C3 /* CmuxCommandPaletteUI in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
+				DBW0DEBD00000000DBW0DEBD /* CmuxDebugWindowsUI in Frameworks */,
 				C0DE46000000000000000001 /* CMUXExtensionHostSupport in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
@@ -2848,6 +2850,7 @@
 				CFF11E0000000000000000A2 /* CmuxFileOpen */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
+				DBW0DEBE00000000DBW0DEBE /* CmuxDebugWindowsUI */,
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
@@ -3049,6 +3052,7 @@
 				CFF11E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFileOpen" */,
 				CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
+				DBW0DEBF00000000DBW0DEBF /* XCLocalSwiftPackageReference "CmuxDebugWindowsUI" */,
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
@@ -4635,6 +4639,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettingsUI;
 		};
+		DBW0DEBF00000000DBW0DEBF /* XCLocalSwiftPackageReference "CmuxDebugWindowsUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxDebugWindowsUI;
+		};
 		CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxUpdater;
@@ -4958,6 +4966,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */;
 			productName = CmuxSettingsUI;
+		};
+		DBW0DEBE00000000DBW0DEBE /* CmuxDebugWindowsUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DBW0DEBF00000000DBW0DEBF /* XCLocalSwiftPackageReference "CmuxDebugWindowsUI" */;
+			productName = CmuxDebugWindowsUI;
 		};
 		CDFEED0200000000CDFEED02 /* CmuxUpdater */ = {
 			isa = XCSwiftPackageProductDependency;
