@@ -929,6 +929,11 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
+        if let value = jsonBool(section["showModifierHoldHints"]) {
+            snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showModifierHoldHints") {
+            logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
+        }
         for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
