@@ -6950,6 +6950,31 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(workspace.canForkAgentConversationFromPanel(UUID()))
     }
 
+    func testForkConversationContextMenuAvailabilityUsesProcessDetectedLiveIndex() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: sourcePanelId)
+        let snapshot = makeForkableCodexSnapshot()
+        let index = SharedLiveAgentIndex.loadIndexForRefresh(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                key: (
+                    snapshot: snapshot,
+                    updatedAt: 123,
+                    processIDs: Set([4_242]),
+                    sessionIDSource: .explicit
+                ),
+            ]
+        )
+
+        XCTAssertTrue(
+            workspace.canForkAgentConversationFromPanel(sourcePanelId, liveAgentIndex: index),
+            "A process-detected Codex session should make the tab context menu expose Fork Conversation."
+        )
+    }
+
     func testForkConversationDefaultSettingFallsBackToRight() throws {
         let suiteName = "cmux.forkConversationDefault.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

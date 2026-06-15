@@ -2319,6 +2319,21 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
+    nonisolated static func loadIndexForRefresh(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        registry: CmuxVaultAgentRegistry? = nil,
+        detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry]? = nil
+    ) -> RestorableAgentSessionIndex {
+        let resolvedRegistry = registry ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: resolvedRegistry,
+            detectedSnapshots: [:]
+        )
+    }
+
     /// Current cached index. Never blocks. Used by the close-history undo snapshot so
     /// closing a tab does not pay the synchronous `RestorableAgentSessionIndex.load()`
     /// cost on the main thread. The directory watcher keeps this current; stale tolerance
@@ -2347,7 +2362,7 @@ final class SharedLiveAgentIndex: ObservableObject {
             let newIndex = await Task.detached(priority: .utility) {
                 // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
                 // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                Self.loadIndexForRefresh()
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed
@@ -10609,8 +10624,18 @@ final class Workspace: Identifiable, ObservableObject {
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
     /// palette path that performs that probe first.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
+        canForkAgentConversationFromPanel(
+            panelId,
+            liveAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        )
+    }
+
+    func canForkAgentConversationFromPanel(
+        _ panelId: UUID,
+        liveAgentIndex: RestorableAgentSessionIndex?
+    ) -> Bool {
         guard panels[panelId] is TerminalPanel else { return false }
-        guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
+        guard let snapshot = forkableAgentSnapshot(forPanelId: panelId, liveAgentIndex: liveAgentIndex) else {
             return false
         }
         let isRemote = isRemoteTerminalSurface(panelId)
@@ -10631,10 +10656,20 @@ final class Workspace: Identifiable, ObservableObject {
     /// evaluates the menu state on the same frame — Fork Conversation appears the moment
     /// the index is loaded without requiring a second right-click.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        forkableAgentSnapshot(
+            forPanelId: panelId,
+            liveAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        )
+    }
+
+    func forkableAgentSnapshot(
+        forPanelId panelId: UUID,
+        liveAgentIndex: RestorableAgentSessionIndex?
+    ) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        return liveAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
