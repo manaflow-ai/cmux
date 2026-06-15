@@ -2308,6 +2308,17 @@ final class SharedLiveAgentIndex: ObservableObject {
     // Holds a pending rate-limited reload when changes arrive faster than the floor.
     private var deferredReloadTask: Task<Void, Never>?
 
+    // Process-detection layer. Heavier than the hook-store reload above (a full
+    // process snapshot + per-agent transcript/rollout scans), so it is NOT wired
+    // into the chatty hook-store watcher. It is loaded lazily on demand and on a
+    // slower TTL, and only powers the tab-menu fork fallback for live agents cmux
+    // never recorded a hook for (e.g. `sr claude` / direct `codex`, which bypass
+    // the cmux wrapper's SessionStart hook).
+    @Published private(set) var processDetectedIndex: RestorableAgentSessionIndex?
+    private var processDetectedLoadedAt: Date?
+    private var processDetectedRefreshTask: Task<Void, Never>?
+    private static let processDetectedCacheTTL: TimeInterval = 30.0
+
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
     private static let cacheTTL: TimeInterval = 60.0
@@ -2333,6 +2344,34 @@ final class SharedLiveAgentIndex: ObservableObject {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Process-detected snapshot for a panel (lazy, slower-cadence). Never blocks.
+    /// The tab-menu fork affordance reads this as a fallback when neither the
+    /// restored snapshot nor the hook-store index resolves the panel, so the
+    /// expensive process scan is paid only on demand. When the scan lands, the
+    /// `@Published` change re-renders subscribed workspaces and the menu item
+    /// appears without a second right-click.
+    func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        scheduleProcessDetectedRefreshIfStale()
+        return processDetectedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    private func scheduleProcessDetectedRefreshIfStale() {
+        guard processDetectedRefreshTask == nil else { return }
+        if let processDetectedLoadedAt,
+           Date().timeIntervalSince(processDetectedLoadedAt) < Self.processDetectedCacheTTL {
+            return
+        }
+        processDetectedRefreshTask = Task { @MainActor [weak self] in
+            // `loadIncludingProcessDetectedSnapshots` runs the heavy capture +
+            // scan off the main actor internally; here we only await + assign.
+            let newIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard let self else { return }
+            self.processDetectedIndex = newIndex
+            self.processDetectedLoadedAt = Date()
+            self.processDetectedRefreshTask = nil
+        }
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -10724,7 +10763,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+            return snapshot
+        }
+        // Last resort: a live agent cmux never recorded a hook for (e.g. an
+        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
+        // Lazily process-detected and debounced, off the hot hook-store path.
+        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
