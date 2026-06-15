@@ -15,8 +15,9 @@ import Foundation
 /// `reload_config` verb uses, so file-backed changes take effect with no
 /// restart.
 extension TerminalController {
-    /// The `settings.control.*` methods that mutate state (vs. pure reads). A
-    /// write triggers a live config reload after it succeeds.
+    /// The pure-read `settings.control.*` methods. Every other (mutating)
+    /// method triggers a live config reload after it succeeds, so adding a write
+    /// here would wrongly suppress that reload — keep this list reads-only.
     private static let settingsControlReadMethods: Set<String> = [
         "settings.control.list",
         "settings.control.get",

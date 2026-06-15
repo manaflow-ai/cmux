@@ -97,7 +97,7 @@ public enum SettingJSONValue: Sendable, Equatable {
         case let .int(value):
             return String(value)
         case let .double(value):
-            return Self.formatDouble(value)
+            return String(value)
         case let .string(value):
             return Self.encodeString(value)
         case let .array(values):
@@ -117,22 +117,10 @@ public enum SettingJSONValue: Sendable, Equatable {
         case .null: return "null"
         case let .bool(value): return value ? "true" : "false"
         case let .int(value): return String(value)
-        case let .double(value): return Self.formatDouble(value)
+        case let .double(value): return String(value)
         case let .string(value): return value
         case .array, .object: return jsonText
         }
-    }
-
-    private static func formatDouble(_ value: Double) -> String {
-        if value.rounded() == value, abs(value) < 1e15 {
-            // Render whole doubles as "1" not "1.0" only when safe; keep a
-            // decimal point so the value still round-trips as a Double when the
-            // setting type is Double. JSON has no separate int/double, and the
-            // catalog re-decodes against the key's static type, so either form
-            // is accepted on the way back in.
-            return String(value)
-        }
-        return String(value)
     }
 
     private static func encodeString(_ value: String) -> String {

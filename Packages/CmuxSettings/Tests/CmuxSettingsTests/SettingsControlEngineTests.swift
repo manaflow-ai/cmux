@@ -370,6 +370,19 @@ struct SettingsControlEngineTests {
         #expect(try await engine.shortcutGet("newTab").isOverridden == false)
     }
 
+    @Test func numberedDigitFamilyConflictPredicate() {
+        let one = StoredShortcut(first: ShortcutStroke(key: "1", command: true))
+        let two = StoredShortcut(first: ShortcutStroke(key: "2", command: true))
+        // Same modifiers + both numbered-digit actions collide as a family even
+        // though the digits differ (mirrors the app's router).
+        #expect(one.conflicts(with: two, selfUsesNumberedDigitMatching: true, otherUsesNumberedDigitMatching: true))
+        // Without numbered matching, distinct digits do not collide.
+        #expect(!one.conflicts(with: two, selfUsesNumberedDigitMatching: false, otherUsesNumberedDigitMatching: false))
+        // Different modifiers never collide, even within the family.
+        let twoShift = StoredShortcut(first: ShortcutStroke(key: "2", command: true, shift: true))
+        #expect(!one.conflicts(with: twoShift, selfUsesNumberedDigitMatching: true, otherUsesNumberedDigitMatching: true))
+    }
+
     @Test func shortcutListCoversEveryAction() async {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }

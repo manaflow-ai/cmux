@@ -40,7 +40,11 @@ extension SettingsControlEngine {
         if !proposed.isUnbound, !force {
             for other in ShortcutAction.allCases where other != action {
                 let otherBinding = effectiveBinding(other, overrides: bindings)
-                if otherBinding.conflicts(with: proposed) {
+                if otherBinding.conflicts(
+                    with: proposed,
+                    selfUsesNumberedDigitMatching: other.usesNumberedDigitMatching,
+                    otherUsesNumberedDigitMatching: action.usesNumberedDigitMatching
+                ) {
                     throw SettingsControlError.shortcutConflict(
                         action: actionID,
                         conflictingAction: other.rawValue,

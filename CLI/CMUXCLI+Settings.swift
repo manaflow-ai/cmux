@@ -117,18 +117,20 @@ extension CMUXCLI {
     }
 
     private func settingsControlSet(_ args: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let positionals = Self.positionalArgs(args)
-        guard positionals.count == 2 else {
+        // `set` takes no flags, so consume <key> <value> positionally without
+        // stripping `--`-prefixed tokens — a value may legitimately start with
+        // a dash (e.g. an editor flag).
+        guard args.count == 2 else {
             throw CLIError(message: "Usage: cmux settings set <key> <value>  (quote values that contain spaces)")
         }
         let payload = try client.sendV2(
             method: "settings.control.set",
-            params: ["key": positionals[0], "value": positionals[1]]
+            params: ["key": args[0], "value": args[1]]
         )
         if jsonOutput {
             print(jsonString(payload))
         } else if let value = payload["value"] {
-            print("set \(positionals[0]) = \(Self.renderSettingValue(value))")
+            print("set \(args[0]) = \(Self.renderSettingValue(value))")
         }
     }
 
@@ -231,17 +233,20 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "settings.control.shortcuts.get", params: ["action": action])
             if jsonOutput { print(jsonString(payload)) } else { print((payload["binding"] as? String) ?? "none") }
         case "set":
-            let positionals = Self.positionalArgs(rest)
-            guard positionals.count == 2 else {
+            // Strip only the known `--force` flag, then take <action> <combo>
+            // positionally so a dash-prefixed combo is preserved.
+            let force = hasFlag(rest, name: "--force")
+            let operands = rest.filter { $0 != "--force" }
+            guard operands.count == 2 else {
                 throw CLIError(message: "Usage: cmux settings shortcuts set <action> <key-combo> [--force]  (e.g. \"cmd+t\")")
             }
-            var params: [String: Any] = ["action": positionals[0], "value": positionals[1]]
-            if hasFlag(rest, name: "--force") { params["force"] = true }
+            var params: [String: Any] = ["action": operands[0], "value": operands[1]]
+            if force { params["force"] = true }
             let payload = try client.sendV2(method: "settings.control.shortcuts.set", params: params)
             if jsonOutput {
                 print(jsonString(payload))
             } else {
-                print("set \(positionals[0]) = \((payload["binding"] as? String) ?? positionals[1])")
+                print("set \(operands[0]) = \((payload["binding"] as? String) ?? operands[1])")
             }
         case "unset":
             let action = try Self.requirePositional(rest, name: "action", usage: "cmux settings shortcuts unset <action>")

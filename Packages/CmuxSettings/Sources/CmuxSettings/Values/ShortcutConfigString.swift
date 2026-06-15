@@ -204,25 +204,89 @@ extension StoredShortcut {
         return first.configString()
     }
 
-    /// Whether two bindings collide (would both fire on the same input).
-    ///
-    /// Mirrors the exact-match arm of the app's shortcut conflict logic: single
-    /// strokes conflict on an exact match; two chords conflict only when both
-    /// of their strokes match; a chord and a single stroke collide when the
-    /// chord's first stroke equals the single stroke. Unbound bindings never
-    /// conflict. (The app additionally treats `1`–`9` numbered-digit families as
-    /// conflicting; that GUI-specific nuance is layered on app-side.)
+    /// Whether two bindings collide (would both fire on the same input),
+    /// assuming neither uses numbered-digit matching. See the richer overload
+    /// for actions whose `1`–`9` digit family collides as a unit.
     public func conflicts(with other: StoredShortcut) -> Bool {
+        conflicts(
+            with: other,
+            selfUsesNumberedDigitMatching: false,
+            otherUsesNumberedDigitMatching: false
+        )
+    }
+
+    /// Whether two bindings collide, honoring each action's numbered-digit
+    /// matching policy. This is a faithful port of the app's
+    /// `KeyboardShortcutSettings.shortcutsConflict` so `cmux settings shortcuts`
+    /// detects the same conflicts the runtime router does: single strokes
+    /// conflict on an exact match; two chords conflict only when both strokes
+    /// match; a chord vs. single stroke collides when the chord's first stroke
+    /// matches the single stroke. When an action uses numbered-digit matching,
+    /// any `1`–`9` key with the same modifiers collides with the whole family.
+    /// Unbound bindings never conflict.
+    public func conflicts(
+        with other: StoredShortcut,
+        selfUsesNumberedDigitMatching: Bool,
+        otherUsesNumberedDigitMatching: Bool
+    ) -> Bool {
         guard !isUnbound, !other.isUnbound else { return false }
         switch (second, other.second) {
         case (nil, nil):
-            return first.conflictsExactly(with: other.first)
+            return Self.strokeMatchersConflict(
+                first, selfUsesNumberedDigitMatching,
+                other.first, otherUsesNumberedDigitMatching
+            )
         case let (lhsSecond?, rhsSecond?):
-            return first.conflictsExactly(with: other.first)
-                && lhsSecond.conflictsExactly(with: rhsSecond)
-        default:
-            return first.conflictsExactly(with: other.first)
+            guard first.conflictsExactly(with: other.first) else { return false }
+            return Self.strokeMatchersConflict(
+                lhsSecond, selfUsesNumberedDigitMatching,
+                rhsSecond, otherUsesNumberedDigitMatching
+            )
+        case (.some, nil):
+            // A chord's first stroke matches exactly (it is not a digit family).
+            return Self.strokeMatchersConflict(
+                first, false,
+                other.first, otherUsesNumberedDigitMatching
+            )
+        case (nil, .some):
+            return Self.strokeMatchersConflict(
+                first, selfUsesNumberedDigitMatching,
+                other.first, false
+            )
         }
+    }
+
+    private static func strokeMatchersConflict(
+        _ lhs: ShortcutStroke, _ lhsNumbered: Bool,
+        _ rhs: ShortcutStroke, _ rhsNumbered: Bool
+    ) -> Bool {
+        switch (lhsNumbered, rhsNumbered) {
+        case (false, false):
+            return lhs.conflictsExactly(with: rhs)
+        case (true, true):
+            return numberedDigitStrokesConflict(lhs, rhs)
+        case (true, false):
+            return numberedDigitStrokeConflictsWithExact(numbered: lhs, exact: rhs)
+        case (false, true):
+            return numberedDigitStrokeConflictsWithExact(numbered: rhs, exact: lhs)
+        }
+    }
+
+    private static func numberedDigitStrokesConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
+        guard isNumberedDigitStroke(lhs), isNumberedDigitStroke(rhs) else { return false }
+        return lhs.command == rhs.command && lhs.shift == rhs.shift
+            && lhs.option == rhs.option && lhs.control == rhs.control
+    }
+
+    private static func numberedDigitStrokeConflictsWithExact(numbered: ShortcutStroke, exact: ShortcutStroke) -> Bool {
+        guard isNumberedDigitStroke(numbered), isNumberedDigitStroke(exact) else { return false }
+        return numbered.command == exact.command && numbered.shift == exact.shift
+            && numbered.option == exact.option && numbered.control == exact.control
+    }
+
+    private static func isNumberedDigitStroke(_ stroke: ShortcutStroke) -> Bool {
+        guard let digit = Int(stroke.key) else { return false }
+        return (1...9).contains(digit)
     }
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
