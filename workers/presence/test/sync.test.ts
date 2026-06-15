@@ -72,6 +72,21 @@ describe("parseHello", () => {
     );
     expect(hello!.collections.length).toBe(8);
   });
+
+  it("dedups repeated collection names, keeping the first (no DoS amplification)", () => {
+    // A hello that repeats `devices` many times must collapse to ONE entry so it
+    // cannot amplify into N backfill checks + N snapshot serializations downstream.
+    const dupes = Array.from({ length: 16 }, (_, i) => ({ name: "devices", cursor: i }));
+    const hello = parseHello({
+      type: "sync.hello",
+      protocol: SYNC_PROTOCOL,
+      collections: [...dupes, { name: "workspaces", cursor: 7 }],
+    });
+    expect(hello!.collections).toEqual([
+      { name: "devices", cursor: 0, epoch: 0 }, // first occurrence (cursor 0) kept
+      { name: "workspaces", cursor: 7, epoch: 0 },
+    ]);
+  });
 });
 
 describe("resolveHello (snapshot vs delta floor)", () => {

@@ -406,6 +406,12 @@ export class TeamPresence extends DurableObject {
     for (const { name, cursor, epoch } of collections) {
       if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
       if (already.has(name)) continue;            // duplicate hello; reconnect to resync
+      // Mark as seen IMMEDIATELY so a hello that repeats the same collection name
+      // N times within one message does the backfill + snapshot/delta serialization
+      // only once. Without this, the per-connection guard only dedups across
+      // separate hellos, and N duplicates in one hello still amplify into N
+      // storage scans + N snapshot serializations (a resource-exhaustion vector).
+      already.add(name);
       subscribed.push(name);
       // Rollout backfill: an existing DO has `inst:*` presence but no
       // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm

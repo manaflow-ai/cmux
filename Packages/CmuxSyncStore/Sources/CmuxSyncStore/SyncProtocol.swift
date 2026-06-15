@@ -88,7 +88,7 @@ public struct SyncFrameCodec: Sendable {
                 collection: collection,
                 snapshotRev: snapshotRev,
                 epoch: epoch,
-                records: try requireRecords(obj["records"], frame: "sync.snapshot"),
+                records: try requireRecords(obj["records"], frame: "sync.snapshot", maxRev: snapshotRev),
                 complete: complete
             )
         case "sync.delta":
@@ -96,7 +96,7 @@ public struct SyncFrameCodec: Sendable {
                   let rev = intValue(obj["rev"]) else {
                 throw SyncFrameParseError.malformed("sync.delta missing collection/rev")
             }
-            return .delta(collection: collection, rev: rev, records: try requireRecords(obj["records"], frame: "sync.delta"))
+            return .delta(collection: collection, rev: rev, records: try requireRecords(obj["records"], frame: "sync.delta", maxRev: rev))
         case "sync.tick":
             guard let collection = obj["collection"] as? String,
                   let rev = intValue(obj["rev"]) else {
@@ -127,11 +127,25 @@ public struct SyncFrameCodec: Sendable {
     /// reconnects/resyncs rather than committing an empty frame that would
     /// silently advance the cursor (or reconcile against an empty snapshot set)
     /// and durably lose records.
-    private func requireRecords(_ value: Any?, frame: String) throws -> [SyncWireRecord] {
+    ///
+    /// `maxRev` is the frame head (`rev` for a delta, `snapshotRev` for a
+    /// snapshot). The DO never emits a record whose rev exceeds the head it is
+    /// advancing the cursor to, so a record with `record.rev > maxRev` is a
+    /// malformed/forged frame. Reject it: persisting it would write a poison-high
+    /// rev whose per-record monotone guard then ignores every legitimate future
+    /// update for that id until the server's head finally catches up (a durable
+    /// local-cache poisoning). Throwing forces a clean resync instead.
+    private func requireRecords(_ value: Any?, frame: String, maxRev: Int) throws -> [SyncWireRecord] {
         guard let array = value as? [[String: Any]] else {
             throw SyncFrameParseError.malformed("\(frame) missing or non-array records")
         }
-        return try array.map { try parseRecord($0) }
+        return try array.map {
+            let record = try parseRecord($0)
+            guard record.rev <= maxRev else {
+                throw SyncFrameParseError.malformed("\(frame) record \(record.id) rev \(record.rev) exceeds frame head \(maxRev)")
+            }
+            return record
+        }
     }
 
     private func parseRecord(_ obj: [String: Any]) throws -> SyncWireRecord {

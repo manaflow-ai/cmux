@@ -118,11 +118,20 @@ export function parseHello(body: unknown, maxCollections = 32): SyncHello | null
   if (typeof obj.protocol !== "string") return null;
   if (!Array.isArray(obj.collections)) return null;
   const collections: { name: string; cursor: number; epoch?: number }[] = [];
+  // Dedup by collection name, keeping the FIRST occurrence: a hello that repeats
+  // the same collection N times must not amplify into N backfill checks + N
+  // snapshot/delta serializations downstream. The DO's per-connection guard
+  // already dedups across separate hellos; this closes the within-one-hello gap
+  // at the parse boundary too (defense in depth, and keeps the pure parser the
+  // single source of the dedup invariant).
+  const seen = new Set<string>();
   for (const entry of obj.collections.slice(0, maxCollections)) {
     if (entry === null || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const name = typeof e.name === "string" ? e.name.trim() : "";
     if (name === "") continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
     const cursor = Number(e.cursor);
     const epoch = Number(e.epoch);
     collections.push({

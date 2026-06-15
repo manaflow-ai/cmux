@@ -67,22 +67,44 @@ import Testing
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
     }
 
-    @Test func queuedDeltaBufferIsBoundedWhenSnapshotNeverCompletes() async throws {
+    @Test func queuedDeltaBufferIsBoundedByRetainedRecordsWhenSnapshotNeverCompletes() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let applier = SyncFrameApplier(
             store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() },
-            maxQueuedDeltas: 2
+            maxQueuedDeltaRecords: 3
         )
         // Open a snapshot that never completes, then flood deltas mid-paging.
         try await applier.apply(.snapshot(collection: COLL, snapshotRev: 9, epoch: 1, records: [], complete: false))
         try await applier.apply(.delta(collection: COLL, rev: 10, records: [try deviceRecord(id: "dev-A", rev: 10)]))
         try await applier.apply(.delta(collection: COLL, rev: 11, records: [try deviceRecord(id: "dev-B", rev: 11)]))
+        // 2 records queued, ceiling 3: a 2-record delta pushes to 4 > 3, reject.
         await #expect(throws: SyncFrameParseError.self) {
-            try await applier.apply(.delta(collection: COLL, rev: 12, records: [try deviceRecord(id: "dev-C", rev: 12)]))
+            try await applier.apply(.delta(collection: COLL, rev: 12, records: [
+                try deviceRecord(id: "dev-C", rev: 12), try deviceRecord(id: "dev-D", rev: 12),
+            ]))
         }
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty)
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
+    }
+
+    @Test func oversizedSingleQueuedDeltaIsRejectedByRecordBound() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let applier = SyncFrameApplier(
+            store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() },
+            maxQueuedDeltaRecords: 2
+        )
+        try await applier.apply(.snapshot(collection: COLL, snapshotRev: 9, epoch: 1, records: [], complete: false))
+        // A SINGLE oversized delta (3 records > ceiling 2) must be rejected: a
+        // frame-COUNT bound would have let this one delta through.
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.delta(collection: COLL, rev: 10, records: [
+                try deviceRecord(id: "dev-A", rev: 10),
+                try deviceRecord(id: "dev-B", rev: 10),
+                try deviceRecord(id: "dev-C", rev: 10),
+            ]))
+        }
     }
 
     @Test func deltaOutsidePagingAppliesImmediately() async throws {
@@ -279,6 +301,24 @@ import Testing
         #expect(throws: SyncFrameParseError.self) {
             _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9223372036854775808,"records":[]}"#.utf8))
         }
+    }
+
+    @Test func recordRevAboveFrameHeadIsMalformed() {
+        // A forged/malformed frame whose head is `rev: 5` but carries a record at
+        // `rev: 1000000` must be rejected before it can poison the local cache:
+        // persisting the poison-high rev would make the per-record monotone guard
+        // ignore every legitimate future update for that id until the server's head
+        // catches up. Throwing forces a clean resync instead.
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":5,"records":[{"id":"dev-A","rev":1000000,"payload":{}}]}"#.utf8))
+        }
+        // Same gap for a snapshot: a record rev above snapshotRev is malformed.
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":3,"complete":true,"records":[{"id":"dev-A","rev":9,"payload":{}}]}"#.utf8))
+        }
+        // A record rev EQUAL to the head is valid (the head advances to it).
+        let ok = try? SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":7,"records":[{"id":"dev-A","rev":7,"payload":{}}]}"#.utf8))
+        #expect(ok == .delta(collection: "devices", rev: 7, records: [SyncWireRecord(id: "dev-A", rev: 7, updatedAt: 0, deleted: false, schemaVersion: syncSchemaVersion, payloadJSON: Data("{}".utf8))]))
     }
 
     @Test func helloEncodesCollectionsCursorsAndEpochs() throws {
