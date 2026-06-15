@@ -20,11 +20,15 @@ import Testing
 struct RemoteSessionProcessRunnerTests {
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
+        // Serialize against the platform-probe suite; see ``remoteSubprocessTestLock``.
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let didCloseReadHandles = DispatchSemaphore(value: 0)
         let runner = RemoteSessionProcessRunner(readHandlesDidInstall: { stdoutHandle, stderrHandle in
             try? stdoutHandle.close()
             try? stderrHandle.close()
             didCloseReadHandles.signal()
+            return true
         })
 
         let result = try runner.run(
@@ -40,6 +44,8 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Captures stdout, stderr, and the exit status")
     func capturesOutputAndStatus() throws {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         let result = try runner.run(
             RemoteProcessRequest(
@@ -56,6 +62,8 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Delivers stdin and closes the write end")
     func deliversStdin() throws {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         let result = try runner.run(
             RemoteProcessRequest(
@@ -72,6 +80,8 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Launch failure throws the pinned cmux.remote.process code 1")
     func launchFailurePinsErrorCode() {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         #expect {
             try runner.run(
@@ -92,6 +102,8 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Timeout terminates the process and throws the pinned code 2")
     func timeoutPinsErrorCode() {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         #expect {
             try runner.run(
