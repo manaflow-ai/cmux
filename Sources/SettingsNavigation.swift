@@ -115,7 +115,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini kiro"
+            return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -323,7 +323,7 @@ enum SettingsSearchIndex {
         setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
         setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
-        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
+        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview macos-option-as-alt option as alt left option right option alt key meta"),
         setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
         setting(.app, "markdown-font-size", String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"), "md markdown viewer font size points zoom scale text bigger smaller"),
         setting(.app, "markdown-font-family", String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"), "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
@@ -396,6 +396,19 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(
+            .automation,
+            "workspace-auto-naming",
+            String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+            [
+                "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
+                String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
+            ].joined(separator: " ")
+        ),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
@@ -522,6 +535,8 @@ enum SettingsSearchIndex {
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
+        "automation.autoNamingAgent": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
@@ -551,9 +566,19 @@ enum SettingsSearchIndex {
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
-        return allEntries.filter { entry in
-            tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
-        }
+        let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        return allEntries.enumerated()
+            .compactMap { offset, entry -> (entry: SettingsSearchEntry, score: Int, offset: Int)? in
+                guard let score = matchScore(entry: entry, query: normalizedQuery, tokens: tokens) else {
+                    return nil
+                }
+                return (entry, score, offset)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score < rhs.score }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.entry)
     }
 
     static func entry(withID id: String) -> SettingsSearchEntry? {
@@ -601,5 +626,93 @@ enum SettingsSearchIndex {
                 }
             }
             .map(String.init)
+    }
+
+    private static func matchScore(entry: SettingsSearchEntry, query: String, tokens: [String]) -> Int? {
+        let words = normalizedTokens(for: entry.normalizedSearchText)
+        var score = 0
+        for token in tokens {
+            guard let tokenScore = matchScore(token: token, text: entry.normalizedSearchText, words: words) else {
+                return nil
+            }
+            score += tokenScore
+        }
+
+        let title = normalized(entry.title)
+        if title == query { score -= 1_000 }
+        if title.hasPrefix(query) { score -= 800 }
+        if containsAtWordBoundary(query, in: title) { score -= 700 }
+        if entry.normalizedSearchText.hasPrefix(query) { score -= 600 }
+        if containsAtWordBoundary(query, in: entry.normalizedSearchText) { score -= 500 }
+        if entry.normalizedSearchText.contains(query) { score -= 400 }
+        if case .section = entry.kind { score += 25 }
+        return score
+    }
+
+    private static func matchScore(token: String, text: String, words: [String]) -> Int? {
+        if words.contains(token) { return 0 }
+        if words.contains(where: { $0.hasPrefix(token) }) { return 10 }
+        if containsAtWordBoundary(token, in: text) { return 20 }
+        if text.contains(token) { return 30 }
+        if words.contains(where: { isLightTypo(token, comparedTo: $0) }) { return 50 }
+        if words.contains(where: { isSubsequence(token, of: $0) }) { return 60 }
+        if isSubsequence(token, of: text) { return 80 }
+        return nil
+    }
+
+    private static func containsAtWordBoundary(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var searchStart = haystack.startIndex
+        while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            if range.lowerBound == haystack.startIndex {
+                return true
+            }
+            let previous = haystack[haystack.index(before: range.lowerBound)]
+            if !previous.isLetter, !previous.isNumber {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var index = needle.startIndex
+        for character in haystack where character == needle[index] {
+            index = needle.index(after: index)
+            if index == needle.endIndex { return true }
+        }
+        return false
+    }
+
+    private static func isLightTypo(_ token: String, comparedTo word: String) -> Bool {
+        guard token.count >= 4, word.count >= 4 else { return false }
+        let allowedDistance = min(token.count, word.count) >= 6 ? 2 : 1
+        return editDistance(token, word, maximum: allowedDistance) <= allowedDistance
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        if abs(left.count - right.count) > maximum { return maximum + 1 }
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+        for leftIndex in 1...left.count {
+            current[0] = leftIndex
+            var rowMinimum = current[0]
+            for rightIndex in 1...right.count {
+                let cost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1
+                current[rightIndex] = min(
+                    previous[rightIndex] + 1,
+                    current[rightIndex - 1] + 1,
+                    previous[rightIndex - 1] + cost
+                )
+                rowMinimum = min(rowMinimum, current[rightIndex])
+            }
+            if rowMinimum > maximum { return maximum + 1 }
+            swap(&previous, &current)
+        }
+        return previous[right.count]
     }
 }

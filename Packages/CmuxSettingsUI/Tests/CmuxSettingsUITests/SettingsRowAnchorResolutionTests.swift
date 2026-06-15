@@ -64,6 +64,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.ripgrepBinaryPath",
         "automation.socketControlMode",
         "automation.suppressSubagentNotifications",
+        "automation.workspaceAutoNaming",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
@@ -182,6 +183,7 @@ struct SettingsRowAnchorResolutionTests {
 
         let unreachable = index.entries
             .filter { if case .setting = $0.kind { return true } else { return false } }
+            .filter { $0.anchorID == $0.id }
             .map(\.id)
             .filter { !reachable.contains($0) }
 

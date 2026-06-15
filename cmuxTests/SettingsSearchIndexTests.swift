@@ -33,10 +33,22 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("naming", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("nmaing", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("auto name", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("rename workspace", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("option as alt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
+    }
+
+    func testExactAndSubstringMatchesRankAheadOfFuzzyFallbacks() throws {
+        XCTAssertEqual(
+            SettingsSearchIndex.entries(matching: "Terminal Config").first?.id,
+            SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
+        )
+        XCTAssertEqual(
+            SettingsSearchIndex.entries(matching: "copy on select").first?.id,
+            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "copy-on-select")
+        )
     }
 
     func testSettingsPathAnchorIncludesBrowserEnabled() {

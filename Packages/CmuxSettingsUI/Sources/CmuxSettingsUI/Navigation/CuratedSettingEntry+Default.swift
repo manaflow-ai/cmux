@@ -9,13 +9,14 @@ extension Array where Element == CuratedSettingEntry {
     /// `Sources/SettingsNavigation.swift` and
     /// `Sources/SettingsSearchAliases.swift`. Roughly one row per
     /// high-signal setting; the surface area is meant to mirror what
-    /// users actually search for, not the full catalog. Catalog keys
-    /// not present here still fall back to a dotted-id index entry in
+    /// users actually search for. Catalog keys not present here still
+    /// fall back to a section-anchored dotted-id index entry in
     /// ``SettingsSearchIndex``.
     ///
-    /// Strings are English-only until the package ships an
-    /// `xcstrings` catalog. Tests and hosts that want a different set
-    /// of entries pass their own array via
+    /// Most strings are English-only until the package ships an
+    /// `xcstrings` catalog; newer entries use the same localized
+    /// strings as their rows when available. Tests and hosts that want
+    /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static var cmuxDefault: [CuratedSettingEntry] {
         [
@@ -42,7 +43,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
-            .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config"),
+            .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
@@ -58,7 +59,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
-            .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable done agent"),
+            .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // Terminal
@@ -118,6 +119,20 @@ extension Array where Element == CuratedSettingEntry {
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
+            .init(
+                section: .automation,
+                id: "workspace-auto-naming",
+                title: String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+                detailText: [
+                    String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
+                    String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                    String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
+                    String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                    String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
+                ].joined(separator: " "),
+                paths: ["automation.workspaceAutoNaming"],
+                synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"
+            ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 

@@ -243,7 +243,7 @@ public struct SettingsWindowRoot: View {
         if selectedSectionRaw != section.rawValue {
             selectedSectionRaw = section.rawValue
         }
-        postNavigationRequest(target: section, anchorID: entry.id, highlight: isSearching)
+        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
     }
 
     /// Maps a resolved search-index entry to its target section,
@@ -351,9 +351,10 @@ public struct SettingsWindowRoot: View {
                     // and lets the SceneStorage-restored sidebar entry
                     // drive a deep scroll if it was a setting hit.
                     let section = selectedSection
+                    let selectedEntry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)
-                        : selectedSidebarEntryID
+                        : selectedEntry?.anchorID ?? selectedSidebarEntryID
                     postNavigationRequest(
                         target: section,
                         anchorID: anchor,

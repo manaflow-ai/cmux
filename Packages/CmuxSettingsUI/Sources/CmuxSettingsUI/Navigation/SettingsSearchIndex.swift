@@ -1,29 +1,30 @@
 import CmuxSettings
 import Foundation
 
-/// Fuzzy-match index over ``SettingsSectionID`` titles and the curated
-/// per-setting entries in ``CuratedSettingEntries``.
+/// Fuzzy-match index over ``SettingsSectionID`` titles and searchable
+/// per-setting entries.
 ///
 /// Two classes of entries are indexed:
 ///
 /// 1. Section entries — one per ``SettingsSectionID`` case — surfaced
 ///    in the sidebar by default (empty query).
 /// 2. Curated setting entries from ``CuratedSettingEntries/entries`` —
-///    one per setting *that has a row in the detail pane*, with the
-///    user-facing localized title plus a synonym string. This is what
-///    makes search useful: typing "copy on select" finds the
-///    `terminal.copyOnSelect` row even though that's an internal id.
-///
-/// The index deliberately does **not** back-fill raw ``SettingCatalog``
-/// keys. Catalog keys without a curated entry have no UI row, so
-/// surfacing them as search hits (e.g. `account.welcomeShown`) would
-/// navigate to nothing. Search results stay limited to what actually
-/// appears in the settings detail.
+///    one per high-signal row in the detail pane, with the user-facing
+///    localized title, row detail text, config paths, and synonyms.
+///    This is what makes search useful: typing "copy on select" finds
+///    the `terminal.copyOnSelect` row even though that's an internal id.
+/// 3. Catalog fallback entries for every ``SettingCatalog`` key not
+///    claimed by a curated row. Those fallbacks navigate to the owning
+///    section, which prevents newly-added settings from silently
+///    becoming impossible to search before a curated row synonym is
+///    written.
 ///
 /// Diacritic-insensitive matching via
 /// `String.folding(options:locale:)`. Matching is per-token AND: every
-/// whitespace/punct-separated token in the query must appear somewhere
-/// in the entry's normalized search text.
+/// whitespace/punct-separated token in the query must match somewhere
+/// in the entry's normalized search text. Ranking prefers exact and
+/// prefix matches, then literal substring matches, then typo-tolerant
+/// and subsequence matches.
 public struct SettingsSearchIndex: Sendable {
     public struct Entry: Sendable, Identifiable, Hashable {
         public enum Kind: Sendable, Hashable {
@@ -36,6 +37,7 @@ public struct SettingsSearchIndex: Sendable {
         public let title: String
         public let symbolName: String
         public let normalizedSearchText: String
+        public let anchorID: String
     }
 
     public let entries: [Entry]
@@ -49,16 +51,13 @@ public struct SettingsSearchIndex: Sendable {
     /// synonym tokens.
     private let pathAnchorIDs: [String: String]
 
-    /// Builds an index from the section list and the supplied curated
-    /// entries. Raw ``SettingCatalog`` keys are intentionally not
-    /// indexed (see the type doc): only settings with a real detail-pane
-    /// row are searchable.
+    /// Builds an index from the section list, supplied curated entries,
+    /// and catalog fallback keys.
     ///
     /// - Parameters:
-    ///   - catalog: Accepted for API symmetry and possible future
-    ///     scoping; the index is built only from sections and curated
-    ///     entries, so passing the app's full catalog does not widen the
-    ///     searchable surface.
+    ///   - catalog: Source of fallback settings so every real catalog
+    ///     key remains searchable even before it gains a row-specific
+    ///     curated synonym entry.
     ///   - curatedEntries: One entry per searchable setting row, with a
     ///     localized title + synonyms. Defaults to
     ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
@@ -68,7 +67,6 @@ public struct SettingsSearchIndex: Sendable {
         catalog: SettingCatalog,
         curatedEntries: [CuratedSettingEntry] = .cmuxDefault
     ) {
-        _ = catalog
         var built: [Entry] = []
 
         for section in SettingsSectionID.allCases {
@@ -78,56 +76,72 @@ public struct SettingsSearchIndex: Sendable {
                 title: section.title,
                 symbolName: section.symbolName,
                 normalizedSearchText: Self.normalize(
-                    "\(section.title) \(section.searchKeywords)"
-                )
+                    "\(section.rawValue) \(section.title) \(section.searchKeywords) \(Self.humanizedIdentifier(section.rawValue))"
+                ),
+                anchorID: "section:\(section.rawValue)"
             ))
         }
 
+        var pathAnchors: [String: String] = [:]
+        var coveredCatalogPaths = Set<String>()
+
         for entry in curatedEntries {
+            let entryID = "setting:\(entry.section.rawValue):\(entry.id)"
+            let searchPaths = entry.paths.isEmpty
+                ? Self.dottedTokens(in: entry.synonyms)
+                : entry.paths
+            let pathSearchText = searchPaths.flatMap(Self.searchTokens(forSettingPath:)).joined(separator: " ")
             built.append(Entry(
-                id: "setting:\(entry.section.rawValue):\(entry.id)",
+                id: entryID,
                 kind: .setting(parent: entry.section),
                 title: entry.title,
                 symbolName: entry.section.symbolName,
                 normalizedSearchText: Self.normalize(
-                    "\(entry.title) \(entry.synonyms)"
-                )
+                    [
+                        entry.section.rawValue,
+                        entry.section.title,
+                        entry.section.searchKeywords,
+                        entry.id,
+                        entry.title,
+                        entry.detailText,
+                        searchPaths.joined(separator: " "),
+                        pathSearchText,
+                        entry.synonyms
+                    ].joined(separator: " ")
+                ),
+                anchorID: entryID
+            ))
+
+            for path in searchPaths {
+                coveredCatalogPaths.insert(path)
+                if pathAnchors[path] == nil { pathAnchors[path] = entryID }
+            }
+        }
+
+        for key in catalog.all where !coveredCatalogPaths.contains(key.id) {
+            guard let section = Self.section(forSettingPath: key.id) else { continue }
+            let sectionID = "section:\(section.rawValue)"
+            built.append(Entry(
+                id: "setting:\(section.rawValue):catalog-\(Self.slug(forSettingPath: key.id))",
+                kind: .setting(parent: section),
+                title: Self.title(forSettingPath: key.id),
+                symbolName: section.symbolName,
+                normalizedSearchText: Self.normalize(
+                    [
+                        section.rawValue,
+                        section.title,
+                        section.searchKeywords,
+                        key.id,
+                        Self.searchTokens(forSettingPath: key.id).joined(separator: " "),
+                        Self.storageSearchText(for: key)
+                    ].joined(separator: " ")
+                ),
+                anchorID: sectionID
             ))
         }
 
         self.entries = built
-
-        // Curated synonym strings lead with the setting's dotted
-        // cmux.json path (e.g. "sidebar.showBranchDirectory git …"),
-        // which is exactly what a row declares via its
-        // configurationReview. Index every dotted token to the curated
-        // entry's anchor id so a row can map its path to a scroll target.
-        // First writer wins: a dotted path is owned by one setting.
-        var pathAnchors: [String: String] = [:]
-        for entry in curatedEntries {
-            let anchorID = "setting:\(entry.section.rawValue):\(entry.id)"
-            for token in entry.synonyms.split(separator: " ") where token.contains(".") {
-                let path = String(token)
-                if pathAnchors[path] == nil { pathAnchors[path] = anchorID }
-            }
-        }
         self.pathAnchorIDs = pathAnchors
-    }
-
-    /// Resolves a dotted cmux.json path to the curated entry id the
-    /// sidebar/search navigation scrolls to and highlights, so a row can
-    /// tag itself with the exact id its search hit posts.
-    ///
-    /// Returns `nil` when no curated entry claims `path`. Every settings
-    /// row's `configurationReview` path must resolve here, or its search
-    /// hit scrolls and pulses nothing — `SettingsRowAnchorResolutionTests`
-    /// enforces that across all rows.
-    ///
-    /// - Parameter path: A dotted cmux.json path, e.g. `terminal.copyOnSelect`.
-    /// - Returns: The curated entry id to use as a `scrollTo` / highlight
-    ///   anchor, or `nil` when no curated entry owns `path`.
-    public func anchorID(forSettingsPath path: String) -> String? {
-        pathAnchorIDs[path]
     }
 
     public func match(_ query: String) -> [Entry] {
@@ -145,9 +159,35 @@ public struct SettingsSearchIndex: Sendable {
         if tokens.isEmpty {
             return entries.filter { if case .section = $0.kind { return true } else { return false } }
         }
-        return entries.filter { entry in
-            tokens.allSatisfy { entry.normalizedSearchText.contains($0) }
-        }
+        let normalizedQuery = Self.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.enumerated()
+            .compactMap { offset, entry -> (entry: Entry, score: Int, offset: Int)? in
+                guard let score = Self.matchScore(entry: entry, query: normalizedQuery, tokens: tokens) else {
+                    return nil
+                }
+                return (entry, score, offset)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score < rhs.score }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.entry)
+    }
+
+    /// Resolves a dotted cmux.json path to the curated entry id the
+    /// sidebar/search navigation scrolls to and highlights, so a row can
+    /// tag itself with the exact id its search hit posts.
+    ///
+    /// Returns `nil` when no curated entry claims `path`. Every settings
+    /// row's `configurationReview` path must resolve here, or its search
+    /// hit scrolls and pulses nothing — `SettingsRowAnchorResolutionTests`
+    /// enforces that across all rows.
+    ///
+    /// - Parameter path: A dotted cmux.json path, e.g. `terminal.copyOnSelect`.
+    /// - Returns: The curated entry id to use as a `scrollTo` / highlight
+    ///   anchor, or `nil` when no curated entry owns `path`.
+    public func anchorID(forSettingsPath path: String) -> String? {
+        pathAnchorIDs[path]
     }
 
     #if DEBUG
@@ -172,4 +212,176 @@ public struct SettingsSearchIndex: Sendable {
             .map(String.init)
     }
 
+    private static func matchScore(entry: Entry, query: String, tokens: [String]) -> Int? {
+        let words = Self.tokens(in: entry.normalizedSearchText)
+        var score = 0
+        for token in tokens {
+            guard let tokenScore = Self.matchScore(token: token, text: entry.normalizedSearchText, words: words) else {
+                return nil
+            }
+            score += tokenScore
+        }
+
+        let title = Self.normalize(entry.title)
+        if title == query { score -= 1_000 }
+        if title.hasPrefix(query) { score -= 800 }
+        if Self.containsAtWordBoundary(query, in: title) { score -= 700 }
+        if entry.normalizedSearchText.hasPrefix(query) { score -= 600 }
+        if Self.containsAtWordBoundary(query, in: entry.normalizedSearchText) { score -= 500 }
+        if entry.normalizedSearchText.contains(query) { score -= 400 }
+        if case .section = entry.kind { score += 25 }
+        return score
+    }
+
+    private static func matchScore(token: String, text: String, words: [String]) -> Int? {
+        if words.contains(token) { return 0 }
+        if words.contains(where: { $0.hasPrefix(token) }) { return 10 }
+        if Self.containsAtWordBoundary(token, in: text) { return 20 }
+        if text.contains(token) { return 30 }
+        if words.contains(where: { Self.isLightTypo(token, comparedTo: $0) }) { return 50 }
+        if words.contains(where: { Self.isSubsequence(token, of: $0) }) { return 60 }
+        if Self.isSubsequence(token, of: text) { return 80 }
+        return nil
+    }
+
+    private static func containsAtWordBoundary(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var searchStart = haystack.startIndex
+        while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            if range.lowerBound == haystack.startIndex {
+                return true
+            }
+            let previous = haystack[haystack.index(before: range.lowerBound)]
+            if !previous.isLetter, !previous.isNumber {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var index = needle.startIndex
+        for character in haystack where character == needle[index] {
+            index = needle.index(after: index)
+            if index == needle.endIndex { return true }
+        }
+        return false
+    }
+
+    private static func isLightTypo(_ token: String, comparedTo word: String) -> Bool {
+        guard token.count >= 4, word.count >= 4 else { return false }
+        let allowedDistance = min(token.count, word.count) >= 6 ? 2 : 1
+        return Self.editDistance(token, word, maximum: allowedDistance) <= allowedDistance
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        if abs(left.count - right.count) > maximum { return maximum + 1 }
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+        for leftIndex in 1...left.count {
+            current[0] = leftIndex
+            var rowMinimum = current[0]
+            for rightIndex in 1...right.count {
+                let cost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1
+                current[rightIndex] = min(
+                    previous[rightIndex] + 1,
+                    current[rightIndex - 1] + 1,
+                    previous[rightIndex - 1] + cost
+                )
+                rowMinimum = min(rowMinimum, current[rightIndex])
+            }
+            if rowMinimum > maximum { return maximum + 1 }
+            swap(&previous, &current)
+        }
+        return previous[right.count]
+    }
+
+    private static func dottedTokens(in text: String) -> [String] {
+        text.split(separator: " ")
+            .map(String.init)
+            .filter { $0.contains(".") }
+    }
+
+    private static func searchTokens(forSettingPath path: String) -> [String] {
+        [path, Self.humanizedIdentifier(path)]
+    }
+
+    private static func humanizedIdentifier(_ identifier: String) -> String {
+        var result = ""
+        var previousWasLowercaseOrDigit = false
+        for character in identifier {
+            if character == "." || character == "-" || character == "_" {
+                result.append(" ")
+                previousWasLowercaseOrDigit = false
+                continue
+            }
+            if character.isUppercase, previousWasLowercaseOrDigit {
+                result.append(" ")
+            }
+            result.append(character)
+            previousWasLowercaseOrDigit = character.isLowercase || character.isNumber
+        }
+        return result
+    }
+
+    private static func title(forSettingPath path: String) -> String {
+        Self.humanizedIdentifier(path.split(separator: ".").last.map(String.init) ?? path)
+            .split(separator: " ")
+            .map { word in
+                guard let first = word.first else { return "" }
+                return first.uppercased() + String(word.dropFirst())
+            }
+            .joined(separator: " ")
+    }
+
+    private static func slug(forSettingPath path: String) -> String {
+        Self.normalize(Self.humanizedIdentifier(path))
+            .split(separator: " ")
+            .joined(separator: "-")
+    }
+
+    private static func storageSearchText(for key: AnySettingKey) -> String {
+        switch key.kind {
+        case .userDefaults(let key, _, let legacyKeys):
+            return ([key] + legacyKeys).joined(separator: " ")
+        case .jsonConfig:
+            return "cmux json config"
+        case .secretFile(let fileName):
+            return "secret file \(fileName)"
+        }
+    }
+
+    private static func section(forSettingPath path: String) -> SettingsSectionID? {
+        guard let prefix = path.split(separator: ".").first.map(String.init) else { return nil }
+        switch prefix {
+        case "account":
+            return .account
+        case "app", "notifications", "workspaceGroups", "markdown", "canvas", "fileEditor":
+            return .app
+        case "terminal":
+            return .terminal
+        case "sidebar", "sidebarAppearance":
+            return .sidebarAppearance
+        case "workspaceColors":
+            return .workspaceColors
+        case "automation", "integrations":
+            return .automation
+        case "browser":
+            return .browser
+        case "mobile":
+            return .mobile
+        case "customSidebars":
+            return .customSidebars
+        case "rightSidebar":
+            return .betaFeatures
+        case "shortcuts":
+            return .keyboardShortcuts
+        default:
+            return nil
+        }
+    }
 }

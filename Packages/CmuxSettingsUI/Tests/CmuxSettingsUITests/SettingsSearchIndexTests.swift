@@ -33,6 +33,7 @@ struct SettingsSearchIndexTests {
 
     @Test(arguments: [
         ("naming", "setting:automation:workspace-auto-naming"),
+        ("nmaing", "setting:automation:workspace-auto-naming"),
         ("auto name", "setting:automation:workspace-auto-naming"),
         ("rename workspace", "setting:automation:workspace-auto-naming"),
         ("option as alt", "setting:app:terminal-config"),
@@ -45,6 +46,12 @@ struct SettingsSearchIndexTests {
             result.contains { $0.id == expectedID },
             "Expected settings search for '\(query)' to include \(expectedID), got \(result.map(\.id))"
         )
+    }
+
+    @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(try #require(index.match("Terminal Config").first).id == "setting:app:terminal-config")
+        #expect(try #require(index.match("copy on select").first).id == "setting:terminal:copy-on-select")
     }
 
     @Test func diacriticInsensitiveMatch() {
