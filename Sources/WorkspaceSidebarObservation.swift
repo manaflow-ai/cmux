@@ -19,6 +19,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let agentForkAvailabilityGeneration: UInt64
 }
 
 private struct SidebarObservationState: Equatable {
@@ -57,15 +58,19 @@ extension Workspace {
 
         return workspaceFields
             .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
-                SidebarImmediateObservationState(
+            .combineLatest($agentForkAvailabilityGeneration)
+            .map { groupedFields, agentForkAvailabilityGeneration in
+                let workspaceFields = groupedFields.0
+                let conversationFields = groupedFields.1
+                return SidebarImmediateObservationState(
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     isPinned: workspaceFields.2,
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2
+                    latestSubmittedAt: conversationFields.2,
+                    agentForkAvailabilityGeneration: agentForkAvailabilityGeneration
                 )
             }
             .removeDuplicates()

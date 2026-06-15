@@ -29,6 +29,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: latestConversationMessage,
+            agentForkAvailabilityGeneration: agentForkAvailabilityGeneration,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,

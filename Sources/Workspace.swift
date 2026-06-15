@@ -2553,6 +2553,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
+    @Published private(set) var agentForkAvailabilityGeneration: UInt64 = 0
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -3229,11 +3230,11 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes after the cache is installed so the
-        // bonsplit tab bar re-evaluates Fork Conversation availability against the
-        // refreshed snapshot, not the previous @Published value.
+        // Forward shared agent-index refreshes after the cache is installed so both
+        // bonsplit tab menus and sidebar row menus re-evaluate Fork Conversation
+        // availability against the refreshed snapshot.
         sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.indexDidChangePublisher.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.agentForkAvailabilityGeneration &+= 1
         }
     }
 

@@ -254,4 +254,35 @@ final class WorkspaceForkConversationLiveDetectionTests: XCTestCase {
             "Tab context-menu availability must be invalidated after the refreshed live-agent index is readable"
         )
     }
+
+    func testSharedLiveAgentIndexRefreshInvalidatesSidebarObservationAfterNewIndexIsReadable() throws {
+        SharedLiveAgentIndex.shared.resetForTesting()
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let index = SharedLiveAgentIndex.loadIndexForRefresh(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: (makeForkableCodexSnapshot(), 123, Set([4_242]), .explicit)]
+        )
+
+        var sidebarInvalidatedAfterIndexWasReadable = false
+        let cancellable = workspace.sidebarImmediateObservationPublisher.dropFirst().sink { _ in
+            sidebarInvalidatedAfterIndexWasReadable = workspace.canForkAgentConversationFromPanel(
+                panelId,
+                liveAgentIndex: SharedLiveAgentIndex.shared.index
+            )
+        }
+        defer {
+            cancellable.cancel()
+            SharedLiveAgentIndex.shared.resetForTesting()
+        }
+
+        SharedLiveAgentIndex.shared.replaceIndexForTesting(index)
+
+        XCTAssertTrue(
+            sidebarInvalidatedAfterIndexWasReadable,
+            "Sidebar workspace-row context menus must refresh after the live-agent index becomes forkable"
+        )
+    }
 }
