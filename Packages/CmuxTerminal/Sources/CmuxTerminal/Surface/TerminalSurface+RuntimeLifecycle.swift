@@ -232,6 +232,8 @@ extension TerminalSurface {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
@@ -244,6 +246,7 @@ extension TerminalSurface {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -252,6 +255,7 @@ extension TerminalSurface {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -267,8 +271,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; teeLease is not
-            // transported through the request, so release it here.
+            // The teardown coordinator releases callbackContext; manualIOContext
+            // and teeLease are not transported through the request, so release them here.
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -279,6 +284,7 @@ extension TerminalSurface {
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
         }
     }
@@ -294,6 +300,8 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
@@ -310,6 +318,7 @@ extension TerminalSurface {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -331,8 +340,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; teeLease is not
-            // transported through the request, so release it here.
+            // The teardown coordinator releases callbackContext; manualIOContext
+            // and teeLease are not transported through the request, so release them here.
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -341,6 +351,7 @@ extension TerminalSurface {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
         }
     }
@@ -510,6 +521,8 @@ extension TerminalSurface {
         if surface == nil {
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
+            manualIOContext?.release()
+            manualIOContext = nil
             #if DEBUG
             logDebugEvent("ghostty.surface.create.failed reason=surfaceNewNil surface=\(id.uuidString)")
             #endif
@@ -583,6 +596,11 @@ extension TerminalSurface {
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
+
+        // Flush remote-tmux output that arrived before the surface existed
+        // after sizing, so the seed paints into the final grid instead of
+        // wrapping at Ghostty's default grid.
+        flushPendingRemoteOutput(to: createdSurface)
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. If runtime points don't match the inherited

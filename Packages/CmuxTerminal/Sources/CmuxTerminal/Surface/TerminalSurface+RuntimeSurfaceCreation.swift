@@ -32,6 +32,19 @@ extension TerminalSurface {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if manualIO {
+            // MANUAL I/O: ghostty spawns no process; typed input is delivered
+            // to our callback and output is injected through
+            // ghostty_surface_process_output.
+            manualIOContext?.release()
+            let box = Unmanaged.passRetained(
+                TerminalManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
+            )
+            manualIOContext = box
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = terminalManualIOWriteCallback
+            surfaceConfig.io_write_userdata = box.toOpaque()
+        }
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         logDebugEvent(

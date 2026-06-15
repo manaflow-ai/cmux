@@ -43,6 +43,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     static let committedTextInputChunkByteLimit = 96
+
+    /// `ESC[?7l`, disable DECAWM (autowrap). Injected around a mirror
+    /// surface's resize to suppress ghostty primary-screen reflow.
+    static let decawmDisableSequence = Data("\u{1b}[?7l".utf8)
+    /// `ESC[?7h`, re-enable DECAWM after a mirror resize.
+    static let decawmEnableSequence = Data("\u{1b}[?7h".utf8)
+
+    // The surface value DTOs live in CmuxTerminalCore; these aliases keep the
+    // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
+    // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
@@ -150,6 +160,28 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Where the surface participates in focus routing.
     public let focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
+
+    /// When true, the surface is created in libghostty MANUAL I/O mode: no
+    /// process is spawned, output is injected via `processRemoteOutput(_:)`,
+    /// and typed input is delivered to `manualInputHandler`.
+    let manualIO: Bool
+    let manualInputHandler: (@Sendable (Data) -> Void)?
+
+    /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
+    /// whenever the rendered grid changes so the owner can size the remote tmux
+    /// client to match.
+    @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
+    var lastReportedManualGrid: (columns: Int, rows: Int)?
+    /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
+    /// ghostty primary-screen reflow on resize.
+    var manualIONoReflow = true
+    /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
+    /// the surface.
+    var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
+    /// Output delivered before the runtime surface exists. Flushed once the
+    /// surface is created so background mirror output is not lost.
+    var pendingRemoteOutput = Data()
+    let maxPendingRemoteOutputBytes = 4 * 1_048_576
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {
@@ -350,6 +382,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
@@ -368,6 +402,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
+        self.manualIO = manualIO
+        self.manualInputHandler = manualInputHandler
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
@@ -399,6 +435,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             || trimmedInput != nil
             || inheritedCommand?.isEmpty == false
             || inheritedInput?.isEmpty == false
+            // MANUAL-I/O remote-tmux display surfaces have no command but must
+            // start eagerly so they can receive injected output while their
+            // workspace is still in the background.
+            || manualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
@@ -445,6 +485,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
 
         // Mirror teardownSurface/suspend: release the retained mobile byte-tee
         // userdata and drop the per-surface tee state keyed by this surface id,
@@ -480,6 +522,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -488,6 +531,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return
         }
@@ -510,8 +554,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             surface: surfaceToFree,
             callbackContext: callbackContext
         )
-        // The teardown coordinator releases callbackContext; teeLease is not
-        // transported through the request, so release it here (mirrors teardownSurface).
+        // The teardown coordinator releases callbackContext; manualIOContext and
+        // teeLease are not transported through the request, so release them here.
+        manualIOContext?.release()
         teeLease?.release()
     }
 }
