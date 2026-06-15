@@ -1695,7 +1695,7 @@ extension Workspace {
             // otherwise fall back to a fresh id and let the old->new remap
             // handle it, exactly as before.
             let reusableSurfaceId: UUID? =
-                TerminalSurfaceRegistry.shared.surface(id: snapshot.id) == nil ? snapshot.id : nil
+                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
