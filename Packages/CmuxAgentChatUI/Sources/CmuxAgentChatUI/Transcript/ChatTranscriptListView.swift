@@ -34,6 +34,7 @@ public struct ChatTranscriptListView: View {
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     #if DEBUG
     @State private var debugScrollGeometry = ChatScrollGeometryDebugSnapshot()
+    @State private var lastLoggedDebugScrollGeometry = ChatScrollGeometryDebugSnapshot()
     #endif
     #endif
     @State private var containerWidth: CGFloat = 0
@@ -265,6 +266,10 @@ public struct ChatTranscriptListView: View {
             ChatScrollGeometryDebugSnapshot(geometry)
         } action: { _, snapshot in
             debugScrollGeometry = snapshot
+            if snapshot.differsMeaningfully(from: lastLoggedDebugScrollGeometry) {
+                print(snapshot.debugLogLine(isAtBottom: isAtBottom))
+                lastLoggedDebugScrollGeometry = snapshot
+            }
         }
         .overlay(alignment: .topLeading) {
             ChatScrollGeometryDebugOverlay(
