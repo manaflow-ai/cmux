@@ -32,6 +32,12 @@ public struct SyncClient: Sendable {
     private let onApplied: (@Sendable () async -> Void)?
     private let codec = SyncFrameCodec()
 
+    /// Construct the client. The `applier` MUST be built with
+    /// `allowedCollections` equal to (a superset of) `collections`: the applier
+    /// rejects frames for any collection outside its allowlist, which is what
+    /// stops a misbehaving endpoint from growing buffers/cursor state for an
+    /// unbounded set of unrequested collection names. The composition root owns
+    /// both and is responsible for keeping the two lists in sync.
     public init(
         transport: any SyncTransport,
         applier: SyncFrameApplier,

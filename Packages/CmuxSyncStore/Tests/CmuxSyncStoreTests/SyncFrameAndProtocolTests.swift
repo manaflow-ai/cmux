@@ -129,6 +129,33 @@ import Testing
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
     }
 
+    @Test func frameForUnrequestedCollectionIsRejected() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Allowlist = {COLL} only. A misbehaving endpoint streaming snapshots/
+        // deltas/ticks for other collection names must be rejected so it cannot
+        // grow `builds` (or create cursor state) for an unbounded set of
+        // unrequested collections.
+        let applier = SyncFrameApplier(
+            store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() },
+            allowedCollections: [COLL]
+        )
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.snapshot(collection: "evil-coll", snapshotRev: 1, epoch: 1, records: [], complete: false))
+        }
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.delta(collection: "evil-coll", rev: 1, records: []))
+        }
+        await #expect(throws: SyncFrameParseError.self) {
+            try await applier.apply(.tick(collection: "evil-coll", rev: 1))
+        }
+        // The requested collection still applies normally; no cursor state leaked
+        // for the rejected collection.
+        try await applier.apply(.delta(collection: COLL, rev: 1, records: [try deviceRecord(id: "dev-A", rev: 1)]))
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).count == 1)
+        #expect(try await store.cursor(teamID: TEAM, collection: "evil-coll") == 0)
+    }
+
     @Test func deltaOutsidePagingAppliesImmediately() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }

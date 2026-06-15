@@ -20,6 +20,14 @@ public actor SyncFrameApplier {
     private let maxBufferedRecords: Int
     private let maxQueuedDeltaRecords: Int
     private let maxQueuedDeltaFrames: Int
+    /// The collections this applier will accept frames for. A frame for any other
+    /// collection is rejected as `.malformed` (forces a resync) so a misbehaving
+    /// endpoint cannot stream incomplete snapshots / deltas for an unbounded set
+    /// of unrequested collection names — each just under the per-collection
+    /// ceiling — and grow `builds` (and create local cursor state) without a
+    /// global bound. Empty = accept any collection (kept for tests/back-compat);
+    /// production wiring passes the subscribed set.
+    private let allowedCollections: Set<String>
 
     /// Per-collection in-flight snapshot: accumulated pages + the deltas that
     /// arrived during paging (queued, applied after the snapshot commits).
@@ -58,6 +66,7 @@ public actor SyncFrameApplier {
         teamID: String,
         sortKeyFor: @escaping @Sendable (SyncWireRecord) -> Double,
         now: @escaping @Sendable () -> Date = { Date() },
+        allowedCollections: Set<String> = [],
         maxBufferedRecords: Int = SyncFrameApplier.defaultMaxBufferedRecords,
         maxQueuedDeltaRecords: Int = SyncFrameApplier.defaultMaxQueuedDeltaRecords,
         maxQueuedDeltaFrames: Int = SyncFrameApplier.defaultMaxQueuedDeltaFrames
@@ -66,9 +75,19 @@ public actor SyncFrameApplier {
         self.teamID = teamID
         self.sortKeyFor = sortKeyFor
         self.now = now
+        self.allowedCollections = allowedCollections
         self.maxBufferedRecords = maxBufferedRecords
         self.maxQueuedDeltaRecords = maxQueuedDeltaRecords
         self.maxQueuedDeltaFrames = maxQueuedDeltaFrames
+    }
+
+    /// Reject a frame for a collection this applier was not configured to accept.
+    /// Throwing `.malformed` routes through `SyncClient`'s reset+rethrow so the
+    /// in-flight buffers are cleared and the connection re-hellos.
+    private func requireAllowed(_ collection: String) throws {
+        if !allowedCollections.isEmpty, !allowedCollections.contains(collection) {
+            throw SyncFrameParseError.malformed("frame for unrequested collection \(collection)")
+        }
     }
 
     /// The cursor to send in the next `sync.hello` for a collection.
@@ -96,10 +115,13 @@ public actor SyncFrameApplier {
     public func apply(_ frame: SyncServerFrame) async throws -> Bool {
         switch frame {
         case let .snapshot(collection, snapshotRev, epoch, records, complete):
+            try requireAllowed(collection)
             return try await applySnapshotPage(collection: collection, snapshotRev: snapshotRev, epoch: epoch, records: records, complete: complete)
         case let .delta(collection, rev, records):
+            try requireAllowed(collection)
             return try await applyDeltaFrame(collection: collection, rev: rev, records: records)
         case let .tick(collection, rev):
+            try requireAllowed(collection)
             // A tick advances the cursor when nothing record-shaped changed. Safe
             // because the DO guarantees it has sent every record up to head
             // (DESIGN.md §3.2). During paging, a tick is ignored (the snapshot
