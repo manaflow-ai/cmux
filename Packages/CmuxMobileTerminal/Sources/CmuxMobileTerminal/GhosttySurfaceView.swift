@@ -521,6 +521,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttySurfaceViewDelegate?
+    private let keyboardConfiguration: TerminalKeyboardConfiguration
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
@@ -859,7 +860,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(keyboardConfiguration: keyboardConfiguration)
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -959,9 +960,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    /// Creates a terminal surface backed by a Ghostty runtime.
+    ///
+    /// - Parameters:
+    ///   - runtime: The Ghostty runtime that owns the native terminal core.
+    ///   - delegate: The surface delegate that receives terminal input and UI
+    ///     requests.
+    ///   - keyboardConfiguration: The app-root keyboard settings store used by
+    ///     the hidden input proxy.
+    ///   - fontSize: The initial terminal font size in points.
+    public init(
+        runtime: GhosttyRuntime,
+        delegate: GhosttySurfaceViewDelegate,
+        keyboardConfiguration: TerminalKeyboardConfiguration,
+        fontSize: Float32 = 10
+    ) {
         self.runtime = runtime
         self.delegate = delegate
+        self.keyboardConfiguration = keyboardConfiguration
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))

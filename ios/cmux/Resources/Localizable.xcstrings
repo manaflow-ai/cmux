@@ -1854,6 +1854,57 @@
         }
       }
     },
+    "mobile.settings.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard Autocomplete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードの自動補完"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocompleteFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, the keyboard can show inline autocomplete suggestions in the terminal. Autocorrection and smart punctuation stay off so commands are never rewritten."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、ターミナルでキーボードのインライン自動補完候補を表示できます。コマンドが書き換えられないよう、自動修正とスマート句読点はオフのままです。"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.addAction": {
       "extractionState": "manual",
       "localizations": {
