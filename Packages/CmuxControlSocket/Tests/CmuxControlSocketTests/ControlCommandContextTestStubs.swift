@@ -312,7 +312,10 @@ extension ControlWorkspaceContext {
         clearConfiguration: Bool
     ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         .notFound(workspaceID: workspaceID)
     }
 

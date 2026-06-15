@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+import CmuxFoundation
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -113,7 +114,7 @@ struct WorkspaceGroupTests {
             forDraggedWorkspaceId: originalIds[0],
             targetWorkspaceId: group.anchorWorkspaceId
         )
-        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
             draggedTabId: originalIds[0],
             targetTabId: group.anchorWorkspaceId,
             indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom),
@@ -235,13 +236,13 @@ struct WorkspaceGroupTests {
             originalIds[3],
         ])
         #expect(forcedTopLevelIds == headerTargetIds)
-        #expect(!SidebarTabDropIndicatorPredicate.topVisible(
+        #expect(!SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: originalIds[3],
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
             tabIds: fullRowIds
         ))
-        #expect(SidebarTabDropIndicatorPredicate.topVisible(
+        #expect(SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: originalIds[3],
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
@@ -276,7 +277,7 @@ struct WorkspaceGroupTests {
             targetWorkspaceId: targetId,
             usesTopLevelRows: usesTopLevelRows
         )
-        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
             draggedTabId: draggedId,
             targetTabId: targetId,
             indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
@@ -497,7 +498,7 @@ struct WorkspaceGroupTests {
         )
 
         #expect(manager.tabs.first { $0.id == draggedUnpinnedId }?.groupId == groupId)
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: draggedUnpinnedId,
             targetTabId: pinnedChild.id,
             tabIds: tabIds,
@@ -507,7 +508,7 @@ struct WorkspaceGroupTests {
             targetHeight: 40
         )
         #expect(indicator == nil)
-        #expect(SidebarDropPlanner.targetIndex(
+        #expect(SidebarDropPlanner().targetIndex(
             draggedTabId: draggedUnpinnedId,
             targetTabId: pinnedChild.id,
             indicator: SidebarDropIndicator(tabId: pinnedChild.id, edge: .top),
