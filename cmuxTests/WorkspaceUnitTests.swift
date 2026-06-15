@@ -3189,6 +3189,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
+            customTitleSource: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,

@@ -1648,12 +1648,17 @@ class TabManager: ObservableObject {
         workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
     }
 
-    func setCustomTitle(tabId: UUID, title: String?) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        tabs[index].setCustomTitle(title)
-        if selectedTabId == tabId {
+    /// Sets, replaces, or clears a workspace custom title. Returns whether the
+    /// write landed (`.auto` writes are rejected over user-set titles; see
+    /// ``Workspace/setCustomTitle(_:source:)``).
+    @discardableResult
+    func setCustomTitle(tabId: UUID, title: String?, source: Workspace.CustomTitleSource = .user) -> Bool {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        let applied = tabs[index].setCustomTitle(title, source: source)
+        if applied, selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
+        return applied
     }
 
     func clearCustomTitle(tabId: UUID) {
