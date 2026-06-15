@@ -1728,8 +1728,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
         store.loadAll()
 
-        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
-        XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev", "cmux.more"])
+        XCTAssertEqual(store.surfaceTabBarButtons.dropLast().last?.workspaceCommandName, "Dev Environment")
     }
 
     @MainActor
