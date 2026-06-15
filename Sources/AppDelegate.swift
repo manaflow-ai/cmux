@@ -9123,7 +9123,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #endif
                 cleanupObservers()
-                NSLog("Command send: surface not ready after 3.0s")
+#if DEBUG
+                cmuxDebugLog("command.send.surfaceNotReady timeout=3.0")
+#endif
                 onFailure?()
             }
         }
@@ -15460,9 +15462,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "durationMs": durationMs
             ])
 
+#if DEBUG
             if registerStatus != noErr {
-                NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+                cmuxDebugLog(
+                    "launchservices.register.failed status=\(registerStatus) path=\(normalizedURL.path)"
+                )
             }
+#endif
         }
     }
 

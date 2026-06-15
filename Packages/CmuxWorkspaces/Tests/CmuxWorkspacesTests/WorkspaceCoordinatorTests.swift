@@ -259,12 +259,12 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func collapseToggleMovesFocusToAnchorAndStripsHiddenSelection() {
+    func collapseToggleMovesFocusToAnchorAndStripsHiddenSelection() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
         model.selectedTabId = b.id
         host.sidebarSelectedWorkspaceIds = [b.id]

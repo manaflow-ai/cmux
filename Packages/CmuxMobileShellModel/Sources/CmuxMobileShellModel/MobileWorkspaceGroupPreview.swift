@@ -45,7 +45,7 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///   - name: The group's user-facing name.
     ///   - isCollapsed: Whether the group is collapsed. Defaults to `false`.
     ///   - isPinned: Whether the group is pinned. Defaults to `false`.
-    ///   - anchorWorkspaceID: The anchor workspace that owns the group.
+    ///   - anchorWorkspaceID: The anchor workspace that positions the group.
     public init(
         id: ID,
         name: String,
