@@ -37,17 +37,36 @@ extension TerminalSurface {
                 self.claudeCommandShim = shim
                 self.claudeCommandShimInstallCompleted = true
                 self.claudeCommandShimInstallTask = nil
-                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
-                if let view, view.window != nil {
-                    self.createSurface(for: view, source: source)
-                } else if let attachedView = self.attachedView, attachedView.window != nil {
-                    self.createSurface(for: attachedView, source: source)
-                } else {
-                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
-                }
+                self.resumeSurfaceCreationAfterClaudeCommandShimReady(view: view, source: source)
             }
         }
 
         return (false, nil)
+    }
+
+    @MainActor
+    func resumeSurfaceCreationAfterClaudeCommandShimReady(
+        view: (any TerminalSurfaceNativeViewing)?,
+        source: RuntimeSurfaceCreationSource
+    ) {
+        guard allowsRuntimeSurfaceCreation(), surface == nil else { return }
+
+        let resumedSource: RuntimeSurfaceCreationSource = source == .scheduledRestore ? .normal : source
+        if source == .scheduledRestore {
+            if let view {
+                createSurface(for: view, source: resumedSource)
+            } else if let attachedView {
+                createSurface(for: attachedView, source: resumedSource)
+            }
+            return
+        }
+
+        if let view, view.window != nil {
+            createSurface(for: view, source: resumedSource)
+        } else if let attachedView, attachedView.window != nil {
+            createSurface(for: attachedView, source: resumedSource)
+        } else {
+            scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
+        }
     }
 }
