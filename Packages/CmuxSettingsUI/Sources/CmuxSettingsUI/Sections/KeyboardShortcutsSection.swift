@@ -366,6 +366,14 @@ public struct KeyboardShortcutsSection: View {
                 localized: "shortcut.when.caption.markdownFocus",
                 defaultValue: "Only while a markdown preview is focused"
             )
+        case .not(.atom(.sidebarFocus)):
+            // The `.mainWorkspace` context (Select Surface 1…9) fires across the
+            // whole workspace — terminal, browser, and markdown panes — and is
+            // suppressed only while the right sidebar holds keyboard focus.
+            return String(
+                localized: "shortcut.when.caption.notSidebarFocus",
+                defaultValue: "Except while the right sidebar is focused"
+            )
         default:
             return String(
                 localized: "shortcut.when.caption.terminalFocus",
