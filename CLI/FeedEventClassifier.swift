@@ -223,6 +223,7 @@ struct FeedEventClassifier {
     /// event, so it carries ``FeedEventSemantic/toolStartMaybeApproval``.
     private static let genericFeedEventSemantics: [String: FeedEventSemantic] = [
         "PreToolUse": .toolStartMaybeApproval,
+        "BeforeTool": .toolStartMaybeApproval,
         "beforeShellExecution": .toolStartMaybeApproval,
         "PermissionRequest": .approvalRequest,
         "PostToolUse": .toolEnd,
