@@ -6,11 +6,11 @@ extension TerminalController {
     /// Live render-grid events carry no scrollback; the phone keeps its own
     /// bounded Ghostty scrollback mirror and scrolls that mirror locally while
     /// the Mac remains authoritative.
-    nonisolated static let mobileReplayScrollbackLineBudget = 240
+    nonisolated static let mobileReplayScrollbackLineBudget = MobileTerminalScrollbackBudget.defaultReplayRows
 
     /// Larger history window returned only on explicit mobile scroll prefetch
     /// requests, keeping ordinary scroll RPCs small.
-    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 600
+    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = MobileTerminalScrollbackBudget.scrollPrefetchRows
 
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
@@ -56,10 +56,29 @@ extension TerminalController {
     }
 
     func mobileScrollPrefetchRows(params: [String: Any]) -> Int {
-        let requestedRows = (params["max_scrollback_rows"] as? NSNumber)?.intValue ?? 0
+        let requestedRows = mobileRequestedScrollbackRows(params: params)
         return min(
             max(0, requestedRows),
             Self.mobileScrollPrefetchScrollbackLineBudget
         )
+    }
+
+    func mobileReplayScrollbackRows(params: [String: Any]) -> Int {
+        if mobileRequestedScrollbackScope(params: params) == MobileTerminalScrollbackReplayRequest.fullScope {
+            return Int.max
+        }
+        let requestedRows = mobileRequestedScrollbackRows(params: params)
+        guard requestedRows > 0 else {
+            return Self.mobileReplayScrollbackLineBudget
+        }
+        return requestedRows
+    }
+
+    private func mobileRequestedScrollbackRows(params: [String: Any]) -> Int {
+        (params["max_scrollback_rows"] as? NSNumber)?.intValue ?? 0
+    }
+
+    private func mobileRequestedScrollbackScope(params: [String: Any]) -> String? {
+        params[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String
     }
 }

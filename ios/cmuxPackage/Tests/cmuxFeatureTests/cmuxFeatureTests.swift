@@ -2163,7 +2163,8 @@ final class TerminalOutputCollector {
 
     collector.mount(store: store, surfaceID: "live-terminal")
     let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    #expect(replayRequests.first?.maxScrollbackRows == 600)
+    #expect(replayRequests.first?.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
+    #expect(replayRequests.first?.maxScrollbackRows == nil)
     for _ in 0..<200 where collector.lines.count < 2 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
@@ -3174,6 +3175,7 @@ private actor ScriptedTransportResponses {
                 viewportColumns: params["viewport_columns"] as? Int,
                 viewportRows: params["viewport_rows"] as? Int,
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
+                scrollbackScope: params[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
                 topics: params["topics"] as? [String],
@@ -3193,6 +3195,7 @@ private struct RecordedRPCRequest: Sendable {
     var viewportColumns: Int?
     var viewportRows: Int?
     var maxScrollbackRows: Int?
+    var scrollbackScope: String?
     var clientID: String?
     var text: String?
     var topics: [String]?
@@ -3213,6 +3216,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         viewportColumns: params["viewport_columns"] as? Int,
         viewportRows: params["viewport_rows"] as? Int,
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
+        scrollbackScope: params[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
         topics: params["topics"] as? [String],
