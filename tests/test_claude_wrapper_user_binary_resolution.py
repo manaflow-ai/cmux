@@ -79,6 +79,71 @@ exec "{wrapper}" "$@"
             failures.append(f"expected user claude, got {output!r}")
 
 
+def test_wrapper_skips_stale_cmux_shims(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-stale-shim-") as td:
+        root = Path(td)
+        bundle_bin = root / "cmux.app" / "Contents" / "Resources" / "bin"
+        tmp_root = root / "tmp"
+        shim_root = tmp_root / "cmux-cli-shims"
+        current_shim_bin = shim_root / "current-surface"
+        stale_shim_bin = shim_root / "stale-surface"
+        real_bin = root / "real-bin"
+        for directory in (bundle_bin, current_shim_bin, stale_shim_bin, real_bin):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        wrapper = bundle_bin / "cmux-claude-wrapper"
+        wrapper.write_bytes(WRAPPER.read_bytes())
+        wrapper.chmod(0o755)
+
+        write_executable(
+            bundle_bin / "claude",
+            """#!/bin/sh
+echo bundled-claude "$@"
+""",
+        )
+        write_executable(
+            real_bin / "claude",
+            """#!/bin/sh
+echo real-claude "$@"
+""",
+        )
+        stale_shim = stale_shim_bin / "claude"
+        write_executable(
+            stale_shim,
+            """#!/bin/sh
+echo stale-shim "$@"
+""",
+        )
+        current_shim = current_shim_bin / "claude"
+        write_executable(
+            current_shim,
+            f"""#!/bin/sh
+export CMUX_CLAUDE_WRAPPER_SHIM="{current_shim}"
+export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="{current_shim_bin}"
+exec "{wrapper}" "$@"
+""",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = (
+            f"{stale_shim_bin}:{current_shim_bin}:{bundle_bin}:{real_bin}:"
+            "/usr/bin:/bin"
+        )
+        env["TMPDIR"] = f"{tmp_root}/"
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(current_shim)
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(current_shim_bin)
+        env["CMUX_CUSTOM_CLAUDE_PATH"] = str(bundle_bin / "claude")
+        env.pop("CMUX_SURFACE_ID", None)
+        env.pop("CMUX_SOCKET_PATH", None)
+
+        result = run_wrapper([str(current_shim), "--version"], env)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(f"stale shim check exited {result.returncode}: {output}")
+        if output != "real-claude --version":
+            failures.append(f"expected user claude after stale shim, got {output!r}")
+
+
 def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-grok-wrapper-resolution-") as td:
         root = Path(td)
@@ -174,6 +239,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
+    test_wrapper_skips_stale_cmux_shims(failures)
     test_shell_integration_does_not_shim_grok(failures)
     test_shell_integration_preserves_empty_path_components(failures)
     if failures:
