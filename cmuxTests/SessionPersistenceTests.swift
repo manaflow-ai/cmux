@@ -4262,12 +4262,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 final class SidebarDragFailsafePolicyTests: XCTestCase {
     func testRequestsClearWhenMonitorStartsAfterMouseRelease() {
         XCTAssertTrue(
-            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
                 isLeftMouseButtonDown: false
             )
         )
         XCTAssertFalse(
-            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
                 isLeftMouseButtonDown: true
             )
         )
@@ -4275,12 +4275,12 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 
     func testRequestsClearForLeftMouseUpEventsOnly() {
         XCTAssertTrue(
-            SidebarDragFailsafePolicy.shouldRequestClear(
+            SidebarDragFailsafePolicy().shouldRequestClear(
                 forMouseEventType: .leftMouseUp
             )
         )
         XCTAssertFalse(
-            SidebarDragFailsafePolicy.shouldRequestClear(
+            SidebarDragFailsafePolicy().shouldRequestClear(
                 forMouseEventType: .leftMouseDragged
             )
         )

@@ -79,17 +79,17 @@ struct SurfaceTabBarFontSizeConfigTests {
         surface-tab-bar-font-size = 40
         """
 
-        #expect(CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: contents)
+        #expect(CmuxGhosttyConfigSettingEditor().parsedSurfaceTabBarFontSize(in: contents)
             == CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
     }
 
     @Test func editorReturnsNilWhenSurfaceTabBarValueAbsent() {
-        #expect(CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: "sidebar-font-size = 14") == nil)
+        #expect(CmuxGhosttyConfigSettingEditor().parsedSurfaceTabBarFontSize(in: "sidebar-font-size = 14") == nil)
     }
 
     @Test func editorFormatsSurfaceTabBarValueTrimmingTrailingZeros() {
-        #expect(CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize(12) == "12")
-        #expect(CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize(12.5) == "12.5")
+        #expect(CmuxGhosttyConfigSettingEditor().formattedSurfaceTabBarFontSize(12) == "12")
+        #expect(CmuxGhosttyConfigSettingEditor().formattedSurfaceTabBarFontSize(12.5) == "12.5")
     }
 
     @Test func editorWriteSettingRoundTripsSurfaceTabBarValue() throws {
@@ -100,7 +100,7 @@ struct SurfaceTabBarFontSizeConfigTests {
         let url = directory.appendingPathComponent("config.ghostty")
         try "font-size = 13\n".write(to: url, atomically: true, encoding: .utf8)
 
-        try CmuxGhosttyConfigSettingEditor.writeSetting(
+        try CmuxGhosttyConfigSettingEditor().writeSetting(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
             value: "13",
             to: url
@@ -109,6 +109,6 @@ struct SurfaceTabBarFontSizeConfigTests {
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.contains("surface-tab-bar-font-size = 13"))
         #expect(contents.contains("font-size = 13"))
-        #expect(CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: contents) == 13)
+        #expect(CmuxGhosttyConfigSettingEditor().parsedSurfaceTabBarFontSize(in: contents) == 13)
     }
 }

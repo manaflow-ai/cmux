@@ -100,8 +100,15 @@ enum FileExternalOpenAction {
     @discardableResult
     static func openDefault(fileURL: URL) -> Bool {
         let resolver = FileExternalOpenApplicationResolver.live
-        let primaryApplication = resolver.applications(for: fileURL).first
-        return open(fileURL: fileURL, applicationURL: primaryApplication?.url)
+        guard let defaultURL = resolver.defaultApplicationURL(fileURL) else {
+            return open(fileURL: fileURL, applicationURL: nil)
+        }
+        if resolver.shouldIncludeApplication(defaultURL) {
+            return open(fileURL: fileURL, applicationURL: defaultURL)
+        }
+        let fallbackURL = resolver.applicationURLs(fileURL).first(where: resolver.shouldIncludeApplication)
+        guard let fallbackURL else { return false }
+        return open(fileURL: fileURL, applicationURL: fallbackURL)
     }
 
     @discardableResult
