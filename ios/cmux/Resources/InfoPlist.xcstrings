@@ -34,6 +34,23 @@
           }
         }
       }
+    },
+    "NSPhotoLibraryUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attach photos to send to your terminal agent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルのエージェントに送信する写真を添付します。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

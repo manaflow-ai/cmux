@@ -19,8 +19,8 @@
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
+5556	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
-5118	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4921	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
@@ -119,6 +119,7 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 749	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 746	Sources/App/MenuBarExtraController.swift
+744	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
