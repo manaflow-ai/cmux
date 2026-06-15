@@ -45,17 +45,22 @@ struct AutoNamingSessionSnapshot: Sendable {
     var lastLineCount: Int?
     var lastNamedAt: TimeInterval?
     var inFlightAt: TimeInterval?
+    /// Last attempt time, success or failure (see the record field of the same
+    /// purpose). Drives the failure cooldown in ``throttleDecision``.
+    var lastAttemptAt: TimeInterval?
 
     init(
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
-        inFlightAt: TimeInterval? = nil
+        inFlightAt: TimeInterval? = nil,
+        lastAttemptAt: TimeInterval? = nil
     ) {
         self.lastTitle = lastTitle
         self.lastLineCount = lastLineCount
         self.lastNamedAt = lastNamedAt
         self.inFlightAt = inFlightAt
+        self.lastAttemptAt = lastAttemptAt
     }
 }
 
@@ -169,13 +174,21 @@ struct AutoNamingEngine: Sendable {
         guard let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil else {
             // First naming for this session always qualifies; this also seeds
             // the baseline for resumed sessions arriving with a large
-            // pre-existing transcript.
+            // pre-existing transcript. A failed pass records only lastAttemptAt
+            // (not lastNamedAt), so honor the cooldown here too — otherwise a
+            // persistently failing summarizer respawns on every turn end.
+            if let lastAttemptAt = snapshot.lastAttemptAt, nowInterval - lastAttemptAt < config.minInterval {
+                return .skipTooSoon
+            }
             return .proceed(baseline: transcriptLineCount)
         }
         if transcriptLineCount < lastLineCount {
             return .reseedBaseline(to: transcriptLineCount)
         }
-        if let lastNamedAt = snapshot.lastNamedAt, nowInterval - lastNamedAt < config.minInterval {
+        // Cooldown anchors on the last attempt (success or failure), so a
+        // session that named once and now keeps failing also backs off.
+        if let cooldownAnchor = snapshot.lastAttemptAt ?? snapshot.lastNamedAt,
+           nowInterval - cooldownAnchor < config.minInterval {
             return .skipTooSoon
         }
         if transcriptLineCount - lastLineCount < config.minLineGrowth {

@@ -16,13 +16,15 @@ import Testing
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
-        inFlightAt: TimeInterval? = nil
+        inFlightAt: TimeInterval? = nil,
+        lastAttemptAt: TimeInterval? = nil
     ) -> AutoNamingSessionSnapshot {
         AutoNamingSessionSnapshot(
             lastTitle: lastTitle,
             lastLineCount: lastLineCount,
             lastNamedAt: lastNamedAt,
-            inFlightAt: inFlightAt
+            inFlightAt: inFlightAt,
+            lastAttemptAt: lastAttemptAt
         )
     }
 
@@ -75,6 +77,44 @@ import Testing
             snapshot: snapshot(lastTitle: "Fix auth bug", lastLineCount: 100, lastNamedAt: base),
             transcriptLineCount: 100 + config.minLineGrowth * 10,
             now: tooSoon
+        )
+        #expect(decision == .skipTooSoon)
+    }
+
+    @Test func failedAttemptEnforcesCooldownBeforeRetry() {
+        // A failed pass records lastAttemptAt but never lastNamedAt/lastLineCount.
+        // Within minInterval the throttle must back off (no per-turn respawn of a
+        // rate-limited summarizer); after it, retry is allowed.
+        let base = TimeInterval(1_000_000)
+        let failed = snapshot(lastAttemptAt: base)
+
+        let tooSoon = engine.throttleDecision(
+            snapshot: failed,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval - 1)
+        )
+        #expect(tooSoon == .skipTooSoon)
+
+        let afterCooldown = engine.throttleDecision(
+            snapshot: failed,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval + 1)
+        )
+        #expect(afterCooldown == .proceed(baseline: 100))
+    }
+
+    @Test func failureAfterSuccessBacksOffOnLastAttemptNotLastNamed() {
+        // Named long ago but just attempted (and failed) again: the cooldown
+        // anchors on the recent attempt, not the stale success.
+        let base = TimeInterval(1_000_000)
+        let attemptAt = base + config.minInterval * 5
+        let snap = snapshot(
+            lastTitle: "Old", lastLineCount: 100, lastNamedAt: base, lastAttemptAt: attemptAt
+        )
+        let decision = engine.throttleDecision(
+            snapshot: snap,
+            transcriptLineCount: 100 + config.minLineGrowth * 10,
+            now: Date(timeIntervalSince1970: attemptAt + 1)
         )
         #expect(decision == .skipTooSoon)
     }

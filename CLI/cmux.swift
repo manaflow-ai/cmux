@@ -460,6 +460,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    /// Wall-clock of the last summarization attempt (success OR failure), so a
+    /// persistently failing summarizer (rate-limited, signed out, timing out)
+    /// gets the same minInterval cooldown instead of respawning every turn.
+    var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
 }
@@ -624,7 +628,8 @@ final class ClaudeHookSessionStore {
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
                 lastNamedAt: record.autoNameLastNamedAt,
-                inFlightAt: record.autoNameInFlightAt
+                inFlightAt: record.autoNameInFlightAt,
+                lastAttemptAt: record.autoNameLastAttemptAt
             )
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
@@ -659,6 +664,9 @@ final class ClaudeHookSessionStore {
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
             record.autoNameInFlightAt = nil
+            // Stamp every completed pass (success or failure) so the throttle
+            // enforces a cooldown before retrying a failing summarizer.
+            record.autoNameLastAttemptAt = now.timeIntervalSince1970
             if let appliedTitle, let baselineLineCount {
                 record.autoNameLastTitle = appliedTitle
                 record.autoNameLastLineCount = baselineLineCount
