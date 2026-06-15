@@ -127,6 +127,25 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     }
 }
 
+// MARK: Filesystem
+
+extension TerminalSurfaceRuntimeFilesystem {
+    static func live() -> TerminalSurfaceRuntimeFilesystem {
+        TerminalSurfaceRuntimeFilesystem(
+            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installClaudeCommandShim: {
+                TerminalSurface.installClaudeCommandShimIfPossible(
+                    wrapperURL: $0,
+                    surfaceId: $1,
+                    temporaryDirectory: $2,
+                    fileManager: .default
+                )
+            },
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+    }
+}
+
 // MARK: Construction
 
 extension TerminalSurface {
@@ -147,7 +166,8 @@ extension TerminalSurface {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         self.init(
             id: id,
@@ -162,6 +182,7 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

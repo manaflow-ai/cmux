@@ -4200,6 +4200,23 @@
         }
       }
     },
+    "terminal.shortcut.name.shift": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        }
+      }
+    },
     "terminal.zoom.current_size": {
       "extractionState": "manual",
       "localizations": {

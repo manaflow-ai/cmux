@@ -171,8 +171,8 @@ final class TerminalInputTextView: UITextView {
 
         // Arrow nub for directional pad
         let nub = TerminalArrowNubView()
-        nub.onArrowKey = { [weak self] data in
-            self?.onEscapeSequence?(data)
+        nub.onArrowKey = { [weak self] action in
+            self?.handleNubArrow(action)
         }
         nub.translatesAutoresizingMaskIntoConstraints = false
 
@@ -549,6 +549,16 @@ final class TerminalInputTextView: UITextView {
             onBackspace?()
             return
         }
+        if shiftAccessoryArmed, markedTextRange == nil, !hasText {
+            // Shift does not change Backspace, but a one-shot ⇧ must still be
+            // consumed here so it cannot leak onto the next key (matching the
+            // Control branch above).
+            if !shiftAccessorySticky {
+                setShiftAccessoryArmed(false)
+            }
+            onBackspace?()
+            return
+        }
         if markedTextRange != nil || hasText {
             super.deleteBackward()
             return
@@ -570,9 +580,19 @@ final class TerminalInputTextView: UITextView {
         handleAccessoryAction(action)
     }
 
+    func simulateNubArrowForTesting(_ action: TerminalInputAccessoryAction) {
+        handleNubArrow(action)
+    }
+
     private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
         guard action.isModifier else { return }
         modifierState.clearDoubleTapWindow()
+    }
+
+    /// Route a directional-nub arrow through the same modifier-aware path as the
+    /// toolbar arrow buttons.
+    private func handleNubArrow(_ action: TerminalInputAccessoryAction) {
+        handleAccessoryAction(action)
     }
 
     @objc
@@ -883,6 +903,17 @@ final class TerminalInputTextView: UITextView {
             return
         }
 
+        if shiftAccessoryArmed,
+           !action.isModifier {
+            if !shiftAccessorySticky {
+                setShiftAccessoryArmed(false)
+            }
+            if let output = shiftAccessoryOutput(for: action) {
+                onEscapeSequence?(output)
+            }
+            return
+        }
+
         switch action {
         case .control:
             toggleControlModifier()
@@ -1115,6 +1146,22 @@ final class TerminalInputTextView: UITextView {
             )
         case .control, .alternate, .command, .shift:
             return nil
+        default:
+            return action.output
+        }
+    }
+
+    /// Translate a Shift-armed accessory key into its VT sequence. Shift+Tab is
+    /// the meaningful combination — back-tab (CSI Z), which agents and TUIs use to
+    /// cycle backward through fields/modes. Other keys have no distinct shifted
+    /// encoding, so the unmodified key is sent (Shift is still consumed), matching
+    /// how the Control branch handles special keys. Only non-modifier actions reach
+    /// here (the call site guards on `!action.isModifier`), so the modifier cases
+    /// are intentionally left to `default` (their `output` is `nil` regardless).
+    private func shiftAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
+        switch action {
+        case .tab:
+            return TerminalHardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
         default:
             return action.output
         }

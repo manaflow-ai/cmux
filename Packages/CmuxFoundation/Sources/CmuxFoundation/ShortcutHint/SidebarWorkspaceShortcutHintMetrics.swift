@@ -4,11 +4,11 @@ public import AppKit
 /// the trailing accessory slot can be sized without re-measuring text on every
 /// layout pass.
 ///
-/// The measurement cache is guarded by an `NSLock`: this is a pure stateless
-/// utility whose only shared state is a width memo, so a lock is the faithful
-/// minimal guard (no actor needed; callers are synchronous layout code).
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarWorkspaceShortcutHintMetrics {
+/// The process-wide measurement cache is guarded by an `NSLock`: this is a pure
+/// stateless utility whose only shared state is a width memo, so a lock is the
+/// faithful minimal guard (no actor needed; callers are synchronous layout
+/// code). Instances are interchangeable; they all share the same memo.
+public struct SidebarWorkspaceShortcutHintMetrics {
     // Immutable measurement font; NSFont is not Sendable but this constant is
     // never mutated and is only read under `lock` during measurement.
     nonisolated(unsafe) private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
@@ -21,50 +21,52 @@ public enum SidebarWorkspaceShortcutHintMetrics {
     nonisolated(unsafe) private static var measurementCount = 0
     #endif
 
+    public init() {}
+
     /// Width of the trailing accessory slot for a hint `label`, accounting for
     /// the debug horizontal offset.
-    public static func slotWidth(label: String?, debugXOffset: Double) -> CGFloat {
-        guard let label else { return minimumSlotWidth }
+    public func slotWidth(label: String?, debugXOffset: Double) -> CGFloat {
+        guard let label else { return Self.minimumSlotWidth }
         let positiveDebugInset = max(0, CGFloat(ShortcutHintDebugSettings.clamped(debugXOffset))) + 2
-        return max(minimumSlotWidth, hintWidth(for: label) + positiveDebugInset)
+        return max(Self.minimumSlotWidth, hintWidth(for: label) + positiveDebugInset)
     }
 
     /// Cached rendered width of a hint `label`.
-    public static func hintWidth(for label: String) -> CGFloat {
-        lock.lock()
-        if let cached = cachedHintWidths[label] {
-            lock.unlock()
+    public func hintWidth(for label: String) -> CGFloat {
+        Self.lock.lock()
+        if let cached = Self.cachedHintWidths[label] {
+            Self.lock.unlock()
             return cached
         }
-        lock.unlock()
+        Self.lock.unlock()
 
-        let textWidth = (label as NSString).size(withAttributes: [.font: measurementFont]).width
-        let measuredWidth = ceil(textWidth) + horizontalPadding
+        let textWidth = (label as NSString).size(withAttributes: [.font: Self.measurementFont]).width
+        let measuredWidth = ceil(textWidth) + Self.horizontalPadding
 
-        lock.lock()
-        cachedHintWidths[label] = measuredWidth
+        Self.lock.lock()
+        Self.cachedHintWidths[label] = measuredWidth
         #if DEBUG
-        measurementCount += 1
+        Self.measurementCount += 1
         #endif
-        lock.unlock()
+        Self.lock.unlock()
         return measuredWidth
     }
 
     #if DEBUG
     /// Clears the measurement cache. DEBUG-only test hook.
-    public static func resetCacheForTesting() {
-        lock.lock()
-        cachedHintWidths.removeAll()
-        measurementCount = 0
-        lock.unlock()
+    public func resetCacheForTesting() {
+        Self.lock.lock()
+        Self.cachedHintWidths.removeAll()
+        Self.measurementCount = 0
+        Self.lock.unlock()
     }
 
     /// Number of text measurements performed since the last reset. DEBUG-only
     /// test hook proving the cache is hit.
-    public static func measurementCountForTesting() -> Int {
-        lock.lock()
-        let count = measurementCount
-        lock.unlock()
+    public func measurementCountForTesting() -> Int {
+        Self.lock.lock()
+        let count = Self.measurementCount
+        Self.lock.unlock()
         return count
     }
     #endif

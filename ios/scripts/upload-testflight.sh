@@ -121,6 +121,11 @@ Options:
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
+  --skip-notes              Do not set the TestFlight "What to Test" notes after
+                            upload. By default a successful upload pushes the top
+                            ios/CHANGELOG.md entry to the build (the Internal block,
+                            or the External block with --external). Also via
+                            CMUX_TESTFLIGHT_SKIP_NOTES=1.
   -h, --help                Show this help.
 EOF
 }
@@ -163,6 +168,13 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
+# After a successful upload, push the top ios/CHANGELOG.md entry to the build's
+# TestFlight "What to Test" so testers see what changed instead of an opaque
+# timestamp. Set to 1 by --skip-notes or CMUX_TESTFLIGHT_SKIP_NOTES=1.
+SKIP_NOTES=0
+if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
+  SKIP_NOTES=1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -193,6 +205,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --export-only)
       EXPORT_ONLY=1
+      shift
+      ;;
+    --skip-notes)
+      SKIP_NOTES=1
       shift
       ;;
     -h|--help)
@@ -233,6 +249,25 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
+
+# Notes audience is driven by the testing lane (External block for --external).
+NOTES_AUDIENCE="internal"
+[[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
+
+# Preflight the TestFlight "What to Test" notes BEFORE the expensive archive, so a
+# deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
+# fast here instead of being discovered only AFTER the build is already uploaded
+# (where the notes step is non-fatal). This validate-only call contacts NO network
+# and needs no ASC credentials. The version-match check (changelog top == the
+# build's marketing version) happens later for a reused --archive-path / post-build,
+# where the actual marketing version is known. Skipped when there is no upload to
+# annotate (--export-only) or notes are turned off (--skip-notes).
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+  if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
+    echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
+    exit 1
+  fi
+fi
 
 # Resolve App Store Connect API auth (env, else local plist) BEFORE the
 # monotonic guard and output-path computation below: the guard may finalize
@@ -374,31 +409,72 @@ fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
-  # Archive WITHOUT signing. The export step below does all signing (manual cert
-  # or automatic cloud distribution). Signing the archive with automatic +
-  # -allowProvisioningUpdates makes Xcode mint a NEW Apple Development cert on
-  # every ephemeral CI runner, which exhausts the account's certificate cap and
-  # then fails ("maximum number of certificates" / "no profiles found"). An
-  # unsigned archive creates no certs; the reused (cloud-managed) distribution
-  # cert is applied only at export, where it does not churn.
-  xcodebuild archive \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -destination "generic/platform=iOS" \
-    -archivePath "$ARCHIVE_PATH" \
-    -derivedDataPath "$DERIVED_DATA" \
-    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-    CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGN_IDENTITY="" \
-    | tee "$OUT_DIR/archive.log"
+  if [[ "$SIGNING" == "automatic" ]]; then
+    # Automatic signing must archive a signed app so Xcode has the requested
+    # Release entitlements to preserve during App Store Connect export. An
+    # unsigned archive exports with only the profile baseline and drops
+    # aps-environment, which the gate below correctly refuses to upload.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      -allowProvisioningUpdates \
+      "${XCODE_AUTH_ARGS[@]}" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGN_STYLE=Automatic \
+      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
+      CODE_SIGN_IDENTITY="Apple Distribution" \
+      CODE_SIGNING_ALLOWED=YES \
+      CODE_SIGNING_REQUIRED=YES \
+      | tee "$OUT_DIR/archive.log"
+  else
+    # Manual signing archives WITHOUT signing. The export step signs with the
+    # installed distribution profile, then the manual path below re-signs with
+    # the full Release entitlements from the local Apple Distribution cert.
+    # This keeps signing material off shared fleet builders.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
+      | tee "$OUT_DIR/archive.log"
+  fi
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
     echo "error: archive not found: $ARCHIVE_PATH" >&2
     exit 1
+  fi
+fi
+
+# Now that the archive exists, its marketing version (CFBundleShortVersionString)
+# is the version testers will see. Re-run the notes preflight WITH that version so
+# a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
+# fails BEFORE the export/upload, not after (when the notes step is non-fatal and
+# would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
+# archive's version is unreadable, the version-match guard simply does not run.
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+  ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
+        --audience "$NOTES_AUDIENCE" --expect-marketing-version "$ARCHIVE_MARKETING_VERSION"; then
+      echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+      exit 1
+    fi
+  else
+    echo "note: could not read the archive's marketing version; deferring the notes version-match guard to the post-upload step" >&2
   fi
 fi
 
@@ -454,12 +530,13 @@ fi
 # Re-sign the exported app with the FULL entitlements (production aps-environment
 # et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
 #
-# Why this is necessary: the archive is built UNSIGNED (CODE_SIGNING_ALLOWED=NO,
-# see above) to avoid distribution-cert churn on ephemeral runners. An unsigned
-# archive carries NO entitlements, so `-exportArchive` re-adds only the profile
-# baseline (application-identifier, com.apple.developer.team-identifier,
-# get-task-allow, beta-reports-active) and SILENTLY DROPS app-capability
-# entitlements such as aps-environment. This regressed in
+# Why this is necessary for the manual path: the archive is built UNSIGNED
+# (CODE_SIGNING_ALLOWED=NO, see above) to keep distribution material off shared
+# fleet builders. An unsigned archive carries NO entitlements, so
+# `-exportArchive` re-adds only the profile baseline (application-identifier,
+# com.apple.developer.team-identifier, get-task-allow, beta-reports-active) and
+# SILENTLY DROPS app-capability entitlements such as aps-environment. This
+# regressed in
 # https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
 # had aps-environment absent entirely, so the device registered no push token and
 # beta/prod push was dead. The per-config entitlements file fix
@@ -673,4 +750,49 @@ APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID. You can
 also create ios/Config/AppStoreConnect.local.plist with the ASC_* keys.
 EOF
   exit 2
+fi
+
+# Set the TestFlight "What to Test" notes from the top ios/CHANGELOG.md entry so
+# the build is not an opaque MARKETING_VERSION (timestamp) on install/update.
+#
+# Non-fatal by design: the binary is already on TestFlight at this point. A failure
+# to set notes (build still processing past the timeout, transient API error) must
+# NOT fail the upload, so a `set -e` script must not let a non-zero exit propagate.
+# The notes can always be re-applied later with set-testflight-notes.sh. The notes
+# API needs the ASC API key (JWT); the Apple ID upload path has no key, so notes are
+# only attempted when the ASC API creds are present.
+#
+# Audience: --external uses the curated External block; the default internal cut uses
+# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that actually
+# shipped (post-guard, or the reused archive's embedded version).
+if [[ "$SKIP_NOTES" -eq 1 ]]; then
+  echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
+elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+  echo "note: no ASC API key (JWT) available; skipping TestFlight What to Test notes (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH, or run ios/scripts/set-testflight-notes.sh later)" >&2
+else
+  # The local preconditions (changelog present, audience block non-empty, top
+  # version == the archived marketing version) were already enforced FATALLY before
+  # the upload. This post-upload step is the ONLY non-fatal part: it just performs
+  # the App Store Connect mutation, which can legitimately fail transiently (build
+  # still processing past the timeout, network/API hiccup) without that meaning the
+  # release is broken. The binary is already on TestFlight; the notes can be
+  # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
+  # version so the mutation still carries the version-match guard.
+  NOTES_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  NOTES_VERSION_ARGS=()
+  if [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    NOTES_VERSION_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
+  fi
+  echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ios/CHANGELOG.md" >&2
+  if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+     "$SCRIPT_DIR/set-testflight-notes.sh" \
+       --build-number "$SHIPPED_BUILD_NUMBER" \
+       --audience "$NOTES_AUDIENCE" \
+       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+       "${NOTES_VERSION_ARGS[@]}"; then
+    echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
+  else
+    echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
+  fi
 fi
