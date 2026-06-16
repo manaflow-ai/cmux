@@ -71,10 +71,17 @@ struct SettingsSearchIndexTests {
         #expect(index.entries.contains { $0.id == anchor })
     }
 
-    @Test func resolvesAutoNamingPathsToVisibleWorkspaceAutoNamingAnchor() {
+    /// The auto-naming card renders two rows: the toggle and, when
+    /// enabled, the Naming Agent picker. Only the toggle's path may anchor
+    /// the workspace-auto-naming entry; the picker's `automation.autoNamingAgent`
+    /// path must NOT resolve to it, or both rendered rows would carry the
+    /// same scroll `.id` and `scrollTo` would be ambiguous (the collision
+    /// guarded by ``SettingsRowAnchorResolutionTests/rowAnchorsAreUniqueAcrossRows``).
+    /// "naming agent" stays searchable via the entry's text synonyms.
+    @Test func autoNamingTogglePathAnchorsCardWithoutAgentPickerCollision() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
-        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == "setting:automation:workspace-auto-naming")
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }
 
     @Test func unknownPathHasNoAnchor() {
