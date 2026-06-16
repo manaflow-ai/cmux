@@ -190,6 +190,94 @@ private func hasVisibleCGWindow(processIdentifier: pid_t) -> Bool {
     !visibleCGWindows(processIdentifier: processIdentifier).isEmpty
 }
 
+private let directLaunchEnvironmentKeysToRemove = [
+    "CMUX_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_SOCKET_MODE",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUXD_UNIX_PATH",
+    "CMUX_TAG",
+    "CMUX_PORT",
+    "CMUX_PORT_END",
+    "CMUX_PORT_RANGE",
+    "CMUX_DEBUG_LOG",
+    "CMUX_BUNDLE_ID",
+    "CMUX_BUNDLED_CLI_PATH",
+    "CMUX_DISABLE_SESSION_RESTORE",
+    "CMUX_SHELL_INTEGRATION",
+    "CMUX_SHELL_INTEGRATION_DIR",
+    "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION",
+    "GHOSTTY_BIN_DIR",
+    "GHOSTTY_RESOURCES_DIR",
+    "GHOSTTY_SHELL_FEATURES",
+    "GIT_PAGER",
+    "GH_PAGER",
+    "TERMINFO",
+    "XDG_DATA_DIRS",
+]
+
+private func directLaunchEnvironment(appURL: URL, bundleIdentifier: String) -> [String: String] {
+    var environment = ProcessInfo.processInfo.environment
+    for key in directLaunchEnvironmentKeysToRemove {
+        environment.removeValue(forKey: key)
+    }
+
+    if let bundle = Bundle(url: appURL),
+       let launchEnvironment = bundle.infoDictionary?["LSEnvironment"] as? [String: String] {
+        environment.merge(launchEnvironment) { _, newValue in newValue }
+    }
+    environment["CMUX_BUNDLE_ID"] = environment["CMUX_BUNDLE_ID"] ?? bundleIdentifier
+    return environment
+}
+
+private func waitForRunningApplication(bundleIdentifier: String, timeout: TimeInterval) -> NSRunningApplication? {
+    var runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    guard runningApp == nil else { return runningApp }
+
+    _ = waitUntil(timeout: timeout) {
+        runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+        return runningApp != nil
+    }
+    return runningApp
+}
+
+private func directLaunchLogURL(bundleIdentifier: String) -> URL {
+    let safeIdentifier = bundleIdentifier
+        .map { character in character.isLetter || character.isNumber ? character : "-" }
+        .reduce(into: "") { $0.append($1) }
+    return URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("cmux-window-visibility-\(safeIdentifier).log")
+}
+
+private func launchApplicationProcess(appURL: URL, bundleIdentifier: String) -> NSRunningApplication? {
+    let executableURL = appURL.appendingPathComponent("Contents/MacOS/cmux DEV")
+    guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+        fputs("direct launch executable missing: \(executableURL.path)\n", stderr)
+        return nil
+    }
+
+    let process = Process()
+    process.executableURL = executableURL
+    process.environment = directLaunchEnvironment(appURL: appURL, bundleIdentifier: bundleIdentifier)
+    let logURL = directLaunchLogURL(bundleIdentifier: bundleIdentifier)
+    FileManager.default.createFile(atPath: logURL.path, contents: nil)
+    if let logHandle = try? FileHandle(forWritingTo: logURL) {
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+        fputs("direct launch log: \(logURL.path)\n", stderr)
+    }
+    do {
+        try process.run()
+    } catch {
+        fputs("direct launch error: \(error)\n", stderr)
+        return waitForRunningApplication(bundleIdentifier: bundleIdentifier, timeout: 1)
+    }
+    return waitForRunningApplication(bundleIdentifier: bundleIdentifier, timeout: 10)
+}
+
 private func minimizeButton(for window: AXUIElement) -> AXUIElement? {
     if let value = copyAXValue(window, kAXMinimizeButtonAttribute),
        let button = unsafeBitCast(value, to: AXUIElement?.self) {
@@ -247,7 +335,12 @@ private func openApplication(appURL: URL, bundleIdentifier: String) -> NSRunning
     if let openedError {
         fputs("openApplication error: \(openedError)\n", stderr)
     }
-    return openedApp ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    if let app = openedApp ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+        return app
+    }
+
+    fputs("Falling back to direct app executable launch.\n", stderr)
+    return launchApplicationProcess(appURL: appURL, bundleIdentifier: bundleIdentifier)
 }
 
 @discardableResult

@@ -25,6 +25,11 @@ RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 GITHUB_PATH_FILE="$TMP_DIR/github-path"
 GITHUB_ENV_FILE="$TMP_DIR/github-env"
 OUTPUT_FILE="$TMP_DIR/output"
+FORCE_LOCAL_OUTPUT_FILE="$TMP_DIR/force-local-output"
+FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
+FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
+FORCE_LOCAL_INSTALL_ROOT="$TMP_DIR/force-local-install"
+SUDO_LOG="$TMP_DIR/sudo.log"
 
 mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib" "$BIN_DIR" "$RUNNER_TEMP_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
@@ -71,7 +76,6 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   GITHUB_ENV="$GITHUB_ENV_FILE" \
   ZIG_REQUIRED="$ZIG_REQUIRED" \
   ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
-  ZIG_FORCE_LOCAL_INSTALL=1 \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
   "$SCRIPT" > "$OUTPUT_FILE" 2>&1
 
@@ -100,4 +104,54 @@ if ! grep -Fq "sudo unavailable; installing zig under" "$OUTPUT_FILE"; then
   exit 1
 fi
 
-echo "PASS: install-zig-ci falls back to RUNNER_TEMP without sudo"
+cat > "$BIN_DIR/sudo" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$SUDO_LOG"
+exit 0
+EOF
+chmod +x "$BIN_DIR/sudo"
+rm -f "$SUDO_LOG"
+
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$FORCE_LOCAL_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$FORCE_LOCAL_GITHUB_ENV_FILE" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_FORCE_LOCAL_INSTALL=1 \
+  ZIG_INSTALL_ROOT="$FORCE_LOCAL_INSTALL_ROOT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$FORCE_LOCAL_OUTPUT_FILE" 2>&1
+
+if [ ! -x "$FORCE_LOCAL_INSTALL_ROOT/zig" ]; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  echo "FAIL: force-local install did not install zig under ZIG_INSTALL_ROOT" >&2
+  exit 1
+fi
+
+if [ -s "$SUDO_LOG" ]; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  cat "$SUDO_LOG"
+  echo "FAIL: force-local install invoked sudo" >&2
+  exit 1
+fi
+
+if ! grep -Fq "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under" "$FORCE_LOCAL_OUTPUT_FILE"; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  echo "FAIL: force-local install did not report the forced local path" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$(dirname "$FORCE_LOCAL_INSTALL_ROOT/zig")" "$FORCE_LOCAL_GITHUB_PATH_FILE"; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  echo "FAIL: force-local install did not publish the local zig bin dir to GITHUB_PATH" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "CMUX_ZIG=$FORCE_LOCAL_INSTALL_ROOT/zig" "$FORCE_LOCAL_GITHUB_ENV_FILE"; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  echo "FAIL: force-local install did not publish CMUX_ZIG" >&2
+  exit 1
+fi
+
+echo "PASS: install-zig-ci falls back locally without sudo and honors ZIG_FORCE_LOCAL_INSTALL"

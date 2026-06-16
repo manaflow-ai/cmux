@@ -121,18 +121,13 @@ verify_zig_sha256() {
   printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
 }
 
-copy_zig_tree() {
-  local bin_dir="$1"
-  local lib_dir="$2"
-  rm -rf "$lib_dir" || return 1
-  mkdir -p "$bin_dir" "$lib_dir" || return 1
-  cp -f "${ZIG_DIR}/zig" "${bin_dir}/zig" || return 1
-  cp -Rf "${ZIG_DIR}/lib/." "$lib_dir/" || return 1
-}
-
 install_zig_without_sudo() {
   local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/${ZIG_NAME}}"
-  echo "sudo unavailable; installing zig under ${install_root}"
+  if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
+    echo "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under ${install_root}"
+  else
+    echo "sudo unavailable; installing zig under ${install_root}"
+  fi
   rm -rf "$install_root"
   mkdir -p "$(dirname "$install_root")"
   mv "$ZIG_DIR" "$install_root"
@@ -171,7 +166,7 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C /tmp
-if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
 fi
