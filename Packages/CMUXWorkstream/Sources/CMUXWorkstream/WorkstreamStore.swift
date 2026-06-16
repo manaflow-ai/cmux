@@ -301,6 +301,16 @@ public final class WorkstreamStore {
                 .toolResult,
                 .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: false)
             )
+        case .preCompact:
+            return (
+                .toolUse,
+                .toolUse(toolName: "compaction", toolInputJSON: toolInput)
+            )
+        case .postCompact:
+            return (
+                .toolResult,
+                .toolResult(toolName: "compaction", resultJSON: toolInput, isError: false)
+            )
         case .userPromptSubmit:
             let prompt = Self.promptText(from: event.toolInputJSON)
             return (
@@ -309,6 +319,8 @@ public final class WorkstreamStore {
             )
         case .sessionStart:
             return (.sessionStart, .sessionStart)
+        case .subagentStart:
+            return (.toolUse, .toolUse(toolName: "subagent", toolInputJSON: toolInput))
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
         case .stop, .subagentStop:
@@ -323,6 +335,12 @@ public final class WorkstreamStore {
     private func defaultTitle(for event: WorkstreamEvent) -> String? {
         if let tool = event.toolName, !tool.isEmpty {
             return tool
+        }
+        switch event.hookEventName {
+        case .preCompact, .postCompact, .subagentStart:
+            return event.hookEventName.rawValue
+        default:
+            break
         }
         return nil
     }
