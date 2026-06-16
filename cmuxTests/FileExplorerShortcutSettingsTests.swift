@@ -143,6 +143,39 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         }
     }
 
+    @Test(arguments: [36, 76] as [UInt16])
+    func searchResultsReturnCommitsWhenOpenSelectionShortcutsAreUnbound(keyCode: UInt16) throws {
+        try withIsolatedShortcutSettings {
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelection)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
+
+            let tableView = FileExplorerSearchResultsTableView()
+            var commitCount = 0
+            tableView.onCommit = {
+                commitCount += 1
+            }
+
+            let event = try #require(
+                NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: 0,
+                    context: nil,
+                    characters: "\r",
+                    charactersIgnoringModifiers: "\r",
+                    isARepeat: false,
+                    keyCode: keyCode
+                )
+            )
+
+            tableView.keyDown(with: event)
+
+            #expect(commitCount == 1)
+        }
+    }
+
     @Test func openSelectionPaneFocusPreventsNonBrowserShortcutShadowing() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
