@@ -252,37 +252,30 @@ public final class NotificationDeliveryCoordinator {
     }
 
     private func handleTerminalNotificationResponse(_ response: NotificationDeliveryResponse) {
-        guard let tabIdString = response.userInfo["tabId"] as? String,
-              let tabId = UUID(uuidString: tabIdString) else {
-            return
-        }
-        let surfaceId: UUID? = {
-            guard let surfaceIdString = response.userInfo["surfaceId"] as? String else {
-                return nil
-            }
-            return UUID(uuidString: surfaceIdString)
-        }()
-
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, terminalIdentifiers.showActionIdentifier:
+            guard let tabIdString = response.userInfo["tabId"] as? String,
+                  let tabId = UUID(uuidString: tabIdString) else {
+                return
+            }
+            let surfaceId: UUID? = {
+                guard let surfaceIdString = response.userInfo["surfaceId"] as? String else {
+                    return nil
+                }
+                return UUID(uuidString: surfaceIdString)
+            }()
             let notificationId = notificationId(response)
             if let clickAction = NotificationNavClickAction(userInfo: response.userInfo) {
-                Task { @MainActor in
-                    let didPerform = self.terminalNavigation.performClickAction(clickAction)
-                    if didPerform, let notificationId {
-                        self.terminalNavigation.markNotificationRead(id: notificationId)
-                    }
+                let didPerform = terminalNavigation.performClickAction(clickAction)
+                if didPerform, let notificationId {
+                    terminalNavigation.markNotificationRead(id: notificationId)
                 }
                 return
             }
-            Task { @MainActor in
-                _ = self.terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
-            }
+            _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
         case UNNotificationDismissActionIdentifier:
-            Task { @MainActor in
-                if let notificationId = self.notificationId(response) {
-                    self.terminalNavigation.markNotificationRead(id: notificationId)
-                }
+            if let notificationId = notificationId(response) {
+                terminalNavigation.markNotificationRead(id: notificationId)
             }
         default:
             break

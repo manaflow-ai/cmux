@@ -206,7 +206,7 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("terminal default response with click action performs and marks read")
-    func terminalDefaultClickActionPerformsAndMarksRead() async {
+    func terminalDefaultClickActionPerformsAndMarksRead() {
         let terminal = FakeTerminalNavigation()
         let notificationId = UUID()
         let tabId = UUID()
@@ -222,7 +222,6 @@ struct NotificationDeliveryCoordinatorTests {
                 "cmuxRevealInFinderPath": "/tmp/report.txt",
             ]
         ))
-        await Task.yield()
 
         #expect(terminal.performedClickActions == [.revealInFinder(path: "/tmp/report.txt")])
         #expect(terminal.markedReadIds == [notificationId])
@@ -230,7 +229,7 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("terminal default response opens tab and surface using notificationId fallback")
-    func terminalDefaultOpensTarget() async {
+    func terminalDefaultOpensTarget() {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let surfaceId = UUID()
@@ -247,14 +246,13 @@ struct NotificationDeliveryCoordinatorTests {
                 "notificationId": notificationId.uuidString,
             ]
         ))
-        await Task.yield()
 
         #expect(terminal.opens == [.init(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)])
         #expect(terminal.markedReadIds.isEmpty)
     }
 
     @Test("terminal dismiss marks notification read using request identifier")
-    func terminalDismissMarksRead() async {
+    func terminalDismissMarksRead() {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let notificationId = UUID()
@@ -266,7 +264,23 @@ struct NotificationDeliveryCoordinatorTests {
             requestIdentifier: notificationId.uuidString,
             userInfo: ["tabId": tabId.uuidString]
         ))
-        await Task.yield()
+
+        #expect(terminal.markedReadIds == [notificationId])
+        #expect(terminal.opens.isEmpty)
+    }
+
+    @Test("terminal dismiss marks notification read without requiring tab id")
+    func terminalDismissMarksReadWithoutTabId() {
+        let terminal = FakeTerminalNavigation()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: UNNotificationDismissActionIdentifier,
+            requestIdentifier: notificationId.uuidString,
+            userInfo: [:]
+        ))
 
         #expect(terminal.markedReadIds == [notificationId])
         #expect(terminal.opens.isEmpty)

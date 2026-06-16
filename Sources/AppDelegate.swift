@@ -730,7 +730,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var notificationDeliveryActionTitles: NotificationDeliveryActionTitles {
         NotificationDeliveryActionTitles(
-            show: "Show",
+            show: String(
+                localized: "terminal.notification.action.show",
+                defaultValue: "Show"
+            ),
             feedPermissionAllowOnce: String(
                 localized: "feed.notification.permission.allowOnce",
                 defaultValue: "Allow Once"
@@ -15405,21 +15408,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        notificationDelivery.handleNotificationResponse(response)
-        completionHandler()
+        Task { @MainActor [weak self] in
+            self?.notificationDelivery.handleNotificationResponse(response)
+            completionHandler()
+        }
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler(notificationDelivery.presentationOptions(for: notification))
+        Task { @MainActor [weak self] in
+            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
+            completionHandler(options)
+        }
     }
 
     private func installMainWindowKeyObserver() {
