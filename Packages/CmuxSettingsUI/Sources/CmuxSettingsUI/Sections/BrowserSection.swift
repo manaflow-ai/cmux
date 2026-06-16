@@ -16,21 +16,21 @@ public struct BrowserSection: View {
     private let hostActions: SettingsHostActions
     private let importAnchorID: String?
 
-    @State private var disabled: DefaultsValueModel<Bool>
-    @State private var engine: DefaultsValueModel<BrowserSearchEngine>
-    @State private var customName: DefaultsValueModel<String>
-    @State private var customURL: DefaultsValueModel<String>
-    @State private var suggestions: DefaultsValueModel<Bool>
-    @State private var theme: DefaultsValueModel<BrowserThemeMode>
-    @State private var discardEnabled: DefaultsValueModel<Bool>
-    @State private var discardDelay: DefaultsValueModel<Double>
-    @State private var openTermLinks: DefaultsValueModel<Bool>
-    @State private var interceptOpen: DefaultsValueModel<Bool>
-    @State private var hosts: DefaultsValueModel<String>
-    @State private var external: DefaultsValueModel<String>
-    @State private var httpAllowlist: DefaultsValueModel<String>
-    @State private var importHint: DefaultsValueModel<Bool>
-    @State private var reactGrab: DefaultsValueModel<String>
+    @State var disabled: DefaultsValueModel<Bool>
+    @State var engine: DefaultsValueModel<BrowserSearchEngine>
+    @State var customName: DefaultsValueModel<String>
+    @State var customURL: DefaultsValueModel<String>
+    @State var suggestions: DefaultsValueModel<Bool>
+    @State var theme: DefaultsValueModel<BrowserThemeMode>
+    @State var discardEnabled: DefaultsValueModel<Bool>
+    @State var discardDelay: DefaultsValueModel<Double>
+    @State var openTermLinks: DefaultsValueModel<Bool>
+    @State var interceptOpen: DefaultsValueModel<Bool>
+    @State var hosts: DefaultsValueModel<String>
+    @State var external: DefaultsValueModel<String>
+    @State var httpAllowlist: DefaultsValueModel<String>
+    @State var importHint: DefaultsValueModel<Bool>
+    @State var reactGrab: DefaultsValueModel<String>
 
     @State private var confirmClearHistory: Bool = false
     @State private var httpAllowlistDraft: String = ""
@@ -82,7 +82,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }
+        }.task { startObservingSettings() }
     }
 
     @ViewBuilder

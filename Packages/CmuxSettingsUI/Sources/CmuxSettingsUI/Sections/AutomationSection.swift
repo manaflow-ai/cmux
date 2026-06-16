@@ -11,22 +11,22 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
 
-    @State private var socketPasswordModel: SecretValueModel
-    @State private var modeModel: DefaultsValueModel<SocketControlMode>
-    @State private var claudeCodeModel: DefaultsValueModel<Bool>
-    @State private var claudePathModel: DefaultsValueModel<String>
-    @State private var autoNamingModel: DefaultsValueModel<Bool>
-    @State private var autoNamingAgentModel: DefaultsValueModel<String>
-    @State private var autoNamingStatusModel: DefaultsValueModel<String>
-    @State private var ripgrepPathModel: DefaultsValueModel<String>
-    @State private var suppressSubagentModel: DefaultsValueModel<Bool>
-    @State private var ampModel: DefaultsValueModel<Bool>
-    @State private var cursorModel: DefaultsValueModel<Bool>
-    @State private var geminiModel: DefaultsValueModel<Bool>
-    @State private var kiroModel: DefaultsValueModel<Bool>
-    @State private var kiroLevelModel: DefaultsValueModel<String>
-    @State private var portBaseModel: DefaultsValueModel<Int>
-    @State private var portRangeModel: DefaultsValueModel<Int>
+    @State var socketPasswordModel: SecretValueModel
+    @State var modeModel: DefaultsValueModel<SocketControlMode>
+    @State var claudeCodeModel: DefaultsValueModel<Bool>
+    @State var claudePathModel: DefaultsValueModel<String>
+    @State var autoNamingModel: DefaultsValueModel<Bool>
+    @State var autoNamingAgentModel: DefaultsValueModel<String>
+    @State var autoNamingStatusModel: DefaultsValueModel<String>
+    @State var ripgrepPathModel: DefaultsValueModel<String>
+    @State var suppressSubagentModel: DefaultsValueModel<Bool>
+    @State var ampModel: DefaultsValueModel<Bool>
+    @State var cursorModel: DefaultsValueModel<Bool>
+    @State var geminiModel: DefaultsValueModel<Bool>
+    @State var kiroModel: DefaultsValueModel<Bool>
+    @State var kiroLevelModel: DefaultsValueModel<String>
+    @State var portBaseModel: DefaultsValueModel<Int>
+    @State var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
@@ -122,7 +122,7 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }
+        }.task { startObservingSettings() }
     }
 
     @ViewBuilder

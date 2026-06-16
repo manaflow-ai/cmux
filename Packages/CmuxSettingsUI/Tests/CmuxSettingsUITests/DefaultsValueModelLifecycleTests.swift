@@ -46,6 +46,7 @@ import Testing
             key: key,
             makeStream: { stream }
         )
+        model?.startObserving()
 
         // Drive one value through so the model's task is parked awaiting the
         // next element — the exact suspended state where `weak self` teardown

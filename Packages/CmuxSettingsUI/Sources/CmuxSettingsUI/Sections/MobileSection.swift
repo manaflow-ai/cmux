@@ -87,6 +87,17 @@ public struct MobileSection: View {
                 ))
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            iOSPairingHost,
+            port,
+            displayName,
+            status,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder

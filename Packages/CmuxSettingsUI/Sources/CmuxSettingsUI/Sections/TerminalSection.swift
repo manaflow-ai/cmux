@@ -51,6 +51,22 @@ public struct TerminalSection: View {
             mainCard
             resumeCommandsCard
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            scrollBar,
+            copyOnSelect,
+            autoResume,
+            hibernation,
+            idleSeconds,
+            maxLive,
+            rendererReclaim,
+            rendererIdleSeconds,
+            rendererMaxWarm,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     /// Persists a new tab-bar font size, cancelling any in-flight save so a

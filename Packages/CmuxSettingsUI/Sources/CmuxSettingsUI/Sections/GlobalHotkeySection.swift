@@ -44,7 +44,10 @@ public struct GlobalHotkeySection: View {
             )
             .accessibilityIdentifier("SettingsGlobalHotkeyNote")
         }
-        .task { await streamBindings() }
+        .task {
+            enabled.startObserving()
+            await streamBindings()
+        }
         .onDisappear { bindingsTask?.cancel() }
     }
 

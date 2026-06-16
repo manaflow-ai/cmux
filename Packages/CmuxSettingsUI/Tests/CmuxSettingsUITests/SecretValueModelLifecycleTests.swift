@@ -38,6 +38,7 @@ import Testing
             errorLog: errorLog,
             makeStream: { stream }
         )
+        model?.startObserving()
 
         continuation.yield("observed")
         var settleSpins = 0

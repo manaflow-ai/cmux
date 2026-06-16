@@ -39,6 +39,18 @@ public struct BetaFeaturesSection: View {
                 remoteTmuxRow
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            feed,
+            dock,
+            extensions,
+            customSidebars,
+            remoteTmux,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder

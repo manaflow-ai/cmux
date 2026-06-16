@@ -69,6 +69,34 @@ public struct SidebarSection: View {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            matchTerminal,
+            hideAll,
+            wrapTitles,
+            showDesc,
+            branchVerticalLayout,
+            stackBranchDir,
+            pathLastOnly,
+            showNotification,
+            showBranchDir,
+            showPR,
+            watchGit,
+            prClickable,
+            prLinks,
+            portLinks,
+            showSSH,
+            showPorts,
+            showLog,
+            showProgress,
+            showMetadata,
+            rightMaxWidth,
+            rememberedRightMaxWidth,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     /// Persists a new sidebar font size, cancelling any in-flight save so a

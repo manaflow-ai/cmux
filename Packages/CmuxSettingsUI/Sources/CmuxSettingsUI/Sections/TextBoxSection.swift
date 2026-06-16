@@ -34,6 +34,16 @@ public struct TextBoxSection: View {
                 maxLinesRow
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            showOnNewTerminals,
+            focusOnNewTerminals,
+            maxLines,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder

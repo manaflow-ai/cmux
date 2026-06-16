@@ -61,6 +61,17 @@ public struct WorkspaceColorsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
             mainCard
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            indicator,
+            selectionHex,
+            badgeHex,
+            paletteModel,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder

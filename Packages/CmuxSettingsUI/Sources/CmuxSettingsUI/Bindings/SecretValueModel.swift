@@ -29,6 +29,7 @@ public final class SecretValueModel {
     private let store: SecretFileStore
     private let key: SecretFileKey
     private let errorLog: SettingsErrorLog
+    @ObservationIgnored private let makeStream: () -> AsyncStream<String>
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -73,7 +74,16 @@ public final class SecretValueModel {
         self.store = store
         self.key = key
         self.errorLog = errorLog
+        self.makeStream = makeStream
         self.current = key.defaultValue
+    }
+
+    /// Starts the secret-file change stream for the retained model.
+    ///
+    /// Idempotent: the first call starts observation and later calls are
+    /// ignored by ``SettingReadDriver``. Views should call this from a mounted
+    /// lifecycle hook such as `.task`, not from their initializer.
+    public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
             self?.current = value
         }

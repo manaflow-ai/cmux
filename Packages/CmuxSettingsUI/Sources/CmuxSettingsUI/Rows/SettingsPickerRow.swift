@@ -47,5 +47,6 @@ where Value.AllCases: RandomAccessCollection {
                 Text(label(value)).tag(value)
             }
         }
+        .task { model.startObserving() }
     }
 }

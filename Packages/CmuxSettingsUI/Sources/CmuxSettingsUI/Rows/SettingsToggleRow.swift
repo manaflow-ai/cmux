@@ -45,5 +45,6 @@ public struct SettingsToggleRow: View {
                 }
             }
         }
+        .task { model.startObserving() }
     }
 }

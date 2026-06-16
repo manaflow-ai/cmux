@@ -23,44 +23,44 @@ public struct AppSection: View {
     // Every bound value-model lives here as view state, constructed once
     // and persisted across renders so the @Observable change tracking
     // actually drives invalidation.
-    @State private var language: DefaultsValueModel<AppLanguage>
-    @State private var appearance: DefaultsValueModel<AppearanceMode>
-    @State private var appIcon: DefaultsValueModel<AppIconMode>
-    @State private var placement: DefaultsValueModel<WorkspacePlacement>
-    @State private var inheritDir: DefaultsValueModel<Bool>
-    @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
-    @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
-    @State private var firstClick: DefaultsValueModel<Bool>
-    @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
-    @State private var preferredEditor: DefaultsValueModel<String>
-    @State private var openSupported: DefaultsValueModel<Bool>
-    @State private var openMarkdown: DefaultsValueModel<Bool>
-    @State private var markdownFontSize: DefaultsValueModel<Int>
-    @State private var markdownFontFamily: DefaultsValueModel<String>
-    @State private var markdownMaxWidth: DefaultsValueModel<Int>
-    @State private var canvasPaneGap: DefaultsValueModel<Int>
-    @State private var canvasSnapping: DefaultsValueModel<Bool>
-    @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
-    @State private var iMessage: DefaultsValueModel<Bool>
-    @State private var reorder: DefaultsValueModel<Bool>
-    @State private var dockBadge: DefaultsValueModel<Bool>
-    @State private var menuBarOnly: DefaultsValueModel<Bool>
-    @State private var showInMenuBar: DefaultsValueModel<Bool>
-    @State private var paneRing: DefaultsValueModel<Bool>
-    @State private var paneFlash: DefaultsValueModel<Bool>
-    @State private var soundName: DefaultsValueModel<String>
-    @State private var soundCommand: DefaultsValueModel<String>
-    @State private var customSoundFile: DefaultsValueModel<String>
-    @State private var telemetry: DefaultsValueModel<Bool>
-    @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
-    @State private var warnCloseTab: DefaultsValueModel<Bool>
-    @State private var warnCloseX: DefaultsValueModel<Bool>
-    @State private var hideCloseButton: DefaultsValueModel<Bool>
-    @State private var renameSelects: DefaultsValueModel<Bool>
-    @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
+    @State var language: DefaultsValueModel<AppLanguage>
+    @State var appearance: DefaultsValueModel<AppearanceMode>
+    @State var appIcon: DefaultsValueModel<AppIconMode>
+    @State var placement: DefaultsValueModel<WorkspacePlacement>
+    @State var inheritDir: DefaultsValueModel<Bool>
+    @State var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
+    @State var keepWorkspaceOpen: DefaultsValueModel<Bool>
+    @State var firstClick: DefaultsValueModel<Bool>
+    @State var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
+    @State var preferredEditor: DefaultsValueModel<String>
+    @State var openSupported: DefaultsValueModel<Bool>
+    @State var openMarkdown: DefaultsValueModel<Bool>
+    @State var markdownFontSize: DefaultsValueModel<Int>
+    @State var markdownFontFamily: DefaultsValueModel<String>
+    @State var markdownMaxWidth: DefaultsValueModel<Int>
+    @State var canvasPaneGap: DefaultsValueModel<Int>
+    @State var canvasSnapping: DefaultsValueModel<Bool>
+    @State var fileEditorWordWrap: DefaultsValueModel<Bool>
+    @State var iMessage: DefaultsValueModel<Bool>
+    @State var reorder: DefaultsValueModel<Bool>
+    @State var dockBadge: DefaultsValueModel<Bool>
+    @State var menuBarOnly: DefaultsValueModel<Bool>
+    @State var showInMenuBar: DefaultsValueModel<Bool>
+    @State var paneRing: DefaultsValueModel<Bool>
+    @State var paneFlash: DefaultsValueModel<Bool>
+    @State var soundName: DefaultsValueModel<String>
+    @State var soundCommand: DefaultsValueModel<String>
+    @State var customSoundFile: DefaultsValueModel<String>
+    @State var telemetry: DefaultsValueModel<Bool>
+    @State var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
+    @State var warnCloseTab: DefaultsValueModel<Bool>
+    @State var warnCloseX: DefaultsValueModel<Bool>
+    @State var hideCloseButton: DefaultsValueModel<Bool>
+    @State var renameSelects: DefaultsValueModel<Bool>
+    @State var paletteAllSurfaces: DefaultsValueModel<Bool>
 
-    @State private var languageAtAppear: AppLanguage?
-    @State private var telemetryAtAppear: Bool?
+    @State var languageAtAppear: AppLanguage?
+    @State var telemetryAtAppear: Bool?
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -125,10 +125,7 @@ public struct AppSection: View {
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
         }
-        .task {
-            if languageAtAppear == nil { languageAtAppear = language.current }
-            if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
-        }
+        .task { startSettingsTask() }
     }
 
     @ViewBuilder

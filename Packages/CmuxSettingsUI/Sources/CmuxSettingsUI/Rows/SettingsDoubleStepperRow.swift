@@ -42,5 +42,6 @@ public struct SettingsDoubleStepperRow: View {
                     .monospacedDigit()
             }
         }
+        .task { model.startObserving() }
     }
 }
