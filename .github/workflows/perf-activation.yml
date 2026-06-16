@@ -142,6 +142,11 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          if ! sudo -n true 2>/dev/null; then
+            echo "skipped: passwordless sudo unavailable for Aqua session re-entry" \
+              | tee perf-results/cmd-tab-activation.txt
+            exit 0
+          fi
           # The GitHub Actions runner process runs in launchd's system
           # bootstrap, not the console user's Aqua session, so windows
           # created by apps launched via NSWorkspace.openApplication do
