@@ -320,26 +320,31 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-            scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        scpArgs += ["-o", "ControlMaster=no"]
-        if let port = configuration.port {
-            scpArgs += ["-P", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            scpArgs += ["-i", identityFile]
-        }
-        for option in scpSSHOptions {
-            scpArgs += ["-o", option]
-        }
-        scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
-        let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
-        guard scpResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
+        // Upload over `ssh ... 'cat > <path>'` with the binary piped on stdin
+        // rather than scp. scp parses its remote operand as `host:path`, but
+        // when the SSH destination is an alias containing a slash (e.g.
+        // `prod/web`), the slash precedes the first colon and scp treats the
+        // whole operand as a local path, so the daemon never reaches the
+        // remote and bootstrap loops forever. ssh takes the destination as a
+        // plain argument, so slash aliases install correctly.
+        // `.alwaysMapped` keeps the (15–40 MB) binary memory-mapped so it pages
+        // in during the pipe write instead of being fully resident up front.
+        let localBinaryData = try Data(contentsOf: localBinary, options: .alwaysMapped)
+        let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
+        let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
+        // `-T` disables remote pty allocation. Without it, `RequestTTY force` in
+        // the user's ssh config would put this upload on a pty, whose line
+        // discipline rewrites CR/LF bytes and corrupts the binary (scp never used
+        // a pty). The other bootstrap commands transfer text, but this one is raw
+        // bytes, so the explicit `-T` matters here.
+        let uploadResult = try sshExec(
+            arguments: sshCommonArguments(batchMode: true) + ["-T", configuration.destination, uploadCommand],
+            stdin: localBinaryData,
+            timeout: 45
+        )
+        guard uploadResult.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: uploadResult.stderr, stdout: uploadResult.stdout) ??
+                "ssh exited \(uploadResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
             ])
