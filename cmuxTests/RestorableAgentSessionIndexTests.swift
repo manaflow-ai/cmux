@@ -847,8 +847,13 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let unprovenPanelId = UUID()
         let restorableWorkspaceId = UUID()
         let restorablePanelId = UUID()
+        let transcriptOnlyWorkspaceId = UUID()
+        let transcriptOnlyPanelId = UUID()
         let unprovenSessionId = "77777777-7777-7777-7777-777777777777"
         let restorableSessionId = "88888888-8888-8888-8888-888888888888"
+        let transcriptOnlySessionId = "99999999-9999-9999-9999-999999999999"
+        let transcriptURL = root.appendingPathComponent("legacy-codex-transcript.jsonl", isDirectory: false)
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         func envOnlyRecord(
             sessionId: String,
@@ -879,6 +884,18 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             return record
         }
 
+        func transcriptOnlyRecord(sessionId: String, workspaceId: UUID, panelId: UUID) -> [String: Any] {
+            [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": dir.path,
+                "pid": NSNull(),
+                "transcriptPath": transcriptURL.path,
+                "updatedAt": 10,
+            ]
+        }
+
         try writeHookStore(
             root: root,
             storeFilename: "codex-hook-sessions.json",
@@ -895,13 +912,22 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                     panelId: restorablePanelId,
                     isRestorable: true
                 ),
+                transcriptOnlySessionId: transcriptOnlyRecord(
+                    sessionId: transcriptOnlySessionId,
+                    workspaceId: transcriptOnlyWorkspaceId,
+                    panelId: transcriptOnlyPanelId
+                ),
             ]
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
         XCTAssertNil(
             index.snapshot(workspaceId: unprovenWorkspaceId, panelId: unprovenPanelId),
-            "env-only provenance without isRestorable/transcript must not synthesize codex resume"
+            "env-only provenance without explicit restorability or argv must not synthesize codex resume"
+        )
+        XCTAssertNil(
+            index.snapshot(workspaceId: transcriptOnlyWorkspaceId, panelId: transcriptOnlyPanelId),
+            "legacy transcript-only Codex records must not synthesize codex resume"
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restorableWorkspaceId, panelId: restorablePanelId))
         let resume = try XCTUnwrap(snapshot.resumeCommand)

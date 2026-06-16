@@ -1260,9 +1260,9 @@ struct RestorableAgentSessionIndex: Sendable {
         if record.isRestorable == true {
             return true
         }
-        if normalizedNonEmptyValue(record.transcriptPath) != nil {
-            return true
-        }
+        // For non-Claude agents, transcript paths alone are not durable proof:
+        // legacy Codex exec/review records can contain one even though resume
+        // will fail with "No saved session found".
         return !(record.launchCommand?.arguments.isEmpty ?? true)
     }
 

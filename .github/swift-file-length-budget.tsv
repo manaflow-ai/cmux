@@ -27,7 +27,7 @@
 4227	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
-3921	cmuxTests/CLIGenericHookPersistenceTests.swift
+3920	cmuxTests/CLIGenericHookPersistenceTests.swift
 3903	cmuxTests/WindowAndDragTests.swift
 3734	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
@@ -56,7 +56,7 @@
 1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1589	cmuxTests/RestorableAgentSessionIndexTests.swift
+1615	cmuxTests/RestorableAgentSessionIndexTests.swift
 1574	cmuxTests/MarkdownPanelTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
