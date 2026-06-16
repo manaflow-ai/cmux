@@ -29901,6 +29901,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
+            var acceptedFreshSessionStart = false
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
@@ -29944,6 +29945,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     print("{}")
                     return
                 }
+                acceptedFreshSessionStart = true
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -29991,9 +29993,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand,
                         allowDefaultResumeCommand: !launchCapture.sanitizerRejected
-                            && hasPositiveAgentResumeRestorabilitySignal(
-                                mapped,
-                                transcriptPath: input.transcriptPath
+                            && (
+                                acceptedFreshSessionStart ||
+                                hasPositiveAgentResumeRestorabilitySignal(
+                                    mapped,
+                                    transcriptPath: input.transcriptPath
+                                )
                             )
                     )
                 }
