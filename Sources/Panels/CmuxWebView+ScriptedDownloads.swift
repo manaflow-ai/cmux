@@ -5,11 +5,20 @@ import WebKit
 extension CmuxWebView {
     private static let scriptedDownloadMessageHandlerName = "cmuxScriptedDownload"
     private static var scriptedDownloadHandlerInstalledKey: UInt8 = 0
-    private static let scriptedDownloadInterceptionBootstrapScriptSource = """
+    private static var scriptedDownloadTokenKey: UInt8 = 0
+    private static let maxScriptedDownloadPayloadBytes = 100 * 1024 * 1024
+    private static let maxScriptedDownloadDataURLCharacters = 140 * 1024 * 1024
+
+    private static func scriptedDownloadInterceptionBootstrapScriptSource(token: String) -> String {
+        """
     (() => {
       try {
         if (window.__cmuxScriptedDownloadInstalled) return true;
         window.__cmuxScriptedDownloadInstalled = true;
+        const bridgeToken = "\(token)";
+        const maxPayloadBytes = \(maxScriptedDownloadPayloadBytes);
+        const maxDataURLCharacters = \(maxScriptedDownloadDataURLCharacters);
+        let blobDownloadInFlight = false;
 
         const handler = (() => {
           try {
@@ -19,6 +28,7 @@ extension CmuxWebView {
           }
         })();
         if (!handler) return false;
+        const postMessage = handler.postMessage.bind(handler);
 
         const objectURLs = new Map();
         const URLCtor = window.URL || null;
@@ -27,8 +37,9 @@ extension CmuxWebView {
 
         const postURLDownload = (url, suggestedFilename) => {
           try {
-            handler.postMessage({
+            postMessage({
               kind: "url",
+              token: bridgeToken,
               url: String(url || ""),
               suggestedFilename: String(suggestedFilename || "")
             });
@@ -37,8 +48,10 @@ extension CmuxWebView {
 
         const postDataURLDownload = (dataURL, suggestedFilename) => {
           try {
-            handler.postMessage({
+            if (String(dataURL || "").length > maxDataURLCharacters) return;
+            postMessage({
               kind: "dataURL",
+              token: bridgeToken,
               dataURL: String(dataURL || ""),
               suggestedFilename: String(suggestedFilename || "")
             });
@@ -48,29 +61,43 @@ extension CmuxWebView {
         const readBlobForDownload = (blob, suggestedFilename) => {
           try {
             if (!blob) return;
+            if (blobDownloadInFlight) return;
+            if (typeof blob.size === "number" && blob.size > maxPayloadBytes) return;
+            blobDownloadInFlight = true;
             const filename = String(suggestedFilename || blob.name || "");
             const reader = new FileReader();
+            const finish = () => {
+              blobDownloadInFlight = false;
+            };
             reader.onload = () => {
               if (typeof reader.result === "string" && reader.result.length > 0) {
                 postDataURLDownload(reader.result, filename);
               }
+              finish();
             };
+            reader.onerror = finish;
+            reader.onabort = finish;
             reader.readAsDataURL(blob);
-          } catch (_) {}
+          } catch (_) {
+            blobDownloadInFlight = false;
+          }
         };
 
         const postBlobURLDownload = (url, suggestedFilename) => {
           try {
             const storedBlob = objectURLs.get(String(url));
             if (storedBlob) {
+              if (typeof storedBlob.size === "number" && storedBlob.size > maxPayloadBytes) return false;
               readBlobForDownload(storedBlob, suggestedFilename);
-              return;
+              return true;
             }
             fetch(url)
               .then((response) => response.blob())
               .then((blob) => readBlobForDownload(blob, suggestedFilename))
               .catch(() => {});
+            return true;
           } catch (_) {}
+          return false;
         };
 
         if (typeof originalCreateObjectURL === "function") {
@@ -129,10 +156,10 @@ extension CmuxWebView {
             const suggestedFilename = suggestedFilenameForAnchor(anchor);
 
             if (scheme === "blob") {
-              postBlobURLDownload(href, suggestedFilename);
-              return true;
+              return postBlobURLDownload(href, suggestedFilename);
             }
             if (scheme === "data" || scheme === "http" || scheme === "https" || scheme === "file") {
+              if (scheme === "data" && href.length > maxDataURLCharacters) return false;
               postURLDownload(href, suggestedFilename);
               return true;
             }
@@ -162,6 +189,7 @@ extension CmuxWebView {
       }
     })();
     """
+    }
 
     func installScriptedDownloadInterception() {
         let userContentController = configuration.userContentController
@@ -172,9 +200,16 @@ extension CmuxWebView {
             return
         }
 
+        let token = UUID().uuidString
+        objc_setAssociatedObject(
+            self,
+            &Self.scriptedDownloadTokenKey,
+            token,
+            .OBJC_ASSOCIATION_COPY_NONATOMIC
+        )
         userContentController.addUserScript(
             WKUserScript(
-                source: Self.scriptedDownloadInterceptionBootstrapScriptSource,
+                source: Self.scriptedDownloadInterceptionBootstrapScriptSource(token: token),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -192,6 +227,15 @@ extension CmuxWebView {
     }
 
     fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {
+        let expectedToken = objc_getAssociatedObject(self, &Self.scriptedDownloadTokenKey) as? String
+        guard let token = body["token"] as? String,
+              let expectedToken,
+              token == expectedToken else {
+#if DEBUG
+            debugContextDownload("browser.scriptdl.message stage=rejectToken")
+#endif
+            return
+        }
         guard let kind = body["kind"] as? String else { return }
         let suggestedFilename = body["suggestedFilename"] as? String
         let urlString: String?
@@ -200,6 +244,12 @@ extension CmuxWebView {
             urlString = body["url"] as? String
         case "dataURL":
             urlString = body["dataURL"] as? String
+            if let dataURL = urlString, dataURL.count > Self.maxScriptedDownloadDataURLCharacters {
+#if DEBUG
+                debugContextDownload("browser.scriptdl.message stage=rejectOversizeDataURL chars=\(dataURL.count)")
+#endif
+                return
+            }
         default:
             urlString = nil
         }
@@ -230,6 +280,36 @@ extension CmuxWebView {
             fallbackTarget: nil,
             traceID: traceID
         )
+    }
+
+    static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
+        guard let host = url.host?.lowercased() else { return [] }
+        let requestPath = url.path.isEmpty ? "/" : url.path
+        let isHTTPS = url.scheme?.caseInsensitiveCompare("https") == .orderedSame
+        let now = Date.now
+
+        return cookies.filter { cookie in
+            if cookie.isSecure && !isHTTPS { return false }
+            if let expires = cookie.expiresDate, expires <= now { return false }
+            guard domain(cookie.domain, matches: host) else { return false }
+            return path(cookie.path, matches: requestPath)
+        }
+    }
+
+    private static func domain(_ cookieDomain: String, matches host: String) -> Bool {
+        let normalized = cookieDomain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+        guard !normalized.isEmpty else { return false }
+        if cookieDomain.hasPrefix(".") {
+            return host == normalized || host.hasSuffix(".\(normalized)")
+        }
+        return host == normalized
+    }
+
+    private static func path(_ cookiePath: String, matches requestPath: String) -> Bool {
+        let normalized = cookiePath.isEmpty ? "/" : cookiePath
+        if normalized == "/" || requestPath == normalized { return true }
+        guard requestPath.hasPrefix(normalized) else { return false }
+        return normalized.hasSuffix("/") || requestPath.dropFirst(normalized.count).first == "/"
     }
 
     private static let sharedScriptedDownloadMessageHandler = ScriptedDownloadMessageHandler()

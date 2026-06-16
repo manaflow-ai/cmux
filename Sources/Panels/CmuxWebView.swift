@@ -1752,7 +1752,7 @@ final class CmuxWebView: WKWebView {
         cookieStore.getAllCookies { cookies in
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
             for (key, value) in cookieHeaders {
                 request.setValue(value, forHTTPHeaderField: key)
             }
