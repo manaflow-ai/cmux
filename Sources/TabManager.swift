@@ -5797,7 +5797,6 @@ extension TabManager {
             hasher.combine(false)
         }
     }
-
     nonisolated private static func hashOptionalDouble(_ value: Double?, into hasher: inout Hasher) {
         if let value {
             hasher.combine(true)
@@ -5806,7 +5805,6 @@ extension TabManager {
             hasher.combine(false)
         }
     }
-
     nonisolated private static func hashStringMap(_ value: [String: String]?, into hasher: inout Hasher) {
         guard let value, !value.isEmpty else {
             hasher.combine(false)
@@ -5820,12 +5818,13 @@ extension TabManager {
             hasher.combine(value[key] ?? "")
         }
     }
-
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
+        var remainingScrollbackCaptures = 8
+        let claimScrollbackCapture = { guard remainingScrollbackCaptures > 0 else { return false }; remainingScrollbackCaptures -= 1; return true }
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
@@ -5834,6 +5833,7 @@ extension TabManager {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
+                    claimScrollbackCapture: claimScrollbackCapture,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }

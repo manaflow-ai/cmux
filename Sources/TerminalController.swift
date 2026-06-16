@@ -5190,11 +5190,11 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        guard includeScrollback else { return readTerminalTextForSnapshot(terminalPanel: terminalPanel, includeScrollback: false, lineLimit: lineLimit, allowVTExport: false) }
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextForSessionSnapshot") != nil else { return nil }
-        guard var output = readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN) else { return nil }
-        if let lineLimit { output = Self.tailTerminalLines(output, maxLines: lineLimit) }
-        return output
+        readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
     }
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
