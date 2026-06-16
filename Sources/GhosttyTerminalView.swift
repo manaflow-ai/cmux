@@ -4796,6 +4796,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
         let generation = keyboardCopyModePendingViewportJumpGeneration
+        // The scrollbar callback is the authoritative sync signal; these timers
+        // only preview/expire queued Ghostty binding actions that emit no update.
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
             self?.previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
         }
