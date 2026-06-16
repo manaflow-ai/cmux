@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "เปิดใช้งาน cmux integration hooks สำหรับ Amp เมื่อปิดใช้งาน ปลั๊กอินที่มาพร้อมกันจะอยู่ในสถานะไม่ทำงานโดยไม่ต้องถอดออก",
-          "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
+          "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed",
+          "workspaceAutoNaming": "การตั้งชื่อเวิร์กสเปซและแท็บอัตโนมัติด้วย AI แบบเลือกใช้ จากเนื้อหาการสนทนาของเอเจนต์ เมื่อเปิดใช้งาน cmux จะสรุปเซสชันเอเจนต์ที่รองรับเป็นชื่อสั้น ๆ โดยใช้ไบนารีของแต่ละเอเจนต์เอง การเปลี่ยนชื่อด้วยตนเองจะมีผลเหนือกว่าเสมอ",
+          "autoNamingAgent": "เอเจนต์ใดที่ใช้สร้างชื่ออัตโนมัติสำหรับทุกเซสชัน \"auto\" (ค่าเริ่มต้น) ตั้งชื่อแต่ละเซสชันด้วยเอเจนต์ของเซสชันนั้นเอง ส่วนสลักเอเจนต์ใด ๆ (claude, codex, grok, opencode, pi, omp, …) จะแทนที่การตั้งชื่อสำหรับทุกเซสชัน รวมถึงเซสชันของเอเจนต์อื่นด้วย เอเจนต์ที่ใช้งานไม่ได้หรือยังไม่ได้ติดตั้งจะถอยกลับไปใช้เอเจนต์ของเซสชันเอง ดังนั้นการตั้งชื่อจึงไม่มีวันล้มเหลว"
         },
         "app": {
           "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
+          "windowTitleTemplate": "เทมเพลตชื่อหน้าต่าง NSWindow แบบไม่บังคับ เว้นว่างไว้เพื่อคงพฤติกรรมชื่อเริ่มต้นเดิมของ cmux รวมถึงการถอยกลับไปใช้ไดเรกทอรีปัจจุบัน ตัวยึดตำแหน่งที่รองรับ: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'",
           "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่",
           "warnBeforeClosingTabXButton": "แสดงการยืนยันก่อนปิดแท็บด้วยปุ่มปิดแท็บ",
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
+        },
+        "fileExplorer": {
+          "description": "การตั้งค่าตัวสำรวจไฟล์ (แผนผังไฟล์) ในแถบด้านขวา",
+          "doubleClickAction": "กำหนดว่าการดับเบิลคลิกไฟล์ในตัวสำรวจไฟล์ (หรือกด Return บนผลการค้นหา) จะทำอะไร `preview` เปิดตัวอย่างไฟล์ในตัวของ cmux (ค่าเริ่มต้นและพฤติกรรมเดิม) `defaultEditor` เปิดด้วยแอปเริ่มต้นของ macOS สำหรับชนิดไฟล์นั้น `preferredEditor` เปิดด้วยคำสั่ง `app.preferredEditor` และถ้าไม่ได้ตั้งค่าไว้จะกลับไปใช้แอปเริ่มต้น มีผลกับไฟล์เท่านั้น; ไดเรกทอรีจะขยาย/ยุบเสมอ และตัวสำรวจไฟล์ที่ไม่ใช่ในเครื่อง (รีโมต) จะเปิดตัวอย่างของ cmux เสมอ"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส `when` แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ แต่ละค่าเป็นนิพจน์บูลีนเหนือคีย์บริบท รวมด้วย !, &&, || และวงเล็บ คีย์บูลีน: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible คีย์แบบมีชนิดรองรับการเปรียบเทียบ: สตริง sidebarMode (files, find, sessions, feed หรือ dock) และจำนวนเต็ม paneCount กับ workspaceCount ตัวดำเนินการเปรียบเทียบคือ ==, !=, =~ (นิพจน์ปรกติ), <, <=, >, >= และ `in [a, b]` คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false ยอมรับลิเทอรัลบูลีน true และ false ด้วย โดย `key == false` มีความหมายเดียวกับ `!key` ทางลัดของแอ็กชันจะทำงาน (และจะชนกับทางลัดอื่น) เฉพาะเมื่อคลอสเป็นจริงเท่านั้น ตัวอย่าง: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } เลือกเวิร์กสเปซด้วย Ctrl+1–9 ได้ทุกที่ยกเว้นเมื่อแถบด้านข้างขวาอยู่ในโฟกัส; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } จำกัดการผูกไว้กับแถบด้านข้างค้นหาเมื่อเวิร์กสเปซมีหลายเพน"
+          "when": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส `when` แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ แต่ละค่าเป็นนิพจน์บูลีนเหนือคีย์บริบท รวมด้วย !, &&, || และวงเล็บ คีย์บูลีน: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible คีย์แบบมีชนิดรองรับการเปรียบเทียบ: สตริง sidebarMode (files, find, sessions, feed หรือ dock) และจำนวนเต็ม paneCount กับ workspaceCount ตัวดำเนินการเปรียบเทียบคือ ==, !=, =~ (นิพจน์ปรกติ), <, <=, >, >= และ `in [a, b]` คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false ยอมรับลิเทอรัลบูลีน true และ false ด้วย โดย `key == false` มีความหมายเดียวกับ `!key` ทางลัดของแอ็กชันจะทำงาน (และจะชนกับทางลัดอื่น) เฉพาะเมื่อคลอสเป็นจริงเท่านั้น ตัวอย่าง: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } เลือกเวิร์กสเปซด้วย Ctrl+1–9 ได้ทุกที่ยกเว้นเมื่อแถบด้านข้างขวาอยู่ในโฟกัส; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } จำกัดการผูกไว้กับแถบด้านข้างค้นหาเมื่อเวิร์กสเปซมีหลายเพน",
+          "showModifierHoldHints": "แสดงชิปคำใบ้ปุ่มลัดขณะกด Cmd หรือ Control ค้างไว้"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "ดับเบิลคลิกไฟล์: preview (ค่าเริ่มต้น), defaultEditor (แอปเริ่มต้นของ macOS) หรือ preferredEditor (คำสั่ง app.preferredEditor)",
       "shortcutsWhenIntro": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส when แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ การผูกจะทำงาน — และชนกับการผูกอื่นบนปุ่มเดียวกัน — เฉพาะเมื่อคลอสของมันเป็นจริงเท่านั้น หากไม่ระบุคลอส แอ็กชันจะใช้บริบทในตัวตามเดิม คำศัพท์ที่ใช้ในคลอส:",
       "shortcutsWhenBooleanKeys": "คีย์บูลีน คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false และยอมรับลิเทอรัล true กับ false ด้วย",
       "shortcutsWhenTypedKeys": "คีย์แบบมีชนิดสำหรับการเปรียบเทียบ: โหมดปัจจุบันของแถบด้านข้างขวา (สตริง) และจำนวนเพนกับเวิร์กสเปซ (จำนวนเต็ม)",
@@ -922,6 +934,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface คือแท็บภายในพาเนล",
         "splitPanes": "พาเนลแบ่ง",
+        "canvas": "แคนวาส",
+        "canvasBlurb": "โหมดเลย์เอาต์ 2D อิสระที่บานหน้าต่างลอยอยู่บนแคนวาสไร้ขอบเขตที่เลื่อนได้ คำสั่งจัดแนวและกระจายใช้งานได้จากพาเลตคำสั่ง",
         "browser": "เบราว์เซอร์",
         "notifications": "การแจ้งเตือน",
         "find": "ค้นหา",

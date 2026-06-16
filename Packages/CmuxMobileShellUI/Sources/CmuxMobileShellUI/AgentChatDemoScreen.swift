@@ -19,7 +19,7 @@ struct AgentChatDemoScreen: View {
                 } else {
                     ProgressView()
                         .task {
-                            let (messages, descriptor) = ChatFixtureConversation.make()
+                            let (messages, descriptor) = ChatFixtureConversation().make()
                             let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
                             stack = DemoStack(
                                 store: ChatConversationStore(descriptor: descriptor, source: source)

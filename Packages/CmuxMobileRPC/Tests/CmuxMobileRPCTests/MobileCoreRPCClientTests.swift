@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileRPC
@@ -131,6 +132,7 @@ import Testing
           "workspaces": [
             {
               "id": "ws-1",
+              "window_id": "window-1",
               "title": "cmux",
               "current_directory": "/Users/test/project",
               "is_selected": true,
@@ -169,12 +171,15 @@ import Testing
         #expect(response.createdWorkspaceID == "ws-1")
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
+        #expect(workspace.windowID == "window-1")
         #expect(workspace.isSelected)
         let terminal = try #require(workspace.terminals.first)
         #expect(terminal.isFocused == true)
         #expect(terminal.isReady == true)
         #expect(terminal.chatSession?.id == "claude-session")
         #expect(terminal.chatSession?.terminalID == "t-1")
+        let mapped = MobileWorkspacePreview(remote: workspace)
+        #expect(mapped.windowID == "window-1")
     }
 
     @Test func workspaceListResponseIgnoresMalformedOptionalChatSession() throws {
@@ -216,6 +221,85 @@ import Testing
         #expect(terminal.id == "t-1")
         #expect(terminal.title == "Build")
         #expect(terminal.chatSession == nil)
+    }
+
+    /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
+    /// notification text + epoch seconds) for the iMessage-style row preview.
+    /// Both must decode when present and stay `nil` when an older Mac omits them.
+    @Test func workspaceListResponseDecodesOptionalActivityPreview() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "preview": "Build finished in 12s",
+              "preview_at": 1765000000.5,
+              "terminals": []
+            },
+            {
+              "id": "ws-2",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.workspaces.count == 2)
+        let withPreview = try #require(response.workspaces.first)
+        #expect(withPreview.preview == "Build finished in 12s")
+        #expect(withPreview.previewAt == 1765000000.5)
+        let withoutPreview = try #require(response.workspaces.last)
+        #expect(withoutPreview.preview == nil)
+        #expect(withoutPreview.previewAt == nil)
+    }
+
+    /// The Mac stamps `last_activity_at` on every workspace (falling back to
+    /// creation time when there is no notification) and emits `has_unread` for
+    /// the row's unread dot. Both must decode when present and degrade safely
+    /// (nil timestamp, read state) when an older Mac omits them.
+    @Test func workspaceListResponseDecodesLastActivityAndUnread() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "last_activity_at": 1765000100.25,
+              "has_unread": true,
+              "terminals": []
+            },
+            {
+              "id": "ws-2",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let stamped = try #require(response.workspaces.first)
+        #expect(stamped.lastActivityAt == 1765000100.25)
+        #expect(stamped.hasUnread == true)
+        let olderMac = try #require(response.workspaces.last)
+        #expect(olderMac.lastActivityAt == nil)
+        #expect(olderMac.hasUnread == nil)
+
+        // The mapped model treats a missing unread flag as read and carries the
+        // optional timestamp through for the row's relative time.
+        let mappedStamped = MobileWorkspacePreview(remote: stamped)
+        #expect(mappedStamped.hasUnread)
+        #expect(mappedStamped.lastActivityAt == Date(timeIntervalSince1970: 1765000100.25))
+        let mappedOlder = MobileWorkspacePreview(remote: olderMac)
+        #expect(!mappedOlder.hasUnread)
+        #expect(mappedOlder.lastActivityAt == nil)
     }
 
     @Test func attachTicketInputDecodesAttachURL() throws {
@@ -315,5 +399,47 @@ import Testing
         let route = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: 58465)
         let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
         #expect(probe?.hasAuth == false)
+    }
+
+    @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.action",
+            params: [
+                "workspace_id": "workspace-main",
+                "action": "mark_read",
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.action")
+        #expect(frame.workspaceID == "workspace-main")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.hasAuth)
     }
 }

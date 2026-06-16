@@ -59,11 +59,21 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.attach_ticket.create",
         "system.top",
         "system.memory",
+        // `workspace.env` is a read that resolves a workspace and copies its
+        // env dictionary behind a `v2MainSync` hop, so it runs on the worker
+        // lane like the other workspace reads below.
+        "workspace.env",
         "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "remote.tmux.sessions",
+        "remote.tmux.attach",
+        "remote.tmux.detach",
+        "remote.tmux.state",
+        "remote.tmux.mirror",
+        "remote.tmux.window",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

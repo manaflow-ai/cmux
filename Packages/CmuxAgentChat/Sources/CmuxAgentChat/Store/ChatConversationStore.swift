@@ -558,6 +558,15 @@ public final class ChatConversationStore {
                        item.text.hasPrefix(echoed.dropLast()) {
                         return true
                     }
+                    // If the terminal prompt still held a tiny stale draft
+                    // when the mobile chat send was pasted, Claude can echo
+                    // "<stale><prompt>". Reconcile the optimistic row so the
+                    // UI does not show the clean pending prompt as a second
+                    // sent bubble after the transcript line.
+                    if item.attachmentCount == 0,
+                       Self.echoedTextHasShortStalePrefix(echoed, pendingText: item.text) {
+                        return true
+                    }
                     // Bracketed sends can echo as Claude Code's paste
                     // placeholder rather than the literal text; multi-line
                     // and long single-line prompts both collapse to it.
@@ -614,6 +623,20 @@ public final class ChatConversationStore {
     /// placeholder ("[Pasted text #1 +12 lines]").
     static func isPastePlaceholder(_ text: String) -> Bool {
         text.wholeMatch(of: /\[Pasted text #\d+( \+\d+ lines)?\]/) != nil
+    }
+
+    /// Matches the prompt when Claude echoes it with a short, non-spaced
+    /// prefix left behind in the terminal line editor.
+    static func echoedTextHasShortStalePrefix(_ echoed: String, pendingText: String) -> Bool {
+        let pending = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pending.isEmpty,
+              echoed != pending,
+              echoed.hasSuffix(pending) else { return false }
+        let prefix = echoed.dropLast(pending.count)
+        guard !prefix.isEmpty, prefix.count <= 8 else { return false }
+        return !prefix.contains { character in
+            character.isWhitespace || character.isNewline
+        }
     }
 
     private func updatePending(id: String, delivery: ChatDeliveryState) {

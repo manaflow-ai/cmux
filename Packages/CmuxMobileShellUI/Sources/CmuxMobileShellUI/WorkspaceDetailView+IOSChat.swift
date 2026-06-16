@@ -249,6 +249,10 @@ extension WorkspaceDetailView {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
     }
 }
 #endif

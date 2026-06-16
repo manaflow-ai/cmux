@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxTerminal
 import Foundation
 
 /// `mobile.chat.*` RPC handlers: the Mac side of the iOS agent chat
@@ -57,7 +58,9 @@ extension TerminalController {
         if let workspaceID {
             adoptDetectedAgentSessions(workspaceID: workspaceID)
         }
-        let descriptors = service.sessionDescriptors(workspaceID: workspaceID)
+        let descriptors = service.sessionRecords(workspaceID: workspaceID)
+            .filter { mobileChatBindingIsCurrentAgent($0) }
+            .map(\.descriptor)
         let encoded = descriptors.compactMap { service.wirePayload($0) }
         return .ok(["sessions": encoded])
     }
@@ -89,12 +92,14 @@ extension TerminalController {
         let service = AgentChatTranscriptService.shared
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
             let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-            let title = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle).lowercased()
+            let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
+            let normalizedTitle = title.lowercased()
             // Claude is the case the wrapper-launched workflow hits; detect by
             // launch metadata (hook PID key / initial command) or the live
-            // terminal title claude sets ("✳ Claude Code").
+            // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
             let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-                || title.contains("claude")
+                || normalizedTitle.contains("claude")
+                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
             guard isClaude else { continue }
             let cwd = workspace.panelDirectories[panel.id]
                 ?? (panel.directory.isEmpty ? nil : panel.directory)
@@ -103,7 +108,8 @@ extension TerminalController {
             service.adoptDetectedClaudeSession(
                 workspaceID: workspaceID,
                 surfaceID: panel.id.uuidString,
-                workingDirectory: cwd
+                workingDirectory: cwd,
+                titleHint: title
             )
         }
     }
@@ -165,6 +171,15 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                "session_id": sessionID
+            ])
+        }
+        let clearResult = mobileChatClearPrompt(terminalPanel)
+        guard clearResult.accepted else {
+            return mobileChatInputError(clearResult)
+        }
         for (index, attachment) in attachments.enumerated() {
             guard let base64 = attachment["data_b64"] as? String else {
                 return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
@@ -182,7 +197,7 @@ extension TerminalController {
             // the shape the client's pending-row reconcile matches. A
             // dropped separator corrupts that shape; surface it.
             let needsSeparator = index < attachments.count - 1 || !text.isEmpty
-            if needsSeparator, let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) {
+            if needsSeparator {
                 let separatorResult = terminalPanel.surface.sendInputResult(" ")
                 switch separatorResult {
                 case .sent, .queued:
@@ -200,15 +215,24 @@ extension TerminalController {
             // Attachment-only send: the image path is sitting pasted at the
             // agent's prompt; submit it so the send actually reaches the
             // agent instead of idling in the line editor.
-            guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
-                return .ok(["submitted": false])
-            }
             let keyResult = terminalPanel.sendNamedKeyResult("return")
             return .ok(["submitted": keyResult.accepted])
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
+    }
+
+    /// Clears any stale text already sitting in the agent's terminal prompt
+    /// before the mobile chat prompt is pasted and submitted.
+    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
+        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
+        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
+            let result = terminalPanel.sendNamedKeyResult(keyName)
+            guard result.accepted else { return result }
+            latestAccepted = result
+        }
+        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -297,7 +321,8 @@ extension TerminalController {
             return nil
         }
         if let surfaceID = record.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingIsCurrentAgent(record) {
             return ["workspace_id": workspaceID, "surface_id": surfaceID]
         }
         #if DEBUG
@@ -305,7 +330,8 @@ extension TerminalController {
         #endif
         if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingIsCurrentAgent(refreshed) {
             return ["workspace_id": workspaceID, "surface_id": surfaceID]
         }
         #if DEBUG
@@ -325,6 +351,40 @@ extension TerminalController {
         return true
     }
 
+    /// Whether the record's bound terminal still appears to be the agent it
+    /// represents. This prevents a stale registry surface id from exposing a
+    /// chat toggle or routing prompts into a plain shell after a terminal was
+    /// restored/reused.
+    private func mobileChatBindingIsCurrentAgent(_ record: AgentChatSessionRecord) -> Bool {
+        guard let workspaceID = record.workspaceID,
+              let surfaceID = record.surfaceID,
+              let resolved = mobileResolveWorkspaceAndSurface(
+                  params: ["workspace_id": workspaceID, "surface_id": surfaceID],
+                  requireTerminal: true
+              ),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return false
+        }
+        let title = resolved.workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+        switch record.agentKind {
+        case .claude:
+            return TextBoxAgentDetection.isClaudeCode(context: context)
+                || normalizedTitle.contains("claude")
+                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
+        case .codex:
+            return TextBoxAgentDetection.codex.matches(context: context)
+                || normalizedTitle.contains("codex")
+        case .other(let source):
+            return !source.isEmpty && (
+                context.localizedCaseInsensitiveContains(source)
+                    || normalizedTitle.contains(source.lowercased())
+            )
+        }
+    }
+
     private func mobileChatTerminalPanel(sessionID: String) -> TerminalPanel? {
         guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID),
               let resolved = mobileResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
@@ -335,5 +395,20 @@ extension TerminalController {
             return nil
         }
         return resolved.workspace.terminalPanel(for: surfaceId)
+    }
+
+    private func mobileChatInputError(_ keyResult: TerminalSurface.NamedKeySendResult) -> V2CallResult {
+        switch keyResult {
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+        case .unknownKey:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+        case .sent, .queued:
+            return .ok(["accepted": true])
+        }
     }
 }

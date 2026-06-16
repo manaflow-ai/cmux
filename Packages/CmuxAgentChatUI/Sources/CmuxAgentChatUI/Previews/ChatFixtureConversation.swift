@@ -5,13 +5,16 @@ import Foundation
 /// screen: a realistic "fix a failing test" coding session exercising every
 /// ``ChatMessageKind``.
 public struct ChatFixtureConversation {
+    /// Creates a fixture conversation builder.
+    public init() {}
+
     /// Builds the fixture transcript and its session descriptor.
     ///
     /// - Parameter now: The anchor for message timestamps; the conversation
     ///   ends shortly before this instant so date headers show "Today".
     /// - Returns: The scripted messages (ascending seq) and a matching
     ///   descriptor whose agent is working.
-    public static func make(now: Date = Date()) -> ([ChatMessage], ChatSessionDescriptor) {
+    public func make(now: Date = Date()) -> ([ChatMessage], ChatSessionDescriptor) {
         var builder = Builder(start: now.addingTimeInterval(-1380))
 
         builder.add(.system, .status(ChatStatusTransition(event: .sessionStarted)))

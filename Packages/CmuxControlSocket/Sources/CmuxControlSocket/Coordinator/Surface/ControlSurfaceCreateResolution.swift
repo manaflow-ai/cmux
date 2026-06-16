@@ -26,6 +26,13 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The surface creation failed (legacy `internal_error` / "Failed to create
     /// surface").
     case createFailed
+    /// The request carried options the routed remote tmux `new-window` cannot
+    /// honor; rejected BEFORE the remote session was mutated (an error after
+    /// the mutation invites retries that duplicate remote tabs).
+    case mirrorUnsupportedOptions([String])
+    /// The create was routed to the remote tmux mirror backing the workspace
+    /// (`new-window`); the tab arrives asynchronously via `%window-add`.
+    case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
     /// The surface was created. Carries the echoed identity and the panel type.
     case created(
         windowID: UUID?,

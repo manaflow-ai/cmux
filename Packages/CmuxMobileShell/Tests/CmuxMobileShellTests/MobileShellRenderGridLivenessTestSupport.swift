@@ -67,6 +67,7 @@ actor LivenessHostRouter {
     private var includesWorkspaceListChatSession = false
     private var includesEndedWorkspaceListChatSession = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
+    private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -74,6 +75,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func setCapabilities(_ capabilities: [String]) {
+        self.capabilities = capabilities
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -143,7 +148,7 @@ actor LivenessHostRouter {
             }
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
-                "capabilities": ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"],
+                "capabilities": capabilities,
             ])
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
@@ -352,8 +357,12 @@ final class OutputCollector {
 
     func mount(store: MobileShellComposite, surfaceID: String) {
         task = Task { @MainActor [weak self] in
-            for await data in store.terminalOutputStream(surfaceID: surfaceID) {
-                self?.lines.append(String(decoding: data, as: UTF8.self))
+            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
             }
         }
     }

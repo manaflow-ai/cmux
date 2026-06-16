@@ -19,10 +19,9 @@ public struct ChatScreen: View {
     @State private var contentCache = ChatContentCache()
     #if os(iOS)
     /// Transcript and composer frames in window coordinates, measured via
-    /// preferences. The dismiss region is the transcript clipped to end at
-    /// the composer's top edge (the transcript view extends under the
-    /// composer's safe-area inset), so only taps over the conversation
-    /// dismiss the keyboard.
+    /// preferences. The dismiss region is the transcript's actual visible
+    /// frame, so taps over the composer/accessory bar do not dismiss the
+    /// keyboard.
     @State private var transcriptFrame: CGRect = .zero
     @State private var composerFrame: CGRect = .zero
     /// The scroll-to-bottom button's frame; excluded from the dismiss region
@@ -41,6 +40,7 @@ public struct ChatScreen: View {
         )
     }
     #endif
+
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
@@ -72,25 +72,52 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        ChatTranscriptListView(
-            rows: store.rows,
-            expandedIDs: expandedIDs,
-            agentState: store.agentState,
-            hasMoreHistory: store.hasMoreHistory,
-            hasLoadedInitialHistory: store.hasLoadedInitialHistory,
-            initialLoadFailed: store.initialLoadFailed,
-            historyTruncatedAtHead: store.historyTruncatedAtHead,
-            actions: rowActions,
-            onReachTop: { Task { await store.loadOlder() } },
-            onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
-        )
-        .environment(\.chatMarkdownRenderer, renderer)
-        .environment(\.chatContentCache, contentCache)
-        #if os(iOS)
-        // Measure the transcript so the keyboard-dismiss tap fires only over
-        // the conversation, never the composer/accessory bar or header.
-        .chatTranscriptDismissRegion()
-        #endif
+        VStack(spacing: 0) {
+            ChatTranscriptListView(
+                rows: store.rows,
+                expandedIDs: expandedIDs,
+                agentState: store.agentState,
+                hasMoreHistory: store.hasMoreHistory,
+                hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+                initialLoadFailed: store.initialLoadFailed,
+                historyTruncatedAtHead: store.historyTruncatedAtHead,
+                actions: rowActions,
+                onReachTop: { Task { await store.loadOlder() } },
+                onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
+            )
+            .environment(\.chatMarkdownRenderer, renderer)
+            .environment(\.chatContentCache, contentCache)
+            #if os(iOS)
+            // Measure the transcript so the keyboard-dismiss tap fires only over
+            // the conversation, never the composer/accessory bar or header.
+            .chatTranscriptDismissRegion()
+            #endif
+
+            // A past/ended coding-agent session is read-only: keep the
+            // transcript history but drop the text field and control
+            // buttons (there is nothing live to send to). An active agent
+            // gets the full interactive composer.
+            if store.agentState != .ended {
+                ChatComposerView(
+                    agentState: store.agentState,
+                    agentKind: store.descriptor.agentKind,
+                    isTerminal: store.descriptor.kind == .terminal,
+                    isConnected: store.isConnected,
+                    draft: $draft,
+                    onSend: { text, attachments in
+                        Task { await store.send(text: text, attachments: attachments) }
+                    },
+                    onInterrupt: { hard in
+                        Task { await store.interrupt(hard: hard) }
+                    },
+                    onOpenTerminal: onOpenTerminal
+                )
+                #if os(iOS)
+                .reportsChatComposerFrame()
+                #endif
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
                 Text(error)
@@ -124,32 +151,6 @@ public struct ChatScreen: View {
             }
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // A past/ended coding-agent session is read-only: keep the
-            // transcript history but drop the text field and control
-            // buttons (there is nothing live to send to). An active agent
-            // gets the full interactive composer.
-            if store.agentState != .ended {
-                ChatComposerView(
-                    agentState: store.agentState,
-                    agentKind: store.descriptor.agentKind,
-                    isTerminal: store.descriptor.kind == .terminal,
-                    isConnected: store.isConnected,
-                    draft: $draft,
-                    onSend: { text, attachments in
-                        Task { await store.send(text: text, attachments: attachments) }
-                    },
-                    onInterrupt: { hard in
-                        Task { await store.interrupt(hard: hard) }
-                    },
-                    onOpenTerminal: onOpenTerminal
-                )
-                #if os(iOS)
-                .reportsChatComposerFrame()
-                #endif
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
         .modifier(ChatScreenChrome(
             store: store,

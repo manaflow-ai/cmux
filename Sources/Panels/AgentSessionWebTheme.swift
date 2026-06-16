@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 struct AgentSessionWebTheme: Equatable {
     let isDark: Bool

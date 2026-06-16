@@ -10,62 +10,20 @@ import Testing
 @MainActor
 @Suite("Sidebar workspace scroll layout")
 struct SidebarWorkspaceScrollLayoutTests {
-    @Test func unmeasuredRowsCollapseEmptyAreaWithoutForcingOverflow() {
-        // Before a measurement arrives, the empty area collapses to 0. The
-        // content's `minHeight` frame still fills the viewport, so the document
-        // view does not overflow and the overlay scroller stays hidden.
-        let contentMinHeight: CGFloat = 480
-        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-            contentMinHeight: contentMinHeight,
-            rowsHeight: nil
-        )
-
-        #expect(abs(emptyAreaHeight) <= 0.001)
-        // The content frame is pinned to contentMinHeight, so it never exceeds
-        // the viewport: no overflow, overlay scroller stays hidden.
-        #expect(max(contentMinHeight, emptyAreaHeight) <= contentMinHeight)
-    }
-
-    @Test func rowsMeasurementIgnoresStaleWorkspaceIds() {
-        let measurement = SidebarWorkspaceRowsMeasurement(
-            workspaceIds: ["a", "b"],
-            rowsHeight: 240
-        )
-
-        #expect(measurement.rowsHeight(for: ["b", "c"]) == nil)
-        #expect(abs((measurement.rowsHeight(for: ["a", "b"]) ?? -1) - 240) <= 0.001)
-    }
-
-    @Test func rowsMeasurementDedupesSubPixelJitterForSameWorkspaceIds() {
-        // The livelock-safety invariant: the single whole-content measurement
-        // is deduped so sub-pixel height jitter from constant agent-driven row
-        // re-renders does NOT write @State, so it cannot re-feed a
-        // preference/layout transaction cycle (the #2586 class of bug).
-        let base = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240)
-        let jittered = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240.3)
-        let moved = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 256)
-        let differentRows = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a"], rowsHeight: 240)
-
-        #expect(base.isEquivalent(to: jittered))
-        #expect(!base.isEquivalent(to: moved))
-        #expect(!base.isEquivalent(to: differentRows))
-    }
-
-    @Test func emptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
+    @Test func contentMinHeightSubtractsInsetsFromViewport() {
         let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
             viewportHeight: 720,
             insets: SidebarWorkspaceScrollInsets(top: 28, bottom: 48)
         )
-        let rowsHeight: CGFloat = 96
-        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-            contentMinHeight: contentMinHeight,
-            rowsHeight: rowsHeight
-        )
+        #expect(abs(contentMinHeight - (720 - 76)) <= 0.001)
+    }
 
-        #expect(abs(emptyAreaHeight - (contentMinHeight - rowsHeight)) <= 0.001)
-        // Rows + filled empty area exactly equals the viewport: content fits,
-        // so the overlay scroller stays hidden (the #3241 phantom-scrollbar fix).
-        #expect(abs((rowsHeight + emptyAreaHeight) - contentMinHeight) <= 0.001)
+    @Test func contentMinHeightNeverGoesNegative() {
+        let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+            viewportHeight: 20,
+            insets: SidebarWorkspaceScrollInsets(top: 28, bottom: 48)
+        )
+        #expect(contentMinHeight == 0)
     }
 
     @Test func contentHeightStaysWithinViewportAfterPixelRounding() {
@@ -101,17 +59,90 @@ struct SidebarWorkspaceScrollLayoutTests {
         }
     }
 
-    @Test func emptyAreaCollapsesWhenRowsAlreadyOverflowViewport() {
-        let contentMinHeight: CGFloat = 300
+    @Test func emptyAreaFillsOnlyRemainingContainerSpaceWhenRowsFit() {
+        // SidebarRowsFillLayout places the empty area below the rows, sized to
+        // the space remaining in its concrete container. When the rows fit, rows
+        // + filled empty area exactly equal the container, so the content fits
+        // the viewport and the overlay scroller stays hidden (the #3241
+        // phantom-scrollbar fix) — without ever measuring the rows into @State.
+        let containerHeight: CGFloat = 644
+        let rowsHeight: CGFloat = 96
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            containerHeight: containerHeight,
+            rowsHeight: rowsHeight
+        )
+
+        #expect(abs(emptyAreaHeight - (containerHeight - rowsHeight)) <= 0.001)
+        #expect(abs((rowsHeight + emptyAreaHeight) - containerHeight) <= 0.001)
+    }
+
+    @Test func emptyAreaCollapsesWhenRowsAlreadyFillContainer() {
+        // When the rows reach or exceed the container (the viewport), the empty
+        // area adds nothing, so the document view stays at the rows' natural
+        // height and genuinely scrolls.
+        let containerHeight: CGFloat = 300
         let rowsHeight: CGFloat = 420
-        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-            contentMinHeight: contentMinHeight,
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            containerHeight: containerHeight,
             rowsHeight: rowsHeight
         )
 
         #expect(abs(emptyAreaHeight) <= 0.001)
-        // The empty area adds nothing, so the document view stays at the rows'
-        // natural height and genuinely overflows the viewport — a real scroll.
-        #expect(rowsHeight + emptyAreaHeight > contentMinHeight)
+    }
+
+    @Test func emptyAreaIsZeroWhenRowsExactlyFillContainer() {
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            containerHeight: 480,
+            rowsHeight: 480
+        )
+        #expect(abs(emptyAreaHeight) <= 0.001)
+    }
+
+    @Test func emptyAreaFillsEntireContainerWhenNoRows() {
+        // No workspaces: the empty drop/tap area fills the entire viewport so
+        // the empty sidebar is still a drop/tap target and the content fills the
+        // visible height (no phantom scrollbar).
+        let containerHeight: CGFloat = 612
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            containerHeight: containerHeight,
+            rowsHeight: 0
+        )
+        #expect(abs(emptyAreaHeight - containerHeight) <= 0.001)
+    }
+
+    // SidebarRowsFillLayout sizes the empty area from the *explicit* viewport,
+    // not from a layout proposal. A vertical ScrollView leaves the scroll-axis
+    // height unspecified, so deriving the viewport from the proposal would
+    // collapse the empty area to a placeholder height when the rows fit, dropping
+    // the blank area below the last row out of the drop/tap target. These cover
+    // the viewport-based path directly (the regression Codex flagged on #6033).
+
+    @Test func emptyAreaFromViewportFillsRemainderWhenRowsFit() {
+        // Mirrors the observed runtime values (viewport 628, rows 421 -> 207).
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 628,
+            rowsHeight: 421
+        )
+        #expect(abs(emptyAreaHeight - 207) <= 0.001)
+        // rows + empty exactly fill the viewport, so the blank area below the
+        // last row stays a drop/tap target and the overlay scroller stays hidden.
+        #expect(abs((421 + emptyAreaHeight) - 628) <= 0.001)
+    }
+
+    @Test func emptyAreaFromViewportCollapsesWhenRowsOverflow() {
+        // Mirrors the observed overflow values (viewport 628, rows 676 -> 0).
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 628,
+            rowsHeight: 676
+        )
+        #expect(abs(emptyAreaHeight) <= 0.001)
+    }
+
+    @Test func emptyAreaFromViewportFillsEntireViewportWhenNoRows() {
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 612,
+            rowsHeight: 0
+        )
+        #expect(abs(emptyAreaHeight - 612) <= 0.001)
     }
 }
