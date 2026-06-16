@@ -23569,11 +23569,11 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
-                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                        mappedSession,
-                        transcriptPath: parsedInput.transcriptPath,
-                        allowIncomingTranscriptPath: !(firstSightingLaunchCapture?.sanitizerRejected ?? false)
-                    )
+                    allowDefaultResumeCommand: !(firstSightingLaunchCapture?.sanitizerRejected ?? false)
+                        && hasPositiveAgentResumeRestorabilitySignal(
+                            mappedSession,
+                            transcriptPath: parsedInput.transcriptPath
+                        )
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -26779,13 +26779,12 @@ struct CMUXCLI {
 
     private func hasPositiveAgentResumeRestorabilitySignal(
         _ record: ClaudeHookSessionRecord?,
-        transcriptPath: String? = nil,
-        allowIncomingTranscriptPath: Bool = true
+        transcriptPath: String? = nil
     ) -> Bool {
         if record?.isRestorable == true {
             return true
         }
-        if allowIncomingTranscriptPath, normalizedHookValue(transcriptPath) != nil {
+        if normalizedHookValue(transcriptPath) != nil {
             return true
         }
         return normalizedHookValue(record?.transcriptPath) != nil
@@ -29991,11 +29990,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand,
-                        allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                            mapped,
-                            transcriptPath: input.transcriptPath,
-                            allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
-                        )
+                        allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                            && hasPositiveAgentResumeRestorabilitySignal(
+                                mapped,
+                                transcriptPath: input.transcriptPath
+                            )
                     )
                 }
             }
@@ -30265,11 +30264,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
-                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                        mapped,
-                        transcriptPath: input.transcriptPath,
-                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
-                    )
+                    allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                        && hasPositiveAgentResumeRestorabilitySignal(
+                            mapped,
+                            transcriptPath: input.transcriptPath
+                        )
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -30545,11 +30544,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     sessionId: sessionId,
                     cwd: cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
-                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                        mapped,
-                        transcriptPath: input.transcriptPath,
-                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
-                    )
+                    allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                        && hasPositiveAgentResumeRestorabilitySignal(
+                            mapped,
+                            transcriptPath: input.transcriptPath
+                        )
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -30732,11 +30731,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
-                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                        mapped,
-                        transcriptPath: input.transcriptPath,
-                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
-                    )
+                    allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                        && hasPositiveAgentResumeRestorabilitySignal(
+                            mapped,
+                            transcriptPath: input.transcriptPath
+                        )
                 )
             }
             if let pid, !suppressVisibleMutations {
