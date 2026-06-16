@@ -17,9 +17,6 @@ public final class CanvasRootView: NSView {
     let minimapAutoHideScheduler: CanvasMinimapAutoHideScheduler
     /// Pre-localized text for the Command+scroll discovery hint.
     let commandScrollHintText: String
-    /// Pre-localized accessibility label/help for the minimap.
-    let minimapAccessibilityLabel: String
-    let minimapAccessibilityHelp: String
     let scrollView: CanvasScrollView
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
@@ -82,8 +79,6 @@ public final class CanvasRootView: NSView {
         self.model = model
         self.callbacks = callbacks
         self.commandScrollHintText = commandScrollHintText
-        self.minimapAccessibilityLabel = minimapAccessibilityLabel
-        self.minimapAccessibilityHelp = minimapAccessibilityHelp
         self.themeProvider = themeProvider
         self.minimapAutoHideScheduler = CanvasMinimapAutoHideScheduler(clock: minimapClock)
         self.scrollView = CanvasScrollView(documentView: documentView)
@@ -100,17 +95,7 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
-        minimapView.onCenterChanged = { [weak self] center in
-            self?.setViewport(center: center, magnification: nil, notifySettled: false)
-        }
-        minimapView.onCenterSettled = { [weak self] center in
-            self?.setViewport(center: center, magnification: nil, notifySettled: true)
-        }
-        minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
-        minimapView.onInteractionBegan = { [weak self] in self?.holdMinimapVisible() }
-        minimapView.onInteractionEnded = { [weak self] in self?.releaseMinimapAfterInteraction() }
-        minimapView.accessibilityLabelText = minimapAccessibilityLabel
-        minimapView.accessibilityHelpText = minimapAccessibilityHelp
+        configureMinimap(accessibilityLabel: minimapAccessibilityLabel, accessibilityHelp: minimapAccessibilityHelp)
         resetMinimapVisibility()
 
         // Platform seam: clip-view bounds changes are how AppKit reports

@@ -4,6 +4,20 @@ extension CanvasRootView {
     private static let minimapVisibleAlpha: CGFloat = 0.92
     private static let minimapAutoHideDelay: Duration = .seconds(3)
 
+    func configureMinimap(accessibilityLabel: String, accessibilityHelp: String) {
+        minimapView.onCenterChanged = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: false)
+        }
+        minimapView.onCenterSettled = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: true)
+        }
+        minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
+        minimapView.onInteractionBegan = { [weak self] in self?.holdMinimapVisible() }
+        minimapView.onInteractionEnded = { [weak self] in self?.releaseMinimapAfterInteraction() }
+        minimapView.accessibilityLabelText = accessibilityLabel
+        minimapView.accessibilityHelpText = accessibilityHelp
+    }
+
     func updateMinimap(reveal: Bool = false) {
         guard isWorkspaceVisible else {
             resetMinimapVisibility()
