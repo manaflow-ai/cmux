@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import CmuxBrowser
 
 struct BrowserOpenTabSuggestionSnapshot: Equatable {
     let workspaceId: UUID
