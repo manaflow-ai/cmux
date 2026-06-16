@@ -1,6 +1,7 @@
 import XCTest
 
 import CmuxFoundation
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
