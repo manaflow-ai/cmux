@@ -302,6 +302,33 @@ check_create_dmg_uses_run_local_npm_prefix() {
   echo "PASS: create-dmg uses setup-node-bound wrapper from run-local npm prefix"
 }
 
+check_gui_smoke_unsupported_launch_handling() {
+  local helper="$ROOT_DIR/scripts/smoke-launch-macos-app.sh"
+  for needle in \
+    'ALLOW_UNSUPPORTED_GUI="${CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI:-0}"' \
+    'open_log_indicates_unsupported_gui()' \
+    "grep -Fq 'OSLaunchdErrorDomain Code=125'" \
+    "grep -Fq 'Domain does not support specified action'" \
+    'GUI launch smoke unsupported on this runner'; do
+    if ! grep -Fq -- "$needle" "$helper"; then
+      echo "FAIL: smoke-launch helper must explicitly detect unsupported GUI launch: $needle"
+      exit 1
+    fi
+  done
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! awk '
+      /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw=1 }
+      END { exit !saw }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") signing smoke must allow only explicit unsupported-GUI launch skips"
+      exit 1
+    fi
+  done
+
+  echo "PASS: signing smoke handles unsupported GUI launch explicitly"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -397,6 +424,7 @@ check_signing_intermediate_imports
 check_sentry_cli_install_portability
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
+check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
