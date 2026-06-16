@@ -80,6 +80,37 @@ struct CanvasMinimapViewTests {
         #expect(root.minimapAutoHideScheduler.hasPendingHide)
     }
 
+    @Test func resetClearsMinimapViewInteractionStateBeforeNextDrag() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRootWithMinimapContent(panelA: panelA, panelB: panelB)
+        defer {
+            root.teardown()
+        }
+        root.holdMinimapVisible()
+        root.minimapView.mouseEntered(
+            with: mouseEvent(
+                type: .mouseMoved,
+                location: minimapWindowPoint(root, CGPoint(x: 40, y: 40))
+            )
+        )
+
+        root.resetMinimapVisibility()
+        root.updateMinimap(reveal: true)
+
+        #expect(root.minimapAutoHideScheduler.hasPendingHide)
+
+        root.minimapView.mouseDown(
+            with: mouseEvent(
+                type: .leftMouseDown,
+                location: minimapWindowPoint(root, CGPoint(x: 44, y: 42))
+            )
+        )
+
+        #expect(root.isMinimapInteractionActive)
+        #expect(!root.minimapAutoHideScheduler.hasPendingHide)
+    }
+
     @Test func overlayFrameShrinksInsideNarrowRoot() {
         let frame = CanvasRootView.minimapOverlayFrame(
             rootRect: CGRect(x: 0, y: 0, width: 150, height: 100),

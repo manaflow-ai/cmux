@@ -53,6 +53,7 @@ extension CanvasRootView {
 
     func resetMinimapVisibility() {
         isMinimapInteractionActive = false
+        minimapView.resetInteractionState()
         minimapAutoHideScheduler.cancel()
         minimapView.alphaValue = 0
         minimapView.isHidden = true

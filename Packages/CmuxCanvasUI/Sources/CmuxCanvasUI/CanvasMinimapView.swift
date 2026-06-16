@@ -108,6 +108,12 @@ final class CanvasMinimapView: NSView {
         onScrollWheel?(event)
     }
 
+    func resetInteractionState() {
+        isPointerInside = false
+        isDragging = false
+        isInteractionActive = false
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard snapshot.shouldShow else { return }
         drawBackground()
