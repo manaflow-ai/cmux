@@ -4,6 +4,20 @@ extension CanvasRootView {
     private static let minimapVisibleAlpha: CGFloat = 0.92
     private static let minimapAutoHideDelay: Duration = .seconds(3)
 
+    func configureMinimap(accessibilityLabel: String, accessibilityHelp: String) {
+        minimapView.onCenterChanged = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: false)
+        }
+        minimapView.onCenterSettled = { [weak self] center in
+            self?.setViewport(center: center, magnification: nil, notifySettled: true)
+        }
+        minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
+        minimapView.onInteractionBegan = { [weak self] in self?.holdMinimapVisible() }
+        minimapView.onInteractionEnded = { [weak self] in self?.releaseMinimapAfterInteraction() }
+        minimapView.accessibilityLabelText = accessibilityLabel
+        minimapView.accessibilityHelpText = accessibilityHelp
+    }
+
     func updateMinimap(reveal: Bool = false) {
         guard isWorkspaceVisible else {
             resetMinimapVisibility()
@@ -30,19 +44,46 @@ extension CanvasRootView {
         minimapView.snapshot = snapshot
         if !snapshot.shouldShow {
             resetMinimapVisibility()
+        } else if isMinimapInteractionActive {
+            holdMinimapVisible()
         } else if reveal {
             showMinimapTemporarily()
         }
     }
 
     func resetMinimapVisibility() {
+        isMinimapInteractionActive = false
+        minimapView.resetInteractionState()
         minimapAutoHideScheduler.cancel()
         minimapView.alphaValue = 0
         minimapView.isHidden = true
     }
 
+    func holdMinimapVisible() {
+        guard syncMinimapOverlayHost() else {
+            resetMinimapVisibility()
+            return
+        }
+        isMinimapInteractionActive = true
+        minimapAutoHideScheduler.cancel()
+        minimapView.isHidden = false
+        minimapView.alphaValue = Self.minimapVisibleAlpha
+    }
+
+    func releaseMinimapAfterInteraction() {
+        isMinimapInteractionActive = false
+        guard minimapView.snapshot.shouldShow else {
+            resetMinimapVisibility()
+            return
+        }
+        showMinimapTemporarily()
+    }
+
     private func showMinimapTemporarily() {
-        syncMinimapOverlayHost()
+        guard syncMinimapOverlayHost() else {
+            resetMinimapVisibility()
+            return
+        }
         let shouldAnimateIn = minimapView.isHidden || minimapView.alphaValue < Self.minimapVisibleAlpha
         minimapView.isHidden = false
         if shouldAnimateIn {
@@ -60,6 +101,10 @@ extension CanvasRootView {
 
     private func hideMinimap(animated: Bool) {
         minimapAutoHideScheduler.cancel()
+        guard !isMinimapInteractionActive else {
+            holdMinimapVisible()
+            return
+        }
         guard !minimapView.isHidden || minimapView.alphaValue != 0 else { return }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in

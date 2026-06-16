@@ -272,7 +272,9 @@ final class TerminalOutputCollector {
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError == "Invalid pairing code.")
+    // Assert the category's message rather than a literal so the test tracks
+    // the invalid-code copy instead of breaking each time it is reworded.
+    #expect(store.connectionError == MobilePairingFailureCategory.invalidCode.message)
 }
 
 @MainActor
@@ -1803,7 +1805,9 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.connectionError?.contains("Tailscale") == true)
-    #expect(store.connectionError != "Invalid pairing code.")
+    // The loopback failure must name the fix (Tailscale), not fall through to
+    // the generic invalid-code copy.
+    #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
 }
 
 @MainActor

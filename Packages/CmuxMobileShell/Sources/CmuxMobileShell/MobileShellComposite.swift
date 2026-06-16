@@ -335,12 +335,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// budget cannot both append past the cap, because the second add re-reads
     /// the (already-grown) staged set. The view may pre-filter for
     /// responsiveness, but the store is the authoritative cap.
-    public static let maxPendingAttachmentCount = 10
+    public nonisolated static let maxPendingAttachmentCount = 10
     /// Total encoded-bytes budget across one terminal's staged attachments.
     /// Enforced in the same atomic add path as the count cap so a run of large
     /// photos (or two racing batches) cannot balloon observable state past the
     /// budget regardless of the count.
-    public static let maxPendingAttachmentTotalBytes = 32 * 1024 * 1024
+    public nonisolated static let maxPendingAttachmentTotalBytes = 32 * 1024 * 1024
     /// Per-image encoded-bytes cap. An add whose single image exceeds this is
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).
@@ -354,11 +354,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reject: an add that would push the all-terminals total past this is dropped,
     /// in addition to the per-terminal checks. 64 MB tolerates a couple of full
     /// per-terminal drafts while still bounding the process.
-    public static let maxPendingAttachmentTotalBytesAllTerminals = 64 * 1024 * 1024
+    public nonisolated static let maxPendingAttachmentTotalBytesAllTerminals = 64 * 1024 * 1024
     /// GLOBAL count budget summed across EVERY terminal's staged set. Bounds the
     /// total number of staged images process-wide regardless of how they are spread
     /// across terminals, enforced as a hard reject in the same atomic add path.
-    public static let maxPendingAttachmentCountAllTerminals = 20
+    public nonisolated static let maxPendingAttachmentCountAllTerminals = 20
     /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
     /// session. The composer's photo-staging path captures it before its
     /// (off-main) load + encode and re-checks it just before mutating the store:
@@ -531,6 +531,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
+    var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -1128,7 +1130,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if trimmedCode.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -1151,7 +1153,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if trimmedCode.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
             await connectPairingURL(trimmedCode)
             return
         }
@@ -2222,6 +2224,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the actual fix (Tailscale on the Mac) instead of the
                 // generic invalid-code copy.
                 applyPairingValidationFailure(.loopbackRejected)
+            } else if case MobileSyncPairingPayloadError.unrecognizedURLVersion = error {
+                // A real cmux QR whose grammar version this build predates: the
+                // fix is updating the app, not re-scanning, so say so instead of
+                // the generic "not a valid code" copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
             } else {
                 applyPairingValidationFailure(.invalidCode)
             }
@@ -2380,7 +2387,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static func normalizedPairingURL(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("cmux-ios://") else {
+        guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
             return trimmed
         }
         let scalars = trimmed.unicodeScalars.filter {
