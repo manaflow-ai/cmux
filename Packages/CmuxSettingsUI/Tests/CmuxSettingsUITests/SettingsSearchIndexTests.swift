@@ -72,6 +72,15 @@ struct SettingsSearchIndexTests {
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
     }
 
+    @Test func conditionalAutoNamingAgentSearchFallsBackToSectionAnchor() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        let hit = try #require(index.match("naming agent").first {
+            $0.id == "setting:automation:catalog-automation-auto-naming-agent"
+        })
+        #expect(hit.anchorID == "section:automation")
+    }
+
     /// A resolved anchor must correspond to a real indexed entry,
     /// otherwise the navigation layer would scroll to / highlight an id
     /// no row carries.

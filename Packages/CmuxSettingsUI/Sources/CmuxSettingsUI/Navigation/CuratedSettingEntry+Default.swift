@@ -130,7 +130,7 @@ extension Array where Element == CuratedSettingEntry {
                     String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                     String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
                 ].joined(separator: " "),
-                paths: ["automation.workspaceAutoNaming", "automation.autoNamingAgent"],
+                paths: ["automation.workspaceAutoNaming"],
                 synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"
             ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),

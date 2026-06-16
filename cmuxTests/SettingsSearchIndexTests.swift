@@ -65,6 +65,10 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
+    func testConditionalAutoNamingAgentDoesNotReuseWorkspaceAutoNamingAnchor() {
+        XCTAssertNil(SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent"))
+    }
+
     func testSettingsPathAnchorIncludesTextBoxMaxLines() {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.textBoxMaxLines"),
