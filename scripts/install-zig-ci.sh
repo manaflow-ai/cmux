@@ -138,9 +138,5 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C /tmp
-sudo mkdir -p /usr/local/bin /usr/local/lib
-sudo rm -rf /usr/local/lib/zig
-sudo mkdir -p /usr/local/lib/zig
-sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-zig version
+publish_zig_for_later_steps "${ZIG_DIR}/zig"
+"${ZIG_DIR}/zig" version
