@@ -160,6 +160,36 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Claude Teams tmux mode and following permission flags")
+    func preservesClaudeTeamsTmuxAndPermissionFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--teammate-mode",
+                    "auto",
+                    "--tmux",
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    "sonnet",
+                    "initial prompt should not replay",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+                "--teammate-mode",
+                "auto",
+                "--tmux",
+                "--dangerously-skip-permissions",
+                "--model",
+                "sonnet",
+            ]
+        )
+    }
+
     @Test("Drops OpenCode startup files before preserving cwd")
     func dropsOpenCodeStartupFilesBeforePreservingCwd() {
         #expect(
