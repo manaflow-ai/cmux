@@ -534,6 +534,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalReplaySurfaceIDsPendingWorkspaceMapping: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -661,6 +662,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalReplaySurfaceIDsPendingWorkspaceMapping = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -3076,6 +3078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalReplaySurfaceIDsPendingWorkspaceMapping = []
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
@@ -4258,6 +4261,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private func retryTerminalReplaysPendingWorkspaceMapping(reason: String) {
+        guard remoteClient != nil, connectionState == .connected else { return }
+        let surfaceIDs = terminalReplaySurfaceIDsPendingWorkspaceMapping
+            .filter { hasTerminalOutputSink(surfaceID: $0) && workspaceID(forTerminalID: $0) != nil }
+        guard !surfaceIDs.isEmpty else { return }
+        MobileDebugLog.anchormux(
+            "sync.replay_mapping_ready reason=\(reason) surfaces=\(surfaceIDs.count)"
+        )
+        for surfaceID in surfaceIDs {
+            requestTerminalReplay(surfaceID: surfaceID)
+        }
+    }
+
     private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
         guard hasTerminalOutputSink(surfaceID: surfaceID),
               let payload = try? MobileTerminalInputResponse.decode(data),
@@ -4371,6 +4387,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -4469,11 +4486,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            terminalReplaySurfaceIDsPendingWorkspaceMapping.insert(surfaceID)
             #if DEBUG
             mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=workspace_not_found")
             #endif
             return
         }
+        terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
             #if DEBUG
             mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
@@ -4745,11 +4764,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
+            retryTerminalReplaysPendingWorkspaceMapping(reason: "workspace_list")
             return
         }
         if let selectedWorkspaceID,
            workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
             syncSelectedTerminalForWorkspace()
+            retryTerminalReplaysPendingWorkspaceMapping(reason: "workspace_list")
             return
         }
         setSelectedWorkspaceID(
@@ -4758,6 +4779,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
+        retryTerminalReplaysPendingWorkspaceMapping(reason: "workspace_list")
     }
 
     private func remoteWorkspacesPreservingSnapshots(

@@ -2177,6 +2177,56 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func mountedTerminalReplayRetriesAfterWorkspaceMappingArrives() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = ReplayAfterWorkspaceMappingRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let collector = TerminalOutputCollector()
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    collector.mount(store: store, surfaceID: "late-terminal")
+
+    for _ in 0..<50 {
+        let replayRequests = await router.sentRequests().filter { $0.method == "mobile.terminal.replay" }
+        #expect(replayRequests.isEmpty)
+        if !replayRequests.isEmpty {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    await store.refreshWorkspaces()
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let replay = try #require(replayRequests.first)
+    #expect(replay.workspaceID == "live-workspace")
+    #expect(replay.terminalID == "late-terminal")
+    #expect(replay.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
+    for _ in 0..<200 where collector.lines.isEmpty {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(collector.lines.first?.contains("late") == true)
+    collector.unmount()
+}
+
+@MainActor
 @Test func pullToRefreshAwaitsRealWorkspaceListRoundTrip() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -3005,6 +3055,47 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
                 ),
                 terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
             ])
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor ReplayAfterWorkspaceMappingRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "live-terminal"
+            )
+        case "mobile.workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "late-terminal"
+            )
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: true)
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.replay":
+            return try rpcTerminalReplayFrame(
+                seq: 3,
+                rawText: "unused-tail",
+                renderGridText: "late"
+            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
