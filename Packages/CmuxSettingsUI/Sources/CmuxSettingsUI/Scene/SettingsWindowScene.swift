@@ -34,7 +34,7 @@ public struct SettingsWindowScene: Scene {
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
-    private let searchIndex: SettingsSearchIndex
+    private let searchIndex: SettingsSearchIndex // `SettingsRuntime.catalog` is immutable for this scene lifetime.
 
     public init(runtime: SettingsRuntime) {
         self.runtime = runtime
