@@ -68,6 +68,8 @@ enum ComposerDictationState: Equatable {
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
 struct ComposerDictationTextMerger: Sendable {
+    init() {}
+
     /// Combine the captured base text with the current transcript.
     ///
     /// - A trailing run of whitespace on the base is preserved (the user may

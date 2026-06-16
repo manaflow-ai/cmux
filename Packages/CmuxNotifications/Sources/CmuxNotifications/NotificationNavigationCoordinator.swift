@@ -23,7 +23,7 @@ import Observation
 /// its jump step back to ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
 @MainActor
 @Observable
-public final class NotificationNavigationCoordinator {
+public final class NotificationNavigationCoordinator: NotificationDeliveryTerminalNavigating {
     private let store: any NotificationNavigationStoreReading
     private let windows: any MainWindowContextResolving
     private let unreadTargeting: any UnreadWorkspaceTargeting
@@ -221,6 +221,21 @@ public final class NotificationNavigationCoordinator {
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         openRouting.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    }
+
+    /// Performs a terminal notification click action through the injected click
+    /// routing seam. Used by ``NotificationDeliveryCoordinator`` for tapped OS
+    /// notifications that carry click-action userInfo.
+    @discardableResult
+    public func performClickAction(_ action: NotificationNavClickAction) -> Bool {
+        clickRouting.perform(action)
+    }
+
+    /// Marks a terminal notification read through the injected store seam. Used
+    /// by ``NotificationDeliveryCoordinator`` for dismissed OS notifications and
+    /// successfully performed click actions.
+    public func markNotificationRead(id: UUID) {
+        store.markRead(id: id)
     }
 
     // MARK: Titles

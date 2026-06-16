@@ -34,7 +34,7 @@ final class ComposerDictationController {
     /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
     private let recognizer: SFSpeechRecognizer?
 
-    /// Merges the captured composer base with each live recognition transcript.
+    /// Pure merger that combines the captured base text with speech partials.
     private let textMerger: ComposerDictationTextMerger
 
     /// The audio engine capturing microphone buffers. Built lazily on first
