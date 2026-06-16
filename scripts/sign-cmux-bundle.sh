@@ -94,17 +94,32 @@ echo "==> verifying"
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 
+SIGNED_ENTITLEMENTS="$(mktemp /tmp/cmux-signed-entitlements.XXXXXX.plist)"
+trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
+/usr/bin/codesign -d --entitlements :- "$APP_PATH" >"$SIGNED_ENTITLEMENTS" 2>/dev/null
+
+signed_entitlement_value() {
+  local key="$1"
+  /usr/libexec/PlistBuddy -c "Print :$key" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true
+}
+
 if [[ -n "$APP_ID" ]]; then
-  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "$APP_ID" || {
+  SIGNED_APP_ID="$(signed_entitlement_value "com.apple.application-identifier")"
+  if [[ "$SIGNED_APP_ID" != "$APP_ID" ]]; then
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
-  }
+  fi
 fi
-/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
-  | grep -q "com.apple.developer.web-browser.public-key-credential" || {
-    echo "error: signed app missing web-browser entitlement" >&2
-    exit 1
-  }
+
+if [[ "$(signed_entitlement_value "com.apple.developer.web-browser")" != "true" ]]; then
+  echo "error: signed app missing full web-browser entitlement" >&2
+  exit 1
+fi
+
+if [[ "$(signed_entitlement_value "com.apple.developer.web-browser.public-key-credential")" != "true" ]]; then
+  echo "error: signed app missing WebAuthn browser entitlement" >&2
+  exit 1
+fi
 
 # Helpers must NOT carry the main app's application-identifier.
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do

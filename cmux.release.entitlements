@@ -6,6 +6,8 @@
 	<string>7WLXT3NR37.com.cmuxterm.app</string>
 	<key>com.apple.developer.team-identifier</key>
 	<string>7WLXT3NR37</string>
+	<key>com.apple.developer.web-browser</key>
+	<true/>
 	<key>com.apple.developer.web-browser.public-key-credential</key>
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>

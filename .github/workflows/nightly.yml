@@ -453,7 +453,13 @@ jobs:
             exit 1
           fi
 
-          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST")"
+          BROWSER_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser" "$TMP_PLIST" 2>/dev/null || true)"
+          if [ "$BROWSER_ENTITLEMENT" != "true" ]; then
+            echo "Nightly provisioning profile is missing full web-browser entitlement" >&2
+            exit 1
+          fi
+
+          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
           if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
             echo "Nightly provisioning profile is missing WebAuthn browser entitlement" >&2
             exit 1
