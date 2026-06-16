@@ -71,7 +71,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -113,7 +113,9 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Self-hosted macOS-26 fleet (cmux Mac minis) via the MACOS_RUNNER_26 repo
+    # variable; falls back to GitHub-hosted macos-26 when the variable is unset.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -153,7 +155,9 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Self-hosted macOS-26 fleet (cmux Mac minis) via the MACOS_RUNNER_26 repo
+    # variable; falls back to GitHub-hosted macos-26 when the variable is unset.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -200,6 +204,18 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          # GitHub-hosted macOS images ship the iOS simulator runtime; the
+          # self-hosted mini fleet may not, in which case the next step's
+          # `simctl list devices available` returns nothing. Download it once
+          # (idempotent, cached after first run) so the job is runner-agnostic.
+          if ! xcrun simctl list devices available 2>/dev/null | grep -qiE "iPhone|iPad"; then
+            echo "No iOS simulator runtime found; downloading (one-time, ~8GB)..."
+            xcodebuild -downloadPlatform iOS
+          fi
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
