@@ -15,7 +15,7 @@ import Foundation
 /// Pure and incremental: ``consume(_:)`` may be fed arbitrary chunk
 /// boundaries, including ones that split an escape sequence (the tail is
 /// carried over). Read ``blocks`` after feeding.
-public final class OSC133CommandParser {
+public struct OSC133CommandParser {
     /// The command blocks parsed so far, oldest first.
     public private(set) var blocks: [TerminalCommandBlock] = []
 
@@ -48,7 +48,7 @@ public final class OSC133CommandParser {
     /// Feeds a chunk of raw terminal output through the state machine.
     ///
     /// - Parameter text: A slice of the PTY stream, any length.
-    public func consume(_ text: String) {
+    public mutating func consume(_ text: String) {
         let stream = pending + text
         pending = ""
         var index = stream.startIndex
@@ -78,7 +78,7 @@ public final class OSC133CommandParser {
 
     /// Publishes the running block's output: the already-folded completed
     /// lines plus the open line folded on its own (O(open line), not O(total)).
-    private func flushOpenOutput() {
+    private mutating func flushOpenOutput() {
         guard phase == .output, let openIndex else { return }
         blocks[openIndex].output = foldedOutput + Self.foldLine(openLine)
     }
@@ -206,7 +206,7 @@ public final class OSC133CommandParser {
 
     // MARK: - State transitions
 
-    private func apply(_ action: EscapeAction) {
+    private mutating func apply(_ action: EscapeAction) {
         switch action {
         case .promptStart:
             finalizeOpenOutput()
@@ -231,7 +231,7 @@ public final class OSC133CommandParser {
         }
     }
 
-    private func appendText(_ char: Character) {
+    private mutating func appendText(_ char: Character) {
         switch phase {
         case .command:
             commandBuffer.append(char)
@@ -251,7 +251,7 @@ public final class OSC133CommandParser {
         }
     }
 
-    private func openBlock() {
+    private mutating func openBlock() {
         let block = TerminalCommandBlock(
             id: nextID,
             command: commandBuffer.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -264,7 +264,7 @@ public final class OSC133CommandParser {
         openIndex = blocks.count - 1
     }
 
-    private func closeBlock(exitCode: Int?) {
+    private mutating func closeBlock(exitCode: Int?) {
         guard let openIndex else { return }
         blocks[openIndex].output = foldedOutput + Self.foldLine(openLine)
         blocks[openIndex].exitCode = exitCode
@@ -274,7 +274,7 @@ public final class OSC133CommandParser {
         openLine = ""
     }
 
-    private func finalizeOpenOutput() {
+    private mutating func finalizeOpenOutput() {
         // A new prompt without a D mark (e.g. Ctrl-C, or a shell that skipped
         // D): close the open block with an unknown exit code.
         if openIndex != nil { closeBlock(exitCode: nil) }
