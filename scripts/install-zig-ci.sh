@@ -61,10 +61,17 @@ esac
 ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
 ZIG_TAR="/tmp/${ZIG_NAME}.tar.xz"
 ZIG_SIG="${ZIG_TAR}.minisig"
-ZIG_DIR="/tmp/${ZIG_NAME}"
+ZIG_INSTALL_ROOT="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-zig}"
+ZIG_INSTALL_DIR="${ZIG_INSTALL_ROOT}/${ZIG_NAME}"
 ZIG_OFFICIAL_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz"
 ZIG_MIRROR_URL="${ZIG_MIRROR_URL:-https://zigmirror.hryx.net/zig/${ZIG_NAME}.tar.xz}"
 ZIG_INDEX_ARCH="${ZIG_ARCH}-macos"
+
+if zig_has_required_version "${ZIG_INSTALL_DIR}/zig"; then
+  echo "zig ${ZIG_REQUIRED} already installed at ${ZIG_INSTALL_DIR}/zig"
+  publish_zig_for_later_steps "${ZIG_INSTALL_DIR}/zig"
+  exit 0
+fi
 
 download_file() {
   local url="$1"
@@ -136,11 +143,19 @@ else
   echo "minisign not found; verified Zig tarball with SHA-256 from ${ZIG_INDEX_URL}"
 fi
 
-rm -rf "$ZIG_DIR"
-tar xf "$ZIG_TAR" -C /tmp
-sudo mkdir -p /usr/local/bin /usr/local/lib
-sudo rm -rf /usr/local/lib/zig
-sudo mkdir -p /usr/local/lib/zig
-sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-zig version
+ZIG_EXTRACT_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-zig-extract.XXXXXX")"
+tar xf "$ZIG_TAR" -C "$ZIG_EXTRACT_PARENT"
+mkdir -p "$ZIG_INSTALL_ROOT"
+rm -rf "$ZIG_INSTALL_DIR"
+mv "${ZIG_EXTRACT_PARENT}/${ZIG_NAME}" "$ZIG_INSTALL_DIR"
+rm -rf "$ZIG_EXTRACT_PARENT"
+
+ZIG_BINARY="${ZIG_INSTALL_DIR}/zig"
+if ! zig_has_required_version "$ZIG_BINARY"; then
+  echo "Installed Zig binary is not ${ZIG_REQUIRED}: $ZIG_BINARY" >&2
+  exit 1
+fi
+
+echo "zig ${ZIG_REQUIRED} installed at $ZIG_BINARY"
+publish_zig_for_later_steps "$ZIG_BINARY"
+"$ZIG_BINARY" version

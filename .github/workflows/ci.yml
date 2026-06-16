@@ -298,7 +298,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
+          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -667,7 +667,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$CMUX_DERIVED_DATA_PATH"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
+          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
@@ -1009,7 +1009,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$CMUX_DERIVED_DATA_PATH"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
+          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
