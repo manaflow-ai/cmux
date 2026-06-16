@@ -42,7 +42,10 @@ import Testing
             try tailscaleRoute(index: 0, host: "100.64.0.5"),
         ])
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
+        // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
+        // to its build. The rest of the URL is identical across channels.
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -131,7 +134,7 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
     }

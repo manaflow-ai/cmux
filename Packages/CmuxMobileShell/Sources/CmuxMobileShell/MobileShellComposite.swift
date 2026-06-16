@@ -1177,7 +1177,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if trimmedCode.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -1200,7 +1200,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if trimmedCode.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
             await connectPairingURL(trimmedCode)
             return
         }
@@ -2651,6 +2651,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the actual fix (Tailscale on the Mac) instead of the
                 // generic invalid-code copy.
                 applyPairingValidationFailure(.loopbackRejected)
+            } else if case MobileSyncPairingPayloadError.unrecognizedURLVersion = error {
+                // A real cmux QR whose grammar version this build predates: the
+                // fix is updating the app, not re-scanning, so say so instead of
+                // the generic "not a valid code" copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
             } else {
                 applyPairingValidationFailure(.invalidCode)
             }
@@ -2809,7 +2814,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static func normalizedPairingURL(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("cmux-ios://") else {
+        guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
             return trimmed
         }
         let scalars = trimmed.unicodeScalars.filter {
