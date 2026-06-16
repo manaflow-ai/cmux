@@ -29868,18 +29868,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case .titleUpdate:
             didSendFeedTelemetry = true
             guard !sessionId.isEmpty,
-                  let title = normalizedTitleUpdate(input.title),
-                  let mapped = try? store.lookup(sessionId: sessionId) else {
+                  let title = normalizedTitleUpdate(input.title) else {
                 break
             }
+            let mapped = try? store.lookup(sessionId: sessionId)
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                break
+            }
+            let launchCommand = mapped?.launchCommand ?? agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: inferredPID,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
             try? store.upsert(
                 sessionId: sessionId,
-                workspaceId: mapped.workspaceId,
-                surfaceId: mapped.surfaceId,
-                cwd: mapped.cwd,
-                transcriptPath: mapped.transcriptPath,
-                pid: mapped.pid,
-                launchCommand: mapped.launchCommand,
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId,
+                cwd: hookCwd ?? mapped?.cwd,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                pid: mapped?.pid ?? inferredPID,
+                launchCommand: launchCommand,
                 agentLifecycle: nil,
                 runtimeStatus: nil,
                 updateRuntimeStatus: false,
