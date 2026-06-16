@@ -32,7 +32,7 @@ private struct AmpHookSessionRecord: Decodable {
             guard launcher != nil || executablePath != nil || !(arguments?.isEmpty ?? true) || !(environment?.isEmpty ?? true) else {
                 return nil
             }
-            AgentLaunchCommandSnapshot(
+            return AgentLaunchCommandSnapshot(
                 launcher: launcher,
                 executablePath: executablePath,
                 arguments: arguments ?? [],
