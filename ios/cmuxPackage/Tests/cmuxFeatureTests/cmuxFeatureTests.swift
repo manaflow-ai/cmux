@@ -2676,7 +2676,8 @@ private func scriptedWorkspaceListResponses(
 
 private func waitForWorkspaceListRequestCount(
     _ count: Int,
-    responses: ScriptedTransportResponses
+    responses: ScriptedTransportResponses,
+    sourceLocation: SourceLocation = #_sourceLocation
 ) async throws -> [RecordedRPCRequest] {
     var workspaceLists: [RecordedRPCRequest] = []
     for _ in 0..<200 {
@@ -2686,6 +2687,16 @@ private func waitForWorkspaceListRequestCount(
         }
         try await Task.sleep(nanoseconds: 10_000_000)
     }
+    // Never return a short array: callers index `workspaceLists[0]`/`[1]`
+    // directly, so a timed-out wait that returned fewer than `count` elements
+    // would trap with `Index out of range` and abort the whole xctest process
+    // (taking every concurrently-running test down with it) instead of failing
+    // just this test. Require the count so the failure stays local and readable.
+    try #require(
+        workspaceLists.count >= count,
+        "expected at least \(count) workspace.list request(s), saw \(workspaceLists.count)",
+        sourceLocation: sourceLocation
+    )
     return workspaceLists
 }
 
