@@ -58,4 +58,57 @@ struct ToolbarLayoutMigrationFoldTests {
         let commandIndex = try #require(layout.order.firstIndex(of: .builtin(2)))
         #expect(layout.order[commandIndex + 1] == shift)
     }
+
+    // Two ids that each landed after the v3 schema shipped (⇧, then a later
+    // shortcut standing in for Return) must each fold in exactly once when the
+    // config layer chains the folds. escape=6 is the Return anchor.
+    private let returnKey = ToolbarItemID.builtin(30)
+    private let returnAnchors = [6, 7, 2, 1, 0].map { ToolbarItemID.builtin($0) } // escape, tab, then modifiers
+
+    @Test("chaining two folds inserts each newly-configurable id after its own anchor")
+    func chainsTwoFoldsIndependently() throws {
+        // A pre-⇧, pre-Return v3 order: modifiers, paste(27), tab(7), escape(6).
+        let order = [0, 1, 2, 27, 7, 6].map { ToolbarItemID.builtin($0) }
+        let afterShift = try #require(migration.foldingNewlyConfigurable(
+            shift, after: anchors, order: order, enabled: order
+        ))
+        let afterReturn = try #require(migration.foldingNewlyConfigurable(
+            returnKey, after: returnAnchors, order: afterShift.order, enabled: afterShift.enabled
+        ))
+        // ⇧ sits right after command(2); Return right after escape(6).
+        let commandIndex = try #require(afterReturn.order.firstIndex(of: .builtin(2)))
+        #expect(afterReturn.order[commandIndex + 1] == shift)
+        let escIndex = try #require(afterReturn.order.firstIndex(of: .builtin(6)))
+        #expect(afterReturn.order[escIndex + 1] == returnKey)
+        #expect(afterReturn.enabled.contains(shift))
+        #expect(afterReturn.enabled.contains(returnKey))
+    }
+
+    @Test("re-running the chained folds is a no-op once both ids are present")
+    func chainedFoldsAreIdempotent() throws {
+        let order = [0, 1, 2, 27, 7, 6].map { ToolbarItemID.builtin($0) }
+        let afterShift = try #require(migration.foldingNewlyConfigurable(
+            shift, after: anchors, order: order, enabled: order
+        ))
+        let afterReturn = try #require(migration.foldingNewlyConfigurable(
+            returnKey, after: returnAnchors, order: afterShift.order, enabled: afterShift.enabled
+        ))
+        // A second pass over the already-folded layout adds nothing.
+        #expect(migration.foldingNewlyConfigurable(
+            shift, after: anchors, order: afterReturn.order, enabled: afterReturn.enabled
+        ) == nil)
+        #expect(migration.foldingNewlyConfigurable(
+            returnKey, after: returnAnchors, order: afterReturn.order, enabled: afterReturn.enabled
+        ) == nil)
+    }
+
+    @Test("a user who hid the newly-configurable id keeps it hidden and unmoved")
+    func foldRespectsAnExistingHiddenId() {
+        // Return already in the order but hidden — the fold must not re-show it.
+        let order = [0, 1, 2, 6, 30].map { ToolbarItemID.builtin($0) }
+        let enabled = [0, 1, 2, 6].map { ToolbarItemID.builtin($0) }
+        #expect(migration.foldingNewlyConfigurable(
+            returnKey, after: returnAnchors, order: order, enabled: enabled
+        ) == nil)
+    }
 }
