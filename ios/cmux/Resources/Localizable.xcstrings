@@ -715,6 +715,40 @@
         }
       }
     },
+    "mobile.composer.attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach Photo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を添付"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を削除"
+          }
+        }
+      }
+    },
     "mobile.composer.close": {
       "extractionState": "manual",
       "localizations": {
@@ -3503,6 +3537,23 @@
         }
       }
     },
+    "mobile.workspace.close.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
     "mobile.workspace.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -5573,6 +5624,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エスケープ"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.return": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リターン"
           }
         }
       }
