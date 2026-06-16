@@ -122,6 +122,9 @@ jobs:
           key: tmux-corpus-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: tmux-corpus-spm-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
