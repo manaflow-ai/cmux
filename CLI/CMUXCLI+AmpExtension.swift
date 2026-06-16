@@ -533,7 +533,19 @@ export default function (amp: PluginAPI) {
   // session.start/agent.start misses it. Subscribe once per thread and push each
   // new title to cmux as it lands. Title updates are title-only hook-store
   // writes; they must not replay session-start lifecycle side effects.
-  const titleSubs = new Map<string, { unsubscribe?: () => void; clearTimer?: () => void }>();
+  const titleSubs = new Map<string, {
+    unsubscribe?: () => void;
+    clearTimer?: () => void;
+    flushTitle?: () => void;
+  }>();
+  function flushThreadTitle(threadID: string): void {
+    const sub = titleSubs.get(threadID);
+    if (!sub) return;
+    try {
+      sub.flushTitle?.();
+    } catch (_) {}
+  }
+
   function cleanupThreadTitle(threadID: string): void {
     const sub = titleSubs.get(threadID);
     if (sub) {
@@ -558,8 +570,9 @@ export default function (amp: PluginAPI) {
       flushTimer = null;
       const title = pendingTitle;
       pendingTitle = null;
-      if (!turnActive || !title || title === lastSent) return;
+      if (!title || title === lastSent) return;
       lastSent = title;
+      capturedTitles.set(threadID, title);
       sendHook("title-update", threadID, cwdFromEnv(), { title });
     };
     const clearTimer = () => {
@@ -572,12 +585,14 @@ export default function (amp: PluginAPI) {
         const title = normalizedTitle(value);
         if (!title || title === lastSent) return;
         pendingTitle = title;
+        capturedTitles.set(threadID, title);
         if (flushTimer !== null) clearTimeout(flushTimer);
         flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
       });
       titleSubs.set(threadID, {
         unsubscribe: () => sub.unsubscribe?.(),
         clearTimer,
+        flushTitle,
       });
     } catch (_) {}
   }
@@ -664,7 +679,13 @@ export default function (amp: PluginAPI) {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     sendHook("stop", sessionId, cwdFromEnv());
-    cleanupThreadTitle(sessionId);
+    flushThreadTitle(sessionId);
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (title) sendHook("title-update", sessionId, cwdFromEnv(), { title });
+    }).finally(() => {
+      flushThreadTitle(sessionId);
+      cleanupThreadTitle(sessionId);
+    });
   });
 }
 """#
