@@ -3902,20 +3902,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        if let data = try? Data(contentsOf: storeURL),
-           let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessions = storeJSON["sessions"] as? [String: Any],
-           let persisted = sessions[sessionId] as? [String: Any] {
-            XCTAssertEqual(
-                persisted["isRestorable"] as? Bool,
-                false,
-                "sanitizer-rejected codex exec must be durably marked non-restorable"
-            )
-            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
-            XCTAssertNil(
-                env?["CODEX_HOME"],
-                "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
-            )
-        }
+        let data = try XCTUnwrap(try? Data(contentsOf: storeURL), "expected codex hook store to be written")
+        let storeJSON = try XCTUnwrap(try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any], "expected session record to exist")
+        XCTAssertEqual(
+            persisted["isRestorable"] as? Bool,
+            false,
+            "sanitizer-rejected codex exec must be durably marked non-restorable"
+        )
+        let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+        XCTAssertNil(
+            env?["CODEX_HOME"],
+            "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+        )
     }
 }
