@@ -368,7 +368,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -776,7 +784,7 @@ jobs:
   tests-build-and-lag:
     needs: [detect-changes, debug-app-build]
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Reuse the shared Debug build and keep CA/lag regressions isolated from UI regressions.
     timeout-minutes: 30
     steps:
@@ -1072,7 +1080,7 @@ jobs:
   ui-regressions:
     needs: [detect-changes, debug-app-build]
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Reuse debug-app-build's build-for-testing artifact so UI tests start
     # without a second full Debug compile.
     timeout-minutes: 45
