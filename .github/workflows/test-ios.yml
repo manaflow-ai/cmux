@@ -71,7 +71,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -113,7 +113,9 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Self-hosted macOS-26 fleet (cmux Mac minis) via the MACOS_RUNNER_26 repo
+    # variable; falls back to GitHub-hosted macos-26 when the variable is unset.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -153,7 +155,9 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Self-hosted macOS-26 fleet (cmux Mac minis) via the MACOS_RUNNER_26 repo
+    # variable; falls back to GitHub-hosted macos-26 when the variable is unset.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -191,6 +195,16 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Install zig
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          # Own step (not folded into Provision GhosttyKit): install-zig-ci.sh
+          # publishes zig onto GITHUB_PATH, which only takes effect in the NEXT
+          # step. Running it in the same step as ensure-ghosttykit.sh means a
+          # freshly-downloaded zig isn't on PATH yet on runners that lack a
+          # pre-installed zig, so the GhosttyKit source-build fallback fails.
+          ./scripts/install-zig-ci.sh
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -198,8 +212,42 @@ jobs:
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          # GitHub-hosted macOS images ship a usable iOS runtime + the standard
+          # simulator device set; the self-hosted mini fleet may have neither,
+          # in which case the next "Pick simulator" step finds no available
+          # device and fails. Make the runner self-healing without depending on
+          # `-downloadPlatform` exit status (it exits non-zero with "Duplicate"
+          # when the runtime image is already cached).
+          set -uo pipefail
+          NEEDLE=$([ "$DEVICE_FAMILY" = ipad ] && echo iPad || echo iPhone)
+          # 1. Ensure an iOS runtime is registered. Only download when none is
+          #    listed; tolerate the "Duplicate"/already-cached non-zero exit.
+          if ! xcrun simctl list runtimes 2>/dev/null | grep -qE "iOS [0-9].*com\.apple\.CoreSimulator\.SimRuntime\.iOS"; then
+            echo "No iOS runtime registered; downloading (one-time, ~8GB)..."
+            xcodebuild -downloadPlatform iOS 2>&1 | tail -8 || true
+          fi
+          # 2. Ensure at least one device of this family is available. Creating
+          #    one device makes Xcode populate the full standard set, which the
+          #    "Pick simulator" step prefers from. Resolve the device type and a
+          #    Ready iOS runtime at runtime so this stays Xcode-version-agnostic.
+          if ! xcrun simctl list devices available 2>/dev/null | grep -qi "$NEEDLE"; then
+            RT=$(xcrun simctl list runtimes 2>/dev/null | grep -E "iOS [0-9]" | grep -oE "com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+" | tail -1)
+            DT=$(xcrun simctl list devicetypes 2>/dev/null | grep -E "^$NEEDLE " | grep -oE "com\.apple\.CoreSimulator\.SimDeviceType\.[A-Za-z0-9-]+" | head -1)
+            if [ -n "$RT" ] && [ -n "$DT" ]; then
+              echo "Creating $NEEDLE device ($DT on $RT) to populate the device set..."
+              xcrun simctl create "ci-$NEEDLE" "$DT" "$RT" || true
+            else
+              echo "WARN: could not resolve runtime ($RT) or device type ($DT)" >&2
+            fi
+          fi
+          xcrun simctl list devices available 2>/dev/null | grep -iE "iPhone|iPad" | head -5 || true
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
