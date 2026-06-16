@@ -164,6 +164,58 @@ struct TerminalKeyboardCopyModeResolverTests {
             ) == .startLineSelection
         )
     }
+
+    @Test func capsLockUppercaseVStartsCharacterSelection() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "V",
+                modifiers: [.capsLock],
+                hasSelection: false
+            ) == .startSelection
+        )
+    }
+
+    @Test func capsLockUppercaseYStartsPendingYankLine() {
+        var state = TerminalKeyboardCopyModeInputState()
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 16,
+                charactersIgnoringModifiers: "Y",
+                modifiers: [.capsLock],
+                hasSelection: false,
+                state: &state
+            ) == .consume
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState(pendingYankLine: true))
+    }
+
+    @Test func capsLockUppercaseGStartsPendingTopJump() {
+        var state = TerminalKeyboardCopyModeInputState()
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 5,
+                charactersIgnoringModifiers: "G",
+                modifiers: [.capsLock],
+                hasSelection: false,
+                state: &state
+            ) == .consume
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState(pendingG: true))
+    }
+
+    @Test func capsLockUppercaseNSearchesForward() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "N",
+                modifiers: [.capsLock],
+                hasSelection: false
+            ) == .searchNext
+        )
+    }
 }
 
 @Suite("Terminal keyboard copy mode cursor")

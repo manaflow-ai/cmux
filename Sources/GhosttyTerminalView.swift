@@ -5048,6 +5048,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeCursor = cursor
         if scrollDelta != 0 {
             _ = performBindingAction("scroll_page_lines:\(scrollDelta)")
+            if var anchorRow = keyboardCopyModeVisualLineAnchorRow {
+                var anchorCursor = TerminalKeyboardCopyModeCursor(row: anchorRow, column: 0)
+                anchorCursor.shiftForViewportScroll(
+                    lineDelta: scrollDelta,
+                    rows: metrics.rows,
+                    columns: metrics.columns
+                )
+                anchorRow = anchorCursor.row
+                keyboardCopyModeVisualLineAnchorRow = anchorRow
+            }
         }
 
         let anchorRow = keyboardCopyModeVisualLineAnchorRow ?? cursor.row

@@ -24,10 +24,14 @@ private func terminalKeyboardCopyModeLowercased(_ chars: String) -> String {
 
 private func terminalKeyboardCopyModeIsUppercaseCommand(
     _ chars: String,
+    modifiers: TerminalKeyboardCopyModeModifiers,
     normalizedModifiers: TerminalKeyboardCopyModeModifiers
 ) -> Bool {
     if normalizedModifiers == [.shift] {
         return true
+    }
+    guard !modifiers.contains(.capsLock) else {
+        return false
     }
 
     guard let scalar = chars.unicodeScalars.first, scalar.isASCII else {
@@ -95,6 +99,7 @@ public func terminalKeyboardCopyModeAction(
     let lowercasedChars = terminalKeyboardCopyModeLowercased(chars)
     let isUppercaseCommand = terminalKeyboardCopyModeIsUppercaseCommand(
         chars,
+        modifiers: modifiers,
         normalizedModifiers: normalized
     )
 
@@ -243,6 +248,7 @@ public func terminalKeyboardCopyModeResolve(
     let lowercasedChars = terminalKeyboardCopyModeLowercased(chars)
     let isUppercaseCommand = terminalKeyboardCopyModeIsUppercaseCommand(
         chars,
+        modifiers: modifiers,
         normalizedModifiers: normalized
     )
 
