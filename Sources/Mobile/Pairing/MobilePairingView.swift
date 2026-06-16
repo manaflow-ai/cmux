@@ -223,19 +223,25 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        // Manual entry sits above the QR so Copy IP / Copy Port are reachable
+        // without scrolling (they used to sit below the steps, below the fold).
+        if ready.reachableViaTailscale {
+            manualFallback(ready)
+        }
+
         VStack(alignment: .center, spacing: 14) {
-            // The QR fills the window width (resize the window for an even
-            // bigger code). The spec 4-module quiet zone is baked into the
-            // bitmap itself so it scales with the code; the padding and white
-            // card here are cosmetic.
+            // The spec 4-module quiet zone (white margin) is baked into the QR
+            // bitmap itself, so the code gets no extra white card padding here:
+            // the old 12pt-padded white card doubled the visible quiet zone.
+            // Width is capped so the manual block, the whole QR, and the
+            // waiting indicator all fit the default window without scrolling.
             MobilePairingQRImageView(payload: ready.attachURL)
-                .padding(12)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                .frame(maxWidth: 380)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(Color.secondary.opacity(0.2))
                 )
-                .frame(maxWidth: .infinity)
 
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
@@ -247,10 +253,6 @@ struct MobilePairingView: View {
         .frame(maxWidth: .infinity)
 
         steps
-
-        if ready.reachableViaTailscale {
-            manualFallback(ready)
-        }
 
         HStack {
             Spacer()
