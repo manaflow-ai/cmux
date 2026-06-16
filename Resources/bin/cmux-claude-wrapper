@@ -358,7 +358,7 @@ claude_option_consumes_value() {
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
         --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
         --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
+        --settings|--system-prompt|--teammate-mode|--tools)
             return 0
             ;;
     esac
