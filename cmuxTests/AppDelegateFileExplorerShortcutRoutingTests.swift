@@ -33,6 +33,28 @@ struct AppDelegateFileExplorerShortcutRoutingTests {
         }
     }
 
+    @Test func fileExplorerShortcutReboundToMenuDefaultKeepsStaleMenuSuppressed() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared, "Expected AppDelegate.shared")
+            let openFolderDefault = KeyboardShortcutSettings.Action.openFolder.defaultShortcut
+            let event = try #require(
+                makeKeyDownEvent(shortcut: openFolderDefault, windowNumber: 0),
+                "Failed to construct Open Folder default event"
+            )
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .openFolder)
+            KeyboardShortcutSettings.setShortcut(openFolderDefault, for: .fileExplorerOpenSelection)
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
+
+            #expect(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "View-scoped file explorer shortcuts must not let stale menu defaults fire"
+            )
+        }
+    }
+
     private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-explorer-shortcut-routing"

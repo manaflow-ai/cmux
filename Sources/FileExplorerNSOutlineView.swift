@@ -16,6 +16,12 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
         }
 
+        if quickSearchActive,
+           RightSidebarKeyboardNavigation.isPlainPrintableText(event),
+           handleQuickSearchKey(event) {
+            return
+        }
+
         if handleOpenSelectionShortcut(event) {
             return
         }
@@ -48,6 +54,11 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if quickSearchActive,
+           RightSidebarKeyboardNavigation.isPlainPrintableText(event),
+           handleQuickSearchKey(event) {
+            return true
+        }
         if handleOpenSelectionShortcut(event) {
             return true
         }
