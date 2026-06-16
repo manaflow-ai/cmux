@@ -1158,9 +1158,10 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
+        let effectiveEffects = Self.fallbackEffects(effects, authorizationState: authorizationState)
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effectiveEffects.desktop ? 1 : 0) sound=\(effectiveEffects.sound ? 1 : 0) command=\(effectiveEffects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
         if effects.reorderWorkspace,
@@ -1168,7 +1169,7 @@ final class TerminalNotificationStore: ObservableObject {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
-        if hasAnyNotificationEffect(effects) {
+        if hasAnyNotificationEffect(effectiveEffects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
@@ -1176,7 +1177,7 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: effectiveEffects
         )
     }
 
@@ -1220,24 +1221,23 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         if !idsToClear.isEmpty {
+            let effectiveEffects = Self.fallbackEffects(effects, authorizationState: authorizationState)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            // A newer notification for this tab+surface superseded the old one
-            // and its Mac banner was just cleared. When a replacement banner
-            // push is expected, DEFER the phone-banner dismiss until that push
-            // is actually queued (see ``deliverNotificationSideEffects``): the
-            // phone must never lose its only banner to a dismissal whose
-            // replacement was throttled. When no replacement will be forwarded
+            // A newer notification for this tab+surface superseded the old one.
+            // When a replacement banner push is expected, DEFER the phone-banner
+            // dismiss until that push is queued: the phone must never lose its
+            // only banner to a dismissal whose replacement was throttled.
+            // When no replacement will be forwarded
             // (suppressed/focused, non-desktop effects, forwarding off, or the
             // `.onlyWhenAway` presence gate suppressing it while the Mac is
             // active), emit the dismiss immediately — nothing is coming to
-            // replace the banner, and the Mac is not showing one either, so
-            // deferring would just leave the stale banner stuck until a later
-            // forward. Only the burst throttle is a legitimate defer-and-flush
-            // case, which is why ``PhonePushClient/willForwardReplacement()``
-            // mirrors the real send gate but ignores that throttle.
+            // replace the banner, and the Mac is not showing one either. Only
+            // the burst throttle is a legitimate defer-and-flush case, so
+            // ``PhonePushClient/willForwardReplacement()`` mirrors the real
+            // send gate but ignores that throttle.
             let replacementWillForward = !shouldSuppressExternalDelivery
-                && effects.desktop
+                && effectiveEffects.desktop
                 && PhonePushClient.shared.willForwardReplacement()
             if replacementWillForward {
                 // The superseded entries already left the store; tombstone them
@@ -1268,7 +1268,7 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: Self.fallbackEffects(effects, authorizationState: authorizationState)
         )
     }
 
@@ -1312,10 +1312,8 @@ final class TerminalNotificationStore: ObservableObject {
             // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
                 let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
-                // Only once the replacement banner push is queued is it safe to
-                // clear the superseded banners it replaces (deferred from
-                // `recordNotification`); a throttled push leaves them stashed
-                // for the next successful forward of this tab/surface.
+                // Clear superseded banners only after the replacement is queued;
+                // a throttled push leaves them stashed for the next forward.
                 if queued {
                     let superseded = supersededPhoneDismissBuffer.flush(
                         forKey: SupersededPhoneDismissBuffer.key(
@@ -2155,6 +2153,8 @@ final class TerminalNotificationStore: ObservableObject {
             store.playSuppressedNotificationFeedback(for: notification, effects: effects)
         }
     }
+
+    func setAuthorizationStateForTesting(_ state: NotificationAuthorizationState) { authorizationState = state }
 
     func promptToEnableNotificationsForTesting() {
         promptToEnableNotifications()

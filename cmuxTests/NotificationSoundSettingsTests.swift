@@ -103,37 +103,50 @@ import Testing
         #expect(await fixture.playOutcome() == true)
     }
 
-    // The out-of-band fallback (direct NSSound) fires exactly when the OS
-    // will not deliver the banner. A user who explicitly denied cmux
-    // notifications asked for silence, so the fallback sound is stripped for
-    // .denied - and only for .denied: fresh installs and granted states keep
-    // the audible fallback, and non-sound effects are never touched.
+    // The out-of-band fallback fires exactly when the OS will not deliver the
+    // banner. A user who explicitly denied cmux notifications asked for
+    // silence, so external feedback is stripped for .denied - and only for
+    // .denied: fresh installs and granted states keep the fallback.
 
-    @Test func deniedAuthorizationStripsFallbackSound() {
+    @Test func deniedAuthorizationStripsExternalFallbackEffects() {
         var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = true
         effects.sound = true
+        effects.command = true
         let denied = TerminalNotificationStore.fallbackEffects(effects, authorizationState: .denied)
+        #expect(!denied.desktop)
         #expect(!denied.sound)
+        #expect(!denied.command)
     }
 
-    @Test func deniedAuthorizationLeavesOtherEffectsIntact() {
+    @Test func deniedAuthorizationLeavesInternalEffectsIntact() {
         var effects = TerminalNotificationPolicyEffects()
+        effects.record = true
+        effects.markUnread = true
+        effects.reorderWorkspace = true
         effects.sound = true
+        effects.command = true
+        effects.paneFlash = true
         let denied = TerminalNotificationStore.fallbackEffects(effects, authorizationState: .denied)
-        #expect(denied.command == effects.command)
         #expect(denied.record == effects.record)
-        #expect(denied.desktop == effects.desktop)
         #expect(denied.markUnread == effects.markUnread)
+        #expect(denied.reorderWorkspace == effects.reorderWorkspace)
+        #expect(denied.paneFlash == effects.paneFlash)
     }
 
     @Test func otherAuthorizationStatesKeepFallbackSound() {
         var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = true
         effects.sound = true
+        effects.command = true
         let states: [NotificationAuthorizationState] = [
             .notDetermined, .unknown, .authorized, .provisional, .ephemeral,
         ]
         for state in states {
-            #expect(TerminalNotificationStore.fallbackEffects(effects, authorizationState: state).sound)
+            let fallback = TerminalNotificationStore.fallbackEffects(effects, authorizationState: state)
+            #expect(fallback.desktop)
+            #expect(fallback.sound)
+            #expect(fallback.command)
         }
     }
 }
