@@ -40,7 +40,10 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   // Expand-context affordances get an explicit hover treatment.
   expect(css).toContain("[data-expand-button]:hover {");
   expect(css).toContain("[data-separator='line-info'] {");
+  expect(css).toContain("cursor: pointer");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
+  expect(css).toContain("[data-separator='line-info'] [data-separator-content]::before");
+  expect(css).toContain("[data-separator='line-info'] [data-unmodified-lines]");
   expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-gutter-buffer='buffer']");

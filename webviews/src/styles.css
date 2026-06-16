@@ -103,16 +103,74 @@ body {
 #toolbar {
   position: relative;
   flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 3px 4px 3px 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 74px;
+  padding: 0;
   border-bottom: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-toolbar-bg);
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
+}
+#review-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px 4px 10px;
+  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  overflow: hidden;
+}
+.review-tab,
+.review-tab-icon {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+}
+.review-tab {
+  gap: 7px;
+  max-width: min(260px, 28vw);
+  padding-inline: 10px;
+}
+.review-tab-file {
+  max-width: min(320px, 34vw);
+}
+.review-tab[aria-selected="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.review-tab:hover,
+.review-tab-icon:hover {
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.review-tab span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-tab-icon {
+  width: 28px;
+  flex: 0 0 auto;
+}
+#toolbar-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(132px, 0.6fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 4px 6px 5px 10px;
 }
 .toolbar-left,
 .toolbar-middle,
@@ -183,13 +241,16 @@ body {
 #base-select:focus,
 #jump-select:focus,
 .toolbar-icon:focus-visible,
+.git-action-button:focus-visible,
+.review-tab:focus-visible,
+.review-tab-icon:focus-visible,
 .menu-item:focus-visible,
 .file-entry:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
   outline-offset: 1px;
 }
 @media (max-width: 760px) {
-  #toolbar {
+  #toolbar-main {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "source actions"
@@ -204,6 +265,12 @@ body {
   }
   .toolbar-actions {
     grid-area: actions;
+  }
+  #review-tabs {
+    min-height: 34px;
+  }
+  .review-tab {
+    max-width: 42vw;
   }
 }
 .toolbar-icon {
@@ -228,11 +295,19 @@ body {
 .toolbar-icon[aria-pressed="true"] {
   color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
 }
+.toolbar-icon:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .toolbar-icon[hidden] {
   display: none;
 }
 .toolbar-icon svg,
-.menu-item svg {
+.menu-item svg,
+.review-tab svg,
+.review-tab-icon svg,
+.git-action-button svg,
+.cmux-fileheader svg {
   width: 14px;
   height: 14px;
   display: block;
@@ -255,6 +330,75 @@ body {
 .toolbar-icon svg [data-precision-dot],
 .menu-item svg [data-precision-dot] {
   stroke-width: 2;
+}
+#review-stats,
+#checks-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 68%, var(--cmux-diff-bg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#review-stats {
+  gap: 7px;
+  font-size: 13px;
+}
+#checks-status {
+  padding-inline: 8px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-radius: 7px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 4%, transparent);
+  font-size: 12px;
+}
+.checks-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in lab, var(--cmux-diff-fg) 42%, transparent);
+}
+#checks-status[data-status="pass"] .checks-dot {
+  background: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+#checks-status[data-status="fail"] .checks-dot {
+  background: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#checks-status[data-status="pending"] .checks-dot {
+  background: var(--cmux-diff-accent);
+}
+.checks-count {
+  color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
+}
+.git-action-button {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 4%, transparent);
+  color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
+  font: inherit;
+  font-size: 13px;
+  padding: 0 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.git-action-button-primary {
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.git-action-button:hover:not(:disabled) {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
+.git-action-button:disabled {
+  cursor: default;
+  color: color-mix(in lab, var(--cmux-diff-fg) 34%, var(--cmux-diff-bg));
+  background: color-mix(in lab, var(--cmux-diff-fg) 3%, transparent);
 }
 #options-menu {
   position: absolute;
@@ -615,19 +759,73 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 .cmux-fileheader {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
   min-width: 0;
+  height: 30px;
+  padding: 0 2px 0 0;
+  border-radius: 7px;
   font-family: var(--cmux-diff-ui-font-family);
+}
+.cmux-fileheader[role="button"] {
+  cursor: pointer;
+}
+.cmux-fileheader[role="button"]:hover {
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+}
+.cmux-fileheader:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
+  outline-offset: 1px;
+}
+.cmux-fileheader-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.cmux-fileheader-caret {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+}
+.cmux-fileheader-caret svg {
+  transition: transform 100ms ease;
+}
+.cmux-fileheader[data-collapsed="true"] .cmux-fileheader-caret svg {
+  transform: rotate(-90deg);
 }
 .cmux-fileheader-path {
   display: flex;
   align-items: baseline;
+  gap: 5px;
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
   font-size: 12px;
   line-height: 1.3;
+}
+.cmux-fileheader-path-part {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 0;
+}
+.cmux-fileheader-path-old .cmux-fileheader-name {
+  color: color-mix(in lab, var(--cmux-diff-fg) 64%, var(--cmux-diff-bg));
+  font-weight: 500;
+}
+.cmux-fileheader-rename-arrow {
+  flex: 0 0 auto;
+  color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
+  font-size: 11px;
 }
 .cmux-fileheader-dir {
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
@@ -655,7 +853,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 .cmux-fileheader-meta {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   flex: 0 0 auto;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -664,7 +862,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   color: color-mix(in lab, var(--cmux-diff-fg) 66%, var(--cmux-diff-bg));
   font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   padding: 1.5px 6px;
   border-radius: 5px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
@@ -676,6 +874,25 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 .cmux-fileheader-del {
   color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
   font-weight: 600;
+}
+.cmux-fileheader-open {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
+  padding: 0;
+  cursor: pointer;
+}
+.cmux-fileheader-open:hover,
+.cmux-fileheader-open:focus-visible {
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  color: var(--cmux-diff-fg);
+  outline: none;
 }
 #viewer diffs-container {
   --diffs-font-family: var(--cmux-diff-code-font-family);
@@ -694,7 +911,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
      height undercounted by 2px per file and drift the virtualizer math. The gap
      between cards comes from the renderer layout (see pierre-options.ts), which
      leaves room for the 1px outset ring. */
-  border-radius: 9px;
+  border-radius: 8px;
   box-shadow: 0 0 0 1px color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
   overflow: clip;
   contain: layout paint style;
@@ -761,7 +978,7 @@ body[data-status-only="true"] #status {
 }
 body[data-status-only="true"] #status-text {
   font-weight: 500;
-  letter-spacing: 0.005em;
+  letter-spacing: 0;
 }
 .visually-hidden {
   position: absolute;
@@ -903,7 +1120,7 @@ body[data-loading="true"] #status::before {
   gap: 8px;
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: light-dark(
     color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
     color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)

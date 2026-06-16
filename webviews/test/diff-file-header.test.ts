@@ -1,9 +1,19 @@
 import { expect, test } from "bun:test";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { diffFileLanguageLabel, diffFileLineTotals } from "../src/diff-file-header";
+import { JSDOM } from "jsdom";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { DiffFileHeader, diffFileLanguageLabel, diffFileLineTotals } from "../src/diff-file-header";
+import { createDiffViewerLabelResolver } from "../src/labels";
 
 function fileDiff(partial: Partial<FileDiffMetadata>): FileDiffMetadata {
   return { name: "", type: "change", hunks: [], ...partial } as FileDiffMetadata;
+}
+
+function visibleText(markup: string): string {
+  return markup.replace(/<[^>]*>/g, "");
 }
 
 test("diffFileLanguageLabel is the uppercased file extension (locale-independent)", () => {
@@ -36,4 +46,82 @@ test("diffFileLineTotals sums per-hunk addition/deletion line counts", () => {
 
 test("diffFileLineTotals is zero for an empty hunk list", () => {
   expect(diffFileLineTotals(fileDiff({ hunks: [] }))).toEqual({ additions: 0, deletions: 0 });
+});
+
+test("DiffFileHeader renders rename source path as visible text", () => {
+  const markup = renderToStaticMarkup(
+    createElement(DiffFileHeader, {
+      fileDiff: fileDiff({
+        name: "Sources/NewName.swift",
+        prevName: "Sources/OldName.swift",
+      }),
+    }),
+  );
+  const text = visibleText(markup);
+
+  expect(text).toContain("Sources/OldName.swift");
+  expect(text).toContain("→");
+  expect(text).toContain("Sources/NewName.swift");
+});
+
+test("DiffFileHeader toggles collapse and opens a dedicated tab without also toggling", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>");
+  const previousWindow = (globalThis as any).window;
+  const previousDocument = (globalThis as any).document;
+  const previousHTMLElement = (globalThis as any).HTMLElement;
+  (globalThis as any).window = dom.window;
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  let toggleCount = 0;
+  let openCount = 0;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+
+  try {
+    flushSync(() => {
+      root.render(createElement(DiffFileHeader, {
+        collapsed: false,
+        fileDiff: fileDiff({ name: "src/App.tsx" }),
+        label: createDiffViewerLabelResolver(undefined),
+        onOpenInTab: () => {
+          openCount += 1;
+        },
+        onToggleCollapsed: () => {
+          toggleCount += 1;
+        },
+      }));
+    });
+
+    const header = dom.window.document.querySelector<HTMLElement>(".cmux-fileheader");
+    expect(header?.getAttribute("role")).toBe("button");
+    expect(header?.getAttribute("aria-expanded")).toBe("true");
+
+    header?.click();
+    expect(toggleCount).toBe(1);
+
+    header?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    expect(toggleCount).toBe(2);
+
+    dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open")?.click();
+    expect(openCount).toBe(1);
+    expect(toggleCount).toBe(2);
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    dom.window.close();
+    if (previousWindow === undefined) {
+      delete (globalThis as any).window;
+    } else {
+      (globalThis as any).window = previousWindow;
+    }
+    if (previousDocument === undefined) {
+      delete (globalThis as any).document;
+    } else {
+      (globalThis as any).document = previousDocument;
+    }
+    if (previousHTMLElement === undefined) {
+      delete (globalThis as any).HTMLElement;
+    } else {
+      (globalThis as any).HTMLElement = previousHTMLElement;
+    }
+  }
 });

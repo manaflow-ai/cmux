@@ -1,4 +1,6 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
+import type { KeyboardEvent } from "react";
+import { Icon } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
 
 /**
@@ -35,6 +37,19 @@ export function diffFileLineTotals(fileDiff: FileDiffMetadata): { additions: num
   return { additions, deletions };
 }
 
+function renderPath(path: string) {
+  const slash = path.lastIndexOf("/");
+  const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const filename = slash >= 0 ? path.slice(slash + 1) : path;
+
+  return (
+    <>
+      {directory ? <span className="cmux-fileheader-dir">{directory}</span> : null}
+      <span className="cmux-fileheader-name">{filename}</span>
+    </>
+  );
+}
+
 /**
  * Graphite-style file header: a muted directory prefix with an emphasized
  * filename, a language badge, and +N/-N counts. Rendered by @pierre/diffs'
@@ -43,25 +58,61 @@ export function diffFileLineTotals(fileDiff: FileDiffMetadata): { additions: num
  * live in `styles.css` alongside the rest of the diff-viewer chrome.
  */
 export function DiffFileHeader({
+  collapsed = false,
   fileDiff,
   label,
+  onOpenInTab,
+  onToggleCollapsed,
 }: {
+  collapsed?: boolean;
   fileDiff: FileDiffMetadata;
   label?: DiffViewerLabelResolver;
+  onOpenInTab?: () => void;
+  onToggleCollapsed?: () => void;
 }) {
   const name = fileDiff.name ?? "";
-  const slash = name.lastIndexOf("/");
-  const directory = slash >= 0 ? name.slice(0, slash + 1) : "";
-  const filename = slash >= 0 ? name.slice(slash + 1) : name;
+  const previousName = fileDiff.prevName;
   const badge = diffFileLanguageLabel(fileDiff);
   const { additions, deletions } = diffFileLineTotals(fileDiff);
-  const title = fileDiff.prevName ? `${fileDiff.prevName} → ${name}` : name;
+  const title = previousName ? `${previousName} → ${name}` : name;
+  const toggleLabel = collapsed ? label?.("expandFileDiff") : label?.("collapseFileDiff");
+  const toggleProps = onToggleCollapsed
+    ? {
+      "aria-expanded": !collapsed,
+      "aria-label": toggleLabel,
+      onClick: onToggleCollapsed,
+      onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        event.preventDefault();
+        onToggleCollapsed();
+      },
+      role: "button",
+      tabIndex: 0,
+      title: toggleLabel,
+    }
+    : {};
 
   return (
-    <div className="cmux-fileheader">
-      <span className="cmux-fileheader-path" title={title}>
-        {directory ? <span className="cmux-fileheader-dir">{directory}</span> : null}
-        <span className="cmux-fileheader-name">{filename}</span>
+    <div className="cmux-fileheader" data-collapsed={collapsed ? "true" : "false"} {...toggleProps}>
+      <span className="cmux-fileheader-main">
+        <span className="cmux-fileheader-caret" aria-hidden="true">
+          <Icon name="chevronDown" />
+        </span>
+        <span className={`cmux-fileheader-path${previousName ? " cmux-fileheader-path-renamed" : ""}`} title={title}>
+          {previousName ? (
+            <>
+              <span className="cmux-fileheader-path-part cmux-fileheader-path-old">{renderPath(previousName)}</span>
+              <span className="cmux-fileheader-rename-arrow" aria-hidden="true">
+                →
+              </span>
+              <span className="cmux-fileheader-path-part cmux-fileheader-path-new">{renderPath(name)}</span>
+            </>
+          ) : (
+            renderPath(name)
+          )}
+        </span>
       </span>
       <span className="cmux-fileheader-meta">
         {badge ? <span className="cmux-fileheader-lang">{badge}</span> : null}
@@ -74,6 +125,20 @@ export function DiffFileHeader({
           <span className="cmux-fileheader-del" title={label?.("deletions")}>
             {`−${deletions}`}
           </span>
+        ) : null}
+        {onOpenInTab ? (
+          <button
+            type="button"
+            className="cmux-fileheader-open"
+            title={label?.("openFileDiffInTab")}
+            aria-label={label?.("openFileDiffInTab")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenInTab();
+            }}
+          >
+            <Icon name="openTab" />
+          </button>
         ) : null}
       </span>
     </div>

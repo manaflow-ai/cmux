@@ -165,6 +165,7 @@ export function codeViewUnsafeCSS(): string {
     }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
+      cursor: pointer;
     }
     [data-utility-button] {
       display: inline-flex;
@@ -193,6 +194,13 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
     }
+    [data-separator='line-info'] [data-separator-wrapper] {
+      min-height: calc(var(--diffs-line-height, 20px) + 10px);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-inline: 8px;
+    }
     /* "Expand context" / show-more-lines affordances between hunks: quiet by
        default, clearly interactive on hover (a deliberate control rather than a
        default-styled link). */
@@ -200,10 +208,44 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-expand-button] {
       color: var(--diffs-fg-number);
     }
+    [data-separator='line-info'] [data-separator-content] {
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 6px;
+      padding-inline: 7px;
+    }
+    [data-separator='line-info'] [data-separator-content]::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      flex: 0 0 auto;
+      background: currentColor;
+      opacity: 0.72;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+    [data-separator='line-info'] [data-unmodified-lines] {
+      cursor: pointer;
+    }
+    [data-separator='line-info'] [data-expand-button] {
+      border-radius: 6px;
+      min-width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
     [data-expand-index] [data-separator-content]:hover {
       color: var(--cmux-diff-fg);
       background-color: var(--cmux-diff-hover-bg);
       text-decoration: none;
+    }
+    [data-expand-index]:hover [data-separator-content] {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
     }
     [data-expand-button]:hover {
       color: var(--cmux-diff-fg);
