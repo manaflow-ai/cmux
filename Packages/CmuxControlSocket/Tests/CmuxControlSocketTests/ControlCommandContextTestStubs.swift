@@ -419,6 +419,8 @@ extension ControlSurfaceContext {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings { .init(terminalNotReady: "") }
+
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
@@ -434,11 +436,8 @@ extension ControlSurfaceContext {
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
     func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
+        routing: ControlRoutingSelectors, surfaceID: UUID?, hasSurfaceIDParam: Bool,
+        includeScrollback: Bool, lineLimit: Int?, startIfNeeded: Bool
     ) -> ControlSurfaceReadTextResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(

@@ -290,12 +290,14 @@ extension ControlCommandCoordinator {
         if lineLimit != nil {
             includeScrollback = true
         }
+        let startIfNeeded = bool(params, "start_if_needed") ?? false
         let resolution = context?.controlSurfaceReadText(
             routing: routing,
             surfaceID: uuid(params, "surface_id"),
             hasSurfaceIDParam: params["surface_id"] != nil,
             includeScrollback: includeScrollback,
-            lineLimit: lineLimit
+            lineLimit: lineLimit,
+            startIfNeeded: startIfNeeded
         ) ?? .internalError(message: "Failed to read terminal text")
         switch resolution {
         case .tabManagerUnavailable:
@@ -310,6 +312,12 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: "Surface is not a terminal",
+                data: .object(["surface_id": .string(id.uuidString)])
+            )
+        case .terminalNotReady(let id):
+            return .err(
+                code: "terminal_not_ready",
+                message: context?.controlSurfaceReadTextStrings().terminalNotReady ?? "",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .internalError(let message):

@@ -898,11 +898,13 @@ class TerminalController {
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
     private struct V2SocketRequest {
+        let controlRequest: ControlRequest
         let id: Any?
         let method: String
         let params: [String: Any]
 
         init(bridging request: ControlRequest) {
+            controlRequest = request
             id = request.id.map(\.foundationObject)
             method = request.method
             params = request.params.mapValues { $0.foundationObject }
@@ -927,7 +929,7 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method).runsOnSocketWorker else {
+              ControlCommandExecutionPolicy.runsOnSocketWorker(for: request.controlRequest) else {
             return (false, nil)
         }
 
@@ -1096,6 +1098,10 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "surface.read_text":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 6) {
+                await self.socketWorkerSurfaceReadTextResult(request.controlRequest)
+            }
         case "remote.tmux.sessions":
             return v2RemoteTmuxSessions(id: request.id, params: request.params)
         case "remote.tmux.attach":
@@ -1496,7 +1502,8 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker(mainThreadCallable: false) {
+           ControlCommandExecutionPolicy.runsOnSocketWorker(for: request.controlRequest),
+           !ControlCommandExecutionPolicy.isMainThreadCallableWorkerRequest(request.controlRequest) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -1799,7 +1806,7 @@ class TerminalController {
         let method = bridged.method
         let params = bridged.params
 
-        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+        guard !ControlCommandExecutionPolicy.runsOnSocketWorker(for: request) else {
             return v2Error(
                 id: id,
                 code: "invalid_dispatch",
@@ -3215,7 +3222,7 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
-    private func v2RefreshKnownRefs() {
+    func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()
@@ -5003,28 +5010,6 @@ class TerminalController {
         }
         let rawData = Data(bytes: ptr, count: Int(text.text_len))
         return String(decoding: rawData, as: UTF8.self)
-    }
-
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-            return "ERROR: Terminal surface not found"
-        }
-        guard let snapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return "ERROR: Terminal surface not found"
-        }
-        switch Self.terminalTextPayload(
-            from: snapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
     }
 
     nonisolated static func terminalTextPayload(
@@ -10517,7 +10502,8 @@ class TerminalController {
             result = readTerminalTextBase64(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                startIfNeeded: true
             )
         }
         return result

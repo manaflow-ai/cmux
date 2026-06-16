@@ -4775,7 +4775,7 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try readScreenPayload(client: client, params: params)
             if jsonOutput {
                 print(jsonString(payload))
             } else {
@@ -22257,7 +22257,7 @@ struct CMUXCLI {
             if let start = parsed.value("-S"), let lines = Int(start), lines < 0 {
                 params["lines"] = abs(lines)
             }
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try readScreenPayload(client: client, params: params)
             let text = (payload["text"] as? String) ?? ""
             if parsed.hasFlag("-p") {
                 print(text)
@@ -22794,7 +22794,7 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try readScreenPayload(client: client, params: params)
             if jsonOutput {
                 print(jsonString(payload))
             } else {
@@ -22851,7 +22851,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let payload = try readScreenPayload(client: client, params: params)
             let text = (payload["text"] as? String) ?? ""
             let shell = try runShellCommand(commandText, stdinText: text)
             if shell.status != 0 {
@@ -23027,8 +23027,7 @@ struct CMUXCLI {
                 let titleMatch = query.isEmpty || title.localizedCaseInsensitiveContains(query)
                 var contentMatch = false
                 if includeContent && !query.isEmpty, let wsId = ws["id"] as? String {
-                    let textPayload = try? client.sendV2(method: "surface.read_text", params: ["workspace_id": wsId])
-                    let text = (textPayload?["text"] as? String) ?? ""
+                    let text = contentSearchTerminalText(workspaceId: wsId, client: client) ?? ""
                     contentMatch = text.localizedCaseInsensitiveContains(query)
                 }
                 if titleMatch || contentMatch {

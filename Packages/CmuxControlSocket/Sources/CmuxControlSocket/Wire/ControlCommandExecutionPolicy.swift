@@ -1,3 +1,5 @@
+import Foundation
+
 /// Where a v2 control command executes (was `SocketCommandExecutionPolicy` +
 /// the `socketWorkerV2Methods`/`mainThreadCallableSocketWorkerV2Methods`
 /// tables on `TerminalController`).
@@ -40,6 +42,28 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     public var runsOnSocketWorker: Bool {
         if case .socketWorker = self { return true }
         return false
+    }
+
+    /// True when a concrete request must execute on the socket worker. Most
+    /// commands are classified by method, but `surface.read_text` is
+    /// parameter-sensitive: normal reads are main-actor callable, while demand
+    /// reads may start a cold terminal and wait for readiness.
+    public static func runsOnSocketWorker(for request: ControlRequest) -> Bool {
+        if ControlCommandExecutionPolicy(forMethod: request.method).runsOnSocketWorker {
+            return true
+        }
+        return request.method == "surface.read_text"
+            && controlCommandExecutionPolicyBoolValue(request.params["start_if_needed"]) == true
+    }
+
+    /// True when a concrete worker request is safe to invoke synchronously from
+    /// the main thread.
+    public static func isMainThreadCallableWorkerRequest(_ request: ControlRequest) -> Bool {
+        guard case .socketWorker(let mainThreadCallable) =
+            ControlCommandExecutionPolicy(forMethod: request.method) else {
+            return false
+        }
+        return mainThreadCallable
     }
 
     /// Methods that run on the socket-worker thread instead of the main actor.
@@ -146,4 +170,27 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
     ]
+
+}
+
+private func controlCommandExecutionPolicyBoolValue(_ value: JSONValue?) -> Bool? {
+    switch value {
+    case .bool(let value):
+        return value
+    case .int(let value):
+        return value != 0
+    case .double(let value):
+        return value != 0
+    case .string(let value):
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
+    default:
+        return nil
+    }
 }

@@ -51,4 +51,32 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
+
+    @Test func surfaceReadTextOnlyDemandReadsRunOnTheSocketWorker() {
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .mainActor)
+
+        let normalRead = ControlRequest(id: nil, method: "surface.read_text", params: [:])
+        #expect(!ControlCommandExecutionPolicy.runsOnSocketWorker(for: normalRead))
+
+        let explicitNonDemandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .bool(false)]
+        )
+        #expect(!ControlCommandExecutionPolicy.runsOnSocketWorker(for: explicitNonDemandRead))
+
+        let demandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .bool(true)]
+        )
+        #expect(ControlCommandExecutionPolicy.runsOnSocketWorker(for: demandRead))
+
+        let stringDemandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .string("true")]
+        )
+        #expect(ControlCommandExecutionPolicy.runsOnSocketWorker(for: stringDemandRead))
+    }
 }

@@ -177,6 +177,15 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings {
+        ControlSurfaceReadTextStrings(
+            terminalNotReady: String(
+                localized: "socket.terminal.surfaceStarting",
+                defaultValue: "The terminal surface is starting. Try again in a moment."
+            )
+        )
+    }
+
     /// Resolves the send target surface, matching the legacy
     /// `params["surface_id"] != nil` branch (an explicit param that did not parse
     /// signals `surfaceNotFoundForID`; otherwise the focused surface).
@@ -296,7 +305,8 @@ extension TerminalController {
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         includeScrollback: Bool,
-        lineLimit: Int?
+        lineLimit: Int?,
+        startIfNeeded: Bool
     ) -> ControlSurfaceReadTextResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -314,6 +324,16 @@ extension TerminalController {
         }
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
+        }
+        guard ensureTerminalSurfaceReadyForRead(
+            terminalPanel,
+            reason: "controlSurfaceReadText",
+            startIfNeeded: startIfNeeded
+        ) else {
+            guard startIfNeeded else {
+                return .internalError(message: "Failed to read terminal text")
+            }
+            return .terminalNotReady(surfaceId)
         }
 
         guard let rawSnapshot = readTerminalTextRawSnapshot(
