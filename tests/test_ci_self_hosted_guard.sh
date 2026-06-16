@@ -228,7 +228,8 @@ check_sentry_cli_install_portability() {
     'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
     'SENTRY_CLI_VERSION="${SENTRY_CLI_VERSION:-3.3.0}"' \
     '--connect-timeout 20' \
-    '--max-time 120'; do
+    '--max-time 120' \
+    'sh >&2'; do
     if ! grep -Fq -- "$needle" "$helper"; then
       echo "FAIL: sentry-cli helper must contain $needle"
       exit 1

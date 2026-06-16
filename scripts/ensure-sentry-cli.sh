@@ -12,7 +12,7 @@ mkdir -p "$INSTALL_DIR"
 
 echo "Installing sentry-cli $SENTRY_CLI_VERSION into $INSTALL_DIR" >&2
 curl -fsSL --connect-timeout 20 --max-time 120 https://sentry.io/get-cli/ \
-  | INSTALL_DIR="$INSTALL_DIR" SENTRY_CLI_VERSION="$SENTRY_CLI_VERSION" sh
+  | INSTALL_DIR="$INSTALL_DIR" SENTRY_CLI_VERSION="$SENTRY_CLI_VERSION" sh >&2
 
 SENTRY_CLI="$INSTALL_DIR/sentry-cli"
 if [[ ! -x "$SENTRY_CLI" ]]; then
