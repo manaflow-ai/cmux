@@ -32,6 +32,11 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("reset shortcut defaults", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults"))
         assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
+        assertSearch("naming", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("auto name", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("rename workspace", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("naming agent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
     }
 
     func testSettingsPathAnchorIncludesBrowserEnabled() {
@@ -94,6 +99,20 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings"),
             SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesWorkspaceAutoNaming() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.workspaceAutoNaming"),
+            SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesAutoNamingAgent() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent"),
+            SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
         )
     }
 

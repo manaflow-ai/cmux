@@ -31,6 +31,19 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test(arguments: ["naming", "auto name", "rename workspace", "naming agent"])
+    func autoNamingQueriesFindWorkspaceAutoNamingSetting(query: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match(query)
+        #expect(result.contains { $0.id == "setting:automation:workspace-auto-naming" })
+    }
+
+    @Test func pluralKeywordFindsNotificationCommandEnvironmentVariables() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match("environment variables")
+        #expect(result.contains { $0.id == "setting:app:notification-command" })
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")
@@ -56,6 +69,12 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = try #require(index.anchorID(forSettingsPath: "terminal.copyOnSelect"))
         #expect(index.entries.contains { $0.id == anchor })
+    }
+
+    @Test func resolvesAutoNamingPathsToVisibleWorkspaceAutoNamingAnchor() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == "setting:automation:workspace-auto-naming")
     }
 
     @Test func unknownPathHasNoAnchor() {
