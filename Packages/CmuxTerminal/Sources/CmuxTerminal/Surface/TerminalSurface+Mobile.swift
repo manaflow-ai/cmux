@@ -1,6 +1,7 @@
 public import Foundation
 public import GhosttyKit
 public import CMUXMobileCore
+import CmuxTerminalCore
 
 // MARK: - Paired-iPhone (mobile) input and grid export
 
@@ -52,12 +53,22 @@ extension TerminalSurface {
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
     /// to changed rows).
+    ///
+    /// `inheritedTheme` is the Mac's resolved Ghostty theme (palette + default
+    /// colors) to stamp onto a full snapshot so the phone inherits it. Resolving
+    /// it walks the parsed config and formats colors, which is too expensive for
+    /// the per-keystroke path, so the caller resolves it once (see
+    /// ``resolvedTerminalTheme()``) and caches it across renders, recomputing
+    /// only when the Ghostty config reloads. It is stamped only on a full frame
+    /// (`filteredRows(full:)` drops the theme fields for deltas), so a delta
+    /// export ignores it.
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
-        scrollbackLines: Int = 0
+        scrollbackLines: Int = 0,
+        inheritedTheme: MobileInheritedTerminalTheme? = nil
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
@@ -74,8 +85,19 @@ extension TerminalSurface {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
+        }
+        // Stamp the Mac's resolved Ghostty theme (16-color ANSI palette + default
+        // fg/bg/cursor) so the phone's local libghostty inherits it instead of
+        // hardcoding Monokai. libghostty's grid JSON carries only the *dynamic*
+        // default colors (OSC 10/11/12 a program set at runtime), not the
+        // configured theme, and never the palette. Only a full snapshot keeps it
+        // (`filteredRows(full:)` nils it for deltas), so skip the work on a delta
+        // export — deltas run per keystroke. The caller passes a cached theme so
+        // this is a plain assignment, not a config read, on the hot path.
+        if full, let inheritedTheme {
+            fullFrame.applyInheritedTheme(inheritedTheme)
         }
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
@@ -88,5 +110,36 @@ extension TerminalSurface {
             frame = filtered
         }
         return (frame, frame.plainRows())
+    }
+
+    /// The Mac's resolved Ghostty terminal theme: the full 16-color ANSI palette
+    /// (`#RRGGBB`, indices 0...15) plus the default foreground/background/cursor
+    /// colors, read from the same parsed config the Mac renders with
+    /// (``GhosttyConfig/load()``). The palette is `nil` unless all 16 entries
+    /// resolved, so a partial palette never replaces the phone's consistent
+    /// built-in fallback. The fg/bg/cursor are `nil` when the user has not set
+    /// them, so the phone keeps its own default for an unset color.
+    ///
+    /// This walks the parsed config and formats several NSColors, so callers must
+    /// cache the result and recompute only when the Ghostty config reloads,
+    /// rather than calling it on the per-keystroke render path.
+    ///
+    /// libghostty's C config getter cannot return the palette array (it returns
+    /// `false` for a repeatable/array-shaped key), so this reads the parsed Swift
+    /// config directly, mirroring how the Mac itself resolves these colors.
+    public static func resolvedTerminalTheme() -> MobileInheritedTerminalTheme {
+        let config = GhosttyConfig.load()
+        let palette: [String]?
+        if (0...15).allSatisfy({ config.palette[$0] != nil }) {
+            palette = (0...15).map { config.palette[$0]!.hexString() }
+        } else {
+            palette = nil
+        }
+        return MobileInheritedTerminalTheme(
+            palette: palette,
+            foreground: config.hasParsedForegroundColor ? config.foregroundColor.hexString() : nil,
+            background: config.hasParsedBackgroundColor ? config.backgroundColor.hexString() : nil,
+            cursor: config.hasParsedCursorColor ? config.cursorColor.hexString() : nil
+        )
     }
 }

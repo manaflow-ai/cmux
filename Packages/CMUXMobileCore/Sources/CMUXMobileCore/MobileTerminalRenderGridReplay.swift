@@ -94,6 +94,18 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data("\u{1B}c".utf8))
         bytes.append(Data("\u{1B}[?2026h".utf8))
 
+        // Inherit the Mac's resolved 16-color ANSI palette (OSC 4) so the phone's
+        // local surface resolves any ANSI-indexed colors (live SGR between
+        // frames, and the surface's own fallback) against the Mac's theme rather
+        // than the hardcoded Monokai default. Emitted before the dynamic default
+        // colors so OSC 10/11 (which may reference palette indices on some
+        // hosts) see the inherited palette.
+        if let palette = frame.terminalPalette {
+            for (index, hex) in palette.enumerated() {
+                if let osc = Self.oscPaletteBytes(index, hex) { bytes.append(osc) }
+            }
+        }
+
         // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
         // RGB, so these mainly fix the cursor color and color queries.
         if let osc = Self.oscColorBytes(10, frame.terminalForeground) { bytes.append(osc) }
@@ -237,6 +249,20 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             rgb.blue
         )
         return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+    }
+
+    /// `OSC 4 ; <index> ; rgb:RR/GG/BB ST` — sets one ANSI palette entry. Used to
+    /// replay the Mac's resolved 16-color palette onto the phone's surface so
+    /// inherited ANSI-indexed colors match the Mac's theme.
+    private static func oscPaletteBytes(_ index: Int, _ hex: String?) -> Data? {
+        guard let rgb = rgbComponents(hex) else { return nil }
+        let spec = String(
+            format: "rgb:%02x/%02x/%02x",
+            rgb.red,
+            rgb.green,
+            rgb.blue
+        )
+        return Data("\u{1B}]4;\(index);\(spec)\u{1B}\\".utf8)
     }
 
     private static func vtPrintableBytes(_ text: String) -> Data {
