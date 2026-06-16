@@ -67,6 +67,8 @@ enum ComposerDictationState: Equatable {
 /// composer always reads `base` + the latest transcript and never accumulates
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
+///
+/// lint:allow namespace-enum — deliberate caseless namespace for a pure, stateless text-merge, host-testable without Speech/AVFoundation.
 enum ComposerDictationTextMerge {
     /// Combine the captured base text with the current transcript.
     ///
