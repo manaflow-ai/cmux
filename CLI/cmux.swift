@@ -29990,7 +29990,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                            mapped,
+                            transcriptPath: input.transcriptPath,
+                            allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
+                        )
                     )
                 }
             }
