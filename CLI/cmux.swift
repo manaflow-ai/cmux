@@ -30103,7 +30103,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
-            let promptRestorabilitySignal: Bool? = launchCapture.sanitizerRejected ? false : true
+            let promptRestorabilitySignal: Bool? = launchCapture.sanitizerRejected
+                ? false
+                : (!(launchCommand?.arguments.isEmpty ?? true) ? true : nil)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []

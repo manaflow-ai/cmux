@@ -44,6 +44,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: nil
             ),
             GenericHookPersistenceScenario(
+                agent: "codex",
+                subcommand: "prompt-submit",
+                sessionId: "codex-session-123",
+                executable: "/usr/local/bin/codex",
+                launchArguments: [
+                    "/usr/local/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "resume",
+                    "old-session",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "CODEX_HOME": "/tmp/codex home"
+                ],
+                expectedArguments: [
+                    "/usr/local/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                expectedEnvironment: ["CODEX_HOME": "/tmp/codex home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "gemini",
                 subcommand: "session-start",
                 sessionId: "gemini-session-123",
@@ -3260,6 +3283,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+        if scenario.subcommand == "prompt-submit" {
+            XCTAssertEqual(
+                session["isRestorable"] as? Bool,
+                true,
+                "argv-bearing prompt-submit should durably mark \(scenario.agent) restorable"
+            )
+        }
 
         if scenario.agent == "kiro" {
             let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
@@ -3334,6 +3364,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "startedAt": now,
                     "updatedAt": now,
                     "pid": deadPID,
+                    "isRestorable": true,
                 ],
             ],
         ]
