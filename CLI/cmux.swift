@@ -26818,6 +26818,10 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?,
         allowDefaultResumeCommand: Bool = false
     ) {
+        let hasCapturedLaunchArguments = !(launchCommand?.arguments.isEmpty ?? true)
+        guard hasCapturedLaunchArguments || allowDefaultResumeCommand else {
+            return
+        }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
         // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
         // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
