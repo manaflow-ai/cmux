@@ -15,9 +15,22 @@ final class CanvasMinimapView: NSView {
     var onCenterChanged: ((CGPoint) -> Void)?
     var onCenterSettled: ((CGPoint) -> Void)?
     var onScrollWheel: ((NSEvent) -> Void)?
+    var onInteractionBegan: (() -> Void)?
+    var onInteractionEnded: (() -> Void)?
+    var accessibilityLabelText = "" {
+        didSet { setAccessibilityLabel(accessibilityLabelText) }
+    }
+    var accessibilityHelpText = "" {
+        didSet { setAccessibilityHelp(accessibilityHelpText) }
+    }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
+
+    private var trackingArea: NSTrackingArea?
+    private var isPointerInside = false
+    private var isDragging = false
+    private var isInteractionActive = false
 
     private var drawingRect: CGRect {
         bounds.insetBy(dx: 10, dy: 10)
@@ -30,6 +43,8 @@ final class CanvasMinimapView: NSView {
         layer?.shadowOpacity = 0.18
         layer?.shadowRadius = 10
         layer?.shadowOffset = CGSize(width: 0, height: -2)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
     }
 
     @available(*, unavailable)
@@ -42,16 +57,51 @@ final class CanvasMinimapView: NSView {
         addCursorRect(bounds, cursor: .openHand)
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        self.trackingArea = trackingArea
+        addTrackingArea(trackingArea)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        beginInteraction()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        endInteractionIfIdle()
+    }
+
     override func mouseDown(with event: NSEvent) {
-        recenter(at: convert(event.locationInWindow, from: nil), settled: false)
+        let point = convert(event.locationInWindow, from: nil)
+        isPointerInside = bounds.contains(point)
+        isDragging = true
+        beginInteraction()
+        recenter(at: point, settled: false)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        recenter(at: convert(event.locationInWindow, from: nil), settled: false)
+        let point = convert(event.locationInWindow, from: nil)
+        isPointerInside = bounds.contains(point)
+        recenter(at: point, settled: false)
     }
 
     override func mouseUp(with event: NSEvent) {
-        recenter(at: convert(event.locationInWindow, from: nil), settled: true)
+        let point = convert(event.locationInWindow, from: nil)
+        isPointerInside = bounds.contains(point)
+        isDragging = false
+        recenter(at: point, settled: true)
+        endInteractionIfIdle()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -77,6 +127,23 @@ final class CanvasMinimapView: NSView {
         } else {
             onCenterChanged?(center)
         }
+    }
+
+    private func beginInteraction() {
+        guard !isInteractionActive else { return }
+        isInteractionActive = true
+        onInteractionBegan?()
+    }
+
+    private func endInteractionIfIdle() {
+        guard !isPointerInside, !isDragging else { return }
+        endInteraction()
+    }
+
+    private func endInteraction() {
+        guard isInteractionActive else { return }
+        isInteractionActive = false
+        onInteractionEnded?()
     }
 
     private func drawBackground() {

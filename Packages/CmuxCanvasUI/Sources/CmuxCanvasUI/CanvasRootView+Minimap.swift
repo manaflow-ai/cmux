@@ -41,8 +41,29 @@ extension CanvasRootView {
         minimapView.isHidden = true
     }
 
+    func holdMinimapVisible() {
+        guard syncMinimapOverlayHost() else {
+            resetMinimapVisibility()
+            return
+        }
+        minimapAutoHideScheduler.cancel()
+        minimapView.isHidden = false
+        minimapView.alphaValue = Self.minimapVisibleAlpha
+    }
+
+    func releaseMinimapAfterInteraction() {
+        guard minimapView.snapshot.shouldShow else {
+            resetMinimapVisibility()
+            return
+        }
+        showMinimapTemporarily()
+    }
+
     private func showMinimapTemporarily() {
-        syncMinimapOverlayHost()
+        guard syncMinimapOverlayHost() else {
+            resetMinimapVisibility()
+            return
+        }
         let shouldAnimateIn = minimapView.isHidden || minimapView.alphaValue < Self.minimapVisibleAlpha
         minimapView.isHidden = false
         if shouldAnimateIn {
