@@ -90,7 +90,7 @@ extension SessionIndexStore {
         } catch {
             errorBag.add(String(
                 localized: "sessionIndex.error.ampStoreRead",
-                defaultValue: "Amp: couldn't read saved sessions"
+                defaultValue: "Amp: cannot read amp-hook-sessions.json"
             ))
             return []
         }

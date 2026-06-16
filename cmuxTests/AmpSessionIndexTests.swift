@@ -104,8 +104,8 @@ struct AmpSessionIndexTests {
         let outcome = SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL)
         #expect(outcome.entries == [])
         #expect(outcome.errors.count == 1)
-        // Sanitized: generic copy, no internal filename or path.
-        #expect(outcome.errors[0].contains("Amp: couldn't read saved sessions"))
+        // Sanitized: filename-only copy, no absolute path or decode detail.
+        #expect(outcome.errors[0].contains("Amp: cannot read amp-hook-sessions.json"))
         #expect(!outcome.errors[0].contains(storeURL.path))
     }
 
