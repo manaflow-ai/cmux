@@ -57,7 +57,7 @@ jobs:
           }
 
           domain_changed app '^(\.github/workflows/ci\.yml|\.xcode-version|[^/]+\.h$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmuxTests/|cmuxUITests/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|tests/)'
-          domain_changed daemon '^(\.github/workflows/ci\.yml|daemon/remote/|tests/test_remote_daemon_release_assets\.sh$)'
+          domain_changed daemon '^(\.github/workflows/ci\.yml|daemon/remote/|scripts/build_remote_daemon_release_assets\.sh$|tests/test_remote_daemon_release_assets\.sh$)'
           domain_changed web '^(\.github/workflows/ci\.yml|web/|bun\.lock|package\.json|drizzle\.config\.ts$)'
           domain_changed webviews '^(\.github/workflows/ci\.yml|webviews/|Resources/agent-session-react/|Resources/agent-session-solid/|scripts/build-webviews-app\.sh$|scripts/check-webviews-react-compiler\.mjs$|bun\.lock|package\.json)'
 

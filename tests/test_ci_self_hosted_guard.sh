@@ -242,6 +242,15 @@ check_swift_package_tests_select_xcode() {
   echo "PASS: swift-package-tests selects Xcode before swift test"
 }
 
+check_daemon_detector_includes_release_asset_script() {
+  if ! grep -Fq "scripts/build_remote_daemon_release_assets\\.sh$" "$CI_FILE"; then
+    echo "FAIL: daemon-domain change detector must include scripts/build_remote_daemon_release_assets.sh"
+    exit 1
+  fi
+
+  echo "PASS: daemon-domain change detector includes remote release asset builder"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -291,4 +300,5 @@ check_web_db_behavior_tests
 check_agent_session_resources_gate
 check_app_detector_includes_ui_tests
 check_swift_package_tests_select_xcode
+check_daemon_detector_includes_release_asset_script
 check_tmux_terminal_nightly_isolation
