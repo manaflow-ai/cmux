@@ -1,3 +1,5 @@
+import Foundation
+
 /// Where a v2 control command executes (was `SocketCommandExecutionPolicy` +
 /// the `socketWorkerV2Methods`/`mainThreadCallableSocketWorkerV2Methods`
 /// tables on `TerminalController`).
