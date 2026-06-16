@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 import Darwin
 
@@ -93,11 +95,14 @@ struct DetectedSSHSession: Equatable {
                 let normalizedLocalURL = localURL.standardizedFileURL
                 guard normalizedLocalURL.isFileURL else {
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                        NSLocalizedDescriptionKey: String(
+                            localized: "detectedSSH.fileDrop.error.notFileURL",
+                            defaultValue: "Couldn't upload the dropped item because it isn't a local file. Drop a file from Finder, then try again."
+                        ),
                     ])
                 }
 
-                let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
                 let result = try Self.runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
@@ -105,10 +110,11 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                        "scp exited \(result.status)"
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
+                        NSLocalizedDescriptionKey: String(
+                            localized: "detectedSSH.fileDrop.error.uploadFailed",
+                            defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
+                        ),
                     ])
                 }
 
@@ -298,37 +304,25 @@ struct DetectedSSHSession: Equatable {
             }
             terminateProcessAndWait()
             throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "scp timed out",
+                NSLocalizedDescriptionKey: String(
+                    localized: "detectedSSH.fileDrop.error.scpTimedOut",
+                    defaultValue: "File transfer timed out. Check the remote host and network connection, then try again."
+                ),
             ])
         }
 
         let stdout = String(
-            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         if operation?.isCancelled == true {
             throw TerminalImageTransferExecutionError.cancelled
         }
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
-    }
-
-    private static func bestErrorLine(stderr: String, stdout: String) -> String? {
-        let stderrLine = stderr
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
-        if let stderrLine {
-            return stderrLine
-        }
-
-        return stdout
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
@@ -407,7 +401,7 @@ enum TerminalSSHSessionDetector {
         guard !processes.isEmpty else { return nil }
 
         var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes where isForegroundSSHProcess(process, ttyName: normalizedTTY) {
+        for process in processes where isForegroundRemoteShellProcess(process, ttyName: normalizedTTY) {
             if let args = commandLineArguments(forPID: process.pid) {
                 argumentsByPID[process.pid] = args
             }
@@ -429,15 +423,16 @@ enum TerminalSSHSessionDetector {
         guard !normalizedTTY.isEmpty else { return nil }
 
         let candidates = processes
-            .filter { isForegroundSSHProcess($0, ttyName: normalizedTTY) }
+            .filter { isForegroundRemoteShellProcess($0, ttyName: normalizedTTY) }
             .sorted { lhs, rhs in
                 if lhs.pid != rhs.pid { return lhs.pid > rhs.pid }
                 return lhs.pgid > rhs.pgid
             }
 
         for candidate in candidates {
-            guard let arguments = argumentsByPID[candidate.pid],
-                  let session = parseSSHCommandLine(arguments) else {
+            guard let transport = RemoteShellTransport(executableName: candidate.executableName),
+                  let arguments = argumentsByPID[candidate.pid],
+                  let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
             return session
@@ -449,20 +444,6 @@ enum TerminalSSHSessionDetector {
     private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
-    private static let filteredSSHOptionKeys: Set<String> = [
-        "batchmode",
-        "controlmaster",
-        "controlpersist",
-        "forkafterauthentication",
-        "localcommand",
-        "permitlocalcommand",
-        "remotecommand",
-        "requesttty",
-        "sendenv",
-        "sessiontype",
-        "setenv",
-        "stdioforward",
-    ]
 
     private static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -473,9 +454,9 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundSSHProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            process.executableName == "ssh" &&
+            RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
@@ -496,7 +477,7 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,
@@ -579,12 +560,23 @@ enum TerminalSSHSessionDetector {
         return arguments.count == argc ? arguments : nil
     }
 
+    private static func parseCommandLine(
+        _ arguments: [String],
+        for transport: RemoteShellTransport
+    ) -> DetectedSSHSession? {
+        switch transport {
+        case .ssh:
+            return parseSSHCommandLine(arguments)
+        case .eternalTerminal:
+            return RemoteShellSessionParsing.parseEternalTerminalCommandLine(arguments)
+        }
+    }
+
     private static func parseSSHCommandLine(_ arguments: [String]) -> DetectedSSHSession? {
         guard !arguments.isEmpty else { return nil }
 
         var index = 0
-        if let executable = arguments.first?.split(separator: "/").last,
-           executable == "ssh" {
+        if RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == RemoteShellTransport.ssh.executableName {
             index = 1
         }
 
@@ -626,7 +618,7 @@ enum TerminalSSHSessionDetector {
                 loginName = trimmedValue
                 return true
             case "o":
-                return consumeSSHOption(
+                return RemoteShellSessionParsing.consumeSSHOption(
                     trimmedValue,
                     port: &port,
                     identityFile: &identityFile,
@@ -698,7 +690,7 @@ enum TerminalSSHSessionDetector {
         }
 
         guard let destination else { return nil }
-        let finalDestination = resolveDestination(destination, loginName: loginName)
+        let finalDestination = RemoteShellSessionParsing.resolveDestination(destination, loginName: loginName)
         guard !finalDestination.isEmpty else { return nil }
 
         return DetectedSSHSession(
@@ -714,94 +706,5 @@ enum TerminalSSHSessionDetector {
             compressionEnabled: compressionEnabled,
             sshOptions: sshOptions
         )
-    }
-
-    private static func consumeSSHOption(
-        _ option: String,
-        port: inout Int?,
-        identityFile: inout String?,
-        controlPath: inout String?,
-        jumpHost: inout String?,
-        loginName: inout String?,
-        sshOptions: inout [String]
-    ) -> Bool {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let key = sshOptionKey(trimmed)
-        let value = sshOptionValue(trimmed)
-
-        switch key {
-        case "port":
-            if let value, let parsedPort = Int(value) {
-                port = parsedPort
-                return true
-            }
-            return false
-        case "identityfile":
-            if let value, !value.isEmpty {
-                identityFile = value
-                return true
-            }
-            return false
-        case "controlpath":
-            if let value, !value.isEmpty {
-                controlPath = value
-                return true
-            }
-            return false
-        case "proxyjump":
-            if let value, !value.isEmpty {
-                jumpHost = value
-                return true
-            }
-            return false
-        case "user":
-            if let value, !value.isEmpty {
-                loginName = value
-                return true
-            }
-            return false
-        case let key? where filteredSSHOptionKeys.contains(key):
-            return true
-        case .some, .none:
-            sshOptions.append(trimmed)
-            return true
-        }
-    }
-
-    private static func resolveDestination(_ destination: String, loginName: String?) -> String {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return "" }
-        guard let loginName = loginName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !loginName.isEmpty,
-              !trimmedDestination.contains("@") else {
-            return trimmedDestination
-        }
-        return "\(loginName)@\(trimmedDestination)"
-    }
-
-    private static func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func sshOptionValue(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let equalIndex = trimmed.firstIndex(of: "=") {
-            let value = trimmed[trimmed.index(after: equalIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-
-        let parts = trimmed.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-        guard parts.count == 2 else { return nil }
-        let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
     }
 }

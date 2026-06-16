@@ -1,6 +1,9 @@
 import AppKit
 import Bonsplit
 import CMUXWorkstream
+import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -36,7 +39,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
@@ -55,25 +58,53 @@ extension RightSidebarMode {
     }
 }
 
+nonisolated enum RightSidebarContentMountPolicy {
+    static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
+        isRightSidebarVisible || hasMountedContent
+    }
+}
+
+nonisolated enum FileExplorerRootSyncPolicy {
+    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
+        guard isRightSidebarVisible else { return false }
+        switch mode {
+        case .files, .find:
+            return true
+        case .sessions, .feed, .dock:
+            return false
+        }
+    }
+}
+
+nonisolated enum RightSidebarDirectoryContext {
+    static func normalizedDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func dockRootDirectory(workspaceDirectory: String?, fallbackDirectory: String?) -> String? {
+        normalizedDirectory(workspaceDirectory) ?? normalizedDirectory(fallbackDirectory)
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
+        modeShortcut(for: event, allowingAction: { _ in true })
+    }
+
+    static func modeShortcut(
+        for event: NSEvent,
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+    ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFiles).matches(event: event) {
-            return .files
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
-            return .find
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
-            return .sessions
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFeed).matches(event: event),
-           RightSidebarMode.feed.isAvailable() {
-            return .feed
-        }
-        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToDock).matches(event: event),
-           RightSidebarMode.dock.isAvailable() {
-            return .dock
+        for mode in RightSidebarMode.allCases {
+            guard let action = mode.shortcutAction,
+                  allowingAction(action),
+                  mode.isAvailable(),
+                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+                continue
+            }
+            return mode
         }
         return nil
     }
@@ -148,6 +179,7 @@ enum RightSidebarKeyboardNavigation {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
@@ -165,12 +197,16 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
+    @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
+    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
@@ -182,7 +218,27 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+    }
+
+    private var focusShortcutHintAnimationValue: Bool {
+        alwaysShowShortcutHints || (showModifierHoldHints && focusShortcutHintMonitor.isModifierPressed)
+    }
+
+    private func startShortcutHintMonitorsIfNeeded() {
+        guard showModifierHoldHints else {
+            stopShortcutHintMonitors()
+            return
+        }
+        modeShortcutHintMonitor.start()
+        focusShortcutHintMonitor.start()
+        closeShortcutHintMonitor.start()
+    }
+
+    private func stopShortcutHintMonitors() {
+        modeShortcutHintMonitor.stop()
+        focusShortcutHintMonitor.stop()
+        closeShortcutHintMonitor.stop()
     }
 
     var body: some View {
@@ -192,53 +248,71 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
+        .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)
         )
         .background(
-            WindowAccessor { window in
-                modeShortcutHintMonitor.setHostWindow(window)
-                focusShortcutHintMonitor.setHostWindow(window)
-                closeShortcutHintMonitor.setHostWindow(window)
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                let hintWindow = showModifierHoldHints ? window : nil
+                modeShortcutHintMonitor.setHostWindow(hintWindow)
+                focusShortcutHintMonitor.setHostWindow(hintWindow)
+                closeShortcutHintMonitor.setHostWindow(hintWindow)
             }
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
-            modeShortcutHintMonitor.start()
-            focusShortcutHintMonitor.start()
-            closeShortcutHintMonitor.start()
+            startShortcutHintMonitorsIfNeeded()
+            if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
+            synchronizeDockLifecycle()
         }
         .onDisappear {
-            modeShortcutHintMonitor.stop()
-            focusShortcutHintMonitor.stop()
-            closeShortcutHintMonitor.stop()
+            stopShortcutHintMonitors()
+            synchronizeDockLifecycle(isRightSidebarVisible: false)
+        }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            startShortcutHintMonitorsIfNeeded()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
-            if mode != .dock { dockStore.deactivate() }
+            synchronizeDockLifecycle(mode: mode)
         }
-        .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
+        .onChange(of: fileExplorerState.isVisible) { _, visible in
+            if visible { hasMountedRightSidebarContent = true }
+            synchronizeDockLifecycle(isRightSidebarVisible: visible)
+        }
+        .onChange(of: dockRootDirectory) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: newValue, workspaceId: workspaceId)
+        }
+        .onChange(of: workspaceId) { _, newValue in
+            synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
+        }
+        .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
         return ZStack {
             WindowDragHandleView()
 
-            HStack(spacing: 4) {
+            HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 ForEach(availableModes, id: \.rawValue) { mode in
+                    let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                     ModeBarButton(
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
-                        showsShortcutHint: showsModeShortcutHints
+                        shortcutHint: shortcut,
+                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
+                            shortcut: shortcut,
+                            alwaysShowShortcutHints: alwaysShowShortcutHints,
+                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                            modifierHoldHintsEnabled: showModifierHoldHints
+                        )
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                             mode: mode,
@@ -261,7 +335,6 @@ struct RightSidebarPanelView: View {
             focusShortcutHintOverlay
         }
         .background(TitlebarDoubleClickMonitorView())
-        .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
         .reportRightSidebarChromeGeometryForBonsplitUITest(
@@ -274,13 +347,18 @@ struct RightSidebarPanelView: View {
         Button {
             onOpenAsPane(mode)
         } label: {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                .contentShape(Rectangle())
+            HeaderChromeIconStyle.symbol("rectangle.split.2x1")
         }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarHeaderOpenAsPane",
+            isVisible: true
+        )
+        .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
             String.localizedStringWithFormat(
@@ -289,25 +367,31 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
     }
 
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
-        let showsShortcutHint = titlebarShortcutHintShouldShow(
+        let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: closeShortcutHintMonitor.isModifierPressed
+            modifierPressed: closeShortcutHintMonitor.isModifierPressed,
+            modifierHoldHintsEnabled: showModifierHoldHints
         )
         return ZStack {
             Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                    .contentShape(Rectangle())
+                HeaderChromeIconStyle.symbol("xmark")
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: "rightSidebarHeaderClose",
+                isVisible: true
+            )
             .safeHelp(
                 KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
@@ -316,7 +400,10 @@ struct RightSidebarPanelView: View {
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
-        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
@@ -331,17 +418,20 @@ struct RightSidebarPanelView: View {
                     .zIndex(10)
             }
         }
+        .rightSidebarHeaderControlAlignment()
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .titlebarInteractiveControl()
     }
 
     @ViewBuilder
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
-        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+        let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: focusShortcutHintMonitor.isModifierPressed
+            modifierPressed: focusShortcutHintMonitor.isModifierPressed,
+            modifierHoldHintsEnabled: showModifierHoldHints
         )
         if showsFocusShortcutHint {
             ShortcutHintPill(
@@ -364,35 +454,60 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        switch fileExplorerState.mode {
-        case .files:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .files
-            )
-        case .find:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .find
-            )
-        case .sessions:
-            SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
-                .onAppear {
-                    sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-                }
-        case .feed:
-            FeedPanelView()
-        case .dock:
-            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+        if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
+            switch fileExplorerState.mode {
+            case .files:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .files
+                )
+            case .find:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .find
+                )
+            case .sessions:
+                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                    .onAppear {
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                    }
+            case .feed:
+                FeedPanelView()
+            case .dock:
+                DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+            }
+        } else {
+            Color.clear
         }
     }
 
     private var sessionIndexDirectory: String? {
-        fileExplorerStore.rootPath.isEmpty ? nil : fileExplorerStore.rootPath
+        sessionIndexStore.currentDirectory
+    }
+
+    private var dockRootDirectory: String? {
+        RightSidebarDirectoryContext.dockRootDirectory(
+            workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory,
+            fallbackDirectory: sessionIndexStore.currentDirectory
+        )
+    }
+
+    private func synchronizeDockLifecycle(
+        isRightSidebarVisible: Bool? = nil,
+        mode: RightSidebarMode? = nil,
+        rootDirectory: String? = nil,
+        workspaceId: UUID? = nil
+    ) {
+        dockStore.synchronizeSidebarLifecycle(
+            isRightSidebarVisible: isRightSidebarVisible ?? fileExplorerState.isVisible,
+            mode: mode ?? fileExplorerState.mode,
+            rootDirectory: rootDirectory ?? dockRootDirectory,
+            workspaceId: workspaceId ?? self.workspaceId
+        )
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
@@ -408,7 +523,11 @@ struct RightSidebarPanelView: View {
     private func refreshModeAvailabilityAndFocusIfNeeded() {
         let previousMode = fileExplorerState.mode
         fileExplorerState.refreshModeAvailability()
-        guard previousMode != fileExplorerState.mode,
+        let mode = fileExplorerState.mode
+        if previousMode == mode {
+            synchronizeDockLifecycle(mode: mode)
+        }
+        guard previousMode != mode,
               fileExplorerState.isVisible,
               let window = NSApp.keyWindow ?? NSApp.mainWindow
         else { return }
@@ -458,7 +577,7 @@ final class RightSidebarKeyboardFocusView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
@@ -526,9 +645,24 @@ private struct ModeBarButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.modeIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
+                        isVisible: true
+                    )
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if badgeCount > 0 {
@@ -551,6 +685,7 @@ private struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")

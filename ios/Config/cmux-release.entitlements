@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
+	<!-- APNs remote push. "production" targets the production APNs host
+	     (api.push.apple.com), which is the gateway TestFlight and App Store
+	     builds run against. This Release entitlement is selected per-config via
+	     CODE_SIGN_ENTITLEMENTS in Release.xcconfig; the Debug build uses
+	     cmux.entitlements ("development", sandbox host) so local dev push keeps
+	     working. The reported apnsEnvironment in MobileAuthComposition
+	     ("production" for non-DEBUG) must stay in lockstep with this value so the
+	     backend routes the device token to the matching APNs host. -->
+	<key>aps-environment</key>
+	<string>production</string>
+
+	<!-- Allows the .time-sensitive interruption level used by agent push. -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+</dict>
+</plist>
