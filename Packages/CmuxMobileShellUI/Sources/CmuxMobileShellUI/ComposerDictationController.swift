@@ -251,8 +251,13 @@ final class ComposerDictationController {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            // Record-only category for speech-to-text. `.duckOthers` is NOT valid
+            // for `.record` (only Ambient/PlayAndRecord/Playback/MultiRoute), and
+            // `.notifyOthersOnDeactivation` is only valid on deactivation, so both
+            // are omitted here; passing them throws on OSes that enforce the
+            // documented restrictions and would permanently disable the mic.
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
         } catch {
             failStart()
             return
