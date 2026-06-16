@@ -1327,15 +1327,17 @@ jobs:
       - name: Build iOS app for simulator (compile only, no tests, no boot)
         run: |
           set -euo pipefail
-          # build-for-testing compiles the app and the test targets for the
-          # simulator using a GENERIC destination, so nothing is booted and the
-          # result is deterministic. This catches the Swift compile breaks
-          # (actor isolation, missing await, etc.) that only manifest in the iOS
-          # build and are invisible to the macOS unit-test job.
+          # Compile the iOS app (and all its package dependencies, incl. the
+          # CmuxMobile* packages where the actor-isolation break lived) for a
+          # GENERIC simulator destination: nothing is booted, no virtual display,
+          # no tests run, so the result is deterministic. Plain `build` (not
+          # build-for-testing) keeps the gate to a pure app compile, which is the
+          # break class we are gating; the ios-simulator job still builds+runs
+          # the test targets on iOS PRs.
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath /tmp/cmux-ios-build \
             -clonedSourcePackagesDirPath .spm-cache-ios \
             CODE_SIGNING_ALLOWED=NO \
-            build-for-testing
+            build
