@@ -3810,36 +3810,48 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
-    func flushReturnsWithoutWaitingForBusyWorkQueue() {
-        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.analytics")
-        let workQueueOccupied = DispatchSemaphore(value: 0)
-        let releaseWorkQueue = DispatchSemaphore(value: 0)
-        workQueue.async {
-            workQueueOccupied.signal()
-            releaseWorkQueue.wait()
+    func activeEventCaptureFlushesBeforeShutdown() throws {
+        let suiteName = "cmux.posthog.analytics.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
         }
-        #expect(workQueueOccupied.wait(timeout: .now() + .seconds(1)) == .success)
 
+        let fixedDate = try #require(Calendar(identifier: .iso8601).date(from: DateComponents(
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 2026,
+            month: 2,
+            day: 21,
+            hour: 14
+        )))
+        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.capture")
+        var capturedEvents: [(event: String, properties: [String: Any])] = []
         let flushCalled = DispatchSemaphore(value: 0)
         let analytics = PostHogAnalytics(
-            workQueue: workQueue,
+            workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
+            userDefaults: defaults,
+            now: { fixedDate },
+            capturePostHog: { event, properties in
+                capturedQueue.sync {
+                    capturedEvents.append((event: event, properties: properties))
+                }
+            },
             flushPostHog: {
                 flushCalled.signal()
             }
         )
 
-        let flushReturned = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            analytics.flush()
-            flushReturned.signal()
-        }
-
-        #expect(flushReturned.wait(timeout: .now() + .milliseconds(200)) == .success)
-        #expect(flushCalled.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
-
-        releaseWorkQueue.signal()
+        analytics.trackActive(reason: "didBecomeActive")
         #expect(flushCalled.wait(timeout: .now() + .seconds(1)) == .success)
+        let events = capturedQueue.sync { capturedEvents }
+        #expect(events.map(\.event) == ["cmux_daily_active", "cmux_hourly_active"])
+        let dailyEvent = try #require(events.first)
+        let hourlyEvent = try #require(events.dropFirst().first)
+        #expect(dailyEvent.properties["day_utc"] as? String == "2026-02-21")
+        #expect(dailyEvent.properties["reason"] as? String == "didBecomeActive")
+        #expect(hourlyEvent.properties["hour_utc"] as? String == "2026-02-21T14")
+        #expect(hourlyEvent.properties["reason"] as? String == "didBecomeActive")
     }
 }
 

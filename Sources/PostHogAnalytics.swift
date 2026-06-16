@@ -21,6 +21,9 @@ final class PostHogAnalytics {
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
+    private let userDefaults: UserDefaults
+    private let now: () -> Date
+    private let capturePostHog: (String, [String: Any]) -> Void
     private let flushPostHog: () -> Void
 
     private var didStart: Bool
@@ -29,10 +32,18 @@ final class PostHogAnalytics {
     init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
+        userDefaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        capturePostHog: @escaping (String, [String: Any]) -> Void = { event, properties in
+            PostHogSDK.shared.capture(event, properties: properties)
+        },
         flushPostHog: @escaping () -> Void = { PostHogSDK.shared.flush() }
     ) {
         self.workQueue = workQueue
         self.didStart = didStart
+        self.userDefaults = userDefaults
+        self.now = now
+        self.capturePostHog = capturePostHog
         self.flushPostHog = flushPostHog
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
@@ -80,13 +91,6 @@ final class PostHogAnalytics {
         }
     }
 
-    func flush() {
-        dispatchAsyncOnWorkQueue { [weak self] in
-            guard let self, self.didStart else { return }
-            self.flushPostHog()
-        }
-    }
-
     private func startIfNeededOnWorkQueue() {
         guard !didStart else { return }
         guard isEnabled else { return }
@@ -130,19 +134,18 @@ final class PostHogAnalytics {
         startIfNeededOnWorkQueue()
         guard didStart else { return false }
 
-        let today = utcDayString(Date())
-        let defaults = UserDefaults.standard
-        if defaults.string(forKey: lastActiveDayUTCKey) == today {
+        let today = utcDayString(now())
+        if userDefaults.string(forKey: lastActiveDayUTCKey) == today {
             return false
         }
 
-        defaults.set(today, forKey: lastActiveDayUTCKey)
+        userDefaults.set(today, forKey: lastActiveDayUTCKey)
 
         let event = dailyActiveEvent
 
-        PostHogSDK.shared.capture(
+        capturePostHog(
             event,
-            properties: Self.dailyActiveProperties(
+            Self.dailyActiveProperties(
                 dayUTC: today,
                 reason: reason,
                 infoDictionary: Bundle.main.infoDictionary ?? [:]
@@ -162,19 +165,18 @@ final class PostHogAnalytics {
         startIfNeededOnWorkQueue()
         guard didStart else { return false }
 
-        let hour = utcHourString(Date())
-        let defaults = UserDefaults.standard
-        if defaults.string(forKey: lastActiveHourUTCKey) == hour {
+        let hour = utcHourString(now())
+        if userDefaults.string(forKey: lastActiveHourUTCKey) == hour {
             return false
         }
 
-        defaults.set(hour, forKey: lastActiveHourUTCKey)
+        userDefaults.set(hour, forKey: lastActiveHourUTCKey)
 
         let event = hourlyActiveEvent
 
-        PostHogSDK.shared.capture(
+        capturePostHog(
             event,
-            properties: Self.hourlyActiveProperties(
+            Self.hourlyActiveProperties(
                 hourUTC: hour,
                 reason: reason,
                 infoDictionary: Bundle.main.infoDictionary ?? [:]
