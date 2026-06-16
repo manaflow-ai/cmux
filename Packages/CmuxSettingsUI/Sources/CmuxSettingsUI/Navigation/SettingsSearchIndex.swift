@@ -13,11 +13,6 @@ import Foundation
 ///    localized title, row detail text, config paths, and synonyms.
 ///    This is what makes search useful: typing "copy on select" finds
 ///    the `terminal.copyOnSelect` row even though that's an internal id.
-/// 3. Catalog fallback entries for every ``SettingCatalog`` key not
-///    claimed by a curated row. Those fallbacks navigate to the owning
-///    section, which prevents newly-added settings from silently
-///    becoming impossible to search before a curated row synonym is
-///    written.
 ///
 /// Diacritic-insensitive matching via
 /// `String.folding(options:locale:)`. Matching is per-token AND: every
@@ -93,13 +88,13 @@ public struct SettingsSearchIndex: Sendable {
     /// synonym tokens.
     private let pathAnchorIDs: [String: String]
 
-    /// Builds an index from the section list, supplied curated entries,
-    /// and catalog fallback keys.
+    /// Builds an index from the section list and supplied curated entries.
     ///
     /// - Parameters:
-    ///   - catalog: Source of fallback settings so every real catalog
-    ///     key remains searchable even before it gains a row-specific
-    ///     curated synonym entry.
+    ///   - catalog: Settings catalog used by host call sites. Search
+    ///     visibility is intentionally driven by `curatedEntries`, not
+    ///     by every persisted catalog key, because some catalog keys are
+    ///     hidden/internal state with no visible row to scroll to.
     ///   - curatedEntries: One entry per searchable setting row, with a
     ///     localized title + synonyms. Defaults to
     ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
@@ -109,6 +104,7 @@ public struct SettingsSearchIndex: Sendable {
         catalog: SettingCatalog,
         curatedEntries: [CuratedSettingEntry] = .cmuxDefault
     ) {
+        _ = catalog
         var built: [Entry] = []
 
         for section in SettingsSectionID.allCases {
@@ -125,7 +121,6 @@ public struct SettingsSearchIndex: Sendable {
         }
 
         var pathAnchors: [String: String] = [:]
-        var coveredCatalogPaths = Set<String>()
 
         for entry in curatedEntries {
             let entryID = "setting:\(entry.section.rawValue):\(entry.id)"
@@ -155,31 +150,8 @@ public struct SettingsSearchIndex: Sendable {
             ))
 
             for path in searchPaths {
-                coveredCatalogPaths.insert(path)
                 if pathAnchors[path] == nil { pathAnchors[path] = entryID }
             }
-        }
-
-        for key in catalog.all where !coveredCatalogPaths.contains(key.id) {
-            guard let section = Self.section(forSettingPath: key.id) else { continue }
-            let sectionID = "section:\(section.rawValue)"
-            built.append(Entry(
-                id: "setting:\(section.rawValue):catalog-\(Self.slug(forSettingPath: key.id))",
-                kind: .setting(parent: section),
-                title: Self.title(forSettingPath: key.id),
-                symbolName: section.symbolName,
-                normalizedSearchText: Self.normalize(
-                    [
-                        section.rawValue,
-                        section.title,
-                        section.searchKeywords,
-                        key.id,
-                        Self.searchTokens(forSettingPath: key.id).joined(separator: " "),
-                        Self.storageSearchText(for: key)
-                    ].joined(separator: " ")
-                ),
-                anchorID: sectionID
-            ))
         }
 
         self.entries = built
@@ -395,64 +367,4 @@ public struct SettingsSearchIndex: Sendable {
         return result
     }
 
-    private static func title(forSettingPath path: String) -> String {
-        Self.humanizedIdentifier(path.split(separator: ".").last.map(String.init) ?? path)
-            .split(separator: " ")
-            .map { word in
-                guard let first = word.first else { return "" }
-                return first.uppercased() + String(word.dropFirst())
-            }
-            .joined(separator: " ")
-    }
-
-    private static func slug(forSettingPath path: String) -> String {
-        Self.normalize(Self.humanizedIdentifier(path))
-            .split(separator: " ")
-            .joined(separator: "-")
-    }
-
-    private static func storageSearchText(for key: AnySettingKey) -> String {
-        switch key.kind {
-        case .userDefaults(let key, _, let legacyKeys):
-            return ([key] + legacyKeys).joined(separator: " ")
-        case .jsonConfig:
-            return "cmux json config"
-        case .secretFile(let fileName):
-            return "secret file \(fileName)"
-        }
-    }
-
-    private static func section(forSettingPath path: String) -> SettingsSectionID? {
-        let components = path.split(separator: ".").map(String.init)
-        if components.dropFirst().contains("beta") {
-            return .betaFeatures
-        }
-        guard let prefix = components.first else { return nil }
-        switch prefix {
-        case "account":
-            return .account
-        case "app", "notifications", "workspaceGroups", "markdown", "canvas", "fileEditor":
-            return .app
-        case "terminal":
-            return .terminal
-        case "sidebar", "sidebarAppearance":
-            return .sidebarAppearance
-        case "workspaceColors":
-            return .workspaceColors
-        case "automation", "integrations":
-            return .automation
-        case "browser":
-            return .browser
-        case "mobile":
-            return .mobile
-        case "customSidebars":
-            return .customSidebars
-        case "rightSidebar":
-            return .betaFeatures
-        case "shortcuts":
-            return .keyboardShortcuts
-        default:
-            return nil
-        }
-    }
 }

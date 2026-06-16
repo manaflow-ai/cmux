@@ -75,6 +75,8 @@ struct SettingsRowAnchorResolutionTests {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.urlsToAlwaysOpenExternally",
+        "canvas.paneGap",
+        "canvas.snappingEnabled",
         "customSidebars.renderer",
         "fileEditor.wordWrap",
         "notifications.command",
@@ -202,6 +204,25 @@ struct SettingsRowAnchorResolutionTests {
         #expect(
             brokenAliasedAnchors.isEmpty,
             "these aliased search results point to non-reachable anchors: \(brokenAliasedAnchors.sorted())"
+        )
+    }
+
+    /// A setting search hit must select a real row anchor, not merely
+    /// dump the user at the owning section. Section-only setting hits are
+    /// dead ends for scroll/highlight and usually mean an internal
+    /// persistence key leaked into the search index.
+    @Test
+    func settingEntriesDoNotUseSectionOnlyAnchors() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let sectionIDs = Set(SettingsSectionID.allCases.map { "section:\($0.rawValue)" })
+        let sectionOnlySettings = index.entries
+            .filter { if case .setting = $0.kind { return true } else { return false } }
+            .filter { sectionIDs.contains($0.anchorID) }
+            .map(\.id)
+
+        #expect(
+            sectionOnlySettings.isEmpty,
+            "these search results only navigate to a section instead of a row anchor: \(sectionOnlySettings.sorted())"
         )
     }
 

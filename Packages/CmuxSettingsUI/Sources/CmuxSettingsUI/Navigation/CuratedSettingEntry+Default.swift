@@ -8,10 +8,8 @@ extension Array where Element == CuratedSettingEntry {
     /// `SettingsSearchAliasIndex.settingAliases` tables in
     /// `Sources/SettingsNavigation.swift` and
     /// `Sources/SettingsSearchAliases.swift`. Roughly one row per
-    /// high-signal setting; the surface area is meant to mirror what
-    /// users actually search for. Catalog keys not present here still
-    /// fall back to a section-anchored dotted-id index entry in
-    /// ``SettingsSearchIndex``.
+    /// high-signal setting; the surface area is meant to mirror visible
+    /// rows users actually search for.
     ///
     /// Most strings are English-only until the package ships an
     /// `xcstrings` catalog; newer entries use the same localized
@@ -54,6 +52,20 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
             .init(section: .app, id: "palette-search-all", title: "Command Palette Searches All Surfaces", synonyms: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
+            .init(
+                section: .app,
+                id: "canvas-pane-gap",
+                title: String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"),
+                paths: ["canvas.paneGap"],
+                synonyms: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"
+            ),
+            .init(
+                section: .app,
+                id: "canvas-snapping",
+                title: String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"),
+                paths: ["canvas.snappingEnabled"],
+                synonyms: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"
+            ),
             .init(section: .app, id: "dock-badge", title: "Dock Badge", synonyms: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
             .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
@@ -160,7 +172,15 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
             // Keyboard shortcuts
-            .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged split left split right split up split down new pane new split move surface move tab focus pane resize pane close tab close workspace next previous select workspace"),
+            .init(
+                section: .keyboardShortcuts,
+                id: "shortcuts",
+                title: "Keyboard Shortcuts",
+                synonyms: [
+                    "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged split left split right split up split down new pane new split move surface move tab focus pane resize pane close tab close workspace next previous select workspace",
+                    Self.keyboardShortcutActionSynonyms,
+                ].joined(separator: " ")
+            ),
             .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
@@ -178,5 +198,12 @@ extension Array where Element == CuratedSettingEntry {
             // Reset
             .init(section: .reset, id: "reset-all", title: "Reset All Settings", synonyms: "factory reset restore defaults clear preferences"),
         ]
+    }
+
+    private static var keyboardShortcutActionSynonyms: String {
+        ShortcutAction.allCases
+            .filter { $0 != .showHideAllWindows }
+            .map(\.displayName)
+            .joined(separator: " ")
     }
 }

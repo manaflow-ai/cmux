@@ -66,6 +66,11 @@ struct SettingsSearchIndexTests {
         ("browzer lniks", [
             "setting:browser:terminal-links",
         ]),
+        ("canvas", [
+            "setting:app:canvas-pane-gap",
+            "setting:app:canvas-snapping",
+            "setting:keyboardShortcuts:shortcuts",
+        ]),
     ])
     func fuzzyKeywordQueriesSurfaceRelatedSettings(query: String, expectedIDs: [String]) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
@@ -100,13 +105,35 @@ struct SettingsSearchIndexTests {
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
     }
 
-    @Test func conditionalAutoNamingAgentSearchFallsBackToSectionAnchor() throws {
+    @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
         let hit = try #require(index.match("naming agent").first {
-            $0.id == "setting:automation:catalog-automation-auto-naming-agent"
+            $0.id == "setting:automation:workspace-auto-naming"
         })
-        #expect(hit.anchorID == "section:automation")
+        #expect(hit.anchorID == "setting:automation:workspace-auto-naming")
+    }
+
+    @Test(arguments: [
+        ("welcome shown", "Welcome Shown"),
+        ("selected team id", "Selected Team ID"),
+        ("import hint dismissed", "Import Hint Dismissed"),
+        ("dev window display", "Dev Window Display"),
+        ("notification hooks", "Hooks"),
+        ("notification hooks mode", "Hooks Mode"),
+    ])
+    func rawCatalogOnlyKeysDoNotSurfaceAsSettingsRows(query: String, hiddenTitle: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let hiddenHits = index.match(query).filter { entry in
+            if case .setting = entry.kind {
+                return entry.title == hiddenTitle
+            }
+            return false
+        }
+        #expect(
+            hiddenHits.isEmpty,
+            "Expected settings search for '\(query)' not to surface hidden catalog key '\(hiddenTitle)'"
+        )
     }
 
     /// A resolved anchor must correspond to a real indexed entry,
