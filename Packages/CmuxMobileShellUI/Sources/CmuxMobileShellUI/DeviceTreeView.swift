@@ -212,6 +212,9 @@ struct DeviceTreeView: View {
                         navigationStyle: .sidebar,
                         wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                         previewLineLimit: displaySettings.workspacePreviewLineCount,
+                        unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
+                        profilePictureLeftShift: displaySettings.profilePictureLeftShift,
+                        profilePictureSize: displaySettings.profilePictureSize,
                         selectWorkspace: { id in
                             selectWorkspace(id)
                             dismiss()

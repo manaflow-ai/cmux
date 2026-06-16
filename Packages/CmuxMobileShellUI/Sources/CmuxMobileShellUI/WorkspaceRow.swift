@@ -13,16 +13,19 @@ struct WorkspaceRow: View {
     /// "Preview Lines" setting; 2 is the default). Space is reserved so rows
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
+    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
+    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // Unread is JUST this dot, left of the icon like iMessage. The
             // gutter is always present (hidden dot when read) so read and
             // unread rows line up. Centered against the avatar's height.
-            WorkspaceUnreadDot(isUnread: workspace.hasUnread)
-                .frame(height: 48)
+            WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
+                .frame(height: CGFloat(profilePictureSize))
 
-            WorkspaceAvatar(workspace: workspace)
+            WorkspaceAvatar(workspace: workspace, size: profilePictureSize, leftShift: profilePictureLeftShift)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -78,17 +81,20 @@ struct WorkspaceRow: View {
 
 struct WorkspaceAvatar: View {
     let workspace: MobileWorkspacePreview
+    var size: Double = MobileDisplaySettings.defaultProfilePictureSize
+    var leftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(workspace.avatarGradient)
-                .frame(width: 48, height: 48)
+                .frame(width: CGFloat(size), height: CGFloat(size))
 
             Image(systemName: workspace.avatarSymbolName)
-                .font(.headline)
+                .font(.system(size: CGFloat(size) * 0.38, weight: .semibold))
                 .foregroundStyle(.white)
                 .accessibilityHidden(true)
         }
+        .offset(x: -CGFloat(leftShift))
     }
 }

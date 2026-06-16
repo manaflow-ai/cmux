@@ -16,6 +16,7 @@ struct WorkspaceUnreadDot: View {
     static let dotDiameter: CGFloat = 10
 
     let isUnread: Bool
+    var leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
 
     var body: some View {
         Circle()
@@ -23,6 +24,7 @@ struct WorkspaceUnreadDot: View {
             .frame(width: Self.dotDiameter, height: Self.dotDiameter)
             .opacity(isUnread ? 1 : 0)
             .frame(width: Self.gutterWidth)
+            .offset(x: -CGFloat(leftShift))
             // The dot is decorative here; rows fold the unread state into
             // their combined accessibility summary instead.
             .accessibilityHidden(true)
