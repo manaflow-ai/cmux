@@ -79,6 +79,15 @@ final class ComposerDictationController {
     /// user can toggle it off.
     var isAvailable: Bool { state != .unavailable }
 
+    /// Whether dictation currently owns the composer text, so the field must be
+    /// locked (non-editable) until dictation settles to idle. True while
+    /// `.listening` (partials streaming in) and `.stopping` (final result
+    /// pending); see ``ComposerDictationState/locksComposerField``. The view binds
+    /// the field's `.disabled(...)` to this so a user edit made mid-dictation can
+    /// never be clobbered by a later partial/final callback. The mic toggle and
+    /// send remain usable while locked.
+    var locksComposerField: Bool { state.locksComposerField }
+
     /// Toggle dictation: start if idle, stop if already listening, or cancel a
     /// pending start if authorization is still resolving.
     ///

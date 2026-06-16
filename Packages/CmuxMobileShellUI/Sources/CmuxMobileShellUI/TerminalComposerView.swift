@@ -209,8 +209,13 @@ struct TerminalComposerView: View {
             // field (keyboard stays down).
             store.composerFieldFocusChanged(focused)
             // The field losing focus stops dictation gracefully (the user moved on
-            // but keeps the draft, so the last words are finalized into it).
-            if !focused {
+            // but keeps the draft, so the last words are finalized into it). Skip
+            // this when dictation itself owns the field: locking it (.disabled
+            // while listening/stopping) makes SwiftUI resign first responder, and
+            // that lock-driven focus loss must NOT stop the dictation it just
+            // started. Only a focus loss while the field is NOT locked is the user
+            // moving on, and only that should finalize.
+            if !focused, !dictation.locksComposerField {
                 dictation.stop()
             }
             // COMPOSER: a focus-lost while the flag stayed presented and the
@@ -303,6 +308,16 @@ struct TerminalComposerView: View {
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
                     .focused($isFieldFocused)
+                    // Lock the field while dictation owns the text (`.listening`
+                    // or `.stopping`). Every recognition callback rewrites the
+                    // field as base + transcript, so an edit the user made
+                    // mid-dictation would be silently discarded by the next
+                    // partial/final. Disabling input until dictation settles to
+                    // idle makes that edit impossible rather than letting it be
+                    // clobbered. The field stays visible showing the live
+                    // transcript; the mic toggle and send stay live (send
+                    // hard-cancels dictation -> idle, re-enabling the field).
+                    .disabled(dictation.locksComposerField)
                     .foregroundStyle(TerminalPalette.foreground)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text

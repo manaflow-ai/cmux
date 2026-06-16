@@ -140,6 +140,58 @@ import Testing
         }
     }
 
+    // MARK: - Field lock (dictation owns the text)
+
+    @Test func dictationLocksFieldWhileListeningAndStopping() {
+        // While dictation owns the composer text the field must be locked so a
+        // user edit cannot be silently clobbered by the next partial/final
+        // callback. Both the live capture and the finalize-wait own the text.
+        #expect(ComposerDictationState.listening.locksComposerField)
+        #expect(ComposerDictationState.stopping.locksComposerField)
+    }
+
+    @Test func dictationLeavesFieldEditableWhenNotActive() {
+        // Idle (no session), requestingPermission (engine not started, the field
+        // still holds only what the user typed), and unavailable all leave the
+        // field editable: no callback will overwrite the user's text.
+        #expect(!ComposerDictationState.idle.locksComposerField)
+        #expect(!ComposerDictationState.requestingPermission.locksComposerField)
+        #expect(!ComposerDictationState.unavailable.locksComposerField)
+    }
+
+    @Test func fieldLockMatchesEngineOwnership() {
+        // The lock holds for exactly the states where a recognition callback can
+        // rewrite the field (listening streams partials, stopping awaits the
+        // final), and for no other state.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            let ownsText = state == .listening || state == .stopping
+            #expect(state.locksComposerField == ownsText)
+        }
+    }
+
+    @Test func canStartImpliesFieldUnlocked() {
+        // A startable state is never a locked state: the user can always edit a
+        // field from which dictation can be (re)started, and dictation only locks
+        // once it actually owns the text.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            if state.canStart {
+                #expect(!state.locksComposerField)
+            }
+        }
+    }
+
     @Test func gracefulStopFinalizesOnlyFromListening() {
         // Mirrors the controller's `stop()` branch: a graceful stop finalizes from
         // `.listening` and otherwise falls back to a hard cancel (which finalizes
