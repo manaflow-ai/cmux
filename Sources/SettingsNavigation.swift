@@ -396,6 +396,7 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.automation, "workspace-auto-naming", String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"), "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary agent picker naming agent"),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
@@ -522,6 +523,8 @@ enum SettingsSearchIndex {
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
+        "automation.autoNamingAgent": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
@@ -551,9 +554,16 @@ enum SettingsSearchIndex {
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
-        return allEntries.filter { entry in
-            tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
+        let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        return allEntries.enumerated().compactMap { index, entry -> (entry: SettingsSearchEntry, score: Int, index: Int)? in
+            guard let score = matchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
+            return (entry, score, index)
         }
+        .sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.index < rhs.index
+        }
+        .map { $0.entry }
     }
 
     static func entry(withID id: String) -> SettingsSearchEntry? {
@@ -601,5 +611,73 @@ enum SettingsSearchIndex {
                 }
             }
             .map(String.init)
+    }
+
+    private static func matchScore(_ entry: SettingsSearchEntry, tokens queryTokens: [String], normalizedQuery: String) -> Int? {
+        var total = 0
+        if case .setting = entry.kind { total += 20 }
+        if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
+        for token in queryTokens {
+            guard let score = tokenScore(token, in: entry.normalizedSearchText) else { return nil }
+            total += score
+        }
+        return total
+    }
+
+    private static func tokenScore(_ token: String, in normalizedSearchText: String) -> Int? {
+        let words = normalizedTokens(for: normalizedSearchText)
+        if words.contains(token) { return 120 }
+        if words.contains(where: { $0.hasPrefix(token) }) { return 100 }
+        if normalizedSearchText.contains(token) { return 80 }
+        if words.contains(where: { isFuzzyMatch(token, word: $0) }) { return 60 }
+        if words.contains(where: { isSubsequence(token, of: $0) }) { return 40 }
+        return nil
+    }
+
+    private static func isFuzzyMatch(_ token: String, word: String) -> Bool {
+        let tokenLength = token.count
+        let wordLength = word.count
+        guard min(tokenLength, wordLength) >= 4 else { return false }
+        let maxDistance = min(tokenLength, wordLength) >= 7 ? 2 : 1
+        guard abs(tokenLength - wordLength) <= maxDistance else { return false }
+        return editDistance(token, word, maxDistance: maxDistance) <= maxDistance
+    }
+
+    private static func isSubsequence(_ token: String, of word: String) -> Bool {
+        guard token.count >= 3, token.count <= word.count else { return false }
+        var tokenIndex = token.startIndex
+        for character in word where character == token[tokenIndex] {
+            token.formIndex(after: &tokenIndex)
+            if tokenIndex == token.endIndex { return true }
+        }
+        return false
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String, maxDistance: Int) -> Int {
+        let lhsCharacters = Array(lhs)
+        let rhsCharacters = Array(rhs)
+        if lhsCharacters.isEmpty { return rhsCharacters.count }
+        if rhsCharacters.isEmpty { return lhsCharacters.count }
+
+        var previous = Array(0...rhsCharacters.count)
+        var current = Array(repeating: 0, count: rhsCharacters.count + 1)
+
+        for lhsIndex in 1...lhsCharacters.count {
+            current[0] = lhsIndex
+            var rowMinimum = current[0]
+            for rhsIndex in 1...rhsCharacters.count {
+                let substitutionCost = lhsCharacters[lhsIndex - 1] == rhsCharacters[rhsIndex - 1] ? 0 : 1
+                current[rhsIndex] = min(
+                    previous[rhsIndex] + 1,
+                    current[rhsIndex - 1] + 1,
+                    previous[rhsIndex - 1] + substitutionCost
+                )
+                rowMinimum = min(rowMinimum, current[rhsIndex])
+            }
+            if rowMinimum > maxDistance { return maxDistance + 1 }
+            swap(&previous, &current)
+        }
+
+        return previous[rhsCharacters.count]
     }
 }
