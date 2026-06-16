@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import Sentry
 
+@MainActor private var sentryMemoryContextTask: Task<Void, Never>?
+
 /// Add a Sentry breadcrumb for user-action context in hang/crash reports.
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
     guard TelemetrySettings.enabledForCurrentLaunch else { return }
@@ -46,30 +48,65 @@ func sentryCaptureError(
     sentryCaptureMessage(message, level: .error, category: category, data: data, contextKey: contextKey)
 }
 
-/// Refresh the memory/surface context attached to future Sentry events.
 @MainActor
-func sentryRefreshMemoryContext(reason: String) {
+func sentryStartMemoryContextRefresh() {
+    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    sentryMemoryContextTask?.cancel()
+    sentryMemoryContextTask = Task.detached(priority: .utility) {
+        await sentryRefreshMemoryContext(reason: "startup")
+        while !Task.isCancelled {
+            // Intended periodic telemetry refresh; cancellation is wired to app termination.
+            do {
+                try await Task.sleep(nanoseconds: 300 * 1_000_000_000)
+            } catch {
+                break
+            }
+            await sentryRefreshMemoryContext(reason: "periodic")
+        }
+    }
+}
+
+@MainActor
+func sentryStopMemoryContextRefresh() {
+    sentryMemoryContextTask?.cancel()
+    sentryMemoryContextTask = nil
+}
+
+/// Refresh the memory/surface context attached to future Sentry events.
+func sentryRefreshMemoryContext(reason: String) async {
     guard TelemetrySettings.enabledForCurrentLaunch else { return }
 
     let processSnapshot = CmuxTopProcessSnapshot.captureCached(
         includeProcessDetails: false,
         maximumAge: 2
     )
-    let appProcess = processSnapshot.process(pid: Int(Darwin.getpid()))
-    SentrySDK.configureScope { scope in
-        scope.setContext(value: [
-            "reason": reason,
-            "sampled_at": ISO8601DateFormatter().string(from: processSnapshot.sampledAt),
-            "app": [
-                "pid": Int(Darwin.getpid()),
-                "physical_footprint_bytes": appProcess?.memoryBytes ?? 0,
-                "resident_bytes": appProcess?.residentBytes ?? 0,
-                "virtual_bytes": appProcess?.virtualBytes ?? 0,
-                "thread_count": appProcess?.threadCount ?? 0,
-                "memory_source": appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue,
-                "resident_memory_source": appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
-            ],
-            "terminal_surfaces": GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().payload()
-        ], key: "cmux.memory")
+    let pid = Int(Darwin.getpid())
+    let appProcess = processSnapshot.process(pid: pid)
+    let sampledAt = ISO8601DateFormatter().string(from: processSnapshot.sampledAt)
+    let physicalFootprintBytes = appProcess?.memoryBytes ?? 0
+    let residentBytes = appProcess?.residentBytes ?? 0
+    let virtualBytes = appProcess?.virtualBytes ?? 0
+    let threadCount = appProcess?.threadCount ?? 0
+    let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
+    let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
+    let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
+
+    await MainActor.run {
+        SentrySDK.configureScope { scope in
+            scope.setContext(value: [
+                "reason": reason,
+                "sampled_at": sampledAt,
+                "app": [
+                    "pid": pid,
+                    "physical_footprint_bytes": physicalFootprintBytes,
+                    "resident_bytes": residentBytes,
+                    "virtual_bytes": virtualBytes,
+                    "thread_count": threadCount,
+                    "memory_source": memorySource,
+                    "resident_memory_source": residentMemorySource
+                ],
+                "terminal_surfaces": surfaceSnapshot.payload()
+            ], key: "cmux.memory")
+        }
     }
 }

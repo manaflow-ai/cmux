@@ -840,7 +840,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
-    private var sentryMemoryContextTask: Task<Void, Never>?
     private var lastMenuBarExtraShouldInstall: Bool?
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
@@ -1413,8 +1412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutDefaultsObserver()
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
+            sentryStartMemoryContextRefresh()
         }
-        startSentryMemoryContextRefresh()
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
@@ -1928,8 +1927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        sentryMemoryContextTask?.cancel()
-        sentryMemoryContextTask = nil
+        sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
@@ -1953,24 +1951,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyCrashBreadcrumb.markCleanExit()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
-    }
-
-    private func startSentryMemoryContextRefresh() {
-        guard TelemetrySettings.enabledForCurrentLaunch, !isRunningUnderXCTestCached else { return }
-        sentryRefreshMemoryContext(reason: "startup")
-        sentryMemoryContextTask?.cancel()
-        sentryMemoryContextTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                // Intended periodic telemetry refresh; cancellation is wired to app termination.
-                do {
-                    try await Task.sleep(nanoseconds: 300 * 1_000_000_000)
-                } catch {
-                    break
-                }
-                guard self != nil else { break }
-                sentryRefreshMemoryContext(reason: "periodic")
-            }
-        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
