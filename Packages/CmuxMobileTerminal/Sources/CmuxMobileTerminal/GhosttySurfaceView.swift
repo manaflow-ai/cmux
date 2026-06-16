@@ -611,6 +611,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
+    /// Set when a foreground transition (`didBecomeActive` / `willEnterForeground`)
+    /// reached this view but could not finish resuming the render loop because the
+    /// view was momentarily off-window or surfaceless. The next ``didMoveToWindow``
+    /// (window non-nil) completes the resume so the terminal repaints. Without
+    /// this, a foreground that races the SwiftUI representable re-attach would
+    /// clear suspension but never restart the display link, leaving the terminal
+    /// frozen on stale content while input (a separate RPC) still worked — the
+    /// home-button background→foreground render-freeze.
+    private var pendingForegroundResume: Bool = false
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -1068,6 +1077,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppWillEnterForeground() {
+        // `willEnterForeground` fires before `didBecomeActive` on every foreground
+        // (including the home-button case), so resume the render loop here too,
+        // not only from `didBecomeActive`. `resumeRendering` is idempotent and, if
+        // the view is momentarily off-window, arms `pendingForegroundResume` so
+        // `didMoveToWindow` completes the resume — the terminal repaints regardless
+        // of how the foreground notifications and the SwiftUI re-attach interleave.
+        resumeRendering()
         guard surface != nil, window != nil else { return }
         // The Mac drops this device's sticky viewport pin a few seconds after the
         // connection backgrounds, so on reconnect it reverts to its own (often
@@ -1095,19 +1111,53 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Resume the render loop once the app is active again.
     ///
-    /// A `render_now` in flight at suspend either drained (the GPU was still
-    /// available before background) or never dispatched, and its main-thread
-    /// completion may have been deferred while the queue was suspended — so clear
-    /// the in-flight flag to guarantee the first foreground frame can dispatch,
-    /// re-mark the surface visible, and restart the frame pump. Idempotent.
+    /// Called from both `willEnterForeground` and `didBecomeActive` (and indirectly
+    /// from `didMoveToWindow` via the pending-resume completion), so it must be
+    /// idempotent: the in-flight render gate is reset only on the suspended→active
+    /// transition, never on a second call while already running. Resetting it
+    /// unconditionally would race a `render_now` that a display-link tick enqueued
+    /// between the two foreground notifications — marking it not-in-flight defeats
+    /// the coalescing guard and lets extra renders pile on `outputQueue`.
     private func resumeRendering() {
+        let wasSuspended = renderingSuspended
         renderingSuspended = false
-        renderInFlight = false
-        needsAnotherRender = false
-        guard let surface, window != nil else { return }
-        ghostty_surface_set_occlusion(surface, true)  // true = visible
+        if wasSuspended {
+            // A `render_now` in flight at suspend either drained (the GPU was
+            // still available before background) or never dispatched, and its
+            // main-thread completion may have been deferred while the queue was
+            // suspended — clear the in-flight flag so the first foreground frame
+            // can dispatch. Safe here because no live render can be enqueued while
+            // suspended (`requestRender` early-returns on `renderingSuspended`).
+            renderInFlight = false
+            needsAnotherRender = false
+        }
+        guard let surface, window != nil else {
+            // The foreground notification reached this view before it was back
+            // on-window (a SwiftUI representable re-attach can race the scene
+            // becoming active). Suspension is already cleared, but the display
+            // link can't restart while detached — arm a pending resume so the
+            // next `didMoveToWindow` (window non-nil) finishes the job and the
+            // terminal repaints instead of staying frozen on stale content.
+            pendingForegroundResume = true
+            MobileDebugLog.anchormux("resume.skip hasSurface=\(surface != nil) win=\(window != nil) armedPending")
+            return
+        }
+        pendingForegroundResume = false
+        MobileDebugLog.anchormux("resume.enter restartingDisplayLink")
+        // Re-assert occlusion against the current view state (not unconditionally
+        // visible): a still-hidden/zero-size surface stays occluded so a stale
+        // present can't flash. `syncSurfaceVisibility` updates the cursor overlay.
+        syncSurfaceVisibility()
         setFocus(true)
+        // Force a fresh repaint at the correct size: the IOSurface may have lost
+        // its backing while backgrounded, so a single stale-size draw can land
+        // blank. Clearing `lastReportedSize` forces the natural grid to re-report
+        // even if it is unchanged (the Mac drops the sticky viewport pin while
+        // backgrounded), and the geometry resync guarantees the first foreground
+        // frame is sized and drawn from current content.
+        lastReportedSize = nil
         needsDraw = true
+        setNeedsGeometrySync(reassertNaturalSize: true)
         startDisplayLink()
     }
 
@@ -2143,12 +2193,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             #if DEBUG
             debugAccessibilityProxy.isAccessibilityElement = true
             #endif
-            setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
                 focusInput()
             }
-            startDisplayLink()
+            // Complete a foreground resume that arrived while the view was still
+            // off-window. `resumeRendering` (now back on-window) clears suspension
+            // — otherwise `requestRender` early-returns on every tick and the loop
+            // never paints again — and forces the full repaint (occlusion,
+            // viewport reassert, geometry resync, display link). For a normal
+            // attach (no pending resume) keep the lighter geometry sync + link
+            // restart so an unrelated reattach does not force a viewport re-report.
+            if pendingForegroundResume {
+                MobileDebugLog.anchormux("resume.completeOnAttach")
+                resumeRendering()
+            } else {
+                setNeedsGeometrySync()
+                startDisplayLink()
+            }
         } else {
             prepareForReuseAfterDetach()
         }
