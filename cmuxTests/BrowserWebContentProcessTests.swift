@@ -193,9 +193,30 @@ struct BrowserWebContentProcessTests {
 
         popupWebView.navigationDelegate?.webViewWebContentProcessDidTerminate?(popupWebView)
 
+        #expect(waitUntil(description: "floating popup to close after web content termination") {
+            popupWebView.navigationDelegate == nil &&
+                popupWebView.uiDelegate == nil &&
+                popupWebView.window == nil &&
+                !popupWindow.isVisible
+        })
         #expect(popupWebView.navigationDelegate == nil)
         #expect(popupWebView.uiDelegate == nil)
         #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 3.0,
+        description: String,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 }

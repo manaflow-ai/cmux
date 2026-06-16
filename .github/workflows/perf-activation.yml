@@ -106,6 +106,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
 
       - name: Select Xcode
         run: |

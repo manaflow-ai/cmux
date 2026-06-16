@@ -6322,15 +6322,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to own first responder before repair test"
         )
-
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
+        let wrongResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        window.contentView?.addSubview(wrongResponder)
+        XCTAssertTrue(window.makeFirstResponder(wrongResponder), "Expected test to install a wrong first responder")
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to lose first responder before repaired typing"
         )
-        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+        XCTAssertTrue(window.firstResponder is FocusableTestView, "Expected a non-terminal key-routing responder")
 
 #if DEBUG
         var forwardedKeyDownCount = 0
@@ -9718,7 +9718,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.keyDown(with: returnEvent)
         XCTAssertEqual(submitCount, 0, "Return should let the input method commit marked text")
 
-        textView.unmarkText()
+        textView.insertText("かな", replacementRange: textView.markedRange())
         textView.keyDown(with: returnEvent)
         XCTAssertEqual(submitCount, 1, "Return should submit after marked text is committed")
     }

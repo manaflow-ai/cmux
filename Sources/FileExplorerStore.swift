@@ -922,6 +922,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
         #endif
+        if provider !== newProvider { contentRevision &+= 1; cancelAllLoads() }
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
@@ -943,28 +944,25 @@ final class FileExplorerStore: ObservableObject {
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]
-        guard !rootPath.isEmpty, provider != nil else { return }
+        guard !rootPath.isEmpty, let provider else { return }
         isRootLoading = true
         let path = rootPath
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
-        }
+        let revision = contentRevision
+        let task = Task { [weak self] in guard let self else { return }; await self.loadChildren(for: nil, at: path, provider: provider, revision: revision) }
         loadTasks[rootPath] = task
     }
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
+        guard let provider else { return }
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
-            }
+            let revision = contentRevision
+            let task = Task { [weak self] in guard let self else { return }; await self.loadChildren(for: node, at: nodePath, provider: provider, revision: revision) }
             loadTasks[node.path] = task
         }
     }
@@ -1012,15 +1010,16 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func prefetchChildren(for node: FileExplorerNode) {
-        guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
+        guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path), let provider else { return }
         // Debounce: only prefetch if hover persists for 200ms
         let path = node.path
+        let revision = contentRevision
         prefetchWorkItems[path]?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self, self.provider === provider, self.contentRevision == revision, node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                await self.loadChildren(for: node, at: path, provider: provider, revision: revision, silent: true)
             }
         }
         prefetchWorkItems[path] = workItem
@@ -1045,8 +1044,8 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Private
 
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        guard let provider else { return }
+    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, provider scheduledProvider: FileExplorerProvider, revision scheduledRevision: Int, silent: Bool = false) async {
+        guard provider === scheduledProvider, contentRevision == scheduledRevision, !Task.isCancelled else { return }
 
         if !silent {
             loadingPaths.insert(path)
@@ -1055,8 +1054,9 @@ final class FileExplorerStore: ObservableObject {
         }
 
         do {
-            let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
+            let entries = try await scheduledProvider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard provider === scheduledProvider, contentRevision == scheduledRevision else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node
@@ -1094,10 +1094,8 @@ final class FileExplorerStore: ObservableObject {
                 child.isLoading = true
                 objectWillChange.send()
                 let childPath = child.path
-                let childTask = Task { [weak self] in
-                    guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
-                }
+                let childRevision = contentRevision
+                let childTask = Task { [weak self] in guard let self else { return }; await self.loadChildren(for: child, at: childPath, provider: scheduledProvider, revision: childRevision) }
                 loadTasks[child.path] = childTask
             }
         } catch {

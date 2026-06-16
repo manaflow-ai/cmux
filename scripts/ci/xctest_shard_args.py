@@ -145,6 +145,8 @@ def find_matching_brace(source: str, open_index: int) -> int:
 
 def discover_xctest_identifiers(tests_dir: Path, module: str) -> list[str]:
     identifiers: list[str] = []
+    class_fallbacks: set[str] = set()
+    classes_with_method_identifiers: set[str] = set()
     for path in sorted(tests_dir.glob("*.swift")):
         source = path.read_text(encoding="utf-8")
         masked_source = mask_swift_non_code(source)
@@ -169,6 +171,8 @@ def discover_xctest_identifiers(tests_dir: Path, module: str) -> list[str]:
             if SWIFT_TEST_ATTRIBUTE_RE.search(body):
                 identifiers.append(f"{module}/{type_name}")
             methods = sorted({method.group(1) for method in TEST_METHOD_RE.finditer(body)})
+            if methods:
+                classes_with_method_identifiers.add(type_name)
             identifiers.extend(f"{module}/{type_name}/{method}" for method in methods)
         for match in CLASS_RE.finditer(masked_source):
             class_name = match.group(1)
@@ -179,9 +183,14 @@ def discover_xctest_identifiers(tests_dir: Path, module: str) -> list[str]:
             body = masked_source[open_index:close_index]
             methods = sorted({method.group(1) for method in TEST_METHOD_RE.finditer(body)})
             if methods:
+                classes_with_method_identifiers.add(class_name)
                 identifiers.extend(f"{module}/{class_name}/{method}" for method in methods)
             else:
-                identifiers.append(f"{module}/{class_name}")
+                class_fallbacks.add(class_name)
+    identifiers.extend(
+        f"{module}/{class_name}"
+        for class_name in sorted(class_fallbacks - classes_with_method_identifiers)
+    )
     return sorted(set(identifiers))
 
 

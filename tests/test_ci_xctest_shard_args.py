@@ -172,6 +172,7 @@ def test_discovers_tests_added_by_extensions() -> None:
         output = run_helper(tests_dir)
 
     assert "-only-testing:cmuxTests/LegacyTests/testExtensionRegression" in output
+    assert "-only-testing:cmuxTests/LegacyTests" not in output.split()
     assert "-only-testing:cmuxTests/SwiftTestingBase" in output
 
 

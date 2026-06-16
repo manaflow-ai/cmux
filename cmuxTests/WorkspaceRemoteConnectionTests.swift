@@ -3837,6 +3837,22 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
     }
 
+    private final class OneShotSignal: @unchecked Sendable {
+        private let lock = NSLock()
+        private let action: @Sendable () -> Void
+        private var didSignal = false
+
+        init(_ action: @escaping @Sendable () -> Void) { self.action = action }
+
+        func signal() {
+            lock.lock()
+            let shouldSignal = !didSignal
+            didSignal = true
+            lock.unlock()
+            if shouldSignal { action() }
+        }
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
@@ -3953,11 +3969,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4004,7 +4016,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let data = try Data(contentsOf: storeURL)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[surfaceId] as? [String: Any])
+        let session = try XCTUnwrap(sessions.values.compactMap { $0 as? [String: Any] }.first { ($0["surfaceId"] as? String) == surfaceId })
         let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
         let persistedEnvironment = try XCTUnwrap(launchCommand["environment"] as? [String: String])
         XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
@@ -4039,12 +4051,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4071,20 +4078,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Rate limit|")
             },
-            "Expected Codex failure notification, saw \(state.commands)"
+            "Expected Codex failure notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex rate limit") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex rate limit status, saw \(state.commands)"
+            "Expected high-priority Codex rate limit status, saw \(state.snapshot())"
         )
     }
 
@@ -4114,12 +4122,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4145,20 +4148,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
             },
-            "Expected typed Codex error notification, saw \(state.commands)"
+            "Expected typed Codex error notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex error status, saw \(state.commands)"
+            "Expected high-priority Codex error status, saw \(state.snapshot())"
         )
     }
 
@@ -4190,12 +4194,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: discoveredTranscriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4223,20 +4222,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
-            "Expected discovered transcript failure notification, saw \(state.commands)"
+            "Expected discovered transcript failure notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex network error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected discovered transcript failure status, saw \(state.commands)"
+            "Expected discovered transcript failure status, saw \(state.snapshot())"
         )
     }
 
@@ -4278,9 +4278,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
 
         let firstInput = """
-        {"session_id":"\(sessionId)","turn_id":"turn-one","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"first"}
+        {"session_id":"\(sessionId)","turn_id":"turn-one","cwd":"\(root.path)","transcript_path":"\(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"first"}
         """
         let firstResult = runProcess(
             executablePath: cliPath,
@@ -4297,9 +4298,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-one"], timeout: 3),
             "Expected first prompt to leave one active monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
         )
+        try #"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-one","last_agent_message":"done"}}"#.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let secondInput = """
-        {"session_id":"\(sessionId)","turn_id":"turn-two","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"second"}
+        {"session_id":"\(sessionId)","turn_id":"turn-two","cwd":"\(root.path)","transcript_path":"\(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"second"}
         """
         let secondResult = runProcess(
             executablePath: cliPath,
@@ -4337,12 +4339,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4368,14 +4365,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex error status from codex_error_info, saw \(state.commands)"
+            "Expected high-priority Codex error status from codex_error_info, saw \(state.snapshot())"
         )
     }
 
@@ -4398,12 +4395,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4429,14 +4421,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected structured codex_error_info to publish high-priority Codex error status, saw \(state.commands)"
+            "Expected structured codex_error_info to publish high-priority Codex error status, saw \(state.snapshot())"
         )
     }
 
@@ -4459,12 +4451,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4490,14 +4477,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex error status from camelCase codexErrorInfo, saw \(state.commands)"
+            "Expected high-priority Codex error status from camelCase codexErrorInfo, saw \(state.snapshot())"
         )
     }
 
@@ -4520,12 +4507,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4551,14 +4533,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected typed hook payload to publish high-priority Codex error status, saw \(state.commands)"
+            "Expected typed hook payload to publish high-priority Codex error status, saw \(state.snapshot())"
         )
     }
 
@@ -4581,12 +4563,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4612,20 +4589,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
             },
-            "Expected explicit error field notification, saw \(state.commands)"
+            "Expected explicit error field notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected explicit error field status, saw \(state.commands)"
+            "Expected explicit error field status, saw \(state.snapshot())"
         )
     }
 
@@ -4656,12 +4634,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4687,23 +4660,23 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Idle") &&
                     command.contains("--icon=pause.circle.fill") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected successful Codex turn to report Idle, saw \(state.commands)"
+            "Expected successful Codex turn to report Idle, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status codex Codex rate limit") || $0.contains("#FF453A") },
-            "Did not expect stale transcript error status, saw \(state.commands)"
+            state.snapshot().contains { $0.contains("set_status codex Codex rate limit") || $0.contains("#FF453A") },
+            "Did not expect stale transcript error status, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { command in
+            state.snapshot().contains { command in
                 command.contains("notify_target") &&
                     (command.contains("Rate limit") || command.contains("Error") || command.contains("#FF453A"))
             },
-            "Did not expect stale failure notification, saw \(state.commands)"
+            "Did not expect stale failure notification, saw \(state.snapshot())"
         )
     }
 
@@ -4733,12 +4706,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4764,20 +4732,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
             },
-            "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
+            "Expected payload error notification to beat healthy transcript, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected payload error status to beat healthy transcript, saw \(state.commands)"
+            "Expected payload error status to beat healthy transcript, saw \(state.snapshot())"
         )
     }
 
@@ -4807,12 +4776,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4838,20 +4802,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response") ||
+                    command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
-            "Expected no-final-response notification, saw \(state.commands)"
+            "Expected no-final-response notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected high-priority Codex error status, saw \(state.commands)"
+            "Expected high-priority Codex error status, saw \(state.snapshot())"
         )
     }
 
@@ -4882,12 +4847,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4913,17 +4873,17 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Idle") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected scoped assistant reply to suppress no-final-response error, saw \(state.commands)"
+            "Expected scoped assistant reply to suppress no-final-response error, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { command in
+            state.snapshot().contains { command in
                 command.contains("Codex ended before sending a final response") || command.contains("--color=#FF453A")
             },
-            "Did not expect no-final-response error after scoped assistant reply, saw \(state.commands)"
+            "Did not expect no-final-response error after scoped assistant reply, saw \(state.snapshot())"
         )
     }
 
@@ -4952,12 +4912,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookV2Response(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4983,17 +4938,17 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Idle") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected stale unscoped error to leave Codex idle, saw \(state.commands)"
+            "Expected stale unscoped error to leave Codex idle, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { command in
+            state.snapshot().contains { command in
                 command.contains("set_status codex Codex network error") || command.contains("--color=#FF453A")
             },
-            "Did not expect stale unscoped error status, saw \(state.commands)"
+            "Did not expect stale unscoped error status, saw \(state.snapshot())"
         )
     }
 
@@ -5060,20 +5015,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
-            "Expected monitor to send no-final-response notification, saw \(state.commands)"
+            "Expected monitor to send no-final-response notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to publish high-priority Codex error status, saw \(state.commands)"
+            "Expected monitor to publish high-priority Codex error status, saw \(state.snapshot())"
         )
     }
 
@@ -5140,20 +5095,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
-            "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
+            "Expected monitor to send stream error notification before terminal completion, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex network error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to publish high-priority Codex network error status, saw \(state.commands)"
+            "Expected monitor to publish high-priority Codex network error status, saw \(state.snapshot())"
         )
     }
 
@@ -5424,20 +5379,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
-            "Expected monitor to recover from stale transcript path, saw \(state.commands)"
+            "Expected monitor to recover from stale transcript path, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to publish high-priority Codex error status after re-resolving transcript path, saw \(state.commands)"
+            "Expected monitor to publish high-priority Codex error status after re-resolving transcript path, saw \(state.snapshot())"
         )
     }
 
@@ -5541,20 +5496,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0, stderr)
         XCTAssertEqual(stdout, "")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
-            "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.commands)"
+            "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.snapshot())"
         )
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex network error") &&
                     command.contains("--icon=exclamationmark.triangle.fill") &&
                     command.contains("--color=#FF453A") &&
                     command.contains("--priority=100") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to publish scoped Codex network error status, saw \(state.commands)"
+            "Expected monitor to publish scoped Codex network error status, saw \(state.snapshot())"
         )
     }
 
@@ -6101,7 +6056,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        runMockServer(listenerFD: listenerFD, state: state, onHandled: {
+        runMockServer(listenerFD: listenerFD, state: state, signalAfterEachLine: true, onHandled: {
             handled.signal()
         }, handler: handler)
         return handled
@@ -6159,44 +6114,53 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private func runMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        signalAfterEachLine: Bool = false,
         onHandled: @escaping @Sendable () -> Void,
         handler: @escaping @Sendable (String) -> String
     ) {
+        let handledSignal = OneShotSignal(onHandled)
         DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                onHandled()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                onHandled()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-
             while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
                     if errno == EINTR { continue }
+                    handledSignal.signal()
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer {
+                        Darwin.close(clientFD)
+                        handledSignal.signal()
+                    }
+
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            if signalAfterEachLine { handledSignal.signal() }
+                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                        }
+                    }
                 }
             }
         }
@@ -6239,6 +6203,33 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func codexHookV2Response(line: String, workspaceId: String, surfaceId: String) -> String {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let id = payload["id"] as? String else {
+            return "OK"
+        }
+
+        switch payload["method"] as? String {
+        case "surface.list":
+            return v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]])
+        case "system.top":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "windows": [["workspaces": [[
+                        "id": workspaceId,
+                        "ref": workspaceId,
+                        "panes": [["surfaces": [["id": surfaceId, "ref": surfaceId]]]]
+                    ]]]]
+                ]
+            )
+        default:
+            return v2Response(id: id, ok: true, result: [:])
+        }
     }
 
     private func codexMonitorActiveLeaseTurns(in root: URL) -> [String] {
@@ -6339,8 +6330,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
-            "Expected notify to use single-call caller notification path, saw \(state.commands)"
+            waitForSocketCommand(state: state, timeout: 5) { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.snapshot())"
         )
     }
 
@@ -6409,12 +6400,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0)
         XCTAssertTrue(result.stderr.contains("ERROR: Panel not found"), result.stderr)
         XCTAssertTrue(
-            state.commands.contains { $0.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") },
-            "Expected notify to use synchronous target validation, saw \(state.commands)"
+            waitForSocketCommand(state: state, timeout: 5) { $0.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") },
+            "Expected notify to use synchronous target validation, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.hasPrefix("notify_target_async ") },
-            "Expected no async target dispatch for mixed handles, saw \(state.commands)"
+            state.snapshot().contains { $0.hasPrefix("notify_target_async ") },
+            "Expected no async target dispatch for mixed handles, saw \(state.snapshot())"
         )
     }
 
@@ -6516,7 +6507,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                       let method = payload["method"] as? String,
@@ -6527,7 +6518,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 return (params["workspace_id"] as? String) == currentWorkspace
                     && (params["surface_id"] as? String) == currentSurface
             },
-            "Expected surface.trigger_flash to use current workspace and surface, saw \(state.commands)"
+            "Expected surface.trigger_flash to use current workspace and surface, saw \(state.snapshot())"
         )
     }
 
@@ -6570,6 +6561,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 )
             case "workspace.rename":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "surface.list":
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [[
+                    "id": "33333333-3333-3333-3333-333333333333", "ref": "surface:1", "focused": true,
+                ]]])
             case "workspace.remote.configure":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 let autoConnect = (params["auto_connect"] as? Bool) ?? true
@@ -6624,13 +6619,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
-        let requests = try state.commands.map { line -> [String: Any] in
+        let requests = try state.snapshot().map { line -> [String: Any] in
             let data = try XCTUnwrap(line.data(using: .utf8))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["workspace.create", "surface.list", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
@@ -6638,11 +6633,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         XCTAssertFalse(initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-        let renameParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
+        let renameParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
         XCTAssertEqual(renameParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(renameParams["title"] as? String, "SSH Workspace")
 
-        let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
+        let configureParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux-macmini")
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
@@ -6666,7 +6661,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
         // `cmux ssh` should land the user in the new SSH workspace immediately.
-        let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
+        let selectParams = try XCTUnwrap(requests[4]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
     }
@@ -6754,7 +6749,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
-        let requests = try state.commands.map { line -> [String: Any] in
+        let requests = try state.snapshot().map { line -> [String: Any] in
             let data = try XCTUnwrap(line.data(using: .utf8))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
@@ -6841,8 +6836,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
-            "Expected notify to use single-call caller notification path, saw \(state.commands)"
+            waitForSocketCommand(state: state, timeout: 5) { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.snapshot())"
         )
     }
 
@@ -6915,8 +6910,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
-            "Expected notify to use single-call caller notification path in tmux, saw \(state.commands)"
+            waitForSocketCommand(state: state, timeout: 5) { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path in tmux, saw \(state.snapshot())"
         )
     }
 
@@ -7047,7 +7042,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                       let method = payload["method"] as? String,
@@ -7058,10 +7053,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 return (params["workspace_id"] as? String) == workspaceId
                     && (params["surface_id"] as? String) == callerSurface
             },
-            "Expected surface.trigger_flash to use caller tty surface, saw \(state.commands)"
+            "Expected surface.trigger_flash to use caller tty surface, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { command in
+            state.snapshot().contains { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                       let method = payload["method"] as? String,
@@ -7072,7 +7067,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 return (params["workspace_id"] as? String) == workspaceId
                     && (params["surface_id"] as? String) == focusedSurface
             },
-            "Focused surface should not win over caller tty, saw \(state.commands)"
+            "Focused surface should not win over caller tty, saw \(state.snapshot())"
         )
     }
 
@@ -7190,7 +7185,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                       let method = payload["method"] as? String,
@@ -7201,10 +7196,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 return (params["workspace_id"] as? String) == workspaceId
                     && (params["surface_id"] as? String) == callerSurface
             },
-            "Expected trigger-flash to use caller tty surface in tmux, saw \(state.commands)"
+            "Expected trigger-flash to use caller tty surface in tmux, saw \(state.snapshot())"
         )
         XCTAssertFalse(
-            state.commands.contains { command in
+            state.snapshot().contains { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                       let method = payload["method"] as? String,
@@ -7215,7 +7210,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 return (params["workspace_id"] as? String) == workspaceId
                     && (params["surface_id"] as? String) == staleSurface
             },
-            "Stale env surface should not win inside tmux, saw \(state.commands)"
+            "Stale env surface should not win inside tmux, saw \(state.snapshot())"
         )
     }
 }

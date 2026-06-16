@@ -4081,7 +4081,6 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
         ])
 
         let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
@@ -8251,6 +8250,7 @@ private extension BrowserPanel {
 
 #if DEBUG
 extension BrowserPanel {
+    func configureWebViewLifecycleForTesting(currentURL: URL?, shouldRenderWebView: Bool, isLoading: Bool = false) { self.currentURL = currentURL; self.shouldRenderWebView = shouldRenderWebView; self.isLoading = isLoading; isMainFrameProvisionalNavigationActive = false; refreshWebViewLifecycleState() }
     func configureInsecureHTTPAlertHooksForTesting(
         alertFactory: @escaping () -> NSAlert,
         windowProvider: @escaping () -> NSWindow?
