@@ -288,6 +288,15 @@ check_app_detector_includes_ui_tests() {
   echo "PASS: app-domain change detector includes cmuxUITests/"
 }
 
+check_app_detector_includes_warning_budget() {
+  if ! grep -Fq "\\.github/swift-warning-budget\\.tsv" "$CI_FILE"; then
+    echo "FAIL: app-domain change detector must include .github/swift-warning-budget.tsv"
+    exit 1
+  fi
+
+  echo "PASS: app-domain change detector includes Swift warning budget"
+}
+
 check_app_detectors_include_root_entitlements() {
   for file in "$CI_FILE" "$PERF_ACTIVATION_FILE"; do
     if ! grep -Fq "[^/]+\\.entitlements$" "$file"; then
@@ -407,6 +416,7 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_agent_session_resources_gate
 check_app_detector_includes_ui_tests
+check_app_detector_includes_warning_budget
 check_app_detectors_include_root_entitlements
 check_swift_package_tests_select_xcode
 check_daemon_detector_includes_release_asset_script
