@@ -282,9 +282,11 @@ jobs:
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          path: |
+            .ci-source-packages/checkouts
+            .ci-source-packages/repositories
+          key: spm-sources-v1-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-sources-v1-
 
       - name: Prepare isolated DerivedData
         run: |
@@ -298,7 +300,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -313,7 +315,8 @@ jobs:
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -666,16 +669,18 @@ jobs:
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: .ci-source-packages
-          key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-build-
+          path: |
+            .ci-source-packages/checkouts
+            .ci-source-packages/repositories
+          key: spm-build-sources-v1-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-build-sources-v1-
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$CMUX_DERIVED_DATA_PATH"
-          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
@@ -690,7 +695,8 @@ jobs:
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -1016,16 +1022,18 @@ jobs:
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: .ci-source-packages
-          key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-regressions-
+          path: |
+            .ci-source-packages/checkouts
+            .ci-source-packages/repositories
+          key: spm-ui-regressions-sources-v1-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-ui-regressions-sources-v1-
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$CMUX_DERIVED_DATA_PATH"
-          bash scripts/ci/reset-swiftpm-binary-artifacts.sh "$SOURCE_PACKAGES_DIR"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
@@ -1040,7 +1048,8 @@ jobs:
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
