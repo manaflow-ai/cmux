@@ -23447,6 +23447,7 @@ struct CMUXCLI {
                         launchCommand: mappedSession?.launchCommand,
                         allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
                             mappedSession,
+                            launchCommand: mappedSession?.launchCommand,
                             transcriptPath: parsedInput.transcriptPath
                         )
                     )
@@ -23572,6 +23573,7 @@ struct CMUXCLI {
                     allowDefaultResumeCommand: !(firstSightingLaunchCapture?.sanitizerRejected ?? false)
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mappedSession,
+                            launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
                             transcriptPath: parsedInput.transcriptPath
                         )
                 )
@@ -26779,13 +26781,15 @@ struct CMUXCLI {
 
     private func hasPositiveAgentResumeRestorabilitySignal(
         _ record: ClaudeHookSessionRecord?,
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
         transcriptPath: String? = nil
     ) -> Bool {
         if record?.isRestorable == true {
             return true
         }
-        if record?.launchCommand?.arguments.isEmpty == true,
-           record?.launchCommand?.environment?.isEmpty == false {
+        let effectiveLaunchCommand = launchCommand ?? record?.launchCommand
+        if effectiveLaunchCommand?.arguments.isEmpty == true,
+           effectiveLaunchCommand?.environment?.isEmpty == false {
             return true
         }
         if normalizedHookValue(transcriptPath) != nil {
@@ -30001,6 +30005,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                 acceptedFreshSessionStart ||
                                 hasPositiveAgentResumeRestorabilitySignal(
                                     mapped,
+                                    launchCommand: launchCommand,
                                     transcriptPath: input.transcriptPath
                                 )
                             )
@@ -30073,7 +30078,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: latest.cwd,
                     launchCommand: latest.launchCommand,
                     allowDefaultResumeCommand: !launchCapture.sanitizerRejected
-                        && hasPositiveAgentResumeRestorabilitySignal(latest)
+                        && hasPositiveAgentResumeRestorabilitySignal(
+                            latest,
+                            launchCommand: latest.launchCommand
+                        )
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
@@ -30277,6 +30285,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     allowDefaultResumeCommand: !launchCapture.sanitizerRejected
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
+                            launchCommand: launchCommand ?? mapped?.launchCommand,
                             transcriptPath: input.transcriptPath
                         )
                 )
@@ -30557,6 +30566,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     allowDefaultResumeCommand: !launchCapture.sanitizerRejected
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
+                            launchCommand: launchCommand ?? mapped?.launchCommand,
                             transcriptPath: input.transcriptPath
                         )
                 )
@@ -30744,6 +30754,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     allowDefaultResumeCommand: !launchCapture.sanitizerRejected
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
+                            launchCommand: launchCommand ?? mapped?.launchCommand,
                             transcriptPath: input.transcriptPath
                         )
                 )
