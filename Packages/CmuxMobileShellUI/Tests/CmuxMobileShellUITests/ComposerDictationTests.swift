@@ -5,50 +5,50 @@ import Testing
 /// pure transitions. The Speech / AVFoundation engine wiring is iOS-only and not
 /// host-compilable, so it is exercised only on device / simulator.
 @Suite struct ComposerDictationTests {
-    private let textMerge = ComposerDictationTextMerge()
+    private let textMerger = ComposerDictationTextMerger()
 
     // MARK: - Text merge
 
     @Test func mergeAppendsTranscriptToEmptyBase() {
-        #expect(textMerge.merged(base: "", transcript: "hello world") == "hello world")
+        #expect(textMerger.merged(base: "", transcript: "hello world") == "hello world")
     }
 
     @Test func mergeInsertsSeparatingSpaceAfterNonWhitespaceBase() {
-        #expect(textMerge.merged(base: "hello", transcript: "world") == "hello world")
+        #expect(textMerger.merged(base: "hello", transcript: "world") == "hello world")
     }
 
     @Test func mergePreservesTrailingWhitespaceWithoutDoubling() {
         // Base already ends in a space; do not add a second one.
-        #expect(textMerge.merged(base: "hello ", transcript: "world") == "hello world")
+        #expect(textMerger.merged(base: "hello ", transcript: "world") == "hello world")
     }
 
     @Test func mergeTrimsLeadingTranscriptWhitespace() {
-        #expect(textMerge.merged(base: "hello", transcript: "   world") == "hello world")
+        #expect(textMerger.merged(base: "hello", transcript: "   world") == "hello world")
     }
 
     @Test func mergeEmptyTranscriptKeepsBaseUnchanged() {
         // A partial may briefly be empty; the user's pre-typed text must survive.
-        #expect(textMerge.merged(base: "draft ", transcript: "") == "draft ")
-        #expect(textMerge.merged(base: "draft", transcript: "   ") == "draft")
+        #expect(textMerger.merged(base: "draft ", transcript: "") == "draft ")
+        #expect(textMerger.merged(base: "draft", transcript: "   ") == "draft")
     }
 
     @Test func mergePreservesBaseVerbatim() {
         // The base is appended to, never rewritten: punctuation and casing stay.
         let base = "TODO: ship it,"
-        #expect(textMerge.merged(base: base, transcript: "then rest") == "TODO: ship it, then rest")
+        #expect(textMerger.merged(base: base, transcript: "then rest") == "TODO: ship it, then rest")
     }
 
     @Test func mergeIsIdempotentAcrossGrowingPartials() {
         // Successive partials always replace the tail, so the base is never
         // duplicated as the transcript grows.
         let base = "note: "
-        #expect(textMerge.merged(base: base, transcript: "buy") == "note: buy")
-        #expect(textMerge.merged(base: base, transcript: "buy milk") == "note: buy milk")
-        #expect(textMerge.merged(base: base, transcript: "buy milk today") == "note: buy milk today")
+        #expect(textMerger.merged(base: base, transcript: "buy") == "note: buy")
+        #expect(textMerger.merged(base: base, transcript: "buy milk") == "note: buy milk")
+        #expect(textMerger.merged(base: base, transcript: "buy milk today") == "note: buy milk today")
     }
 
     @Test func mergeEmptyBaseEmptyTranscriptIsEmpty() {
-        #expect(textMerge.merged(base: "", transcript: "") == "")
+        #expect(textMerger.merged(base: "", transcript: "") == "")
     }
 
     // MARK: - State machine

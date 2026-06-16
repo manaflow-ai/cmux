@@ -21,6 +21,7 @@ public final class CanvasRootView: NSView {
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
     let minimapView = CanvasMinimapView()
+    var isMinimapInteractionActive = false
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
@@ -71,6 +72,8 @@ public final class CanvasRootView: NSView {
     init<C: Clock & Sendable>(
         model: CanvasModel,
         commandScrollHintText: String,
+        minimapAccessibilityLabel: String,
+        minimapAccessibilityHelp: String,
         callbacks: CanvasHostCallbacks,
         themeProvider: @escaping () -> CanvasTheme, minimapClock: C
     ) where C.Duration == Duration {
@@ -93,13 +96,7 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
-        minimapView.onCenterChanged = { [weak self] center in
-            self?.setViewport(center: center, magnification: nil, notifySettled: false)
-        }
-        minimapView.onCenterSettled = { [weak self] center in
-            self?.setViewport(center: center, magnification: nil, notifySettled: true)
-        }
-        minimapView.onScrollWheel = { [weak self] event in self?.scrollView.scrollWheel(with: event) }
+        configureMinimap(accessibilityLabel: minimapAccessibilityLabel, accessibilityHelp: minimapAccessibilityHelp)
         resetMinimapVisibility()
 
         // Platform seam: clip-view bounds changes are how AppKit reports
@@ -196,6 +193,8 @@ public final class CanvasRootView: NSView {
         minimapView.onCenterChanged = nil
         minimapView.onCenterSettled = nil
         minimapView.onScrollWheel = nil
+        minimapView.onInteractionBegan = nil
+        minimapView.onInteractionEnded = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
