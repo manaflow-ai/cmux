@@ -11,7 +11,6 @@ public enum AgentLaunchSanitizer {
         "hooks",
         "preferredNotifChannel",
     ]
-
     private enum ClaudeHookSettingsReplacement {
         case drop
         case settings(String)
@@ -19,17 +18,17 @@ public enum AgentLaunchSanitizer {
 
     struct Policy {
         var valueOptions: Set<String>
-        var optionalValueOptions: Set<String> = []
+        var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
+        var promptBoundaryOptions: Set<String> = []
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
-
     public static func sanitizedLaunchArguments(
         _ arguments: [String],
         launcher: String,
@@ -226,7 +225,7 @@ public enum AgentLaunchSanitizer {
             if arg == "--" {
                 return nil
             }
-            if !arg.hasPrefix("-") || arg == "-" {
+            if !isOptionToken(arg) || arg == "-" {
                 guard arg == "fork",
                       let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
                     return nil
@@ -342,9 +341,13 @@ public enum AgentLaunchSanitizer {
                 index += width
                 continue
             }
-
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
+            if !(policy.promptBoundaryOptions.contains(arg) && index + width < args.count && !isOptionToken(args[index + width])) {
+                result.append(contentsOf: args[index..<min(args.count, index + width)])
+            }
             index += width
+            if policy.promptBoundaryOptions.contains(arg) {
+                while index < args.count, !isOptionToken(args[index]) { index += 1 }
+            }
         }
 
         return result
@@ -442,18 +445,14 @@ public enum AgentLaunchSanitizer {
             return 1
         }
         if policy.optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  looksLikeOptionalValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
+            guard index + 1 < args.count else { return 1 }
+            let value = args[index + 1]
+            if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
+            if policy.greedyOptionalValueOptions.contains(arg), !value.hasPrefix("-"), value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil { return 2 }
+            guard looksLikeOptionalValue(value, following: index + 2 < args.count ? args[index + 2] : nil) else { return 1 }
             return 2
         }
-        guard policy.valueOptions.contains(arg), index + 1 < args.count else {
-            return arg.hasPrefix("--") && index + 2 < args.count && !args[index + 1].hasPrefix("-") && args[index + 2].hasPrefix("-") ? 2 : 1
-        }
+        guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
             while end < args.count,
@@ -474,7 +473,6 @@ public enum AgentLaunchSanitizer {
         }
         return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
     }
-
     private static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
@@ -564,3 +562,5 @@ public enum AgentLaunchSanitizer {
             normalized.contains("/src/cli/cmd/tui/worker.js")
     }
 }
+
+private func isOptionToken(_ arg: String) -> Bool { arg.hasPrefix("-") && arg.rangeOfCharacter(from: .whitespacesAndNewlines) == nil }

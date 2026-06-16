@@ -3676,7 +3676,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--remote-control-session-name-prefix",
                     "cmux-team",
                     "--tmux",
-                    "--dangerously-skip-permissions",
+                    "side effect should be dropped",
                     "--permission-mode",
                     "auto",
                     "initial team prompt"
@@ -3693,7 +3693,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ]; } && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--tmux' '--dangerously-skip-permissions' '--permission-mode' 'auto'"
+            "{ cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ]; } && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
         )
     }
 

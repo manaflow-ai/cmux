@@ -36,16 +36,17 @@ extension AgentLaunchSanitizer {
             "--settings",
             "--system-prompt",
             "--teammate-mode",
-            "--tools",
-            "--worktree",
-            "-w"
+            "--tools"
         ],
         optionalValueOptions: [
             "--debug",
             "--prompt-suggestions",
             "--remote-control",
-            "--tmux"
+            "--worktree",
+            "-w"
         ],
+        optionalValueChoices: ["--prompt-suggestions": ["true", "false"]],
+        greedyOptionalValueOptions: ["--remote-control", "--worktree", "-w"],
         variadicOptions: [
             "--add-dir",
             "--allowedTools",
@@ -82,24 +83,21 @@ extension AgentLaunchSanitizer {
             "--from-pr",
             "--resume",
             "-r",
-            "--session-id",
-            "--worktree",
-            "-w"
+            "--session-id"
         ],
         droppedOptionPrefixes: [
             "--file=",
             "--fork-session=",
             "--from-pr=",
             "--resume=",
-            "--session-id=",
-            "--worktree="
+            "--session-id="
         ],
         rejectOptions: [
             "--print",
             "-p",
             "--no-session-persistence"
         ],
-        skipClaudeHookSettings: true
+        promptBoundaryOptions: ["--tmux"], skipClaudeHookSettings: true
     )
 
     static let codexPolicy = Policy(
