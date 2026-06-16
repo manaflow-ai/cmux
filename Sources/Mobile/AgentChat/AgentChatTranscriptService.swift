@@ -24,7 +24,7 @@ final class AgentChatTranscriptService {
     /// title-detected claude has not yet written its transcript; a successful
     /// adoption removes the entry.
     private var detectionScanAt: [String: Date] = [:]
-    private var titleObserver: NSObjectProtocol?
+    private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
     private static let detectionScanThrottle: TimeInterval = 4
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
@@ -44,19 +44,13 @@ final class AgentChatTranscriptService {
         }
     }
 
-    deinit {
-        if let titleObserver {
-            NotificationCenter.default.removeObserver(titleObserver)
-        }
-    }
-
     /// Seeds the session registry from the on-disk hook stores. Call once
     /// at app startup.
     ///
     /// - Parameter adoptDetectedAgentSessions: Composition-root callback that
     ///   adopts a title-detected agent for the workspace whose title changed.
     func start(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
-        guard titleObserver == nil else { return }
+        guard ghosttyTitleSubscription == nil else { return }
         registry.seedFromHookStores()
         observeAgentTitleChanges(adoptDetectedAgentSessions: adoptDetectedAgentSessions)
     }
@@ -67,19 +61,11 @@ final class AgentChatTranscriptService {
     /// "✳ Claude Code"), not only when the workspace is next opened. Adoption
     /// emits a descriptor change, which pushes the toggle to listening phones.
     private func observeAgentTitleChanges(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
-        titleObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  let title = notification.userInfo?[GhosttyNotificationKey.title] as? String,
-                  title.lowercased().contains("claude") else {
+        ghosttyTitleSubscription = GhosttyTitleChangeSubscription { change in
+            guard change.title.lowercased().contains("claude") else {
                 return
             }
-            Task { @MainActor in
-                adoptDetectedAgentSessions(tabId.uuidString)
-            }
+            adoptDetectedAgentSessions(change.tabId.uuidString)
         }
     }
 
