@@ -32,6 +32,10 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             }
         }
         if handleOpenSelectionShortcut(event) { return }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onCommit?()
+            return
+        }
         if event.keyCode == 53 {
             onCancel?()
             return
