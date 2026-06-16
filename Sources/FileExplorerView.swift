@@ -1518,6 +1518,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
+            openSelectedSearchResult()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             closeSearchAndFocusOutline()
