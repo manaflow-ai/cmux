@@ -12337,6 +12337,14 @@ struct VerticalTabsSidebar: View {
             )
         }
 
+        // Resolve a byCwd color for ungrouped workspaces. Grouped workspaces
+        // already receive the color via the group header's resolvedConfig, so
+        // we skip the lookup there to avoid double-applying and to keep the
+        // store access out of the hot-path for the common (grouped) case.
+        let configuredColorHex: String? = tab.groupId == nil
+            ? cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: tab.currentDirectory)?.color
+            : nil
+
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12370,7 +12378,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear
+            onContextMenuDisappear: onContextMenuDisappear,
+            configuredColorHex: configuredColorHex
         )
         .equatable()
         .id(tab.id)
@@ -13162,7 +13171,8 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-        lhs.settings == rhs.settings
+        lhs.settings == rhs.settings &&
+        lhs.configuredColorHex == rhs.configuredColorHex
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -13212,6 +13222,13 @@ struct TabItemView: View, Equatable {
     /// behind the open context menu.
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
+    /// Color resolved from `cmux.json` `workspaceGroups.byCwd` for this
+    /// workspace's current directory. Supplied by the parent (which owns
+    /// `cmuxConfigStore`) to keep `TabItemView` free of store references
+    /// (snapshot-boundary rule). `nil` when the workspace is inside a group
+    /// (the group header already applies the byCwd color) or when no matching
+    /// byCwd entry exists. Falls back behind the workspace's own `customColor`.
+    let configuredColorHex: String?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
@@ -14614,7 +14631,7 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
+            customColorHex: tab.customColor ?? configuredColorHex,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
