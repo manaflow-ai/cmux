@@ -59,7 +59,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             glassEffectAvailable: true,
             windowBackgroundPolicy: WindowBackgroundComposition.policy
         ))
-        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(glassEffectAvailable: true))
+        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        ))
         XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
         XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
