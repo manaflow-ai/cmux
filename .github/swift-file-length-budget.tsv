@@ -18,8 +18,8 @@
 6156	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
+5994	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
-5558	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4921	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
@@ -93,6 +93,7 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
+932	Packages/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileAutoAttachTests.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
