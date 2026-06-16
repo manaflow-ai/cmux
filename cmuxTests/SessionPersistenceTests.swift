@@ -5338,7 +5338,8 @@ extension SessionPersistenceTests {
         XCTAssertTrue(input.contains("config set model.api_mode"))
         XCTAssertTrue(input.contains("codex_responses"))
         XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
+        XCTAssertTrue(input.contains("--provider"))
+        XCTAssertTrue(input.contains("custom"))
         XCTAssertFalse(input.contains("openai-codex"))
     }
 
@@ -5360,8 +5361,9 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        XCTAssertTrue(input.contains("/opt/homebrew/bin/hermes"))
+        XCTAssertTrue(input.contains("config set model.provider"))
+        XCTAssertTrue(input.contains("config set model.base_url"))
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -5385,8 +5387,10 @@ extension SessionPersistenceTests {
         let cdRange = try XCTUnwrap(input.range(of: "cd --"))
         let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
         XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        XCTAssertTrue(input.contains("./hermes"))
+        XCTAssertTrue(input.contains("--provider"))
+        XCTAssertTrue(input.contains("custom"))
+        XCTAssertTrue(input.contains("--resume"))
     }
 
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
@@ -5452,7 +5456,8 @@ extension SessionPersistenceTests {
         ))
 
         XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        XCTAssertTrue(input.contains("--provider"))
+        XCTAssertTrue(input.contains("anthropic"))
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {

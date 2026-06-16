@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentContinuation
 
 public enum AgentLaunchSanitizer {
     // Runtime/interpreter flags may appear in captured process argv, but they
@@ -81,7 +82,7 @@ public enum AgentLaunchSanitizer {
         case "claude":
             return preserveOptions(args, policy: claudePolicy)
         case "codex":
-            return preserveOptions(args, policy: codexPolicy)
+            return CodexContinuationArguments().preservedTail(args)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
@@ -105,11 +106,7 @@ public enum AgentLaunchSanitizer {
             }
             return preserveOptions(tail, policy: ampPolicy)
         case "cursor":
-            var tail = args
-            if tail.first == "agent" {
-                tail.removeFirst()
-            }
-            return preserveOptions(tail, policy: cursorPolicy)
+            return CursorContinuationArguments().preservedTail(args)
         case "gemini":
             return preserveOptions(args, policy: geminiPolicy)
         case "kiro":
@@ -163,11 +160,7 @@ public enum AgentLaunchSanitizer {
     }
 
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
-        var tail = args
-        if let forkCommand = codexForkCommand(in: tail) {
-            tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
-        }
-        return preserveOptions(tail, policy: codexPolicy)
+        CodexContinuationArguments().preservedForkTail(args)
     }
 
     public static func removingSavedWorkingDirectoryOptions(
@@ -208,81 +201,7 @@ public enum AgentLaunchSanitizer {
     }
 
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
-        if codexForkCommand(in: args) != nil {
-            return preservedCodexForkArguments(args: args)
-        }
-        return preservedArguments(kind: "codex", args: args)
-    }
-
-    private struct CodexForkCommand {
-        let forkIndex: Int
-        let sessionIndex: Int
-    }
-
-    private static func codexForkCommand(in args: [String]) -> CodexForkCommand? {
-        var index = 0
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                return nil
-            }
-            if !arg.hasPrefix("-") || arg == "-" {
-                guard arg == "fork",
-                      let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
-                    return nil
-                }
-                return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(arg) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
-                        if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
-                            return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
-                        }
-                    }
-                }
-            }
-            index += width
-        }
-        return nil
-    }
-
-    private static func codexForkCommandSessionIndex(_ args: [String], forkIndex: Int) -> Int? {
-        var index = forkIndex + 1
-        while index < args.count {
-            let argument = args[index]
-            if argument == "--" {
-                return nil
-            }
-            if !argument.hasPrefix("-") || argument == "-" {
-                return looksLikeCodexSessionIdentifier(argument) ? index : nil
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(argument) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end {
-                        if looksLikeCodexSessionIdentifier(args[candidateIndex]) {
-                            return candidateIndex
-                        }
-                    }
-                }
-            }
-            index += width
-        }
-        return nil
-    }
-
-    private static func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 20 else { return false }
-        if trimmed.hasPrefix("019") {
-            return true
-        }
-        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
-        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
+        CodexContinuationArguments().preservedTail(args)
     }
 
     private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {
@@ -344,58 +263,6 @@ public enum AgentLaunchSanitizer {
             }
 
             result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func dropCodexForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
-        var result: [String] = []
-        var index = 0
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-            if index == forkCommand.forkIndex {
-                index += 1
-                continue
-            }
-            if index == forkCommand.sessionIndex {
-                index += 1
-                while index < args.count, !args[index].hasPrefix("-") {
-                    index += 1
-                }
-                continue
-            }
-            if !arg.hasPrefix("-") || arg == "-" {
-                index += 1
-                continue
-            }
-
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            let end = min(args.count, index + width)
-            if codexPolicy.variadicOptions.contains(arg),
-               forkCommand.forkIndex > index,
-               forkCommand.forkIndex < end {
-                if forkCommand.forkIndex > index + 1 {
-                    result.append(contentsOf: args[index..<forkCommand.forkIndex])
-                }
-                index = forkCommand.forkIndex
-                continue
-            }
-            if codexPolicy.variadicOptions.contains(arg),
-               forkCommand.sessionIndex > index,
-               forkCommand.sessionIndex < end {
-                if forkCommand.sessionIndex > index + 1 {
-                    result.append(contentsOf: args[index..<forkCommand.sessionIndex])
-                }
-                index = forkCommand.sessionIndex
-                continue
-            }
-            result.append(contentsOf: args[index..<end])
             index += width
         }
 
