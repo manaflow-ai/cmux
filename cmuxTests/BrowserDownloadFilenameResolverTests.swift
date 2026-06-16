@@ -120,6 +120,56 @@ import UniformTypeIdentifiers
         #expect(filename == "avatar.png")
     }
 
+    @Test func downloadCookiesMatchRequestDomainAndPath() throws {
+        let url = try #require(URL(string: "https://sub.example.test/reports/2026/export.csv"))
+        let cookies = [
+            try Self.cookie(name: "parent", domain: ".example.test", path: "/reports"),
+            try Self.cookie(name: "host", domain: "sub.example.test", path: "/reports/2026"),
+            try Self.cookie(name: "wrong-domain", domain: ".other.test", path: "/reports"),
+            try Self.cookie(name: "wrong-path", domain: ".example.test", path: "/admin"),
+        ]
+
+        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+
+        #expect(names == ["parent", "host"])
+    }
+
+    @Test func downloadCookiesRejectSecureCookiesForHTTPAndExpiredCookies() throws {
+        let url = try #require(URL(string: "http://example.test/report.csv"))
+        let cookies = [
+            try Self.cookie(name: "plain", domain: "example.test"),
+            try Self.cookie(name: "secure", domain: "example.test", secure: true),
+            try Self.cookie(name: "expired", domain: "example.test", expires: Date(timeIntervalSince1970: 0)),
+            try Self.cookie(name: "future", domain: "example.test", expires: Date(timeIntervalSince1970: 4_102_444_800)),
+        ]
+
+        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+
+        #expect(names == ["plain", "future"])
+    }
+
+    private static func cookie(
+        name: String,
+        domain: String,
+        path: String = "/",
+        secure: Bool = false,
+        expires: Date? = nil
+    ) throws -> HTTPCookie {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: name,
+            .value: "1",
+            .domain: domain,
+            .path: path,
+        ]
+        if secure {
+            properties[.secure] = "TRUE"
+        }
+        if let expires {
+            properties[.expires] = expires
+        }
+        return try #require(HTTPCookie(properties: properties))
+    }
+
     private static let onePixelPNG = Data([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
