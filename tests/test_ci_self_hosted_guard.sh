@@ -174,6 +174,36 @@ check_release_helper_upload_retry() {
   echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
 }
 
+check_signing_intermediate_imports() {
+  local helper="$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh"
+  if [[ ! -x "$helper" ]]; then
+    echo "FAIL: Apple Developer ID intermediate import helper must exist and be executable"
+    exit 1
+  fi
+
+  for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$helper"; then
+      echo "FAIL: signing helper must import Apple's $cert intermediate"
+      exit 1
+    fi
+  done
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! awk '
+      /- name: Import signing cert/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
+      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
+      END { exit !(saw_cert_import && saw_intermediates) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      exit 1
+    fi
+  done
+
+  echo "PASS: nightly and release signing import Apple Developer ID intermediates"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -265,6 +295,7 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
+check_signing_intermediate_imports
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
