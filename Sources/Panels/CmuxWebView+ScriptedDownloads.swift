@@ -61,17 +61,6 @@ extension CmuxWebView {
           return true;
         };
 
-        const sameOriginDownloadURL = (href) => {
-          try {
-            const parsed = new URL(href, document.baseURI);
-            const scheme = parsed.protocol.toLowerCase();
-            if ((scheme === "http:" || scheme === "https:") && parsed.origin === window.location.origin) {
-              return parsed.href;
-            }
-          } catch (_) {}
-          return "";
-        };
-
         const postURLDownload = (url, suggestedFilename) => {
           try {
             postMessage({
@@ -203,15 +192,9 @@ extension CmuxWebView {
               return postBlobURLDownload(href, suggestedFilename);
             }
             if (scheme === "data") {
-              if (scheme === "data" && href.length > maxDataURLCharacters) return false;
+              if (href.length > maxDataURLCharacters) return false;
               if (!reserveDownloadPost()) return false;
               postURLDownload(href, suggestedFilename);
-              return true;
-            }
-            if (scheme === "http" || scheme === "https") {
-              const sameOriginURL = sameOriginDownloadURL(href);
-              if (!sameOriginURL || !reserveDownloadPost()) return false;
-              postURLDownload(sameOriginURL, suggestedFilename);
               return true;
             }
           } catch (_) {}
@@ -312,6 +295,14 @@ extension CmuxWebView {
             return
         }
 
+        if url.scheme?.caseInsensitiveCompare("data") == .orderedSame,
+           rawURL.count > Self.maxScriptedDownloadDataURLCharacters {
+#if DEBUG
+            debugContextDownload("browser.scriptdl.message stage=rejectOversizeDataURL chars=\(rawURL.count)")
+#endif
+            return
+        }
+
         startScriptedDownload(url, suggestedFilename: suggestedFilename)
     }
 
@@ -339,7 +330,7 @@ extension CmuxWebView {
 
     private static func isScriptedDownloadSupportedURL(_ url: URL) -> Bool {
         let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https" || scheme == "data"
+        return scheme == "data"
     }
 
     static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {

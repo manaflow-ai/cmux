@@ -613,11 +613,6 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if navigationAction.shouldPerformDownload {
-            decisionHandler(.download)
-            return
-        }
-
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
             decisionHandler(.allow)
@@ -630,6 +625,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
+            return
+        }
+
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
             return
         }
 
