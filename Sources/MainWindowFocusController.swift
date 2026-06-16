@@ -220,15 +220,15 @@ final class MainWindowFocusController {
     @discardableResult
     func focusWorkspaceSidebar() -> Bool {
         guard let host = workspaceSidebarHost,
-              let hostWindow = host.window ?? window else {
+              let hostWindow = window,
+              host.window === hostWindow else {
             return false
         }
-        noteWorkspaceSidebarInteraction()
-        let result = hostWindow.makeFirstResponder(host)
-        if result {
-            syncAfterResponderChange(responder: hostWindow.firstResponder)
+        guard hostWindow.makeFirstResponder(host) else {
+            return false
         }
-        return result
+        syncAfterResponderChange(responder: hostWindow.firstResponder)
+        return true
     }
 
     func noteWorkspaceSidebarInteraction() {
