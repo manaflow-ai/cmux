@@ -15,10 +15,14 @@ import Testing
         ))
 
         let attachURL = try #require(URL(string: "cmux-ios://attach?v=1&payload=test"))
+        // The dev channel's scheme is also a valid attach deep link, so a dev
+        // build recognizes the deep link the system camera hands it.
+        let devAttachURL = try #require(URL(string: "cmux-ios-dev://attach?v=2&r=100.64.0.5:58465"))
         let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
         let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
 
         #expect(MobileRootAuthGate.isAttachURL(attachURL))
+        #expect(MobileRootAuthGate.isAttachURL(devAttachURL))
         #expect(!MobileRootAuthGate.isAttachURL(authURL))
         #expect(!MobileRootAuthGate.isAttachURL(otherURL))
     }

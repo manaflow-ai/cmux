@@ -63,6 +63,12 @@ struct TerminalComposerView: View {
     /// lifecycle moves on. Held as `@State` so it survives this value type's
     /// frequent re-creation.
     @State private var stagingTask = StagingTaskBox()
+    /// On-device voice dictation for the field. Owned here so its lifecycle is
+    /// the composer's: it is torn down on send, focus loss, `onDisappear`, and a
+    /// terminal switch so the mic never stays hot after the user leaves. An
+    /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
+    /// `state` it reads (mic button enabled/listening) automatically.
+    @State private var dictation = ComposerDictationController()
 
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
@@ -114,7 +120,7 @@ struct TerminalComposerView: View {
     /// clipboard paste path and keep the bounded encode under ~8 MB. The store
     /// re-enforces this as the authoritative per-image cap; this constant only
     /// bounds the encode loop below it.
-    private static let maxImageBytes = CMUXMobileShellStore.maxPendingAttachmentImageBytes
+    private nonisolated static let maxImageBytes = CMUXMobileShellStore.maxPendingAttachmentImageBytes
 
     /// Cap how many images one message may carry, mirrored from the store so the
     /// picker's `maxSelectionCount` matches the store's authoritative count cap.
@@ -137,14 +143,14 @@ struct TerminalComposerView: View {
 
     /// Max pixel dimension of the cached chip thumbnail. The chip renders at 56pt;
     /// 3x covers Retina without holding the full-resolution image.
-    private static let thumbnailMaxPixelSize = 168
+    private nonisolated static let thumbnailMaxPixelSize = 168
 
     /// Max pixel dimension of the SEND payload. ImageIO downsamples the picked
     /// item to fit this longest edge before re-encoding, so a panorama or a
     /// 48-megapixel HEIC never materializes as a full-resolution raster. 2048 px
     /// keeps screenshot text legible for an agent while bounding the bytes well
     /// under the per-image cap.
-    private static let sendMaxPixelSize = 2048
+    private nonisolated static let sendMaxPixelSize = 2048
 
     var body: some View {
         composerSurface
@@ -182,6 +188,9 @@ struct TerminalComposerView: View {
             // composer the user has already left. Without this, a switch right
             // after a big pick leaves the encode running unobserved.
             stagingTask.task?.cancel()
+            // Never leave the mic hot after the composer leaves the screen; the
+            // user navigated away, so hard-cancel (losing the tail is fine).
+            dictation.cancel()
         }
         .onChange(of: terminalID) { _, _ in
             // Defense in depth: if SwiftUI ever reuses this view's identity across
@@ -189,6 +198,9 @@ struct TerminalComposerView: View {
             // changing must also cancel the prior terminal's in-flight batch so its
             // encode does not stage onto, or burn CPU for, the new terminal.
             stagingTask.task?.cancel()
+            // A terminal switch must stop dictation so the live transcript does not
+            // bleed into the incoming terminal's draft. Hard-cancel, not finalize.
+            dictation.cancel()
         }
         .onChange(of: isFieldFocused) { _, focused in
             // Mirror the field's focus into the store so a terminal switch knows
@@ -196,6 +208,16 @@ struct TerminalComposerView: View {
             // on the incoming composer) or merely looking at the default-open
             // field (keyboard stays down).
             store.composerFieldFocusChanged(focused)
+            // The field losing focus stops dictation gracefully (the user moved on
+            // but keeps the draft, so the last words are finalized into it). Skip
+            // this when dictation itself owns the field: locking it (.disabled
+            // while listening/stopping) makes SwiftUI resign first responder, and
+            // that lock-driven focus loss must NOT stop the dictation it just
+            // started. Only a focus loss while the field is NOT locked is the user
+            // moving on, and only that should finalize.
+            if !focused, !dictation.locksComposerField {
+                dictation.stop()
+            }
             // COMPOSER: a focus-lost while the flag stayed presented and the
             // view stayed mounted, yet the field reads empty, isolates the
             // residual TextField/@FocusState render-blank case.
@@ -262,6 +284,8 @@ struct TerminalComposerView: View {
                 .accessibilityIdentifier("MobileComposerAttach")
                 .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
 
+                micButton
+
                 // The field and its send button share ONE rounded glass container —
                 // iMessage's layout, where the circular up-arrow lives INSIDE the
                 // field at the trailing edge. `.bottom` alignment pins the button to
@@ -284,6 +308,16 @@ struct TerminalComposerView: View {
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
                     .focused($isFieldFocused)
+                    // Lock the field while dictation owns the text (`.listening`
+                    // or `.stopping`). Every recognition callback rewrites the
+                    // field as base + transcript, so an edit the user made
+                    // mid-dictation would be silently discarded by the next
+                    // partial/final. Disabling input until dictation settles to
+                    // idle makes that edit impossible rather than letting it be
+                    // clobbered. The field stays visible showing the live
+                    // transcript; the mic toggle and send stay live (send
+                    // hard-cancels dictation -> idle, re-enabling the field).
+                    .disabled(dictation.locksComposerField)
                     .foregroundStyle(TerminalPalette.foreground)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text
@@ -336,6 +370,41 @@ struct TerminalComposerView: View {
         }
     }
 
+    /// Mic button for on-device voice dictation, beside the attach button on the
+    /// leading side. Tapping toggles dictation; while listening it shows a filled,
+    /// tinted mic. Disabled when the recognizer is unavailable or permission was
+    /// denied so the user is never left tapping a dead control.
+    private var micButton: some View {
+        let listening = dictation.state.isListening
+        return Button {
+            toggleDictation()
+        } label: {
+            Image(systemName: listening ? "mic.fill" : "mic")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: controlHeight, height: controlHeight)
+                .symbolEffect(.pulse, isActive: listening)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
+        .mobileGlassCircle()
+        .disabled(!dictation.isAvailable)
+        .accessibilityIdentifier("MobileComposerMic")
+        .accessibilityLabel(
+            listening
+                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop Dictation")
+                : L10n.string("mobile.composer.mic.start", defaultValue: "Dictate Message")
+        )
+    }
+
+    /// Toggle voice dictation. On start the current text is captured as the merge
+    /// base and partial transcriptions are written back into `terminalInputText`
+    /// (base + transcript) so dictation appends to whatever was already typed.
+    private func toggleDictation() {
+        dictation.toggle(existingText: store.terminalInputText) { merged in
+            store.terminalInputText = merged
+        }
+    }
+
     /// Horizontal, removable thumbnail chips for the staged attachments. Each
     /// chip shows the picked image with an x to remove it.
     private var attachmentChipRow: some View {
@@ -368,6 +437,18 @@ struct TerminalComposerView: View {
     private func send() {
         // Allowed with empty text as long as an attachment is staged.
         guard canSend else { return }
+        // Hard-cancel dictation before sending, NOT the graceful async stop. Every
+        // partial already wrote into `terminalInputText`, so the field holds the
+        // latest spoken words at send time. `cancel()` immediately tears down the
+        // recognition task and drops `onText`, so (a) `submitComposer()`'s
+        // synchronous snapshot of `terminalInputText` captures exactly the current
+        // field text, and (b) no late final result can fire `onText` back into the
+        // field that send is about to clear. A graceful `stop()` would let a late
+        // final result land after the snapshot, dropping the finalized tail from
+        // the sent message and re-polluting the just-cleared draft. `cancel()` on
+        // an idle controller is a no-op, so a send without active dictation is
+        // unchanged.
+        dictation.cancel()
         isFieldFocused = true
         Task { @MainActor in
             // Sends staged images first (in order), then the text. Acknowledged
@@ -542,7 +623,7 @@ struct TerminalComposerView: View {
     /// 3. Progressively smaller dimensions as a last resort.
     /// Returns the encoded bytes + a lowercase format hint, or `nil` if the source
     /// is undecodable. The cap is also re-enforced authoritatively in the store.
-    private static func boundedSendPayload(from source: CGImageSource) -> (data: Data, format: String)? {
+    private nonisolated static func boundedSendPayload(from source: CGImageSource) -> (data: Data, format: String)? {
         // PNG at the bounded send size: lossless, and for a typical screenshot it
         // lands well under the cap.
         if let png = downsampledImageData(
@@ -599,7 +680,7 @@ struct TerminalComposerView: View {
     ///   - maxPixelSize: The longest-edge cap, in pixels, for the downsample.
     ///   - type: The destination UTType identifier (`"public.png"`/`"public.jpeg"`).
     ///   - jpegQuality: The JPEG compression quality (0...1); `nil` for PNG.
-    private static func downsampledImageData(
+    private nonisolated static func downsampledImageData(
         from source: CGImageSource,
         maxPixelSize: Int,
         type: String,

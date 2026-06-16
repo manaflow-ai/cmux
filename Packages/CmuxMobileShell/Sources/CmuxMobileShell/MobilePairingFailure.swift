@@ -50,8 +50,13 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case authFailed
     /// The pairing link/QR expired; a fresh one is needed.
     case ticketExpired
-    /// The scanned/typed code was not a valid pairing code.
+    /// The scanned/typed input was not a pairing QR cmux recognizes (malformed,
+    /// not a cmux code, or an unreadable URL).
     case invalidCode
+    /// The QR is a cmux pairing code, but it uses a grammar version newer than
+    /// this build understands (the Mac is on a newer cmux). The fix is updating
+    /// the phone app, not re-scanning.
+    case unrecognizedVersion
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
@@ -85,6 +90,7 @@ extension MobilePairingFailureCategory {
         case .authFailed: return "auth"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
+        case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
@@ -198,7 +204,12 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "Invalid pairing code."
+                defaultValue: "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
+            )
+        case .unrecognizedVersion:
+            return L10n.string(
+                "mobile.pairing.unrecognizedVersion",
+                defaultValue: "This QR needs a newer version of cmux. Update the app and try again."
             )
         case .loopbackRejected:
             return L10n.string(
@@ -260,6 +271,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
+            )
+        case .unrecognizedVersion:
+            return L10n.string(
+                "mobile.pairing.guidance.updateApp",
+                defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
             )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
