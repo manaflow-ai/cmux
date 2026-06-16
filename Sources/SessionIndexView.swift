@@ -1496,14 +1496,14 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .grok, .opencode, .rovodev, .registered:
+        case .grok, .opencode, .rovodev, .amp, .registered:
             return parseGenericLine(
                 object,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: id
             )
-        case .amp, .hermesAgent:
+        case .hermesAgent:
             return nil
         }
     }
@@ -1830,11 +1830,11 @@ private enum SessionTranscriptLoader {
                 && containsAny(data, needles: codexPreviewNeedles)
         case .grok:
             return containsAny(data, needles: grokRoleNeedles)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .amp:
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
-        case .amp, .hermesAgent:
+        case .hermesAgent:
             return false
         }
     }
@@ -1855,7 +1855,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev, .registered:
+        case .codex, .opencode, .rovodev, .amp, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }
@@ -1867,7 +1867,7 @@ private enum SessionTranscriptLoader {
             }
         case .grok:
             return inferredGrokRole(from: data)
-        case .amp, .hermesAgent:
+        case .hermesAgent:
             return nil
         }
         return nil
