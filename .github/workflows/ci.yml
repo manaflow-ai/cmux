@@ -1104,8 +1104,14 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          HELPER_PID=""
 
           cleanup_attempt() {
+            if [ -n "${HELPER_PID:-}" ]; then
+              kill "$HELPER_PID" 2>/dev/null || true
+              wait "$HELPER_PID" 2>/dev/null || true
+              HELPER_PID=""
+            fi
             pkill -x "cmux DEV" 2>/dev/null || true
             rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
@@ -1256,11 +1262,12 @@ jobs:
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
               test-without-building; then
+              cleanup_attempt
               exit 0
             fi
 
             pkill -x "cmux DEV" 2>/dev/null || true
-            kill "$HELPER_PID" 2>/dev/null || true
+            cleanup_attempt
 
             if [ "$attempt" -eq 2 ]; then
               echo "Display resolution UI regression failed after 2 attempts" >&2
