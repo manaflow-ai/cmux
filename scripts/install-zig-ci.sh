@@ -25,8 +25,12 @@ publish_zig_for_later_steps() {
 
 zig_has_required_version() {
   local zig_path="$1"
+  local zig_lib_dir
   [ -x "$zig_path" ] || return 1
-  [ "$("$zig_path" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ]
+  [ "$("$zig_path" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ] || return 1
+  zig_lib_dir="$("$zig_path" env 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("lib_dir", ""))' 2>/dev/null || true)"
+  [ -n "$zig_lib_dir" ] || return 1
+  [ -f "$zig_lib_dir/compiler/build_runner.zig" ] || return 1
 }
 
 use_existing_zig_if_available() {
@@ -157,11 +161,12 @@ install_zig_without_sudo() {
 }
 
 install_zig_with_sudo() {
+  local install_root="/usr/local/lib/${ZIG_NAME}"
   sudo mkdir -p /usr/local/bin /usr/local/lib
-  sudo rm -rf /usr/local/lib/zig
-  sudo mkdir -p /usr/local/lib/zig
-  sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-  sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
+  sudo rm -rf /usr/local/lib/zig "$install_root"
+  sudo cp -R "$ZIG_DIR" "$install_root"
+  sudo rm -f /usr/local/bin/zig
+  sudo ln -s "$install_root/zig" /usr/local/bin/zig
   publish_zig_for_later_steps /usr/local/bin/zig
   /usr/local/bin/zig version
 }

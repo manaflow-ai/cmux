@@ -45,6 +45,12 @@ RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 GITHUB_PATH_FILE="$TMP_DIR/github-path"
 GITHUB_ENV_FILE="$TMP_DIR/github-env"
 OUTPUT_FILE="$TMP_DIR/output"
+BROKEN_ZIG_LIB_DIR="$TMP_DIR/broken-zig-lib"
+WRONG_VERSION_OUTPUT_FILE="$TMP_DIR/wrong-version-output"
+WRONG_VERSION_GITHUB_PATH_FILE="$TMP_DIR/wrong-version-github-path"
+WRONG_VERSION_GITHUB_ENV_FILE="$TMP_DIR/wrong-version-github-env"
+WRONG_VERSION_RUNNER_TEMP_DIR="$TMP_DIR/wrong-version-runner-temp"
+WRONG_VERSION_LIB_DIR="$TMP_DIR/wrong-version-zig-lib"
 FORCE_LOCAL_OUTPUT_FILE="$TMP_DIR/force-local-output"
 FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
@@ -55,7 +61,7 @@ DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib" "$BIN_DIR" "$RUNNER_TEMP_DIR"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/compiler"
 rm -rf "$SHARED_TMP_ZIG_DIR"
 mkdir -p "$SHARED_TMP_ZIG_DIR"
 printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
@@ -65,6 +71,8 @@ echo "$ZIG_REQUIRED"
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
 printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
+printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
+printf 'wrong version build runner fixture\n' > "$WRONG_VERSION_LIB_DIR/compiler/build_runner.zig"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 ARCHIVE_SHA256="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 
@@ -91,6 +99,24 @@ cp "$ARCHIVE" "\$OUTPUT"
 EOF
 chmod +x "$BIN_DIR/curl"
 
+cat > "$BIN_DIR/zig" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  version)
+    printf '%s\n' "${FAKE_ZIG_VERSION:?}"
+    ;;
+  env)
+    printf '{"lib_dir":"%s"}\n' "${FAKE_ZIG_LIB_DIR:?}"
+    ;;
+  *)
+    echo "unexpected fake zig invocation: $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$BIN_DIR/zig"
+
 cat > "$BIN_DIR/sudo" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -101,6 +127,8 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   GITHUB_PATH="$GITHUB_PATH_FILE" \
   GITHUB_ENV="$GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="$ZIG_REQUIRED" \
+  FAKE_ZIG_LIB_DIR="$BROKEN_ZIG_LIB_DIR" \
   ZIG_REQUIRED="$ZIG_REQUIRED" \
   ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
@@ -132,9 +160,46 @@ if ! grep -Fq "sudo unavailable; installing zig under" "$OUTPUT_FILE"; then
   exit 1
 fi
 
+if grep -Fq "already installed at" "$OUTPUT_FILE"; then
+  cat "$OUTPUT_FILE"
+  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks compiler/build_runner.zig" >&2
+  exit 1
+fi
+
 if [ ! -f "$SHARED_TMP_MARKER" ]; then
   cat "$OUTPUT_FILE"
   echo "FAIL: installer touched the shared /tmp Zig extraction directory" >&2
+  exit 1
+fi
+
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$WRONG_VERSION_RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$WRONG_VERSION_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$WRONG_VERSION_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$WRONG_VERSION_LIB_DIR" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$WRONG_VERSION_OUTPUT_FILE" 2>&1
+
+WRONG_VERSION_INSTALL_ROOT="$WRONG_VERSION_RUNNER_TEMP_DIR/$ZIG_NAME"
+EXPECTED_WRONG_VERSION_INSTALL_ROOT="$(canonical_install_root "$WRONG_VERSION_INSTALL_ROOT")"
+if [ ! -x "$WRONG_VERSION_INSTALL_ROOT/zig" ]; then
+  cat "$WRONG_VERSION_OUTPUT_FILE"
+  echo "FAIL: wrong-version existing zig did not fall back to a verified install" >&2
+  exit 1
+fi
+
+if grep -Fq "already installed at" "$WRONG_VERSION_OUTPUT_FILE"; then
+  cat "$WRONG_VERSION_OUTPUT_FILE"
+  echo "FAIL: installer accepted a wrong-version existing zig whose lib_dir looked complete" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_WRONG_VERSION_INSTALL_ROOT" "$WRONG_VERSION_GITHUB_PATH_FILE"; then
+  cat "$WRONG_VERSION_OUTPUT_FILE"
+  echo "FAIL: wrong-version fallback did not publish the verified local zig bin dir to GITHUB_PATH" >&2
   exit 1
 fi
 
@@ -152,6 +217,8 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   GITHUB_PATH="$FORCE_LOCAL_GITHUB_PATH_FILE" \
   GITHUB_ENV="$FORCE_LOCAL_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="$ZIG_REQUIRED" \
+  FAKE_ZIG_LIB_DIR="$BROKEN_ZIG_LIB_DIR" \
   ZIG_REQUIRED="$ZIG_REQUIRED" \
   ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
   ZIG_FORCE_LOCAL_INSTALL=1 \
@@ -209,6 +276,8 @@ env -u RUNNER_TEMP -u ZIG_FORCE_LOCAL_INSTALL -u ZIG_INSTALL_ROOT \
   PATH="$BIN_DIR:/usr/bin:/bin" \
   GITHUB_PATH="$DEFAULT_GITHUB_PATH_FILE" \
   GITHUB_ENV="$DEFAULT_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="$ZIG_REQUIRED" \
+  FAKE_ZIG_LIB_DIR="$BROKEN_ZIG_LIB_DIR" \
   ZIG_REQUIRED="$ZIG_REQUIRED" \
   ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
@@ -239,4 +308,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
