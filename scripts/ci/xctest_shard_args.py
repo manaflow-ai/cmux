@@ -12,7 +12,25 @@ from pathlib import Path
 
 
 CLASS_RE = re.compile(r"\b(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b")
-SUITE_RE = re.compile(r"@Suite(?:\([^)]*\))?\s*(?:\n\s*)?(?:struct|final\s+class|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+ATTRIBUTE_ARGS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
+SWIFT_ATTRIBUTE = rf"@[A-Za-z_][A-Za-z0-9_]*{ATTRIBUTE_ARGS}"
+TYPE_MODIFIER = r"(?:public|private|internal|fileprivate|open|final)"
+SUITE_RE = re.compile(
+    rf"""
+    @Suite{ATTRIBUTE_ARGS}
+    (?:
+        \s+
+        (?:
+            {SWIFT_ATTRIBUTE}
+            |
+            {TYPE_MODIFIER}
+        )
+    )*
+    \s+
+    (?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b
+    """,
+    re.VERBOSE,
+)
 TEST_METHOD_RE = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]+)\s*\(")
 
 

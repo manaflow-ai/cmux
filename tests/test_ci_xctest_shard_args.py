@@ -98,3 +98,38 @@ def test_discovers_swift_testing_suite_types() -> None:
         output = run_helper(tests_dir)
 
     assert "-only-testing:cmuxTests/SuiteTests" in output
+
+
+def test_discovers_swift_testing_suite_types_with_intervening_attributes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tests_dir = Path(tmp)
+        (tests_dir / "AttributedSuiteTests.swift").write_text(
+            textwrap.dedent(
+                """
+                import Testing
+
+                @Suite(.serialized)
+                @MainActor
+                final class AttributedSuiteTests {
+                    @Test func coversBehavior() {}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        output = run_helper(tests_dir)
+
+    assert "-only-testing:cmuxTests/AttributedSuiteTests" in output
+
+
+def main() -> int:
+    for name, value in sorted(globals().items()):
+        if name.startswith("test_") and callable(value):
+            value()
+            print(f"{name}: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
