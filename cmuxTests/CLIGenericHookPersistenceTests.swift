@@ -33,7 +33,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "enabled",
                     "initial prompt should not persist"
                 ],
-                extraEnvironment: [:],
+                extraEnvironment: [
+                    "CURSOR_CONFIG_DIR": "/tmp/cursor config",
+                    "CURSOR_API_KEY": "secret"
+                ],
                 expectedArguments: [
                     "/Users/example/.local/bin/cursor-agent",
                     "--model",
@@ -41,7 +44,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "--sandbox",
                     "enabled"
                 ],
-                expectedEnvironment: nil
+                expectedEnvironment: ["CURSOR_CONFIG_DIR": "/tmp/cursor config"]
             ),
             GenericHookPersistenceScenario(
                 agent: "gemini",
@@ -3276,7 +3279,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
             XCTAssertEqual(
                 params["command"] as? String,
-                "cd '\(workspace.path)' && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+                "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
             XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
             XCTAssertFalse(

@@ -163,7 +163,7 @@ extension SocketListenerAcceptPolicyTests {
                     "initial prompt should not replay"
                 ],
                 workingDirectory: "/tmp/cursor repo",
-                environment: nil,
+                environment: ["CURSOR_CONFIG_DIR": "/tmp/cursor config", "CURSOR_API_KEY": "secret"],
                 capturedAt: 123,
                 source: "process"
             )
@@ -366,7 +366,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             cursor.resumeCommand,
-            "{ cd -- '/tmp/cursor repo' 2>/dev/null || [ ! -d '/tmp/cursor repo' ]; } && '/Users/example/.local/bin/cursor-agent' '--resume' 'cursor-chat-123' '--model' 'gpt-5.4' '--sandbox' 'enabled'"
+            "{ cd -- '/tmp/cursor repo' 2>/dev/null || [ ! -d '/tmp/cursor repo' ]; } && 'env' 'CURSOR_CONFIG_DIR=/tmp/cursor config' '/Users/example/.local/bin/cursor-agent' '--resume' 'cursor-chat-123' '--model' 'gpt-5.4' '--sandbox' 'enabled'"
         )
         XCTAssertEqual(
             copilot.resumeCommand,
