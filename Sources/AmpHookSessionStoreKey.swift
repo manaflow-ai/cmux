@@ -9,6 +9,6 @@ struct AmpHookSessionStoreKey: CodingKey {
     }
 
     init?(intValue: Int) {
-        nil
+        return nil
     }
 }
