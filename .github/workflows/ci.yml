@@ -1288,23 +1288,17 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: |
-          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit-ios
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
-
       - name: Provision GhosttyKit
-        if: steps.cache-ghosttykit-ios.outputs.cache-hit != 'true'
         run: |
           # The iOS app links GhosttyKit (incl. its iOS + iOS-simulator slices)
           # via a local-path binaryTarget, so it must exist before resolve.
+          # Mirror the ios-simulator job exactly: ensure-ghosttykit.sh manages
+          # its own $HOME/.cache/cmux/ghosttykit cache and writes the framework
+          # where the iOS workspace expects it. Do NOT add an actions/cache step
+          # keyed on repo-root GhosttyKit.xcframework here: ensure-ghosttykit.sh
+          # does not populate that path, and the shared ghosttykit-<sha> key is
+          # owned by the macOS jobs that use download-prebuilt (a real dir), so
+          # caching a symlink/absent path from this job would poison that key.
           ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
