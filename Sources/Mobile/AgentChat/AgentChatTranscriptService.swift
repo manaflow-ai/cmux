@@ -28,13 +28,20 @@ final class AgentChatTranscriptService {
     private static let detectionScanThrottle: TimeInterval = 4
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
-    /// Creates the service.
+    /// Creates the service with a hook-store-backed registry.
+    ///
+    /// - Parameter resolver: Transcript path resolver.
+    convenience init(resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()) {
+        self.init(registry: AgentChatSessionRegistry(), resolver: resolver)
+    }
+
+    /// Creates the service with explicit dependencies.
     ///
     /// - Parameters:
-    ///   - registry: Session registry; defaults to a hook-store-backed one.
+    ///   - registry: Session registry.
     ///   - resolver: Transcript path resolver.
     init(
-        registry: AgentChatSessionRegistry = AgentChatSessionRegistry(),
+        registry: AgentChatSessionRegistry,
         resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
     ) {
         self.registry = registry
