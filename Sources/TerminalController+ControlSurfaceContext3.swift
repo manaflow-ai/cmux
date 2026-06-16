@@ -330,6 +330,9 @@ extension TerminalController {
             reason: "controlSurfaceReadText",
             startIfNeeded: startIfNeeded
         ) else {
+            guard startIfNeeded else {
+                return .internalError(message: "Failed to read terminal text")
+            }
             return .terminalNotReady(surfaceId)
         }
 
