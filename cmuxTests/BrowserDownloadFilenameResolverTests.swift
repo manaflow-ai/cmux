@@ -14,7 +14,6 @@ import UniformTypeIdentifiers
     @Test func downloadPolicyForcesChromeDownloadTypes() {
         #expect(resolver.shouldForceDownload(mimeType: "text/csv", contentDisposition: nil))
         #expect(resolver.shouldForceDownload(mimeType: "text/csv; charset=utf-8", contentDisposition: nil))
-        #expect(resolver.shouldForceDownload(mimeType: "application/json", contentDisposition: nil))
         #expect(resolver.shouldForceDownload(mimeType: "application/zip", contentDisposition: nil))
         #expect(resolver.shouldForceDownload(mimeType: "application/x-zip-compressed", contentDisposition: nil))
         #expect(resolver.shouldForceDownload(mimeType: "application/octet-stream", contentDisposition: nil))
@@ -25,6 +24,7 @@ import UniformTypeIdentifiers
         #expect(!resolver.shouldForceDownload(mimeType: "text/html", contentDisposition: nil))
         #expect(!resolver.shouldForceDownload(mimeType: "image/png", contentDisposition: nil))
         #expect(!resolver.shouldForceDownload(mimeType: "application/pdf", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "application/json", contentDisposition: nil))
     }
 
     @Test func downloadPolicyHonorsAttachmentForAnyType() {

@@ -97,9 +97,9 @@ extension CmuxWebView {
 
         const readBlobForDownload = (blob, suggestedFilename) => {
           try {
-            if (!blob) return;
-            if (blobDownloadInFlight) return;
-            if (typeof blob.size === "number" && blob.size > maxPayloadBytes) return;
+            if (!blob) return false;
+            if (blobDownloadInFlight) return false;
+            if (typeof blob.size === "number" && blob.size > maxPayloadBytes) return false;
             blobDownloadInFlight = true;
             const filename = String(suggestedFilename || blob.name || "");
             const reader = new FileReader();
@@ -115,9 +115,11 @@ extension CmuxWebView {
             reader.onerror = finish;
             reader.onabort = finish;
             reader.readAsDataURL(blob);
+            return true;
           } catch (_) {
             blobDownloadInFlight = false;
           }
+          return false;
         };
 
         const postBlobURLDownload = (url, suggestedFilename) => {
@@ -125,8 +127,7 @@ extension CmuxWebView {
             const storedBlob = objectURLs.get(String(url));
             if (storedBlob) {
               if (typeof storedBlob.size === "number" && storedBlob.size > maxPayloadBytes) return false;
-              readBlobForDownload(storedBlob, suggestedFilename);
-              return true;
+              return readBlobForDownload(storedBlob, suggestedFilename);
             }
             fetch(url)
               .then((response) => response.blob())
@@ -251,12 +252,7 @@ extension CmuxWebView {
         }
 
         let token = UUID().uuidString
-        objc_setAssociatedObject(
-            self,
-            &Self.scriptedDownloadTokenKey,
-            token,
-            .OBJC_ASSOCIATION_COPY_NONATOMIC
-        )
+        objc_setAssociatedObject(userContentController, &Self.scriptedDownloadTokenKey, token, .OBJC_ASSOCIATION_COPY_NONATOMIC)
         userContentController.addUserScript(
             WKUserScript(
                 source: Self.scriptedDownloadInterceptionBootstrapScriptSource(token: token),
@@ -277,7 +273,10 @@ extension CmuxWebView {
     }
 
     fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {
-        let expectedToken = objc_getAssociatedObject(self, &Self.scriptedDownloadTokenKey) as? String
+        let expectedToken = objc_getAssociatedObject(
+            configuration.userContentController,
+            &Self.scriptedDownloadTokenKey
+        ) as? String
         guard let token = body["token"] as? String,
               let expectedToken,
               token == expectedToken else {

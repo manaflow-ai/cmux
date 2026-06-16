@@ -164,7 +164,6 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
 
     private static let forceDownloadMIMETypes: Set<String> = [
         "application/gzip",
-        "application/json",
         "application/octet-stream",
         "application/x-gzip",
         "application/x-zip-compressed",
