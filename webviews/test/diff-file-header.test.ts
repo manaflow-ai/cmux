@@ -122,8 +122,15 @@ test("DiffFileHeader toggles collapse and opens a dedicated tab without also tog
     });
     expect(toggleCount).toBe(2);
 
+    const openButton = dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open");
     await act(async () => {
-      dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open")?.click();
+      openButton?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    });
+    expect(openCount).toBe(0);
+    expect(toggleCount).toBe(2);
+
+    await act(async () => {
+      openButton?.click();
     });
     expect(openCount).toBe(1);
     expect(toggleCount).toBe(2);

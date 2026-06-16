@@ -56,6 +56,15 @@ function renderPath(path: string) {
   );
 }
 
+function isInteractiveHeaderTarget(target: EventTarget | null, currentTarget: HTMLElement): boolean {
+  if (target === currentTarget) {
+    return false;
+  }
+  const element = target as Element | null;
+  return typeof element?.closest === "function" &&
+    Boolean(element.closest("a, button, input, select, textarea, [contenteditable='true'], [role='button']"));
+}
+
 /**
  * Graphite-style file header: a muted directory prefix with an emphasized
  * filename, a language badge, and +N/-N counts. Rendered by @pierre/diffs'
@@ -90,6 +99,9 @@ export function DiffFileHeader({
       "aria-label": toggleLabel,
       onClick: onToggleCollapsed,
       onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+        if (isInteractiveHeaderTarget(event.target, event.currentTarget)) {
+          return;
+        }
         if (event.key !== "Enter" && event.key !== " ") {
           return;
         }
