@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 import CmuxSettings
 @testable import CmuxSettingsUI
@@ -12,6 +13,19 @@ private typealias StoredShortcut = cmux_DEV.StoredShortcut
 @testable import cmux
 private typealias StoredShortcut = cmux.StoredShortcut
 #endif
+
+@Suite struct KeyboardShortcutContextSwiftTests {
+    @Test func surfaceSelectionContextAvoidsRightSidebarModeConflicts() {
+        let context = KeyboardShortcutSettings.Action.selectSurface1.shortcutContext
+
+        #expect(context == .mainWorkspace)
+        #expect(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        #expect(context.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        #expect(!context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
+        #expect(!context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
+        #expect(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
+    }
+}
 
 // Line ~253 compares CmuxSettings.ShortcutAction.defaultStroke, so the
 // package stroke is the intended type here (unlike StoredShortcut above).

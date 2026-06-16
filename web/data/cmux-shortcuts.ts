@@ -1,7 +1,29 @@
+type ShortcutLocale =
+  | "ar"
+  | "bs"
+  | "da"
+  | "de"
+  | "en"
+  | "es"
+  | "fr"
+  | "it"
+  | "ja"
+  | "km"
+  | "ko"
+  | "no"
+  | "pl"
+  | "pt-BR"
+  | "ru"
+  | "th"
+  | "tr"
+  | "uk"
+  | "zh-CN"
+  | "zh-TW";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-};
+} & Partial<Record<ShortcutLocale, string>>;
 
 export type Shortcut = {
   id: string;
@@ -16,6 +38,54 @@ export type ShortcutCategory = {
   titleKey: string;
   blurbKey?: string;
   shortcuts: Shortcut[];
+};
+
+function selectSurfaceDescription(surface: number): LocalizedText {
+  return {
+    ar: `تحديد السطح ${surface}`,
+    bs: `Odaberi površinu ${surface}`,
+    da: `Vælg flade ${surface}`,
+    de: `Oberfläche ${surface} auswählen`,
+    en: `Select surface ${surface}`,
+    es: `Seleccionar superficie ${surface}`,
+    fr: `Sélectionner la surface ${surface}`,
+    it: `Seleziona superficie ${surface}`,
+    ja: `サーフェス${surface}を選択`,
+    km: `ជ្រើស Surface ${surface}`,
+    ko: `서피스 ${surface} 선택`,
+    no: `Velg flate ${surface}`,
+    pl: `Wybierz powierzchnię ${surface}`,
+    "pt-BR": `Selecionar superfície ${surface}`,
+    ru: `Выбрать поверхность ${surface}`,
+    th: `เลือกพื้นผิว ${surface}`,
+    tr: `Yüzey ${surface} seç`,
+    uk: `Вибрати поверхню ${surface}`,
+    "zh-CN": `选择界面 ${surface}`,
+    "zh-TW": `選擇介面 ${surface}`,
+  };
+}
+
+const selectLastSurfaceDescription: LocalizedText = {
+  ar: "تحديد السطح الأخير",
+  bs: "Odaberi posljednju površinu",
+  da: "Vælg sidste flade",
+  de: "Letzte Oberfläche auswählen",
+  en: "Select last surface",
+  es: "Seleccionar última superficie",
+  fr: "Sélectionner la dernière surface",
+  it: "Seleziona ultima superficie",
+  ja: "最後のサーフェスを選択",
+  km: "ជ្រើស Surface ចុងក្រោយ",
+  ko: "마지막 서피스 선택",
+  no: "Velg siste flate",
+  pl: "Wybierz ostatnią powierzchnię",
+  "pt-BR": "Selecionar última superfície",
+  ru: "Выбрать последнюю поверхность",
+  th: "เลือกพื้นผิวสุดท้าย",
+  tr: "Son yüzeyi seç",
+  uk: "Вибрати останню поверхню",
+  "zh-CN": "选择最后一个界面",
+  "zh-TW": "選擇最後一個介面",
 };
 
 export const shortcutCategories: ShortcutCategory[] = [
@@ -136,7 +206,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "newSurface", combos: [["⌘", "T"]], description: { en: "New surface", ja: "新規サーフェス" } },
       { id: "nextSurface", combos: [["⌘", "⇧", "]"]], description: { en: "Next surface", ja: "次のサーフェス" } },
       { id: "prevSurface", combos: [["⌘", "⇧", "["]], description: { en: "Previous surface", ja: "前のサーフェス" } },
-      { id: "selectSurfaceByNumber", combos: [["⌃", "1…9"]], description: { en: "Select surface 1…9", ja: "サーフェス1…9を選択" } },
+      ...Array.from({ length: 8 }, (_, index) => {
+        const surface = index + 1;
+        return {
+          id: `selectSurface${surface}`,
+          combos: [["⌃", String(surface)]],
+          description: selectSurfaceDescription(surface),
+        };
+      }),
+      { id: "selectSurface9", combos: [["⌃", "9"]], description: selectLastSurfaceDescription },
       { id: "renameTab", combos: [["⌘", "R"]], description: { en: "Rename tab", ja: "タブ名を変更" } },
       { id: "closeTab", combos: [["⌘", "W"]], description: { en: "Close tab", ja: "タブを閉じる" } },
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },

@@ -322,6 +322,25 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
 
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
+    private func withIsolatedShortcutStore(_ body: () throws -> Void) throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shortcut-defaults-\(UUID().uuidString).json", isDirectory: false)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: settingsFileURL)
+        }
+        try body()
+    }
+
     func testRenameTabShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.label, "Rename Tab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.defaultsKey, "shortcut.renameTab")
@@ -643,6 +662,94 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let normalized = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcut(shortcut)
         XCTAssertEqual(normalized?.key, "b")
         XCTAssertEqual(normalized?.chordKey, "1")
+    }
+
+    func testSurfaceSelectionActionsHaveControlDigitDefaults() throws {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.surfaceSelectionActions,
+            [
+                .selectSurface1,
+                .selectSurface2,
+                .selectSurface3,
+                .selectSurface4,
+                .selectSurface5,
+                .selectSurface6,
+                .selectSurface7,
+                .selectSurface8,
+                .selectSurface9,
+            ]
+        )
+
+        for digit in 1...9 {
+            let action = try XCTUnwrap(KeyboardShortcutSettings.Action.surfaceSelectionAction(forDigit: digit))
+            XCTAssertEqual(action.surfaceSelectionDigit, digit)
+            XCTAssertEqual(
+                action.defaultShortcut,
+                StoredShortcut(key: String(digit), command: false, shift: false, option: false, control: true)
+            )
+        }
+
+        XCTAssertFalse(KeyboardShortcutSettings.Action.selectSurfaceByNumber.isPublicShortcutAction)
+        XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(.selectSurfaceByNumber))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.selectSurface1))
+        XCTAssertEqual(KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut, .unbound)
+    }
+
+    func testLegacySurfaceNumberShortcutDerivesPerSurfaceBindings() throws {
+        try withIsolatedShortcutStore {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "1", command: false, shift: false, option: true, control: false),
+                for: .selectSurfaceByNumber
+            )
+
+            XCTAssertEqual(
+                KeyboardShortcutSettings.shortcut(for: .selectSurface4),
+                StoredShortcut(key: "4", command: false, shift: false, option: true, control: false)
+            )
+        }
+    }
+
+    func testClearedLegacySurfaceNumberShortcutPreservesLegacyUnbind() throws {
+        try withIsolatedShortcutStore {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "1", command: false, shift: false, option: true, control: false),
+                for: .selectSurfaceByNumber
+            )
+            XCTAssertEqual(
+                KeyboardShortcutSettings.shortcut(for: .selectSurface4),
+                StoredShortcut(key: "4", command: false, shift: false, option: true, control: false)
+            )
+
+            KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
+            XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectSurface4), .unbound)
+
+            KeyboardShortcutSettings.resetShortcut(for: .selectSurfaceByNumber)
+            XCTAssertEqual(
+                KeyboardShortcutSettings.shortcut(for: .selectSurface4),
+                StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+            )
+        }
+    }
+
+    func testExplicitSurfaceShortcutOverrideWinsOverLegacyFamily() throws {
+        try withIsolatedShortcutStore {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "1", command: false, shift: false, option: true, control: false),
+                for: .selectSurfaceByNumber
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
+                for: .selectSurface4
+            )
+
+            XCTAssertEqual(
+                KeyboardShortcutSettings.shortcut(for: .selectSurface4),
+                StoredShortcut(key: "k", command: true, shift: false, option: false, control: false)
+            )
+
+            KeyboardShortcutSettings.clearShortcut(for: .selectSurface4)
+            XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectSurface4), .unbound)
+        }
     }
 
     func testStoredShortcutDecodesLegacySingleStrokePayload() throws {

@@ -49,3 +49,92 @@ private func sameModifiers(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool
         && lhs.option == rhs.option
         && lhs.control == rhs.control
 }
+
+/// Expands a configured legacy ``ShortcutAction/selectSurfaceByNumber`` binding
+/// onto the per-surface digit `action` targets, mirroring the app target's
+/// `KeyboardShortcutSettingsLookup` runtime derivation so the settings UI shows
+/// and conflict-checks the same shortcut the app actually routes.
+///
+/// - Returns: `nil` for non-surface actions or when `legacyBinding` is `nil` (no
+///   legacy entry configured), so the caller falls through to the action's own
+///   binding or built-in default. Returns ``StoredShortcut/unbound`` when the
+///   legacy family is explicitly unbound, so a user who disabled surface
+///   selection through the legacy action keeps every per-surface shortcut
+///   disabled instead of resurrecting the ⌃-digit defaults.
+func legacySurfaceSelectionShortcut(
+    for action: ShortcutAction,
+    legacyBinding: StoredShortcut?
+) -> StoredShortcut? {
+    guard let digit = action.surfaceSelectionDigit, let legacy = legacyBinding else {
+        return nil
+    }
+    guard !legacy.isUnbound else { return .unbound }
+    let digitKey = String(digit)
+    // Preserve the legacy modifiers and stroke shape: a chord replaces the
+    // second-stroke digit, a single stroke replaces the primary key.
+    if let second = legacy.second {
+        return StoredShortcut(first: legacy.first, second: second.replacingKey(digitKey))
+    }
+    return StoredShortcut(first: legacy.first.replacingKey(digitKey))
+}
+
+/// The shortcut the app target would route for `action`, mirroring
+/// `KeyboardShortcutSettingsLookup.shortcutIfBound`: an explicit `bindings`
+/// entry wins (even when unbound), otherwise a configured legacy
+/// `selectSurfaceByNumber` binding is expanded onto the matching per-surface
+/// digit, otherwise the action's built-in default. The settings UI resolves row
+/// display and conflict detection through this so it never diverges from runtime
+/// routing for migrated surface bindings.
+func effectiveStoredShortcut(
+    for action: ShortcutAction,
+    bindings: [String: StoredShortcut]
+) -> StoredShortcut? {
+    if let override = bindings[action.rawValue] {
+        return override
+    }
+    if let legacy = legacySurfaceSelectionShortcut(
+        for: action,
+        legacyBinding: bindings[ShortcutAction.selectSurfaceByNumber.rawValue]
+    ) {
+        return legacy
+    }
+    return action.defaultShortcut
+}
+
+/// The action's effective focus predicate: its `shortcuts.when` override if
+/// present, otherwise an inherited legacy `selectSurfaceByNumber` predicate for
+/// per-surface actions (so a user who scoped only the legacy family keeps that
+/// predicate after the split into per-surface actions), otherwise its built-in
+/// ``ShortcutAction/defaultFocusWhenClause``. Mirrors the app target's
+/// `KeyboardShortcutSettingsLookup.effectiveWhenClause` so conflict detection
+/// evaluates the same context the runtime does.
+func effectiveWhenClause(
+    for action: ShortcutAction,
+    whenOverrideClauses: [String: ShortcutWhenClause]
+) -> ShortcutWhenClause {
+    if let clause = whenOverrideClauses[action.rawValue] {
+        return clause
+    }
+    if action.surfaceSelectionDigit != nil,
+       let legacyClause = whenOverrideClauses[ShortcutAction.selectSurfaceByNumber.rawValue] {
+        return legacyClause
+    }
+    return action.defaultFocusWhenClause
+}
+
+private extension ShortcutStroke {
+    /// A copy of this stroke with its `key` replaced, preserving modifiers. The
+    /// virtual `keyCode` is dropped because it described the original physical
+    /// key, not the substituted digit; conflict detection and display compare
+    /// `key` + modifiers only (see ``numberedAwareStrokesConflict``).
+    func replacingKey(_ newKey: String) -> ShortcutStroke {
+        ShortcutStroke(
+            key: newKey,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control,
+            keyCode: nil
+        )
+    }
+}

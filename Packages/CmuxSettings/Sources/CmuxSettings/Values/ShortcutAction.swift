@@ -48,6 +48,24 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case nextSurface
     case prevSurface
     case selectSurfaceByNumber
+    /// Selects the first surface in the focused pane.
+    case selectSurface1
+    /// Selects the second surface in the focused pane.
+    case selectSurface2
+    /// Selects the third surface in the focused pane.
+    case selectSurface3
+    /// Selects the fourth surface in the focused pane.
+    case selectSurface4
+    /// Selects the fifth surface in the focused pane.
+    case selectSurface5
+    /// Selects the sixth surface in the focused pane.
+    case selectSurface6
+    /// Selects the seventh surface in the focused pane.
+    case selectSurface7
+    /// Selects the eighth surface in the focused pane.
+    case selectSurface8
+    /// Selects the last surface in the focused pane.
+    case selectSurface9
     case nextSidebarTab
     case prevSidebarTab
     case focusHistoryBack
@@ -170,7 +188,11 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
+        case .nextSurface, .prevSurface, .selectSurfaceByNumber,
+             .selectSurface1, .selectSurface2, .selectSurface3,
+             .selectSurface4, .selectSurface5, .selectSurface6,
+             .selectSurface7, .selectSurface8, .selectSurface9,
+             .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
@@ -217,6 +239,29 @@ extension ShortcutAction {
         }
     }
 
+    /// The 1-based surface index a per-surface selection action targets, or
+    /// `nil` for any other action.
+    ///
+    /// Maps ``selectSurface1``…``selectSurface9`` to `1`…`9` (where `9` selects
+    /// the last surface). Mirrors the app target's
+    /// `KeyboardShortcutSettings.Action.surfaceSelectionDigit` so the settings
+    /// UI can expand a configured legacy ``selectSurfaceByNumber`` binding onto
+    /// each per-surface row, matching the shortcut the app actually routes.
+    public var surfaceSelectionDigit: Int? {
+        switch self {
+        case .selectSurface1: return 1
+        case .selectSurface2: return 2
+        case .selectSurface3: return 3
+        case .selectSurface4: return 4
+        case .selectSurface5: return 5
+        case .selectSurface6: return 6
+        case .selectSurface7: return 7
+        case .selectSurface8: return 8
+        case .selectSurface9: return 9
+        default: return nil
+        }
+    }
+
     /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
     ///
     /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
@@ -246,6 +291,11 @@ extension ShortcutAction {
     /// mappings agree for every shared action.
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
+        case .selectSurfaceByNumber,
+             .selectSurface1, .selectSurface2, .selectSurface3,
+             .selectSurface4, .selectSurface5, .selectSurface6,
+             .selectSurface7, .selectSurface8, .selectSurface9:
+            return .not(.atom(.sidebarFocus))
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .atom(.sidebarFocus)
@@ -322,7 +372,26 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .selectSurfaceByNumber: return "Select Surface 1…9"
+        case .selectSurfaceByNumber:
+            return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
+        case .selectSurface1:
+            return Self.selectSurfaceDisplayName(digit: 1)
+        case .selectSurface2:
+            return Self.selectSurfaceDisplayName(digit: 2)
+        case .selectSurface3:
+            return Self.selectSurfaceDisplayName(digit: 3)
+        case .selectSurface4:
+            return Self.selectSurfaceDisplayName(digit: 4)
+        case .selectSurface5:
+            return Self.selectSurfaceDisplayName(digit: 5)
+        case .selectSurface6:
+            return Self.selectSurfaceDisplayName(digit: 6)
+        case .selectSurface7:
+            return Self.selectSurfaceDisplayName(digit: 7)
+        case .selectSurface8:
+            return Self.selectSurfaceDisplayName(digit: 8)
+        case .selectSurface9:
+            return String(localized: "shortcut.selectLastSurface.label", defaultValue: "Select Last Surface")
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
         case .focusHistoryBack: return "Focus Back"
@@ -420,5 +489,10 @@ extension ShortcutAction {
         case .diffViewerOpenFileSearch:
             return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
         }
+    }
+
+    private static func selectSurfaceDisplayName(digit: Int) -> String {
+        let format = String(localized: "shortcut.selectSurface.label", defaultValue: "Select Surface %@")
+        return String.localizedStringWithFormat(format, String(digit))
     }
 }

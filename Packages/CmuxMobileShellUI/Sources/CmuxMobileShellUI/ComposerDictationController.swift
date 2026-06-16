@@ -39,6 +39,10 @@ final class ComposerDictationController {
     /// every teardown.
     private let audioEngine = AVAudioEngine()
 
+    /// Pure value helper for combining the captured composer base with partial
+    /// dictation transcripts.
+    private let textMerge = ComposerDictationTextMerge()
+
     /// The in-flight recognition request, fed audio buffers from the engine tap.
     private var request: SFSpeechAudioBufferRecognitionRequest?
 
@@ -306,7 +310,7 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(ComposerDictationTextMerge.merged(
+                    self.onText?(self.textMerge.merged(
                         base: self.baseText,
                         transcript: transcript
                     ))

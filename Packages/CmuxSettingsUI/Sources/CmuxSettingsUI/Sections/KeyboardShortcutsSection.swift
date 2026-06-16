@@ -149,8 +149,7 @@ public struct KeyboardShortcutsSection: View {
 
     @ViewBuilder
     private func actionRow(_ action: ShortcutAction) -> some View {
-        let override = bindings[action.rawValue]
-        let effective = override ?? action.defaultShortcut
+        let effective = effectiveStoredShortcut(for: action, bindings: bindings)
         let isUnbound = effective?.isUnbound ?? true
         let canRestore = isUnbound && restoreShortcuts[action.rawValue] != nil
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
@@ -179,8 +178,7 @@ public struct KeyboardShortcutsSection: View {
                 // wording: include both the conflicting action label AND its
                 // displayed shortcut string in parentheses so the user can
                 // identify which existing shortcut is in the way.
-                let conflictOverride = bindings[conflict.rawValue]
-                let conflictEffective = conflictOverride ?? conflict.defaultShortcut
+                let conflictEffective = effectiveStoredShortcut(for: conflict, bindings: bindings)
                 let conflictShortcutString = conflictEffective.map {
                     format($0, numbered: conflict.usesNumberedDigitMatching)
                 } ?? ""
@@ -294,13 +292,13 @@ public struct KeyboardShortcutsSection: View {
     }
 
     /// Mirrors legacy `KeyboardShortcutSettings.settingsVisibleActions`:
-    /// filters out `.showHideAllWindows` (owned by Global Hotkey section)
+    /// filters out `.showHideAllWindows` and legacy `.selectSurfaceByNumber`,
     /// then re-orders so `focusRightSidebar`, `toggleRightSidebar`, and
     /// `findInDirectory` sit immediately after `markOldestUnreadAndJumpNext`
     /// or `jumpToUnread` (the unread navigation cluster), so colocated
     /// sidebar/find shortcuts appear together in the settings UI.
     private static var settingsVisibleActions: [ShortcutAction] {
-        let base = ShortcutAction.allCases.filter { $0 != .showHideAllWindows }
+        let base = ShortcutAction.allCases.filter { $0 != .showHideAllWindows && $0 != .selectSurfaceByNumber }
         let colocated: [ShortcutAction] = [
             .focusRightSidebar,
             .toggleRightSidebar,
@@ -333,12 +331,6 @@ public struct KeyboardShortcutsSection: View {
         guard let effective else { return unboundLabel }
         if effective.isUnbound { return unboundLabel }
         return format(effective, numbered: numbered)
-    }
-
-    /// The action's effective focus predicate: its `shortcuts.when` override if
-    /// present, otherwise its built-in ``ShortcutAction/defaultFocusWhenClause``.
-    private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
-        whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
     /// A row caption describing when a context-limited binding fires: the raw
@@ -374,6 +366,14 @@ public struct KeyboardShortcutsSection: View {
                 localized: "shortcut.when.caption.markdownFocus",
                 defaultValue: "Only while a markdown preview is focused"
             )
+        case .not(.atom(.sidebarFocus)):
+            // The `.mainWorkspace` context (Select Surface 1…9) fires across the
+            // whole workspace — terminal, browser, and markdown panes — and is
+            // suppressed only while the right sidebar holds keyboard focus.
+            return String(
+                localized: "shortcut.when.caption.notSidebarFocus",
+                defaultValue: "Except while the right sidebar is focused"
+            )
         default:
             return String(
                 localized: "shortcut.when.caption.terminalFocus",
@@ -383,8 +383,8 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
-        let proposedClause = effectiveWhenClause(for: action)
-        for other in ShortcutAction.allCases where other != action {
+        let proposedClause = effectiveWhenClause(for: action, whenOverrideClauses: whenOverrideClauses)
+        for other in ShortcutAction.allCases where other != action && other != .selectSurfaceByNumber {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
             // cannot decide the overlap. Context-disjoint clauses (e.g.
@@ -395,11 +395,10 @@ public struct KeyboardShortcutsSection: View {
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,
-                effectiveWhenClause(for: other),
+                effectiveWhenClause(for: other, whenOverrideClauses: whenOverrideClauses),
                 rhsHasPriority: other.hasPriorityShortcutRouting
             ) else { continue }
-            let override = bindings[other.rawValue]
-            let effective = override ?? other.defaultShortcut
+            let effective = effectiveStoredShortcut(for: other, bindings: bindings)
             guard let effective, !effective.isUnbound else { continue }
             if numberedAwareStrokesConflict(
                 stroke.first,
@@ -482,7 +481,7 @@ public struct KeyboardShortcutsSection: View {
                 conflictRejections.removeValue(forKey: key)
                 continue
             }
-            let effective = bindings[action.rawValue] ?? action.defaultShortcut
+            let effective = effectiveStoredShortcut(for: action, bindings: bindings)
             if let effective, detectConflict(for: action, stroke: effective) == nil {
                 conflictRejections.removeValue(forKey: key)
             } else if effective == nil {
