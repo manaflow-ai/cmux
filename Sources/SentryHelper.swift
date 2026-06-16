@@ -1,4 +1,5 @@
 import Darwin
+import CmuxTerminalEngine
 import Foundation
 import Sentry
 
