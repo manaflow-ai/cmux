@@ -138,17 +138,23 @@ struct MobileSettingsView: View {
                 }
 
                 #if DEBUG
-                Section("Developer") {
+                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
                         showingChatDemo = true
                     } label: {
-                        Label("Agent Chat Demo", systemImage: "bubble.left.and.bubble.right")
+                        Label(
+                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
+                            systemImage: "bubble.left.and.bubble.right"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
                     Button {
                         showingTerminalDemo = true
                     } label: {
-                        Label("Terminal Log Demo", systemImage: "terminal")
+                        Label(
+                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
+                            systemImage: "terminal"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
                 }

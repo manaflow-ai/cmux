@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CmuxMobileSupport
 import SwiftUI
 
 /// Debug-only host for the agent chat surface fed by the fixture
@@ -28,7 +29,7 @@ struct AgentChatDemoScreen: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button(L10n.string("mobile.settings.done", defaultValue: "Done")) { dismiss() }
                         .accessibilityIdentifier("AgentChatDemoDone")
                 }
             }

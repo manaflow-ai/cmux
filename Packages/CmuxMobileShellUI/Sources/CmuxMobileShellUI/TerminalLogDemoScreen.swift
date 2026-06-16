@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CmuxMobileSupport
 import SwiftUI
 
 /// Debug-only host for the plain-terminal chat (#5). Drives the real
@@ -69,7 +70,7 @@ struct TerminalLogDemoScreen: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button(L10n.string("mobile.settings.done", defaultValue: "Done")) { dismiss() }
                         .accessibilityIdentifier("TerminalLogDemoDone")
                 }
             }

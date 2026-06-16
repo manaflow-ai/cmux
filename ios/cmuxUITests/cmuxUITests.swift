@@ -153,6 +153,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeveloperChatDemosOpenFromSettings() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+        ])
+        waitForWorkspaceShell(in: app)
+
+        let settingsButton = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 8))
+        tap(settingsButton, in: app)
+
+        XCTAssertTrue(app.otherElements["MobileSettingsView"].waitForExistence(timeout: 4))
+        let agentChatDemo = app.buttons["MobileSettingsAgentChatDemo"]
+        revealSettingsRow(agentChatDemo, in: app)
+        XCTAssertEqual(agentChatDemo.label, "Agent Chat Demo")
+        tap(agentChatDemo, in: app)
+        XCTAssertTrue(app.buttons["AgentChatDemoDone"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["ChatComposerField"].waitForExistence(timeout: 8))
+        tap(app.buttons["AgentChatDemoDone"], in: app)
+
+        XCTAssertTrue(app.otherElements["MobileSettingsView"].waitForExistence(timeout: 4))
+        let terminalLogDemo = app.buttons["MobileSettingsTerminalLogDemo"]
+        revealSettingsRow(terminalLogDemo, in: app)
+        XCTAssertEqual(terminalLogDemo.label, "Terminal Log Demo")
+        tap(terminalLogDemo, in: app)
+        XCTAssertTrue(app.buttons["TerminalLogDemoDone"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["ChatComposerField"].waitForExistence(timeout: 8))
+        tap(app.buttons["TerminalLogDemoDone"], in: app)
+
+        XCTAssertTrue(app.otherElements["MobileSettingsView"].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
     func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -866,6 +903,35 @@ final class cmuxUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
             .tap()
+    }
+
+    @MainActor
+    private func revealSettingsRow(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if element.waitForExistence(timeout: 1), element.isHittable {
+            return
+        }
+
+        for _ in 0..<5 {
+            app.swipeUp()
+            if element.waitForExistence(timeout: 1), element.isHittable {
+                return
+            }
+        }
+
+        for _ in 0..<5 {
+            app.swipeDown()
+            if element.waitForExistence(timeout: 1), element.isHittable {
+                return
+            }
+        }
+
+        XCTAssertTrue(element.waitForExistence(timeout: 1), file: file, line: line)
+        XCTAssertTrue(element.isHittable, "Settings row is not hittable: \(element.debugDescription)", file: file, line: line)
     }
 
     @MainActor

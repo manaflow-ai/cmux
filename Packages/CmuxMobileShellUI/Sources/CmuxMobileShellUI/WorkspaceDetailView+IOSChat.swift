@@ -99,10 +99,25 @@ extension WorkspaceDetailView {
                     ? "bubble.left.and.bubble.right.fill"
                     : "bubble.left.and.bubble.right")
             }
-            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
+            .accessibilityLabel(chatToggleAccessibilityLabel)
+            .accessibilityValue(chatToggleAccessibilityValue)
             .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
             .disabled(!isChatMode && chosenChatSession == nil)
         }
+    }
+
+    var chatToggleAccessibilityLabel: String {
+        if isChatMode {
+            return L10n.string("mobile.workspace.agentChat.showTerminal", defaultValue: "Show Terminal")
+        }
+        return L10n.string("mobile.workspace.agentChat.showChat", defaultValue: "Show Agent Chat")
+    }
+
+    var chatToggleAccessibilityValue: String {
+        if isChatMode {
+            return L10n.string("mobile.workspace.agentChat.chatOpen", defaultValue: "Chat open")
+        }
+        return L10n.string("mobile.workspace.agentChat.terminalOpen", defaultValue: "Terminal open")
     }
 
     /// Identity for the session refetch: workspace plus connection epoch.
