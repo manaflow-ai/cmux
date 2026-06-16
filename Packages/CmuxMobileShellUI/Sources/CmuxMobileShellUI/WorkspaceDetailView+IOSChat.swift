@@ -130,22 +130,32 @@ extension WorkspaceDetailView {
     /// shown, so the GUI toggle appears as soon as a coding agent becomes
     /// active, without polling.
     func refreshChatSessions() async {
+        let workspaceID = workspace.id
+        let workspaceRawID = workspaceID.rawValue
+        func refreshStillCurrent() -> Bool {
+            !Task.isCancelled && chatSessionsWorkspaceID == workspaceID
+        }
+
         prepareChatSessionsForCurrentWorkspace()
+        guard refreshStillCurrent() else { return }
         guard let source = store.makeChatEventSource() else {
             chatSessions = []
             hasLoadedLiveChatSessions = false
             applyChatModeFallback()
             return
         }
-        let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
+        let reducer = ChatSessionListReducer(workspaceID: workspaceRawID)
         let stream = await source.sessionEvents()
+        guard refreshStillCurrent() else { return }
         do {
-            let seeded = try await source.sessions(workspaceID: workspace.id.rawValue)
+            let seeded = try await source.sessions(workspaceID: workspaceRawID)
+            guard refreshStillCurrent() else { return }
             withAnimation(.snappy(duration: 0.25)) {
                 chatSessions = seeded
                 hasLoadedLiveChatSessions = true
             }
         } catch {
+            guard refreshStillCurrent() else { return }
             // The workspace-list seed is read directly from the store by
             // `availableChatSessions`; do not keep old live/session state as a
             // primary source when the authoritative fetch fails.
@@ -154,14 +164,15 @@ extension WorkspaceDetailView {
         }
         applyChatModeFallback()
         for await frame in stream {
+            guard refreshStillCurrent() else { return }
             let baseline = Self.streamReducerBaseline(
                 current: chatSessions,
                 hasLoadedLiveSessions: hasLoadedLiveChatSessions,
-                seeded: store.seededChatSessions(workspaceID: workspace.id.rawValue)
+                seeded: store.seededChatSessions(workspaceID: workspaceRawID)
             )
             guard Self.frameUpdatesSessionList(
                 frame,
-                workspaceID: workspace.id.rawValue,
+                workspaceID: workspaceRawID,
                 baseline: baseline
             ) else { continue }
             let next = reducer.applying(frame, to: baseline)

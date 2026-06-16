@@ -28,6 +28,7 @@ struct CMUXMobileRootView: View {
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
+    @State private var isConnectingAttachURL = false
     @State private var didConsumeUITestAttachURL = false
     @State var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
@@ -126,7 +127,7 @@ struct CMUXMobileRootView: View {
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
-            syncShellAuthentication(isAuthenticated)
+            syncShellAuthentication(shellAuthenticatedForCurrentAttachState)
             guard isAuthenticated else {
                 return
             }
@@ -136,7 +137,7 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
-            syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+            syncShellAuthentication(shellAuthenticatedForCurrentAttachState, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
             _ = consumePendingURLIfReady()
         }
@@ -295,6 +296,14 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var hasAttachURLPendingOrConnecting: Bool {
+        isConnectingAttachURL || pendingAttachURL.map(isRawAttachURL) == true
+    }
+
+    private var shellAuthenticatedForCurrentAttachState: Bool {
+        MobileRootAuthGate.shouldAuthenticateShell(authenticated: isAuthenticated, attachURLConnectionActive: hasAttachURLPendingOrConnecting)
+    }
+
     private var shouldShowRestoringSession: Bool {
         MobileRootAuthGate.shouldShowRestoringSession(
             stackAuthenticated: authManager.isAuthenticated,
@@ -337,6 +346,7 @@ struct CMUXMobileRootView: View {
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasAttachTicketAuthentication,
+                attachURLConnectionActive: hasAttachURLPendingOrConnecting,
                 connectionState: store.connectionState
               ) else { return }
         let stackUserID = authManager.currentUser?.id
@@ -353,9 +363,15 @@ struct CMUXMobileRootView: View {
     }
 
     private func connectAttachURL(_ rawURL: String) {
+        if MobileRootAuthGate.shouldDeferAttachURLUntilSessionRestoreCompletes(isRestoringSession: authManager.isRestoringSession) {
+            pendingAttachURL = rawURL
+            return
+        }
+        isConnectingAttachURL = true
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
+            defer { isConnectingAttachURL = false }
             let result = await store.connectPairingURLResult(rawURL)
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true

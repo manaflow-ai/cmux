@@ -40,6 +40,9 @@ public struct ChatHistoryPage: Sendable, Equatable, Codable {
         case transcriptAvailability = "transcript_availability"
     }
 
+    /// Decodes a history page, defaulting additive fields when older hosts omit them.
+    ///
+    /// - Parameter decoder: The decoder containing the page payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         messages = try container.decode([ChatMessage].self, forKey: .messages)
@@ -51,6 +54,9 @@ public struct ChatHistoryPage: Sendable, Equatable, Codable {
         ) ?? .available
     }
 
+    /// Encodes a history page for transport to chat clients.
+    ///
+    /// - Parameter encoder: The encoder that receives the page payload.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(messages, forKey: .messages)

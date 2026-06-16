@@ -33,7 +33,6 @@ final class AgentChatTranscriptService {
     /// adoption removes the entry.
     private var detectionScanAt: [String: Date] = [:]
     private static let detectionScanThrottle: TimeInterval = 4
-    private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service.
     ///
@@ -162,18 +161,22 @@ final class AgentChatTranscriptService {
         titleHint: String? = nil
     ) -> Bool {
         if let bound = registry.liveRecord(boundToSurfaceID: surfaceID) {
+            let effectiveTitleHint = titleHint ?? bound.titleHint ?? bound.title
             registry.update(sessionID: bound.sessionID) { record in
                 record.workspaceID = workspaceID
                 record.surfaceID = surfaceID
                 record.workingDirectory = workingDirectory
+                if let titleHint, !titleHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    record.titleHint = titleHint
+                }
             }
             guard bound.transcriptPath == nil else { return true }
             if let resolved = newestClaudeTranscript(
                 workingDirectory: workingDirectory,
                 surfaceID: surfaceID,
                 excludingSessionID: bound.sessionID,
-                titleHint: titleHint,
-                forceScan: Self.isSpecificClaudeTitle(titleHint),
+                titleHint: effectiveTitleHint,
+                forceScan: Self.isSpecificClaudeTitle(effectiveTitleHint),
                 minimumModificationDate: bound.lastActivityAt.addingTimeInterval(-5)
             ) {
                 detectionScanAt.removeValue(forKey: surfaceID)
@@ -206,6 +209,7 @@ final class AgentChatTranscriptService {
                 surfaceID: surfaceID,
                 workingDirectory: workingDirectory,
                 transcriptPath: resolved.path,
+                titleHint: titleHint,
                 at: Date()
             )
             return true
@@ -217,6 +221,7 @@ final class AgentChatTranscriptService {
             surfaceID: surfaceID,
             workingDirectory: workingDirectory,
             transcriptPath: nil,
+            titleHint: titleHint,
             at: Date()
         )
         return true
@@ -252,14 +257,14 @@ final class AgentChatTranscriptService {
         // failed transcript resolution.
         failedResolutions.remove(sessionID)
         if record.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID),
+           record.canAwaitTranscript,
            let workingDirectory = record.workingDirectory,
            let surfaceID = record.surfaceID,
            let resolved = newestClaudeTranscript(
                workingDirectory: workingDirectory,
                surfaceID: surfaceID,
                excludingSessionID: sessionID,
-               titleHint: record.title,
+               titleHint: record.title ?? record.titleHint,
                forceScan: true,
                minimumModificationDate: record.lastActivityAt.addingTimeInterval(-5)
            ) {
@@ -267,7 +272,8 @@ final class AgentChatTranscriptService {
         }
         guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
         guard let tailer = ensureTailer(for: currentRecord) else {
-            guard registry.record(sessionID: sessionID)?.transcriptPath == nil else { return nil }
+            guard currentRecord.transcriptPath == nil,
+                  currentRecord.canAwaitTranscript else { return nil }
             return ChatHistoryPage(
                 messages: [],
                 hasMore: false,
@@ -297,7 +303,7 @@ final class AgentChatTranscriptService {
             entry["workspace_id"] = record.workspaceID
             entry["surface_id"] = record.surfaceID
             entry["transcript_path"] = record.transcriptPath
-            entry["is_provisional"] = Self.isProvisionalClaudeSessionID(record.sessionID)
+            entry["is_provisional"] = record.canAwaitTranscript
             if let pid = record.pid {
                 entry["pid"] = pid
                 entry["pid_alive"] = kill(pid_t(pid), 0) == 0
@@ -315,7 +321,7 @@ final class AgentChatTranscriptService {
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
         guard let path = resolver.transcriptPath(for: record) else {
-            if Self.isProvisionalClaudeSessionID(record.sessionID) {
+            if record.canAwaitTranscript {
                 return nil
             }
             failedResolutions.insert(record.sessionID)
@@ -444,20 +450,16 @@ final class AgentChatTranscriptService {
     }
 
     private static func provisionalClaudeSessionID(surfaceID: String) -> String {
-        provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
+        AgentChatSessionRecord.provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
     }
 
     private static func provisionalClaudeSessionID(for record: AgentChatSessionRecord) -> String? {
         guard case .claude = record.agentKind,
-              !isProvisionalClaudeSessionID(record.sessionID),
+              !record.canAwaitTranscript,
               let surfaceID = record.surfaceID else {
             return nil
         }
         return provisionalClaudeSessionID(surfaceID: surfaceID)
-    }
-
-    private static func isProvisionalClaudeSessionID(_ sessionID: String) -> Bool {
-        sessionID.hasPrefix(provisionalClaudeSessionIDPrefix)
     }
 
     private static func isSpecificClaudeTitle(_ title: String?) -> Bool {

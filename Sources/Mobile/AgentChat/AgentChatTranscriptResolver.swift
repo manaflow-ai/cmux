@@ -90,7 +90,7 @@ struct AgentChatTranscriptResolver {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            let transcriptCandidates = entries
+            let datedCandidates = entries
                 .filter {
                     $0.pathExtension == "jsonl"
                         && !excludingSessionIDs.contains($0.deletingPathExtension().lastPathComponent)
@@ -98,14 +98,20 @@ struct AgentChatTranscriptResolver {
                 .map { url in
                     (
                         url: url,
-                        date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
-                        title: Self.claudeTranscriptTitle(at: url)
+                        date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                     )
                 }
                 .filter { candidate in
                     guard let minimumModificationDate else { return true }
                     return candidate.date >= minimumModificationDate
                 }
+            let transcriptCandidates = datedCandidates.map { candidate in
+                (
+                    url: candidate.url,
+                    date: candidate.date,
+                    title: Self.claudeTranscriptTitle(at: candidate.url)
+                )
+            }
             let newest: URL?
             if isHomeCandidate {
                 guard let normalizedTitleHint else { continue }

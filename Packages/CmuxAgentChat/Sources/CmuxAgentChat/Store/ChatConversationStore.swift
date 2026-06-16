@@ -30,6 +30,8 @@ public final class ChatConversationStore {
 
     /// Live agent presence (drives the typing indicator and header dot).
     public private(set) var agentState: ChatAgentState
+
+    /// Whether the host currently has a transcript source for this conversation.
     public private(set) var transcriptAvailability: ChatTranscriptAvailability
 
     /// Whether older history exists beyond the current window.
@@ -101,7 +103,7 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
@@ -118,7 +120,7 @@ public final class ChatConversationStore {
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
     /// Cancellable reconnect-backoff sleep; injectable for deterministic
     /// tests.
-    @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private let idleSleep: @Sendable (Duration) async -> Void
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -142,16 +144,53 @@ public final class ChatConversationStore {
                 await resyncTail()
             }
             let streamStartedAt = now()
-            for await event in stream {
-                apply(event)
-                if !hasLoadedInitialHistory { await loadInitialHistoryIfNeeded() }
-                // Flush queued sends inline once the agent goes idle —
-                // structured here in the async run loop rather than a
-                // detached Task spawned from the synchronous apply().
-                if case .idle = agentState {
-                    await flushQueuedSends()
-                }
+            let signalQueue = ChatConversationRunSignalQueue(limit: 512)
+            let idleSleep = self.idleSleep
+            var retryTask: Task<Void, Never>?
+            func startPendingTranscriptRetriesIfNeeded() {
+                guard transcriptAvailability == .pending, retryTask == nil else { return }
+                retryTask = makePendingTranscriptRetryTask(idleSleep: idleSleep, signalQueue: signalQueue)
             }
+            func cancelPendingTranscriptRetries() -> Task<Void, Never>? {
+                let task = retryTask; task?.cancel(); retryTask = nil
+                return task
+            }
+            let eventTask = Task {
+                for await event in stream { await signalQueue.enqueue(.event(event)) }
+                await signalQueue.enqueue(.streamEnded)
+            }
+            startPendingTranscriptRetriesIfNeeded()
+            var streamEnded = false
+            await withTaskCancellationHandler {
+                while let signal = await signalQueue.next() {
+                    guard !Task.isCancelled else { break }
+                    switch signal {
+                    case .event(let event):
+                        apply(event)
+                    case .retryPendingTranscript:
+                        await retryPendingTranscriptHistoryIfNeeded()
+                    case .overflowed:
+                        await resyncTail()
+                    case .streamEnded:
+                        streamEnded = true
+                    }
+                    if transcriptAvailability == .pending { startPendingTranscriptRetriesIfNeeded() } else { _ = cancelPendingTranscriptRetries() }
+                    if !hasLoadedInitialHistory { await loadInitialHistoryIfNeeded() }
+                    // Flush queued sends inline once the agent goes idle —
+                    // structured here in the async run loop rather than a
+                    // detached Task spawned from the synchronous apply().
+                    if case .idle = agentState { await flushQueuedSends() }
+                    if streamEnded { break }
+                }
+            } onCancel: {
+                eventTask.cancel()
+                Task { await signalQueue.close() }
+            }
+            await signalQueue.close()
+            eventTask.cancel()
+            let cancelledRetryTask = cancelPendingTranscriptRetries()
+            await eventTask.value
+            await cancelledRetryTask?.value
             isConnected = false
             guard !Task.isCancelled else { return }
             // Back off before resubscribing unless the stream was healthy
@@ -167,6 +206,12 @@ public final class ChatConversationStore {
                 await idleSleep(backoff)
             }
         }
+    }
+
+    private func retryPendingTranscriptHistoryIfNeeded() async {
+        guard transcriptAvailability == .pending else { return }
+        hasLoadedInitialHistory = false
+        await loadInitialHistoryIfNeeded()
     }
 
     /// Fetches one older page and prepends it to the window.
@@ -487,6 +532,8 @@ public final class ChatConversationStore {
                 hasLoadedInitialHistory = false
                 initialLoadFailed = false
                 historyTruncatedAtHead = false
+            } else if !wasPending, descriptor.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory(markLoaded: true)
             }
             if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .terminalBlocks(let blocks):

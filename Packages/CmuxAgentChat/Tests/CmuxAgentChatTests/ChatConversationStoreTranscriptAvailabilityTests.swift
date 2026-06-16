@@ -3,81 +3,6 @@ import Testing
 
 @testable import CmuxAgentChat
 
-@MainActor
-private enum TranscriptAvailabilityTestPoller {
-    static func waitUntil(iterations: Int = 400, _ condition: () -> Bool) async -> Bool {
-        for iteration in 0..<iterations {
-            if condition() { return true }
-            await Task.yield()
-            if iteration % 20 == 19 {
-                try? await Task.sleep(nanoseconds: 2_000_000)
-            }
-        }
-        return condition()
-    }
-
-    static func waitUntil(iterations: Int = 400, _ condition: () async -> Bool) async -> Bool {
-        for iteration in 0..<iterations {
-            if await condition() { return true }
-            await Task.yield()
-            if iteration % 20 == 19 {
-                try? await Task.sleep(nanoseconds: 2_000_000)
-            }
-        }
-        return await condition()
-    }
-}
-
-private actor TranscriptAvailabilityEventSource: ChatEventSource {
-    private var pages: [ChatHistoryPage]
-    private var continuations: [Int: AsyncStream<ChatSessionEvent>.Continuation] = [:]
-    private var continuationCounter = 0
-    private var historyCalls = 0
-
-    init(pages: [ChatHistoryPage]) {
-        self.pages = pages
-    }
-
-    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
-        historyCalls += 1
-        if pages.count > 1 {
-            return pages.removeFirst()
-        }
-        return pages[0]
-    }
-
-    func historyCallCount() -> Int {
-        historyCalls
-    }
-
-    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
-        let id = continuationCounter
-        continuationCounter += 1
-        return AsyncStream { continuation in
-            self.continuations[id] = continuation
-            continuation.onTermination = { _ in
-                Task { await self.removeContinuation(id) }
-            }
-        }
-    }
-
-    func emit(_ event: ChatSessionEvent) {
-        for continuation in continuations.values {
-            continuation.yield(event)
-        }
-    }
-
-    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
-
-    func interrupt(sessionID: String, hard: Bool) async throws {}
-
-    func answer(optionIndex: Int, sessionID: String) async throws {}
-
-    private func removeContinuation(_ id: Int) {
-        continuations[id] = nil
-    }
-}
-
 @Suite("ChatConversationStore transcript availability")
 @MainActor
 struct ChatConversationStoreTranscriptAvailabilityTests {
@@ -96,10 +21,10 @@ struct ChatConversationStoreTranscriptAvailabilityTests {
         let store = ChatConversationStore(
             descriptor: Self.descriptor(transcriptAvailability: .pending),
             source: source,
-            now: { Self.baseTime }
+            now: { Self.baseTime },
+            idleSleep: { _ in try? await Task.sleep(nanoseconds: 1_000_000) }
         )
         let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
 
         #expect(await TranscriptAvailabilityTestPoller.waitUntil { store.hasLoadedInitialHistory })
         #expect(store.transcriptAvailability == .pending)
@@ -112,6 +37,92 @@ struct ChatConversationStoreTranscriptAvailabilityTests {
         #expect(await TranscriptAvailabilityTestPoller.waitUntil { Self.snapshots(store.rows).count == 1 })
         #expect(store.transcriptAvailability == .available)
         #expect(Self.snapshots(store.rows).map(\.message.id) == ["m1"])
+        runTask.cancel()
+        await runTask.value
+    }
+
+    @Test("pending transcript history retries without a descriptor event")
+    func pendingTranscriptHistoryRetriesWithoutDescriptorEvent() async {
+        let source = TranscriptAvailabilityEventSource(pages: [
+            ChatHistoryPage(messages: [], hasMore: false, transcriptAvailability: .pending),
+            ChatHistoryPage(
+                messages: [Self.prose(seq: 1, text: "ready")],
+                hasMore: false,
+                transcriptAvailability: .available
+            ),
+        ])
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(transcriptAvailability: .pending),
+            source: source,
+            now: { Self.baseTime },
+            idleSleep: { _ in try? await Task.sleep(nanoseconds: 1_000_000) }
+        )
+        let runTask = Task { await store.run() }
+
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil { await source.historyCallCount() >= 2 })
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil { store.transcriptAvailability == .available })
+        #expect(Self.snapshots(store.rows).map(\.message.id) == ["m1"])
+        runTask.cancel()
+        await runTask.value
+    }
+
+    @Test("pending transcript history retries are bounded")
+    func pendingTranscriptHistoryRetriesAreBounded() async {
+        let source = TranscriptAvailabilityEventSource(pages: [
+            ChatHistoryPage(messages: [], hasMore: false, transcriptAvailability: .pending),
+        ])
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(transcriptAvailability: .pending),
+            source: source,
+            now: { Self.baseTime },
+            idleSleep: { _ in await Task.yield() }
+        )
+        let runTask = Task { await store.run() }
+
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil { await source.historyCallCount() >= 7 })
+        let callsAfterRetryBudget = await source.historyCallCount()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await source.historyCallCount() == callsAfterRetryBudget)
+        runTask.cancel()
+        await runTask.value
+    }
+
+    @Test("available transcript clears and retries when descriptor becomes pending")
+    func availableTranscriptClearsAndRetriesWhenDescriptorBecomesPending() async {
+        let source = TranscriptAvailabilityEventSource(pages: [
+            ChatHistoryPage(
+                messages: [Self.prose(seq: 1, text: "old")],
+                hasMore: false,
+                transcriptAvailability: .available
+            ),
+            ChatHistoryPage(messages: [], hasMore: false, transcriptAvailability: .pending),
+            ChatHistoryPage(
+                messages: [Self.prose(seq: 2, text: "new")],
+                hasMore: false,
+                transcriptAvailability: .available
+            ),
+        ])
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(transcriptAvailability: .available),
+            source: source,
+            now: { Self.baseTime },
+            idleSleep: { _ in try? await Task.sleep(nanoseconds: 20_000_000) }
+        )
+        let runTask = Task { await store.run() }
+
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil { Self.snapshots(store.rows).map(\.message.id) == ["m1"] })
+
+        await source.emit(.descriptorChanged(Self.descriptor(transcriptAvailability: .pending)))
+
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil(iterations: 2_000) {
+            store.transcriptAvailability == .pending && store.rows.isEmpty
+        })
+        #expect(await TranscriptAvailabilityTestPoller.waitUntil(iterations: 5_000) {
+            Self.snapshots(store.rows).map(\.message.id) == ["m2"]
+        })
+        #expect(store.transcriptAvailability == .available)
+        runTask.cancel()
+        await runTask.value
     }
 
     private static func descriptor(

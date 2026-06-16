@@ -23,6 +23,30 @@ import Testing
         #expect(!MobileRootAuthGate.isAttachURL(otherURL))
     }
 
+    @Test func defersAttachURLsOnlyWhileSessionRestoreIsActive() {
+        #expect(MobileRootAuthGate.shouldDeferAttachURLUntilSessionRestoreCompletes(
+            isRestoringSession: true
+        ))
+        #expect(!MobileRootAuthGate.shouldDeferAttachURLUntilSessionRestoreCompletes(
+            isRestoringSession: false
+        ))
+    }
+
+    @Test func shellAuthenticationIsHeldWhileAttachURLIsActive() {
+        #expect(MobileRootAuthGate.shouldAuthenticateShell(
+            authenticated: true,
+            attachURLConnectionActive: false
+        ))
+        #expect(MobileRootAuthGate.shouldAuthenticateShell(
+            authenticated: false,
+            attachURLConnectionActive: true
+        ))
+        #expect(!MobileRootAuthGate.shouldAuthenticateShell(
+            authenticated: false,
+            attachURLConnectionActive: false
+        ))
+    }
+
     @Test func showsRestoringSessionOnlyBeforeAuthentication() {
         #expect(MobileRootAuthGate.shouldShowRestoringSession(
             stackAuthenticated: false,
@@ -105,6 +129,12 @@ import Testing
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            attachURLConnectionActive: true,
             connectionState: .disconnected
         ))
     }

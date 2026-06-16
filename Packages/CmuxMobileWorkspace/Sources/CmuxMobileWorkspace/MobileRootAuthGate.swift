@@ -61,6 +61,33 @@ public struct MobileRootAuthGate {
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
     }
 
+    /// Whether a raw attach URL should wait for Stack session restoration before connecting.
+    ///
+    /// Raw attach URLs can authenticate through their ticket, but the root scene
+    /// also restores any existing Stack session during cold launch. Starting the
+    /// attach connection while that restore is still resolving lets the restore
+    /// completion path overwrite the shell auth state and invalidate the in-flight
+    /// pairing attempt.
+    /// - Parameter isRestoringSession: Whether Stack session restoration is still in progress.
+    /// - Returns: `true` while the attach URL should be parked as pending.
+    public static func shouldDeferAttachURLUntilSessionRestoreCompletes(
+        isRestoringSession: Bool
+    ) -> Bool {
+        isRestoringSession
+    }
+
+    /// Whether the shell store should remain authenticated while an attach URL owns auth.
+    /// - Parameters:
+    ///   - authenticated: Whether Stack auth or a live attach ticket currently authenticates the user.
+    ///   - attachURLConnectionActive: Whether an attach URL is pending session restore or actively connecting.
+    /// - Returns: `true` when the shell should not be signed out by a competing auth-restore update.
+    public static func shouldAuthenticateShell(
+        authenticated: Bool,
+        attachURLConnectionActive: Bool
+    ) -> Bool {
+        authenticated || attachURLConnectionActive
+    }
+
     /// Whether stale temporary attach-ticket authentication should be cleared.
     /// - Parameters:
     ///   - pairingResult: The result of the most recent pairing-URL connection.
@@ -88,14 +115,16 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - attachURLConnectionActive: Whether an attach URL is pending session restore or actively connecting.
     ///   - connectionState: The current connection state.
-    /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
+    /// - Returns: `true` when Stack-authenticated without an attach URL/ticket takeover and not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        attachURLConnectionActive: Bool = false,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+        stackAuthenticated && !attachTicketAuthenticated && !attachURLConnectionActive && connectionState != .connected
     }
 
     /// Whether the restoring-session UI should be shown while reconnecting a known

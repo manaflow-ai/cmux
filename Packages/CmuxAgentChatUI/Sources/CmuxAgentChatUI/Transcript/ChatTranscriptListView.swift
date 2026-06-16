@@ -132,7 +132,7 @@ public struct ChatTranscriptListView: View {
     }
 
     private var usesViewportPlaceholder: Bool {
-        rows.isEmpty && !hasMoreHistory && !historyTruncatedAtHead
+        rows.isEmpty && !hasMoreHistory && !historyTruncatedAtHead && !isWorking
     }
 
     private var scrollContent: some View {

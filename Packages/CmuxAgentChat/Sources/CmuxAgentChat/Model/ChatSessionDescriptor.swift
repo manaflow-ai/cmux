@@ -41,17 +41,6 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     /// Whether the host currently has a transcript source for this session.
     public let transcriptAvailability: ChatTranscriptAvailability
 
-    /// Creates a session descriptor.
-    ///
-    /// - Parameters:
-    ///   - id: The agent's own session identifier.
-    ///   - agentKind: Which agent runtime owns the session.
-    ///   - title: Human-readable conversation title.
-    ///   - workspaceID: Owning cmux workspace when known.
-    ///   - terminalID: Hosting cmux terminal surface when known.
-    ///   - workingDirectory: Session working directory when known.
-    ///   - state: Live activity state.
-    ///   - lastActivityAt: Most recent activity timestamp.
     /// Orders a workspace's sessions for selection: the session most
     /// likely to want the user opens first, and a dead session never
     /// shadows a live one. Ended sessions appear only when every session
@@ -100,6 +89,19 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         }
     }
 
+    /// Creates a session descriptor.
+    ///
+    /// - Parameters:
+    ///   - id: The agent's own session identifier.
+    ///   - agentKind: Which agent runtime owns the session.
+    ///   - kind: Whether this session renders agent transcript messages or terminal command blocks.
+    ///   - title: Human-readable conversation title.
+    ///   - workspaceID: Owning cmux workspace when known.
+    ///   - terminalID: Hosting cmux terminal surface when known.
+    ///   - workingDirectory: Session working directory when known.
+    ///   - state: Live activity state.
+    ///   - lastActivityAt: Most recent activity timestamp.
+    ///   - transcriptAvailability: Whether the host currently has a transcript source.
     public init(
         id: String,
         agentKind: ChatAgentKind,

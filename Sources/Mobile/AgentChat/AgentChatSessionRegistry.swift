@@ -104,9 +104,7 @@ final class AgentChatSessionRegistry {
         var claimed = Set(records.keys)
         for record in records.values {
             guard let transcriptPath = record.transcriptPath else { continue }
-            let transcriptSessionID = URL(fileURLWithPath: transcriptPath)
-                .deletingPathExtension()
-                .lastPathComponent
+            let transcriptSessionID = Self.transcriptSessionID(for: transcriptPath)
             if !transcriptSessionID.isEmpty {
                 claimed.insert(transcriptSessionID)
             }
@@ -212,6 +210,7 @@ final class AgentChatSessionRegistry {
         surfaceID: String,
         workingDirectory: String?,
         transcriptPath: String?,
+        titleHint: String? = nil,
         at timestamp: Date
     ) -> AgentChatSessionRecord {
         if let existing = records[sessionID] { return existing }
@@ -228,6 +227,7 @@ final class AgentChatSessionRegistry {
             state: .idle,
             lastActivityAt: timestamp,
             title: nil,
+            titleHint: titleHint,
             pid: nil
         )
         setRecord(record, previous: nil)
@@ -302,7 +302,13 @@ final class AgentChatSessionRegistry {
            var canonicalRecord = records[canonicalSessionID],
            canonicalRecord.state != .ended {
             let previousCanonical = canonicalRecord
-            canonicalRecord.adoptHookRecord(record)
+            let preservesTranscriptIdentity = canonicalRecord.transcriptPath.map {
+                Self.transcriptSessionID(for: $0) == sessionID
+            } ?? false
+            canonicalRecord.adoptHookRecord(
+                record,
+                preserveExistingTranscriptIdentity: preservesTranscriptIdentity
+            )
             if let previous {
                 var endedRecord = previous
                 endedRecord.state = .ended
@@ -399,6 +405,12 @@ final class AgentChatSessionRegistry {
             return String(id.dropFirst(prefix.count))
         }
         return id
+    }
+
+    private static func transcriptSessionID(for transcriptPath: String) -> String {
+        URL(fileURLWithPath: transcriptPath)
+            .deletingPathExtension()
+            .lastPathComponent
     }
 
     private static func nextState(
