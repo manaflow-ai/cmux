@@ -13582,57 +13582,45 @@ struct TabItemView: View, Equatable {
         )
 
         VStack(alignment: .leading, spacing: 4) {
-            ZStack(alignment: .topTrailing) {
-                HStack(alignment: .top, spacing: 8) {
-                    if unreadCount > 0 {
-                        ZStack {
-                            Circle()
-                                .fill(activeUnreadBadgeFillColor)
-                            Text("\(unreadCount)")
-                                .font(.system(size: scaledFontSize(9), weight: .semibold))
-                                .foregroundColor(activeUnreadBadgeTextColor)
-                        }
-                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                    }
-
-                    if workspaceSnapshot.isPinned {
-                        Image(systemName: "pin.fill")
+            HStack(alignment: .top, spacing: 8) {
+                if unreadCount > 0 {
+                    ZStack {
+                        Circle()
+                            .fill(activeUnreadBadgeFillColor)
+                        Text("\(unreadCount)")
                             .font(.system(size: scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeSecondaryColor(0.8))
-                            .safeHelp(protectedWorkspaceTooltip)
+                            .foregroundColor(activeUnreadBadgeTextColor)
                     }
-
-                    Text(displayedTitle)
-                        .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                        .foregroundColor(activePrimaryTextColor)
-                        .lineLimit(titleLineLimit)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .layoutPriority(1)
+                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
-                .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth : 0)
 
-                // Reserve only the close affordance itself so hover visibility
-                // never changes layout, while titles still use the row width.
+                if workspaceSnapshot.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                Text(displayedTitle)
+                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                    .foregroundColor(activePrimaryTextColor)
+                    .lineLimit(titleLineLimit)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth : 0)
+            // Keep the close button outside HStack width negotiation so
+            // wrapped titles receive a concrete row width.
+            .overlay(alignment: .topTrailing) {
                 if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: scaledFontSize(9), weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                    closeWorkspaceButton(
+                        tooltip: closeButtonTooltip,
+                        width: scaledCloseButtonWidth,
+                        hitSize: scaledCloseButtonHitSize
+                    )
                 }
             }
 
@@ -14011,6 +13999,30 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func closeWorkspaceButton(
+        tooltip: String,
+        width: CGFloat,
+        hitSize: CGFloat
+    ) -> some View {
+        Button(action: {
+            #if DEBUG
+            cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+            #endif
+            tabManager.closeWorkspaceWithConfirmation(tab)
+        }) {
+            Image(systemName: "xmark")
+                .font(.system(size: scaledFontSize(9), weight: .medium))
+                .foregroundColor(activeSecondaryColor(0.7))
+                .frame(width: width, height: hitSize, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(tooltip)
+        .opacity(showCloseButton ? 1 : 0)
+        .allowsHitTesting(showCloseButton)
+        .accessibilityHidden(!showCloseButton)
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
