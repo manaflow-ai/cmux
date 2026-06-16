@@ -542,7 +542,7 @@ struct TerminalComposerView: View {
     /// 3. Progressively smaller dimensions as a last resort.
     /// Returns the encoded bytes + a lowercase format hint, or `nil` if the source
     /// is undecodable. The cap is also re-enforced authoritatively in the store.
-    private static func boundedSendPayload(from source: CGImageSource) -> (data: Data, format: String)? {
+    private nonisolated static func boundedSendPayload(from source: CGImageSource) -> (data: Data, format: String)? {
         // PNG at the bounded send size: lossless, and for a typical screenshot it
         // lands well under the cap.
         if let png = downsampledImageData(
@@ -599,7 +599,7 @@ struct TerminalComposerView: View {
     ///   - maxPixelSize: The longest-edge cap, in pixels, for the downsample.
     ///   - type: The destination UTType identifier (`"public.png"`/`"public.jpeg"`).
     ///   - jpegQuality: The JPEG compression quality (0...1); `nil` for PNG.
-    private static func downsampledImageData(
+    private nonisolated static func downsampledImageData(
         from source: CGImageSource,
         maxPixelSize: Int,
         type: String,
