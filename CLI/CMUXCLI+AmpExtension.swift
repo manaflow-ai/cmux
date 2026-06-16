@@ -114,6 +114,8 @@ function eventName(subcommand: string): string {
       return "SessionStart";
     case "prompt-submit":
       return "UserPromptSubmit";
+    case "title-update":
+      return "TitleUpdate";
     case "stop":
       return "Stop";
     default:
@@ -505,10 +507,8 @@ export default function (amp: PluginAPI) {
 
   // Amp usually generates the title mid-turn, so reading it on
   // session.start/agent.start misses it. Subscribe once per thread and push each
-  // new title to cmux as it lands. The push reuses the session-start hook, which
-  // also marks the session running, so it must only fire while a turn is active —
-  // otherwise a title that finalizes after the turn ends would revive a session
-  // cmux has already marked idle.
+  // new title to cmux as it lands. Title updates are title-only hook-store
+  // writes; they must not replay session-start lifecycle side effects.
   const titleSubs = new Map<string, { unsubscribe?: () => void }>();
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
     const observable = ctx?.thread?.title;
@@ -520,7 +520,7 @@ export default function (amp: PluginAPI) {
         const title = value?.trim();
         if (!title || title === lastSent) return;
         lastSent = title;
-        sendHook("session-start", threadID, cwdFromEnv(), { title });
+        sendHook("title-update", threadID, cwdFromEnv(), { title });
       });
       titleSubs.set(threadID, sub);
     } catch (_) {}
@@ -541,14 +541,11 @@ export default function (amp: PluginAPI) {
     if (!sessionId) return;
     const epoch = ++sessionStartEpoch;
     watchThreadTitle(sessionId, ctx);
-    // Backfills a title for reopened threads; null for brand-new threads until
-    // the first prompt arrives (agent.start).
-    const title = await resolveSessionTitleBestEffort(sessionId, ctx);
-    // Title lookup is best-effort and bounded. If the turn/session ended while
-    // it was pending, do not send a delayed session-start that would mark the
-    // Vault row running again after the stop hook.
-    if (epoch !== sessionStartEpoch) return;
-    sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(title));
+    sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(capturedTitles.get(sessionId) ?? null));
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (epoch !== sessionStartEpoch || !title) return;
+      sendHook("title-update", sessionId, cwdFromEnv(), { title });
+    });
   });
 
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
@@ -563,7 +560,7 @@ export default function (amp: PluginAPI) {
     sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(capturedTitles.get(sessionId) ?? null));
     void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
       if (!turnActive || epoch !== turnEpoch || !title) return;
-      sendHook("session-start", sessionId, cwdFromEnv(), { title });
+      sendHook("title-update", sessionId, cwdFromEnv(), { title });
     });
   });
 

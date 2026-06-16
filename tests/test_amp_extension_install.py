@@ -135,10 +135,21 @@ process.argv.splice(
   "--mode",
   "geppetto"
 );
-const thread = { id: "T-amp-session-test" };
+let titleSubscriber = null;
+const thread = {
+  id: "T-amp-session-test",
+  title: {
+    get: async () => "Initial Amp title",
+    subscribe(cb) {
+      titleSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  }
+};
 const ctx = { thread };
 await handlers.get("session.start")({ thread }, ctx);
 await handlers.get("agent.start")({ thread, message: "hello amp", id: "msg-user-1" }, ctx);
+if (typeof titleSubscriber === "function") titleSubscriber("Updated Amp title");
 await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
 """
         check_script = root / "check.mjs"
@@ -167,6 +178,7 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             if (
                 "hooks amp session-start" in args_log
                 and "hooks amp prompt-submit" in args_log
+                and "hooks amp title-update" in args_log
                 and "hooks amp stop" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
                 and "argv=" in env_log
@@ -179,6 +191,7 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         for expected in [
             "hooks amp session-start",
             "hooks amp prompt-submit",
+            "hooks amp title-update",
             "hooks amp stop",
         ]:
             if expected not in args_log:
