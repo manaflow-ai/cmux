@@ -3334,6 +3334,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "startedAt": now,
                     "updatedAt": now,
                     "pid": deadPID,
+                    "isRestorable": true,
                 ],
             ],
         ]

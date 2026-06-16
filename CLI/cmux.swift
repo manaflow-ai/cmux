@@ -23444,7 +23444,11 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
+                        launchCommand: mappedSession?.launchCommand,
+                        allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                            mappedSession,
+                            transcriptPath: parsedInput.transcriptPath
+                        )
                     )
                 }
 
@@ -23563,7 +23567,11 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
+                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                        mappedSession,
+                        transcriptPath: parsedInput.transcriptPath
+                    )
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -26753,6 +26761,19 @@ struct CMUXCLI {
         )
     }
 
+    private func hasPositiveAgentResumeRestorabilitySignal(
+        _ record: ClaudeHookSessionRecord?,
+        transcriptPath: String? = nil
+    ) -> Bool {
+        if record?.isRestorable == true {
+            return true
+        }
+        if normalizedHookValue(transcriptPath) != nil {
+            return true
+        }
+        return normalizedHookValue(record?.transcriptPath) != nil
+    }
+
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
@@ -26761,7 +26782,8 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        allowDefaultResumeCommand: Bool = false
     ) {
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
         // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
@@ -26778,7 +26800,8 @@ struct CMUXCLI {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: resumeWorkingDirectory,
-            environment: resumeEnvironment
+            environment: resumeEnvironment,
+            allowDefaultResumeCommand: allowDefaultResumeCommand
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
@@ -26828,10 +26851,15 @@ struct CMUXCLI {
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
-        environment: [String: String]?
+        environment: [String: String]?,
+        allowDefaultResumeCommand: Bool
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
+        let hasCapturedLaunchArguments = !(launchCommand?.arguments.isEmpty ?? true)
+        guard hasCapturedLaunchArguments || allowDefaultResumeCommand else {
+            return nil
+        }
 
         let argv: [String]?
         switch AgentResumeArgv().launcherResolution(
@@ -30011,7 +30039,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
-                    launchCommand: latest.launchCommand
+                    launchCommand: latest.launchCommand,
+                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(latest)
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
@@ -30211,7 +30240,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                        mapped,
+                        transcriptPath: input.transcriptPath
+                    )
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -30485,7 +30518,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                        mapped,
+                        transcriptPath: input.transcriptPath
+                    )
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -30666,7 +30703,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
+                        mapped,
+                        transcriptPath: input.transcriptPath
+                    )
                 )
             }
             if let pid, !suppressVisibleMutations {
