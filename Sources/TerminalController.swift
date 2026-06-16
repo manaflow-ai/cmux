@@ -898,11 +898,13 @@ class TerminalController {
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
     private struct V2SocketRequest {
+        let controlRequest: ControlRequest
         let id: Any?
         let method: String
         let params: [String: Any]
 
         init(bridging request: ControlRequest) {
+            controlRequest = request
             id = request.id.map(\.foundationObject)
             method = request.method
             params = request.params.mapValues { $0.foundationObject }
@@ -1096,6 +1098,8 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "surface.read_text":
+            return socketWorkerSurfaceReadTextResponse(request.controlRequest)
         case "remote.tmux.sessions":
             return v2RemoteTmuxSessions(id: request.id, params: request.params)
         case "remote.tmux.attach":
@@ -3215,7 +3219,7 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
-    private func v2RefreshKnownRefs() {
+    func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()

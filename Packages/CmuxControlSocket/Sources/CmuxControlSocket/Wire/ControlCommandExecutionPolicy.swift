@@ -74,6 +74,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Demand reads can start a cold terminal surface and then wait for the
+        // runtime-ready notification. Keep that wait off the main actor so the
+        // lifecycle/attachment path can finish materializing the surface.
+        "surface.read_text",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
