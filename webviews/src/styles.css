@@ -251,13 +251,23 @@ body {
 }
 @media (max-width: 760px) {
   #toolbar-main {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "source actions"
-      "jump actions";
+      "source checks actions"
+      "jump stats actions";
   }
   .toolbar-left {
     grid-area: source;
+  }
+  #review-stats {
+    grid-area: stats;
+    justify-self: end;
+  }
+  #checks-status {
+    grid-area: checks;
+    justify-self: end;
+    max-width: min(100%, 170px);
+    overflow: hidden;
   }
   .toolbar-middle {
     grid-area: jump;
