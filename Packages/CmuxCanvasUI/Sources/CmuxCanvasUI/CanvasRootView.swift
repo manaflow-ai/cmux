@@ -21,6 +21,7 @@ public final class CanvasRootView: NSView {
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
     let minimapView = CanvasMinimapView()
+    var isMinimapInteractionActive = false
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]

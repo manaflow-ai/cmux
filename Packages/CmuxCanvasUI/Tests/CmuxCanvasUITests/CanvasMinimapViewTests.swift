@@ -27,6 +27,36 @@ struct CanvasMinimapViewTests {
         #expect(root.minimapView.alphaValue > 0)
     }
 
+    @Test func minimapDragRecenterDoesNotScheduleAutoHideUntilRelease() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRootWithMinimapContent(panelA: panelA, panelB: panelB)
+        defer {
+            root.teardown()
+        }
+        root.holdMinimapVisible()
+
+        root.minimapView.mouseDown(
+            with: mouseEvent(
+                type: .leftMouseDown,
+                location: minimapWindowPoint(root, CGPoint(x: 40, y: 40))
+            )
+        )
+
+        #expect(root.isMinimapInteractionActive)
+        #expect(!root.minimapAutoHideScheduler.hasPendingHide)
+
+        root.minimapView.mouseUp(
+            with: mouseEvent(
+                type: .leftMouseUp,
+                location: minimapWindowPoint(root, CGPoint(x: root.minimapView.bounds.maxX + 24, y: 40))
+            )
+        )
+
+        #expect(!root.isMinimapInteractionActive)
+        #expect(root.minimapAutoHideScheduler.hasPendingHide)
+    }
+
     @Test func overlayFrameShrinksInsideNarrowRoot() {
         let frame = CanvasRootView.minimapOverlayFrame(
             rootRect: CGRect(x: 0, y: 0, width: 150, height: 100),
@@ -133,6 +163,14 @@ struct CanvasMinimapViewTests {
     }
 
     private func makeRootWithMinimapContent(panelA: UUID, panelB: UUID) -> CanvasRootView {
+        makeRootWithMinimapContent(panelA: panelA, panelB: panelB, minimapClock: ContinuousClock())
+    }
+
+    private func makeRootWithMinimapContent<C: Clock & Sendable>(
+        panelA: UUID,
+        panelB: UUID,
+        minimapClock: C
+    ) -> CanvasRootView where C.Duration == Duration {
         let model = CanvasModel(metricsProvider: {
             CanvasMetrics(gap: 16, snapThreshold: 8, minPaneSize: CanvasSize(width: 120, height: 80))
         })
@@ -152,7 +190,8 @@ struct CanvasMinimapViewTests {
             ),
             themeProvider: {
                 CanvasTheme(canvasBackground: .windowBackgroundColor, paneBackground: .windowBackgroundColor)
-            }
+            },
+            minimapClock: minimapClock
         )
         root.frame = CGRect(x: 0, y: 0, width: 640, height: 360)
         root.layoutSubtreeIfNeeded()
@@ -176,6 +215,10 @@ struct CanvasMinimapViewTests {
             closeActionLabel: "",
             makeMount: { _ in TestMount() }
         )
+    }
+
+    private func minimapWindowPoint(_ root: CanvasRootView, _ point: CGPoint) -> CGPoint {
+        CGPoint(x: root.minimapView.frame.minX + point.x, y: root.minimapView.frame.minY + point.y)
     }
 
     private func mouseEvent(type: NSEvent.EventType, location: CGPoint) -> NSEvent {

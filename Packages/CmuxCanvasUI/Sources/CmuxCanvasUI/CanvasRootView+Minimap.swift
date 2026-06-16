@@ -44,12 +44,15 @@ extension CanvasRootView {
         minimapView.snapshot = snapshot
         if !snapshot.shouldShow {
             resetMinimapVisibility()
+        } else if isMinimapInteractionActive {
+            holdMinimapVisible()
         } else if reveal {
             showMinimapTemporarily()
         }
     }
 
     func resetMinimapVisibility() {
+        isMinimapInteractionActive = false
         minimapAutoHideScheduler.cancel()
         minimapView.alphaValue = 0
         minimapView.isHidden = true
@@ -60,12 +63,14 @@ extension CanvasRootView {
             resetMinimapVisibility()
             return
         }
+        isMinimapInteractionActive = true
         minimapAutoHideScheduler.cancel()
         minimapView.isHidden = false
         minimapView.alphaValue = Self.minimapVisibleAlpha
     }
 
     func releaseMinimapAfterInteraction() {
+        isMinimapInteractionActive = false
         guard minimapView.snapshot.shouldShow else {
             resetMinimapVisibility()
             return
@@ -95,6 +100,10 @@ extension CanvasRootView {
 
     private func hideMinimap(animated: Bool) {
         minimapAutoHideScheduler.cancel()
+        guard !isMinimapInteractionActive else {
+            holdMinimapVisible()
+            return
+        }
         guard !minimapView.isHidden || minimapView.alphaValue != 0 else { return }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
