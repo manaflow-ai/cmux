@@ -4996,16 +4996,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         let snapshot = readSelectionSnapshot(surface: surface)
         let generalPasteboard = NSPasteboard.general
-        let previousChangeCount = generalPasteboard.changeCount
         let copied = performBindingAction("copy_to_clipboard")
 
         guard let selectedText = snapshot?.string, !selectedText.isEmpty else {
             return copied
         }
 
-        let pasteboardWasUpdated = generalPasteboard.changeCount != previousChangeCount
-            && generalPasteboard.string(forType: .string)?.isEmpty == false
-        if !pasteboardWasUpdated {
+        if generalPasteboard.string(forType: .string) != selectedText {
             GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
         }
         return copied || !selectedText.isEmpty
