@@ -175,6 +175,8 @@ type AmpTitleObservable = {
 type AmpThreadContext = {
   thread?: { id?: string; title?: AmpTitleObservable };
 };
+type AmpTitleGetter = () => Promise<unknown> | unknown;
+type AmpMessageLoader = () => Promise<unknown[] | null> | unknown[] | null;
 
 function threadIdFrom(event: { thread?: { id?: string } } | undefined, ctx?: AmpThreadContext): string | null {
   return firstString(event?.thread?.id, ctx?.thread?.id);
@@ -442,6 +444,7 @@ export default function (amp: PluginAPI) {
   const capturedTitles = new Map<string, string>();
   const titleVersions = new Map<string, number>();
   const observedTitleThreads = new Set<string>();
+  const titleLookupTokens = new Map<string, number>();
   const TITLE_MAX_LENGTH = 200;
   const TITLE_UPDATE_DEBOUNCE_MS = 250;
   const TITLE_LOOKUP_TIMEOUT_MS = 1000;
@@ -491,6 +494,22 @@ export default function (amp: PluginAPI) {
     return titleVersions.get(threadID) ?? 0;
   }
 
+  function beginTitleLookup(threadID: string): number {
+    const token = (titleLookupTokens.get(threadID) ?? 0) + 1;
+    titleLookupTokens.set(threadID, token);
+    return token;
+  }
+
+  function isTitleLookupCurrent(threadID: string, token: number): boolean {
+    return titleLookupTokens.get(threadID) === token;
+  }
+
+  function endTitleLookup(threadID: string, token: number): void {
+    if (isTitleLookupCurrent(threadID, token)) {
+      titleLookupTokens.delete(threadID);
+    }
+  }
+
   function titleIfUnchanged(threadID: string, startVersion: number, title: string): string {
     const cached = capturedTitles.get(threadID);
     if (cached && currentTitleVersion(threadID) !== startVersion) return cached;
@@ -499,38 +518,26 @@ export default function (amp: PluginAPI) {
 
   async function resolveSessionTitle(
     threadID: string,
-    ctx?: AmpThreadContext,
+    titleGetter: AmpTitleGetter | undefined,
+    messageLoader: AmpMessageLoader | undefined,
+    isLookupActive: () => boolean,
   ): Promise<string | null> {
     const startVersion = currentTitleVersion(threadID);
     // Always try the real thread title first (cheap, and lets cmux upgrade the
     // stored title once Amp assigns/refines it on a later turn).
     try {
-      const threadTitle = normalizedTitle(await ctx?.thread?.title?.get?.());
+      const threadTitle = normalizedTitle(await titleGetter?.());
+      if (!isLookupActive()) return null;
       if (threadTitle) {
         return titleIfUnchanged(threadID, startVersion, threadTitle);
       }
     } catch (_) {}
+    if (!isLookupActive()) return null;
     const cached = capturedTitles.get(threadID);
     if (cached) return cached;
     try {
-      const threads = (
-        amp as unknown as {
-          experimental?: {
-            threads?: {
-              get?: (id: string) => {
-                messages?: (options?: unknown) => Promise<unknown[]>;
-              };
-            };
-          };
-        }
-      ).experimental?.threads;
-      const handle = threads?.get?.(threadID);
-      if (!handle?.messages) return null;
-      const messages = await handle.messages({
-        from: "start",
-        limit: 1,
-        roles: ["user"],
-      });
+      const messages = await messageLoader?.();
+      if (!isLookupActive()) return null;
       if (!Array.isArray(messages)) return null;
       for (const message of messages) {
         const m = message as { role?: string; content?: unknown };
@@ -548,12 +555,42 @@ export default function (amp: PluginAPI) {
     threadID: string,
     ctx?: AmpThreadContext,
   ): Promise<string | null> {
+    const token = beginTitleLookup(threadID);
+    const titleObservable = ctx?.thread?.title;
+    const titleGetter: AmpTitleGetter | undefined = titleObservable?.get
+      ? () => titleObservable.get?.()
+      : undefined;
+    const threads = (
+      amp as unknown as {
+        experimental?: {
+          threads?: {
+            get?: (id: string) => {
+              messages?: (options?: unknown) => Promise<unknown[]>;
+            };
+          };
+        };
+      }
+    ).experimental?.threads;
+    const messageLoader: AmpMessageLoader | undefined = threads?.get
+      ? () => {
+          const handle = threads.get?.(threadID);
+          return handle?.messages?.({ from: "start", limit: 1, roles: ["user"] }) ?? null;
+        }
+      : undefined;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(null), TITLE_LOOKUP_TIMEOUT_MS);
-      resolveSessionTitle(threadID, ctx)
-        .then((title) => resolve(title))
-        .catch(() => resolve(null))
-        .finally(() => clearTimeout(timer));
+      let didFinish = false;
+      const finish = (title: string | null) => {
+        if (didFinish) return;
+        didFinish = true;
+        clearTimeout(timer);
+        endTitleLookup(threadID, token);
+        resolve(title);
+      };
+      const isLookupActive = () => !didFinish && isTitleLookupCurrent(threadID, token);
+      const timer = setTimeout(() => finish(null), TITLE_LOOKUP_TIMEOUT_MS);
+      resolveSessionTitle(threadID, titleGetter, messageLoader, isLookupActive)
+        .then((title) => finish(isLookupActive() ? title : null))
+        .catch(() => finish(null));
     });
   }
 
@@ -593,6 +630,7 @@ export default function (amp: PluginAPI) {
     capturedTitles.delete(threadID);
     titleVersions.delete(threadID);
     observedTitleThreads.delete(threadID);
+    titleLookupTokens.delete(threadID);
   }
 
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
