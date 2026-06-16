@@ -56,6 +56,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         claimScrollbackCapture: () -> Bool = { true },
+        usesScrollbackCaptureBudget: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
@@ -80,6 +81,7 @@ extension Workspace {
                     includeScrollback: includeScrollback,
                     restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
                     claimScrollbackCapture: claimScrollbackCapture,
+                    usesScrollbackCaptureBudget: usesScrollbackCaptureBudget,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -90,7 +92,6 @@ extension Workspace {
         let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
-
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
@@ -110,7 +111,6 @@ extension Workspace {
                 timestamp: entry.timestamp.timeIntervalSince1970
             )
         }
-
         let progressSnapshot = progress.map { progress in
             SessionProgressSnapshot(value: progress.value, label: progress.label)
         }
@@ -371,6 +371,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgent: SessionRestorableAgentSnapshot?,
         claimScrollbackCapture: () -> Bool = { true },
+        usesScrollbackCaptureBudget: Bool = false,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
@@ -502,7 +503,7 @@ extension Workspace {
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldCaptureScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
+                allowFallbackScrollback: shouldCaptureScrollback || allowDebugFallbackScrollback || (!usesScrollbackCaptureBudget && hasRestoredScrollbackFallback)
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,

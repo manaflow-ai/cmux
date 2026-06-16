@@ -5734,7 +5734,6 @@ extension TabManager {
             hashOptionalDouble(snapshot.updatedAt, into: &hasher)
         }
     }
-
     nonisolated private static func hashTextBoxDraftSnapshot(
         _ snapshot: SessionTextBoxInputDraftSnapshot?,
         into hasher: inout Hasher
@@ -5834,6 +5833,7 @@ extension TabManager {
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
                     claimScrollbackCapture: claimScrollbackCapture,
+                    usesScrollbackCaptureBudget: true,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
