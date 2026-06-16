@@ -1314,12 +1314,32 @@ jobs:
           key: spm-ios-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
           restore-keys: spm-ios-
 
+      - name: Pick simulator
+        run: |
+          set -euo pipefail
+          # Resolve a concrete available iPhone simulator UDID, exactly like the
+          # ios-simulator job. A concrete destination is what reliably compiles the
+          # app for the simulator; a generic 'platform=iOS Simulator' destination
+          # did not. No simulator is booted, build-for-testing only compiles.
+          python3 - <<'PY' > /tmp/iosbuild-sim.env
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [d for runtime in data.get("devices", {}).values() for d in runtime if d.get("isAvailable", True)]
+          preferred = ["iPhone 17", "iPhone 16"]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next(d for d in devices if d.get("name", "").startswith("iPhone"))
+          print(f"SIMULATOR_ID={selected['udid']}")
+          print(f"SIMULATOR_NAME={selected['name']}")
+          PY
+          cat /tmp/iosbuild-sim.env
+          cat /tmp/iosbuild-sim.env >> "$GITHUB_ENV"
+
       - name: Resolve packages
         run: |
           set -euo pipefail
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath /tmp/cmux-ios-build \
             -clonedSourcePackagesDirPath .spm-cache-ios \
             -resolvePackageDependencies
@@ -1327,17 +1347,16 @@ jobs:
       - name: Build iOS app for simulator (compile only, no tests, no boot)
         run: |
           set -euo pipefail
-          # Compile the iOS app (and all its package dependencies, incl. the
+          # Compile the iOS app and its package dependencies (incl. the
           # CmuxMobile* packages where the actor-isolation break lived) for a
-          # GENERIC simulator destination: nothing is booted, no virtual display,
-          # no tests run, so the result is deterministic. Plain `build` (not
-          # build-for-testing) keeps the gate to a pure app compile, which is the
-          # break class we are gating; the ios-simulator job still builds+runs
-          # the test targets on iOS PRs.
+          # concrete iOS Simulator. build-for-testing compiles the app + test
+          # targets WITHOUT booting a simulator or running tests, mirroring the
+          # ios-simulator job's build phase, so it is deterministic and catches
+          # the Swift compile breaks the macOS jobs miss.
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath /tmp/cmux-ios-build \
             -clonedSourcePackagesDirPath .spm-cache-ios \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build-for-testing
