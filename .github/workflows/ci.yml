@@ -40,11 +40,17 @@ jobs:
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
+      - name: Validate Xcode SourcePackages cache sanitizer
+        run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
+      - name: Validate Zig install without sudo
+        run: ./tests/test_install_zig_ci_no_sudo.sh
 
       - name: Validate nightly tag push auth
         run: ./tests/test_ci_nightly_tag_push_auth.sh
@@ -285,6 +291,9 @@ jobs:
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Prepare isolated DerivedData
         run: |
@@ -575,11 +584,9 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone can run 20+ min. Project/package
-    # changes from the sidebar extension kit pushed this full build plus the
-    # CA and lag regressions beyond 35 min before the cache could repopulate.
+    # This job uses isolated DerivedData under RUNNER_TEMP, so it deliberately
+    # avoids restoring the shared ~/Library DerivedData cache. Cold full builds
+    # can still run 20+ min before the CA and lag regressions execute.
     timeout-minutes: 55
     steps:
       - name: Checkout
@@ -649,18 +656,15 @@ jobs:
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
-
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
           key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-build-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
         run: |
@@ -721,11 +725,34 @@ jobs:
           set -euo pipefail
           clang -framework Foundation -framework CoreGraphics \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
+          VDISPLAY_READY="${RUNNER_TEMP:-/tmp}/cmux-virtual-display.ready"
+          VDISPLAY_ID_PATH="${RUNNER_TEMP:-/tmp}/cmux-virtual-display.id"
+          VDISPLAY_LOG="${RUNNER_TEMP:-/tmp}/cmux-virtual-display.log"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+          /tmp/create-virtual-display \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            > "$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-          kill -0 "$VDISPLAY_PID"
+          for _ in {1..24}; do
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              break
+            fi
+            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+              echo "Virtual display helper exited before readiness" >&2
+              cat "$VDISPLAY_LOG" >&2 || true
+              exit 1
+            fi
+            sleep 0.5
+          done
+          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
+            echo "Timed out waiting for virtual display readiness" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            exit 1
+          fi
+          cat "$VDISPLAY_LOG"
+          echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -897,6 +924,9 @@ jobs:
             spm-release-
             spm-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
@@ -1003,6 +1033,9 @@ jobs:
           path: .ci-source-packages
           key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-ui-regressions-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
         run: |
