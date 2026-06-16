@@ -439,6 +439,8 @@ jobs:
     timeout-minutes: 30
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_ALLOW_SOCKET_OVERRIDE: "1"
+      CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-focused-${{ github.run_id }}-${{ github.run_attempt }}.sock"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
@@ -525,6 +527,8 @@ jobs:
         shard_index: [0, 1, 2, 3]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_ALLOW_SOCKET_OVERRIDE: "1"
+      CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-xctest-${{ matrix.shard_index }}-${{ github.run_id }}-${{ github.run_attempt }}.sock"
       CMUX_XCTEST_SHARD_COUNT: "4"
       CMUX_XCTEST_SHARD_INDEX: ${{ matrix.shard_index }}
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -1192,6 +1196,9 @@ jobs:
     # Reuse debug-app-build's build-for-testing artifact so UI tests start
     # without a second full Debug compile.
     timeout-minutes: 45
+    env:
+      CMUX_ALLOW_SOCKET_OVERRIDE: "1"
+      CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-ui-${{ github.run_id }}-${{ github.run_attempt }}.sock"
     steps:
       - name: Validate display runner identity
         env:

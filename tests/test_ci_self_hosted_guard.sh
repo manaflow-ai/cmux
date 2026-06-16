@@ -221,6 +221,43 @@ check_shared_test_products_use_xctestrun() {
   echo "PASS: shared test product jobs use extracted .xctestrun files"
 }
 
+check_app_hosted_xctest_socket_isolation() {
+  if ! awk '
+    /^  xctest-focused-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+    END { exit !(saw_override && saw_socket) }
+  ' "$CI_FILE"; then
+    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH and allow override"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  xctest-shard:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+    END { exit !(saw_override && saw_socket) }
+  ' "$CI_FILE"; then
+    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH and allow override"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-ui-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+    END { exit !(saw_override && saw_socket) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must use a unique CMUX_SOCKET_PATH and allow override"
+    exit 1
+  fi
+
+  echo "PASS: app-hosted XCTest jobs use isolated control sockets"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -411,6 +448,7 @@ check_release_build_signal
 check_release_helper_upload_retry
 check_release_helper_selects_xcode
 check_shared_test_products_use_xctestrun
+check_app_hosted_xctest_socket_isolation
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
