@@ -240,7 +240,7 @@ public struct SettingsSearchIndex: Sendable {
 
     private static func isSearchStopWord(_ token: String) -> Bool {
         switch token {
-        case "setting", "settings", "preference", "preferences", "option", "options":
+        case "setting", "settings", "preference", "preferences":
             return true
         default:
             return false

@@ -128,7 +128,10 @@ jobs:
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
-          mkdir -p perf-results
+          RESULTS_DIR="$PWD/perf-results"
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          mkdir -p "$RESULTS_DIR"
+          chmod 0777 "$RESULTS_DIR"
           WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
           HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
           OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
@@ -138,8 +141,10 @@ jobs:
           # app can start normally and publish its debug socket.
           CONSOLE_USER="$(stat -f %Su /dev/console)"
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          CONSOLE_HOME="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
-            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" PERF_TAG="$PERF_TAG" \
+            env HOME="$CONSOLE_HOME" PATH="$PATH" DEVELOPER_DIR="${DEVELOPER_DIR:-}" \
+              PERF_TAG="$PERF_TAG" APP_PATH="$APP_PATH" RESULTS_DIR="$RESULTS_DIR" \
               WORKSPACE_COUNT="$WORKSPACE_COUNT" \
               HEAVY_SCROLLBACK_LINES="$HEAVY_SCROLLBACK_LINES" \
               OTHER_SCROLLBACK_LINES="$OTHER_SCROLLBACK_LINES" \
@@ -148,12 +153,13 @@ jobs:
               cd "$1"
               python3 scripts/perf-activation-session.py \
                 --tag "$PERF_TAG" \
+                --app-path "$APP_PATH" \
                 --workspace-count "$WORKSPACE_COUNT" \
                 --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES" \
                 --other-scrollback-lines "$OTHER_SCROLLBACK_LINES" \
                 --synthetic-scrollback-fallback \
-                --output perf-results/activation-session.json \
-                --junit perf-results/activation-session.junit.xml
+                --output "$RESULTS_DIR/activation-session.json" \
+                --junit "$RESULTS_DIR/activation-session.junit.xml"
             ' bash "$PWD"
 
       - name: Run Cmd-Tab activation benchmark

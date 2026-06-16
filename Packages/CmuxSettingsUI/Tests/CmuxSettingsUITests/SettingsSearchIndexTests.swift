@@ -37,6 +37,7 @@ struct SettingsSearchIndexTests {
         ("auto name", "setting:automation:workspace-auto-naming"),
         ("rename workspace", "setting:automation:workspace-auto-naming"),
         ("option as alt", "setting:app:terminal-config"),
+        ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
     ])
     func searchesFindRealSettingsRows(query: String, expectedID: String) {
