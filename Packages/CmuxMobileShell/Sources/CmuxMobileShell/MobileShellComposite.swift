@@ -5141,6 +5141,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
     }
 
+    #if DEBUG
+    func debugMarkTerminalReplayInFlightForTesting(surfaceID: String) {
+        terminalReplaySurfaceIDsInFlight.insert(surfaceID)
+    }
+
+    func debugFinishTerminalReplayForTesting(
+        surfaceID: String,
+        replayFrame: MobileTerminalRenderGridFrame
+    ) {
+        terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replayFrame.stateSeq)
+        deliverTerminalRenderGrid(replayFrame, surfaceID: surfaceID)
+    }
+    #endif
+
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
         guard
             let json = event.payloadJSON,

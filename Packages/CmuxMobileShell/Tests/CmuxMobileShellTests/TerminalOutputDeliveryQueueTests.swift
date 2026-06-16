@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -39,6 +40,65 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
     let secondChunk = try #require(await currentIterator.next())
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
+}
+
+@MainActor
+@Test func liveRenderGridWaitsBehindInFlightReplay() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let streamToken = UUID()
+    let stream = AsyncStream<MobileTerminalOutputChunk> { continuation in
+        store.terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
+        store.terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+    }
+    _ = stream
+
+    store.debugMarkTerminalReplayInFlightForTesting(surfaceID: surfaceID)
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        columns: 16,
+        rows: 2,
+        text: "live\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    store.deliverAuthoritativeTerminalRenderGrid(liveFrame, source: "event")
+
+    #expect(
+        store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true,
+        "live deltas must wait behind the cold replay so scrollback is seeded before the viewport starts updating"
+    )
+
+    let replayFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 16,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vp0"),
+            .init(row: 1, column: 0, text: "vp1"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old0"),
+            .init(row: 1, column: 0, text: "old1"),
+        ]
+    )
+    store.debugFinishTerminalReplayForTesting(surfaceID: surfaceID, replayFrame: replayFrame)
+
+    let queueAfterReplay = try #require(store.terminalOutputQueuesBySurfaceID[surfaceID])
+    #expect(queueAfterReplay.isIdle == false, "the replay should be the in-flight delivery")
+    #expect(queueAfterReplay.pendingCount == 1, "the live frame should be queued behind the replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: streamToken)
+
+    let queueAfterReplayAck = try #require(store.terminalOutputQueuesBySurfaceID[surfaceID])
+    #expect(queueAfterReplayAck.isIdle == false, "acking the replay should advance the buffered live frame")
+    #expect(queueAfterReplayAck.pendingCount == 0)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: streamToken)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
