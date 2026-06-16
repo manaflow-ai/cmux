@@ -67,6 +67,7 @@ type AppState = {
   items: DiffItem[];
   languages: string[];
   metrics: StreamMetrics | null;
+  openNextFileSelectionInTab: boolean;
   openFileTabIds: string[];
   options: DiffViewerOptions;
   optionsOpen: boolean;
@@ -88,6 +89,7 @@ type AppAction =
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
+  | { type: "set-open-next-file-selection-in-tab"; open: boolean }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
@@ -96,6 +98,11 @@ type AppAction =
   | { type: "upsert-comment"; comment: DiffCommentRecord };
 
 type CommentNavigationPlan = {
+  shouldOpenFileTab: boolean;
+  targetItemId: string;
+};
+
+type FileSelectionPlan = {
   shouldOpenFileTab: boolean;
   targetItemId: string;
 };
@@ -126,6 +133,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     items: [],
     languages: ["text"],
     metrics: null,
+    openNextFileSelectionInTab: false,
     openFileTabIds: [],
     options: {
       collapsed: false,
@@ -166,6 +174,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeReviewTab: action.itemId,
       activeTreePath: action.treePath ?? state.treeSource?.treePathByItemId.get(action.itemId) ?? state.activeTreePath,
+      fileSearchOpen: false,
+      openNextFileSelectionInTab: false,
       openFileTabIds: state.openFileTabIds.includes(action.itemId)
         ? state.openFileTabIds
         : [...state.openFileTabIds, action.itemId],
@@ -223,13 +233,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
     };
   case "set-file-search-open":
-    return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+    return {
+      ...state,
+      fileSearchOpen: action.open,
+      filesVisible: action.open ? true : state.filesVisible,
+      openNextFileSelectionInTab: action.open ? state.openNextFileSelectionInTab : false,
+    };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
     return { ...state, filesVisible: action.visible };
   case "set-metrics":
     return { ...state, metrics: action.metrics };
+  case "set-open-next-file-selection-in-tab":
+    return { ...state, openNextFileSelectionInTab: action.open };
   case "set-option":
     if (action.key === "collapsed") {
       return {
@@ -394,21 +411,24 @@ export function App({ config, initialStatus }: ConfigProps) {
     pendingCommentNavigationRef.current = null;
     scrollToCommentEntry(pending.entry, pending.targetItemId);
   }, [activeFileTabId, scrollToCommentEntry, visibleItems]);
-  const scrollToItem = (itemId: string) => {
-    const target = scrollTargetForItem(itemId, state.items);
-    if (!target) {
+  const scrollToItem = (itemId: string, options: { openInTab?: boolean } = {}) => {
+    const plan = fileSelectionPlan(itemId, state.items, activeFileTabId, options.openInTab === true);
+    if (!plan) {
       return;
     }
-    if (activeFileTabId !== "" && activeFileTabId !== target) {
-      openFileInTab(target);
+    if (plan.shouldOpenFileTab) {
+      openFileInTab(plan.targetItemId);
       return;
     }
-    codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
+    codeViewRef.current?.scrollTo({ type: "item", id: plan.targetItemId, align: "start", behavior: "smooth-auto" });
     dispatch({
       type: "set-active-item",
-      itemId: target,
-      treePath: state.treeSource?.treePathByItemId.get(target),
+      itemId: plan.targetItemId,
+      treePath: state.treeSource?.treePathByItemId.get(plan.targetItemId),
     });
+  };
+  const selectFileTreeItem = (itemId: string) => {
+    scrollToItem(itemId, { openInTab: state.openNextFileSelectionInTab });
   };
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
@@ -450,7 +470,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
-          onSelectItem={scrollToItem}
+          onSelectItem={selectFileTreeItem}
           selectedPath={selectedTreePath}
           dispatch={dispatch}
           state={state}
@@ -934,7 +954,10 @@ function ReviewTabs({
         className="review-tab-icon"
         title={label("openFileTab")}
         aria-label={label("openFileTab")}
-        onClick={() => dispatch({ type: "set-file-search-open", open: true })}
+        onClick={() => {
+          dispatch({ type: "set-open-next-file-selection-in-tab", open: true });
+          dispatch({ type: "set-file-search-open", open: true });
+        }}
       >
         <Icon name="plus" />
       </button>
@@ -1938,6 +1961,22 @@ function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function fileSelectionPlan(
+  itemId: string,
+  items: DiffItem[],
+  activeFileTabId: string,
+  openInTab: boolean,
+): FileSelectionPlan | null {
+  const targetItemId = scrollTargetForItem(itemId, items);
+  if (!targetItemId) {
+    return null;
+  }
+  return {
+    shouldOpenFileTab: openInTab || (activeFileTabId !== "" && activeFileTabId !== targetItemId),
+    targetItemId,
+  };
 }
 
 export function commentNavigationPlan(

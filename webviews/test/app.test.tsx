@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App, commentNavigationPlan, recollapseExpandedContextSeparator } from "../src/App";
+import { App, commentNavigationPlan, fileSelectionPlan, recollapseExpandedContextSeparator } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -178,6 +178,24 @@ test("comment navigation switches file tabs when the target is filtered out", ()
     targetItemId: "file-b",
   });
   expect(commentNavigationPlan({ ...entry, itemId: null }, items, "file-a")).toBeNull();
+});
+
+test("file selection opens a tab when the review tab add flow is armed", () => {
+  const items = [{ id: "file-a" }, { id: "file-b" }] as any;
+
+  expect(fileSelectionPlan("file-b", items, "", false)).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("file-b", items, "", true)).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("file-b", items, "file-a", false)).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("missing", [], "", true)).toBeNull();
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
