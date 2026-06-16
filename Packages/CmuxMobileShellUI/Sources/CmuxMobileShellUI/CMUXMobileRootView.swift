@@ -152,6 +152,13 @@ struct CMUXMobileRootView: View {
                 clearAttachTicketAuthenticationIfNeeded()
             }
         }
+        // The shared add-device entrypoint. Surfaces presented as their own sheet
+        // (the device tree's bottom "Add device" button) cannot own the pairing
+        // sheet, so they bump `store.requestAddDevice()` and the root view turns
+        // that into `showAddDevice()`, the same flow the disconnected shell uses.
+        .onChange(of: store.addDeviceRequest) { _, _ in
+            showAddDevice()
+        }
     }
 
     @ViewBuilder

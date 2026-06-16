@@ -190,7 +190,47 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return .ok(devices)
     }
 
+    public func removeDevice(deviceID: String) async -> Bool {
+        let trimmed = deviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let request = await makeRequest(
+                method: "DELETE",
+                path: "/api/devices",
+                body: ["deviceId": trimmed]
+              ) else {
+            return false
+        }
+        do {
+            let (responseData, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return false
+            }
+            // The server returns `{ ok, deleted }`; report whether a row was
+            // actually removed so the caller does not claim a registry removal
+            // that hit nothing (e.g. a device owned by another team member).
+            return Self.parseDeleteDeleted(in: responseData)
+        } catch {
+            deviceRegistryLog.debug("removeDevice request failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
     // MARK: - Parsing (pure, testable)
+
+    /// Decode the `DELETE /api/devices` response, returning whether the server
+    /// reported a row as deleted. A `deleted` count > 0 is a confirmed removal;
+    /// an absent/zero count (device not found or not owned by the caller) is
+    /// `false`. An undecodable body is treated as "not deleted" so a contract
+    /// glitch never reports a phantom removal.
+    static func parseDeleteDeleted(in data: Data) -> Bool {
+        struct DeleteResponse: Decodable {
+            let deleted: Int?
+        }
+        guard let decoded = try? JSONDecoder().decode(DeleteResponse.self, from: data) else {
+            return false
+        }
+        return (decoded.deleted ?? 0) > 0
+    }
 
     /// Decode the `/api/devices` list response into the full two-level device
     /// tree (devices → app instances), for the device tree UI. Returns `nil` only

@@ -1923,6 +1923,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
     }
 
+    /// Remove a device shown in the device tree, routing to the correct backing
+    /// store(s).
+    ///
+    /// The device tree's source is either the team-scoped registry
+    /// (``registryDevices``) or, when the registry is unreachable, the locally
+    /// paired Macs (``deviceTreeDevices``'s fallback). Removal mirrors that:
+    ///
+    /// - A **registry-backed** device (its id appears in ``registryDevices``) is
+    ///   removed from the registry via `DELETE /api/devices` (the same path
+    ///   `cmux remotes remove` uses), then the registry tree is reloaded so the
+    ///   row disappears. We still drop any matching local pairing so a forgotten
+    ///   registry device cannot silently auto-reconnect from the local store.
+    /// - A **local-only** device (registry empty / not present, known only as a
+    ///   paired Mac) is forgotten from the local paired-Mac store via
+    ///   ``forgetMac(macDeviceID:)``; there is no registry row to delete.
+    ///
+    /// Best-effort throughout: a registry-delete failure still removes the local
+    /// pairing so the user is not stuck with an undeletable row, and the tree
+    /// reload reflects the authoritative server state on the next refresh.
+    ///
+    /// - Parameter deviceID: The device's registry/cmux device id (the tree row id).
+    public func removeDevice(deviceID: String) async {
+        let isRegistryBacked = registryDevices.contains { $0.deviceId == deviceID }
+        // Always drop the local pairing for this device id (if any) so a removed
+        // device cannot reconnect from the local store. `forgetMac` also tears
+        // down the live connection when this is the active Mac and reloads the
+        // local paired list.
+        await forgetMac(macDeviceID: deviceID)
+        guard isRegistryBacked, let deviceRegistry else { return }
+        let deleted = await deviceRegistry.removeDevice(deviceID: deviceID)
+        if !deleted {
+            mobileShellLog.error(
+                "registry device remove did not delete a row device=\(deviceID, privacy: .public)"
+            )
+        }
+        // Reload from the authoritative registry regardless: a confirmed delete
+        // drops the row, and a no-op delete (already gone, or not owned) still
+        // reconciles the tree to the server's truth rather than leaving a stale row.
+        await loadRegistryDevices()
+    }
+
+    // MARK: - Add device request
+
+    /// A monotonically increasing token bumped by ``requestAddDevice()``. The root
+    /// view observes changes and presents the existing add-device (pairing) sheet,
+    /// so every entrypoint (disconnected shell button, device tree bottom button)
+    /// drives the one shared add-device flow rather than each owning its own sheet.
+    public private(set) var addDeviceRequest: Int = 0
+
+    /// Request the shared add-device flow. Bumps ``addDeviceRequest`` so the root
+    /// view presents the pairing sheet. Used by surfaces (like the device tree)
+    /// that are themselves presented as a sheet and so cannot own the pairing
+    /// sheet directly.
+    public func requestAddDevice() {
+        addDeviceRequest &+= 1
+    }
+
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind]
