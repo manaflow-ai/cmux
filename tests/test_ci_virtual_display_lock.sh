@@ -73,6 +73,17 @@ if [ ! -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   exit 1
 fi
 
+printf '999999999\n' > "$CMUX_VDISPLAY_LOCK_DIR/owner_pid"
+DEAD_OWNER_LOCK_ENV="$(
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_VDISPLAY_LOCK_DIR="$LOCK_DIR" \
+  CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=2 \
+  CMUX_VDISPLAY_LOCK_STALE_SECONDS=1800 \
+  CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
+  "$SCRIPT" acquire 2>/tmp/cmux-vdisplay-dead-owner-acquire.err
+)"
+eval "$DEAD_OWNER_LOCK_ENV"
+
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
 CMUX_VDISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN" \
@@ -83,4 +94,4 @@ if [ -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   exit 1
 fi
 
-echo "PASS: virtual display lock serializes acquisition, preserves live-owner locks, and releases only matching tokens"
+echo "PASS: virtual display lock serializes acquisition, preserves live-owner locks, reclaims dead-owner locks, and releases only matching tokens"
