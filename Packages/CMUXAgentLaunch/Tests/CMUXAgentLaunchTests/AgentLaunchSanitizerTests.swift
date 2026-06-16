@@ -138,6 +138,44 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves variadic --dangerously-load-development-channels values and following flags")
+    func preservesVariadicDangerouslyLoadDevelopmentChannels() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "claude",
+                    "--mcp-config",
+                    "/home/me/.mcp.json",
+                    "--dangerously-load-development-channels",
+                    "server:slack-bus",
+                    "server:runtime-bus",
+                    "server:peer-bus",
+                    "--debug-file",
+                    "/tmp/cc-debug.log",
+                    "--dangerously-skip-permissions",
+                    "--agent",
+                    "build-orchestrator",
+                    "initial prompt should not replay",
+                ],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == [
+                "claude",
+                "--mcp-config",
+                "/home/me/.mcp.json",
+                "--dangerously-load-development-channels",
+                "server:slack-bus",
+                "server:runtime-bus",
+                "server:peer-bus",
+                "--debug-file",
+                "/tmp/cc-debug.log",
+                "--dangerously-skip-permissions",
+                "--agent",
+                "build-orchestrator",
+            ]
+        )
+    }
+
     @Test("Drops Claude startup files")
     func dropsClaudeStartupFiles() {
         #expect(
