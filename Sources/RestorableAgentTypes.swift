@@ -177,7 +177,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     }
 }
 
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
+struct AgentLaunchCommandSnapshot: Codable, Equatable, Hashable, Sendable {
     var launcher: String?
     var executablePath: String?
     var arguments: [String]

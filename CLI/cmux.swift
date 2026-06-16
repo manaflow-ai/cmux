@@ -346,6 +346,7 @@ struct ClaudeHookParsedInput {
     let turnId: String?
     let cwd: String?
     let transcriptPath: String?
+    let title: String?
 }
 
 enum AgentHookNotificationStatus: String, Codable {
@@ -435,6 +436,7 @@ struct ClaudeHookSessionRecord: Codable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var title: String? = nil
     var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
@@ -707,6 +709,7 @@ final class ClaudeHookSessionStore {
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
+        title: String? = nil,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
         rejectTerminalTurn: Bool = false
     ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
@@ -743,6 +746,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: false,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                title: title,
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
@@ -966,7 +970,8 @@ final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool = false,
         markActive: Bool = false,
         turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false
+        allowsNewSessionReplacement: Bool = false,
+        title: String? = nil
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -1012,6 +1017,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                title: title,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1043,7 +1049,8 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        title: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1076,6 +1083,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: false,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                title: title,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1092,7 +1100,8 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        title: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1125,6 +1134,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: false,
                 runtimeStatus: .running,
                 updateRuntimeStatus: true,
+                title: title,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1382,6 +1392,7 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool,
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
+        title: String? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1390,6 +1401,11 @@ final class ClaudeHookSessionStore {
         }
         if let cwd = normalizeOptional(cwd) {
             record.cwd = cwd
+        }
+        // Only set when non-empty so an event without a title can't wipe one
+        // that was already stored.
+        if let title = normalizeOptional(title) {
+            record.title = title
         }
         if let transcriptPath = normalizeOptional(transcriptPath) {
             record.transcriptPath = transcriptPath
@@ -24509,6 +24525,7 @@ struct CMUXCLI {
         return raw
     }
 
+
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
@@ -29837,8 +29854,47 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 sendAgentFeedTelemetry()
             }
         }
+        func normalizedTitleUpdate(_ value: String?) -> String? {
+            guard let title = normalizedHookValue(value)?
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) else {
+                return nil
+            }
+            guard title.count > 200 else { return title }
+            let index = title.index(title.startIndex, offsetBy: 199)
+            return String(title[..<index]) + "…"
+        }
 
         switch action {
+        case .titleUpdate:
+            didSendFeedTelemetry = true
+            guard !sessionId.isEmpty,
+                  let title = normalizedTitleUpdate(input.title) else {
+                break
+            }
+            let mapped = try? store.lookup(sessionId: sessionId)
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                break
+            }
+            let launchCommand = mapped?.launchCommand ?? agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: inferredPID,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            try? store.upsert(
+                sessionId: sessionId,
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId,
+                cwd: hookCwd ?? mapped?.cwd,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                pid: mapped?.pid ?? inferredPID,
+                launchCommand: launchCommand,
+                agentLifecycle: nil,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                title: title
+            )
+
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -29876,7 +29932,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        title: input.title
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -29889,7 +29946,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        title: input.title
                     )
                     acceptedSessionStart = true
                 }
@@ -29926,6 +29984,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             if !sessionId.isEmpty {
+
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
@@ -30126,6 +30185,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
+                        title: input.title,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -30181,7 +30241,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        title: input.title
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -30194,7 +30255,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        title: input.title
                     )
                     acceptedRunningUpdate = true
                 }

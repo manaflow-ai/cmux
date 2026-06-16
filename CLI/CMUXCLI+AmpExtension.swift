@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ampExtensionMarker = "cmux-amp-session-extension-marker"
     private static let ampExtensionFilename = "cmux-session.ts"
     private static let ampExtensionSource = #"""
-// cmux-amp-session-extension-marker v2
+// cmux-amp-session-extension-marker v3
 // Bridges Amp session lifecycle events into cmux's restorable session store
 // AND reports live agent status (idle/thinking/tool calls/done/error) into
 // the cmux tab status bar.
@@ -42,6 +42,31 @@ function resolveExecutable(name: string): string {
     } catch (_) {}
   }
   return name;
+}
+
+function executablePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim();
+  if (!candidate) return null;
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return candidate;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Prefer the executable CLI bundled with the cmux app that launched this
+// terminal (CMUX_BUNDLED_CLI_PATH) over whatever `cmux` is on PATH, so the
+// plugin talks to the matching app/CLI version when that path is still valid.
+// CMUX_AMP_CMUX_BIN takes highest precedence but is test-only plumbing (the
+// install test injects a fake cmux binary through it). A stale bundled CLI path
+// falls back to PATH so app reloads or removed tagged builds do not silently
+// disable Amp hooks.
+function cmuxBin(): string {
+  return firstString(process.env.CMUX_AMP_CMUX_BIN)
+    || executablePath(process.env.CMUX_BUNDLED_CLI_PATH)
+    || resolveExecutable("cmux");
 }
 
 function looksLikeAmpExecutable(value: string): boolean {
@@ -100,6 +125,8 @@ function eventName(subcommand: string): string {
       return "SessionStart";
     case "prompt-submit":
       return "UserPromptSubmit";
+    case "title-update":
+      return "TitleUpdate";
     case "stop":
       return "Stop";
     default:
@@ -124,7 +151,7 @@ function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = cmuxBin();
   try {
     const child = spawn(cmux, ["hooks", "amp", subcommand], {
       env: hookEnvironment(cwd),
@@ -138,7 +165,18 @@ function sendHook(
   } catch (_) {}
 }
 
-type AmpThreadContext = { thread?: { id?: string } };
+type AmpTitleObservable = {
+  get?: () => Promise<string | null>;
+  subscribe?: (onNext: (value: string | null) => void) => {
+    unsubscribe?: () => void;
+  };
+};
+
+type AmpThreadContext = {
+  thread?: { id?: string; title?: AmpTitleObservable };
+};
+type AmpTitleGetter = () => Promise<unknown> | unknown;
+type AmpMessageLoader = () => Promise<unknown[] | null> | unknown[] | null;
 
 function threadIdFrom(event: { thread?: { id?: string } } | undefined, ctx?: AmpThreadContext): string | null {
   return firstString(event?.thread?.id, ctx?.thread?.id);
@@ -259,7 +297,7 @@ function statusEnvironment(): NodeJS.ProcessEnv {
 function runCmux(args: string[]): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = cmuxBin();
   try {
     const child = spawn(cmux, args, {
       env: statusEnvironment(),
@@ -375,6 +413,8 @@ export default function (amp: PluginAPI) {
   // pane, so a single flag is sufficient — concurrent threads would need a
   // per-thread map.
   let turnActive = false;
+  let turnEpoch = 0;
+  let sessionStartEpoch = 0;
 
   // Best-effort cleanup so the badge doesn't get stuck after the agent exits.
   // We intentionally only hook the `exit` event and do NOT register custom
@@ -397,21 +437,272 @@ export default function (amp: PluginAPI) {
     } catch (_) {}
   });
 
+  // cmux just stores whatever `title` it receives. Prefer the thread title the
+  // user/agent set via the plugin API; fall back to the first user message for
+  // Amp versions whose API predates `thread.title`.
+  // Cached per thread so we resolve at most once.
+  const capturedTitles = new Map<string, string>();
+  const titleVersions = new Map<string, number>();
+  const observedTitleThreads = new Set<string>();
+  const titleLookupTokens = new Map<string, number>();
+  const TITLE_MAX_LENGTH = 200;
+  const TITLE_UPDATE_DEBOUNCE_MS = 250;
+  const TITLE_LOOKUP_TIMEOUT_MS = 1000;
+  function normalizedTitle(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const title = value
+      .slice(0, TITLE_MAX_LENGTH * 2)
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!title) return null;
+    return title.length > TITLE_MAX_LENGTH
+      ? title.slice(0, TITLE_MAX_LENGTH - 1) + "…"
+      : title;
+  }
+
+  function titleFromContentBlocks(content: unknown[]): string | null {
+    let text = "";
+    for (const block of content) {
+      if ((block as { type?: string }).type !== "text") continue;
+      const raw = (block as { text?: unknown }).text;
+      if (typeof raw !== "string") continue;
+      const remaining = TITLE_MAX_LENGTH * 2 - text.length;
+      if (remaining <= 0) break;
+      const piece = raw
+        .slice(0, remaining)
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!piece) continue;
+      text = text ? `${text} ${piece}` : piece;
+      if (text.length >= TITLE_MAX_LENGTH) break;
+    }
+    return normalizedTitle(text);
+  }
+
+  function rememberTitle(threadID: string, title: string): string {
+    capturedTitles.set(threadID, title);
+    titleVersions.set(threadID, (titleVersions.get(threadID) ?? 0) + 1);
+    return title;
+  }
+
+  function rememberObservedTitle(threadID: string, title: string): string {
+    observedTitleThreads.add(threadID);
+    return rememberTitle(threadID, title);
+  }
+
+  function currentTitleVersion(threadID: string): number {
+    return titleVersions.get(threadID) ?? 0;
+  }
+
+  function beginTitleLookup(threadID: string): number {
+    const token = (titleLookupTokens.get(threadID) ?? 0) + 1;
+    titleLookupTokens.set(threadID, token);
+    return token;
+  }
+
+  function isTitleLookupCurrent(threadID: string, token: number): boolean {
+    return titleLookupTokens.get(threadID) === token;
+  }
+
+  function endTitleLookup(threadID: string, token: number): void {
+    if (isTitleLookupCurrent(threadID, token)) {
+      titleLookupTokens.delete(threadID);
+    }
+  }
+
+  function titleIfUnchanged(threadID: string, startVersion: number, title: string): string {
+    const cached = capturedTitles.get(threadID);
+    if (cached && currentTitleVersion(threadID) !== startVersion) return cached;
+    return rememberTitle(threadID, title);
+  }
+
+  async function resolveSessionTitle(
+    threadID: string,
+    titleGetter: AmpTitleGetter | undefined,
+    messageLoader: AmpMessageLoader | undefined,
+    isLookupActive: () => boolean,
+  ): Promise<string | null> {
+    const startVersion = currentTitleVersion(threadID);
+    // Always try the real thread title first (cheap, and lets cmux upgrade the
+    // stored title once Amp assigns/refines it on a later turn).
+    try {
+      const threadTitle = normalizedTitle(await titleGetter?.());
+      if (!isLookupActive()) return null;
+      if (threadTitle) {
+        return titleIfUnchanged(threadID, startVersion, threadTitle);
+      }
+    } catch (_) {}
+    if (!isLookupActive()) return null;
+    const cached = capturedTitles.get(threadID);
+    if (cached) return cached;
+    try {
+      const messages = await messageLoader?.();
+      if (!isLookupActive()) return null;
+      if (!Array.isArray(messages)) return null;
+      for (const message of messages) {
+        const m = message as { role?: string; content?: unknown };
+        if (m.role !== "user" || !Array.isArray(m.content)) continue;
+        const title = titleFromContentBlocks(m.content);
+        if (title) {
+          return titleIfUnchanged(threadID, startVersion, title);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function resolveSessionTitleBestEffort(
+    threadID: string,
+    ctx?: AmpThreadContext,
+  ): Promise<string | null> {
+    const token = beginTitleLookup(threadID);
+    const titleObservable = ctx?.thread?.title;
+    const titleGetter: AmpTitleGetter | undefined = titleObservable?.get
+      ? () => titleObservable.get?.()
+      : undefined;
+    const threads = (
+      amp as unknown as {
+        experimental?: {
+          threads?: {
+            get?: (id: string) => {
+              messages?: (options?: unknown) => Promise<unknown[]>;
+            };
+          };
+        };
+      }
+    ).experimental?.threads;
+    const messageLoader: AmpMessageLoader | undefined = threads?.get
+      ? () => {
+          const handle = threads.get?.(threadID);
+          return handle?.messages?.({ from: "start", limit: 1, roles: ["user"] }) ?? null;
+        }
+      : undefined;
+    return new Promise((resolve) => {
+      let didFinish = false;
+      const finish = (title: string | null) => {
+        if (didFinish) return;
+        didFinish = true;
+        clearTimeout(timer);
+        endTitleLookup(threadID, token);
+        resolve(title);
+      };
+      const isLookupActive = () => !didFinish && isTitleLookupCurrent(threadID, token);
+      const timer = setTimeout(() => finish(null), TITLE_LOOKUP_TIMEOUT_MS);
+      resolveSessionTitle(threadID, titleGetter, messageLoader, isLookupActive)
+        .then((title) => finish(isLookupActive() ? title : null))
+        .catch(() => finish(null));
+    });
+  }
+
+  function titleExtra(title: string | null): Record<string, unknown> {
+    const normalized = normalizedTitle(title);
+    return normalized ? { title: normalized } : {};
+  }
+
+  // Amp usually generates the title mid-turn, so reading it on
+  // session.start/agent.start misses it. Subscribe once per thread and push each
+  // new title to cmux as it lands. Title updates are title-only hook-store
+  // writes; they must not replay session-start lifecycle side effects.
+  const titleSubs = new Map<string, {
+    unsubscribe?: () => void;
+    clearTimer?: () => void;
+    flushTitle?: () => void;
+  }>();
+  function flushThreadTitle(threadID: string): void {
+    const sub = titleSubs.get(threadID);
+    if (!sub) return;
+    try {
+      sub.flushTitle?.();
+    } catch (_) {}
+  }
+
+  function cleanupThreadTitle(threadID: string): void {
+    const sub = titleSubs.get(threadID);
+    if (sub) {
+      try {
+        sub.clearTimer?.();
+      } catch (_) {}
+      try {
+        sub.unsubscribe?.();
+      } catch (_) {}
+      titleSubs.delete(threadID);
+    }
+    capturedTitles.delete(threadID);
+    titleVersions.delete(threadID);
+    observedTitleThreads.delete(threadID);
+    titleLookupTokens.delete(threadID);
+  }
+
+  function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
+    const observable = ctx?.thread?.title;
+    if (!observable?.subscribe || titleSubs.has(threadID)) return;
+    let lastSent: string | null = null;
+    let pendingTitle: string | null = null;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushTitle = () => {
+      flushTimer = null;
+      const title = pendingTitle;
+      pendingTitle = null;
+      if (!title || title === lastSent) return;
+      lastSent = title;
+      rememberObservedTitle(threadID, title);
+      sendHook("title-update", threadID, cwdFromEnv(), { title });
+    };
+    const clearTimer = () => {
+      if (flushTimer !== null) clearTimeout(flushTimer);
+      flushTimer = null;
+      pendingTitle = null;
+    };
+    try {
+      const sub = observable.subscribe((value) => {
+        const title = normalizedTitle(value);
+        if (!title || title === lastSent) return;
+        pendingTitle = title;
+        rememberObservedTitle(threadID, title);
+        if (flushTimer !== null) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
+      });
+      titleSubs.set(threadID, {
+        unsubscribe: () => sub.unsubscribe?.(),
+        clearTimer,
+        flushTitle,
+      });
+    } catch (_) {}
+  }
+
+  process.on("exit", () => {
+    for (const threadID of Array.from(titleSubs.keys())) {
+      cleanupThreadTitle(threadID);
+    }
+  });
+
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
     setStatus("idle", "circle", COLOR.idle);
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
-    sendHook("session-start", sessionId, cwdFromEnv());
+    const epoch = ++sessionStartEpoch;
+    watchThreadTitle(sessionId, ctx);
+    sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(capturedTitles.get(sessionId) ?? null));
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (epoch !== sessionStartEpoch || !title) return;
+      sendHook("title-update", sessionId, cwdFromEnv(), { title });
+    });
   });
 
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
     inFlightTools = 0;
     turnActive = true;
+    const epoch = ++turnEpoch;
     setStatus("thinking", "brain", COLOR.thinking);
     wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
-    sendHook("prompt-submit", sessionId, cwdFromEnv());
+    watchThreadTitle(sessionId, ctx);
+    sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(capturedTitles.get(sessionId) ?? null));
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (!turnActive || epoch !== turnEpoch || !title) return;
+      sendHook("title-update", sessionId, cwdFromEnv(), { title });
+    });
   });
 
   amp.on("tool.call", async (event: ToolCallEvent) => {
@@ -438,6 +729,8 @@ export default function (amp: PluginAPI) {
   amp.on("agent.end", async (event: AgentEndEvent, ctx) => {
     inFlightTools = 0;
     turnActive = false;
+    turnEpoch++;
+    sessionStartEpoch++;
     switch (event.status) {
       case "done":
         setStatus("done", "checkmark.circle", COLOR.done);
@@ -459,6 +752,17 @@ export default function (amp: PluginAPI) {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     sendHook("stop", sessionId, cwdFromEnv());
+    flushThreadTitle(sessionId);
+    if (observedTitleThreads.has(sessionId)) {
+      cleanupThreadTitle(sessionId);
+      return;
+    }
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (title) sendHook("title-update", sessionId, cwdFromEnv(), { title });
+    }).finally(() => {
+      flushThreadTitle(sessionId);
+      cleanupThreadTitle(sessionId);
+    });
   });
 }
 """#

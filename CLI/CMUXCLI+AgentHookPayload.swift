@@ -18,7 +18,8 @@ extension CMUXCLI {
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
-                transcriptPath: nil
+                transcriptPath: nil,
+                title: nil
             )
         }
 
@@ -26,6 +27,7 @@ extension CMUXCLI {
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
+        let title = firstString(in: object, keys: ["title"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
             rawObject: object,
@@ -34,7 +36,8 @@ extension CMUXCLI {
             sessionId: sessionId,
             turnId: turnId,
             cwd: cwd,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            title: title
         )
     }
 
