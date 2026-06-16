@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import hmac
 import json
 import os
 import plistlib
+import secrets
 import shlex
 import shutil
 import signal
@@ -130,6 +132,14 @@ const statusText = document.getElementById("statusText");
 let seq = 0;
 let metadata = {};
 
+function withAuth(path) {
+  const auth = window.location.search || "";
+  if (!auth) {
+    return path;
+  }
+  return path + (path.includes("?") ? "&" + auth.slice(1) : auth);
+}
+
 screen.alt = t.title;
 stage.setAttribute("aria-label", t.title);
 empty.textContent = t.emptyFrame;
@@ -142,7 +152,7 @@ function setStatus(text, state) {
 
 async function refreshMetadata() {
   try {
-    const response = await fetch("/metadata", { cache: "no-store" });
+    const response = await fetch(withAuth("/metadata"), { cache: "no-store" });
     metadata = await response.json();
     setStatus(metadata.input_available ? t.statusInputReady : t.statusInputUnavailable, metadata.input_available ? "ready" : "warn");
   } catch (_) {
@@ -161,7 +171,7 @@ function loadFrame() {
   image.onerror = () => {
     window.setTimeout(loadFrame, 750);
   };
-  image.src = `/frame?seq=${seq++}`;
+  image.src = withAuth(`/frame?seq=${seq++}`);
 }
 
 function pointForEvent(event) {
@@ -176,7 +186,7 @@ function pointForEvent(event) {
 
 async function sendInput(event) {
   try {
-    const response = await fetch("/input", {
+    const response = await fetch(withAuth("/input"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(event),
@@ -272,6 +282,24 @@ def run(args, cwd=None, check=True, input_text=None):
             returncode=completed.returncode,
             stdout=completed.stdout,
             stderr=completed.stderr,
+        )
+    return completed
+
+
+def run_streaming(args, cwd=None, check=True):
+    log("$ " + " ".join(shlex.quote(str(part)) for part in args))
+    completed = subprocess.run(
+        [str(part) for part in args],
+        cwd=str(cwd) if cwd else None,
+        stdout=sys.stderr,
+        stderr=sys.stderr,
+        text=True,
+    )
+    if check and completed.returncode != 0:
+        raise CommandError(
+            f"command failed with status {completed.returncode}",
+            args=args,
+            returncode=completed.returncode,
         )
     return completed
 
@@ -423,7 +451,7 @@ def build_app(args, cwd, udid):
         "-derivedDataPath",
         str(derived_data),
     ]
-    run([*base, "build"], cwd=cwd, check=True)
+    run_streaming([*base, "build"], cwd=cwd, check=True)
     settings = run([*base, "-showBuildSettings", "-json"], cwd=cwd, check=True)
     app_path = app_path_from_build_settings(settings.stdout)
     if app_path is None:
@@ -480,11 +508,12 @@ def install_and_launch(udid, app_path, bundle_id):
 
 
 class SimulatorState:
-    def __init__(self, device, app_path, bundle_id, input_command):
+    def __init__(self, device, app_path, bundle_id, input_command, auth_token):
         self.device = device
         self.app_path = str(app_path) if app_path else None
         self.bundle_id = bundle_id
         self.input_command = input_command
+        self.auth_token = auth_token
         self.idb_path = shutil.which("idb")
         self.frame_lock = threading.Lock()
         self.last_frame = None
@@ -500,7 +529,6 @@ class SimulatorState:
             "app_path": self.app_path,
             "bundle_id": self.bundle_id,
             "input_available": self.input_available,
-            "input_provider": "command" if self.input_command else ("idb" if self.idb_path else None),
         }
 
     def capture_frame(self):
@@ -554,13 +582,15 @@ class SimulatorState:
             env=env,
         )
         if completed.returncode == 0:
-            return {"ok": True, "provider": "command"}
+            return {"ok": True}
+        log(f"input command failed with status {completed.returncode}")
+        if completed.stdout.strip():
+            log("input command stdout:\n" + completed.stdout.rstrip())
+        if completed.stderr.strip():
+            log("input command stderr:\n" + completed.stderr.rstrip())
         return {
             "ok": False,
-            "provider": "command",
-            "status": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
+            "code": "input_command_failed",
         }
 
     def run_idb(self, event):
@@ -579,7 +609,7 @@ class SimulatorState:
         elif event_type == "key":
             args = ["ui", "key", str(event.get("key", ""))]
         else:
-            return {"ok": False, "provider": "idb", "code": "unsupported_input_type", "input_type": event_type}
+            return {"ok": False, "code": "unsupported_input_type", "input_type": event_type}
 
         completed = subprocess.run(
             [self.idb_path, "--udid", udid, *args],
@@ -588,13 +618,15 @@ class SimulatorState:
             text=True,
         )
         if completed.returncode == 0:
-            return {"ok": True, "provider": "idb"}
+            return {"ok": True}
+        log(f"idb input failed with status {completed.returncode}")
+        if completed.stdout.strip():
+            log("idb stdout:\n" + completed.stdout.rstrip())
+        if completed.stderr.strip():
+            log("idb stderr:\n" + completed.stderr.rstrip())
         return {
             "ok": False,
-            "provider": "idb",
-            "status": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
+            "code": "input_bridge_failed",
         }
 
 
@@ -605,8 +637,15 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
     def state(self):
         return self.server.simulator_state
 
+    def has_valid_token(self, parsed):
+        tokens = urllib.parse.parse_qs(parsed.query).get("token", [])
+        return any(hmac.compare_digest(token, self.state.auth_token) for token in tokens)
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/health" and not self.has_valid_token(parsed):
+            self.write_json({"ok": False, "code": "unauthorized"}, status=403)
+            return
         if parsed.path == "/":
             self.write_html()
         elif parsed.path == "/frame":
@@ -623,7 +662,18 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
         if parsed.path != "/input":
             self.send_error(404)
             return
-        length = int(self.headers.get("content-length") or "0")
+        if not self.has_valid_token(parsed):
+            self.write_json({"ok": False, "code": "unauthorized"}, status=403)
+            return
+        try:
+            length = int(self.headers.get("content-length") or "0")
+        except ValueError:
+            self.write_json({"ok": False, "code": "invalid_content_length"}, status=400)
+            return
+        max_input_bytes = 65536
+        if length < 0 or length > max_input_bytes:
+            self.write_json({"ok": False, "code": "input_too_large"}, status=413)
+            return
         raw = self.rfile.read(length)
         try:
             event = json.loads(raw.decode("utf-8"))
@@ -710,11 +760,18 @@ def serve(args):
     install_and_launch(device["udid"], app_path, bundle_id)
 
     input_command = args.input_command or os.environ.get("CMUX_IOS_INPUT_COMMAND")
-    state = SimulatorState(device=device, app_path=app_path, bundle_id=bundle_id, input_command=input_command)
+    auth_token = secrets.token_urlsafe(32)
+    state = SimulatorState(
+        device=device,
+        app_path=app_path,
+        bundle_id=bundle_id,
+        input_command=input_command,
+        auth_token=auth_token,
+    )
     server = ThreadingHTTPServer((args.host, args.port), SimulatorRequestHandler)
     server.simulator_state = state
     host, port = server.server_address
-    url = f"http://{host}:{port}/"
+    url = f"http://{host}:{port}/?token={urllib.parse.quote(auth_token)}"
 
     def shutdown(signum, _frame):
         log(f"received signal {signum}, shutting down")
@@ -731,7 +788,6 @@ def serve(args):
         "scheme": scheme,
         "derived_data": derived_data,
         "input_available": state.input_available,
-        "input_provider": state.metadata()["input_provider"],
     }
     print(json.dumps(ready, ensure_ascii=False), flush=True)
     log(f"serving simulator stream at {url}")

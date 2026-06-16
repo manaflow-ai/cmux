@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -170,13 +171,13 @@ extension CMUXCLI {
             }
 
             switch name {
-            case "--app": appPath = resolvePath(value)
+            case "--app": appPath = value
             case "--bundle-id": bundleID = value
-            case "--xcode-workspace": xcodeWorkspace = resolvePath(value)
-            case "--xcode-project": xcodeProject = resolvePath(value)
+            case "--xcode-workspace": xcodeWorkspace = value
+            case "--xcode-project": xcodeProject = value
             case "--scheme": scheme = value
             case "--configuration": configuration = value
-            case "--derived-data": derivedData = resolvePath(value)
+            case "--derived-data": derivedData = value
             case "--device": device = value
             case "--port": port = value
             case "--cwd": cwd = resolvePath(value)
@@ -371,7 +372,17 @@ extension CMUXCLI {
         }
         try? logHandle.close()
 
-        let readyData = readLineData(from: stdoutPipe.fileHandleForReading)
+        let readyTimeoutSeconds: TimeInterval = 30 * 60
+        let readyRead = readLineData(from: stdoutPipe.fileHandleForReading, timeout: readyTimeoutSeconds)
+        if readyRead.timedOut {
+            process.terminate()
+            let format = String(
+                localized: "cli.ios.error.readyTimeout",
+                defaultValue: "iOS simulator server did not become ready within %.0f seconds. See log: %@"
+            )
+            throw CLIError(message: String(format: format, readyTimeoutSeconds, logURL.path))
+        }
+        let readyData = readyRead.data
         guard !readyData.isEmpty else {
             let format = String(
                 localized: "cli.ios.error.helperExited",
@@ -399,22 +410,56 @@ extension CMUXCLI {
         return (process, payload)
     }
 
-    private func readLineData(from handle: FileHandle) -> Data {
+    private func readLineData(from handle: FileHandle, timeout: TimeInterval) -> (data: Data, timedOut: Bool) {
         let maxReadyBytes = 1_048_576
+        let chunkSize = 4096
+        let deadline = Date().addingTimeInterval(timeout)
+        let fileDescriptor = handle.fileDescriptor
+        var buffer = [UInt8](repeating: 0, count: chunkSize)
         var data = Data()
-        while true {
-            let chunk = handle.readData(ofLength: 1)
-            if chunk.isEmpty {
+        while data.count < maxReadyBytes {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                return (data, true)
+            }
+
+            var pollInfo = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = Int32(min(remaining * 1000, Double(Int32.max)))
+            let pollResult = Darwin.poll(&pollInfo, 1, timeoutMilliseconds)
+            if pollResult == 0 {
+                return (data, true)
+            }
+            if pollResult < 0 {
+                if errno == EINTR {
+                    continue
+                }
                 break
             }
-            if chunk.first == 10 {
+
+            if (pollInfo.revents & Int16(POLLIN)) == 0 {
                 break
             }
-            data.append(chunk)
-            if data.count >= maxReadyBytes {
+
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(fileDescriptor, rawBuffer.baseAddress, chunkSize)
+            }
+            if bytesRead == 0 {
                 break
             }
+            if bytesRead < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                break
+            }
+
+            let readable = buffer.prefix(Int(bytesRead))
+            if let newlineIndex = readable.firstIndex(of: 10) {
+                data.append(contentsOf: readable[..<newlineIndex])
+                return (data, false)
+            }
+            data.append(contentsOf: readable)
         }
-        return data
+        return (data, false)
     }
 }
