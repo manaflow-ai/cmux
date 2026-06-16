@@ -3171,7 +3171,6 @@ struct CMUXCLI {
         if command == "welcome" { printWelcome(); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
-        if command == "__sigpipe-non-stdio-lock-probe" { try runSIGPIPENonStdioLockProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
 

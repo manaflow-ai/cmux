@@ -34,6 +34,21 @@ final class SentryNoiseFilterTests: XCTestCase {
         ))
     }
 
+    func testErrnoMatchingRequiresExactCode() {
+        XCTAssertFalse(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Invalid argument, errno 22)"
+        ))
+        XCTAssertFalse(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Failed to write to socket (Not a socket, errno 329)"
+        ))
+        XCTAssertTrue(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (errno=2)"
+        ))
+    }
+
     func testKeepsRawSignalAndNonSocketMessages() {
         XCTAssertFalse(filter.isExpectedCLISocketTransportMessage("SIGPIPE: Signal 13, Code 0"))
         XCTAssertFalse(filter.isExpectedCLISocketTransportFailure(

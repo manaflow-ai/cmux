@@ -328,9 +328,9 @@ enum CLIProcessRunner {
         do {
             try cliRunProcess(process)
         } catch {
-            stdoutPipe.fileHandleForWriting.closeFile()
-            stderrPipe.fileHandleForWriting.closeFile()
-            stdinPipe?.fileHandleForWriting.closeFile()
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            try? stdinPipe?.fileHandleForWriting.close()
             stdoutFinished.wait()
             stderrFinished.wait()
             return CLIProcessResult(status: 1, stdout: "", stderr: error.localizedDescription, timedOut: false)
@@ -425,9 +425,9 @@ enum CLIProcessRunner {
         do {
             try cliRunProcess(process)
         } catch {
-            stdoutPipe.fileHandleForWriting.closeFile()
-            stderrPipe.fileHandleForWriting.closeFile()
-            stdinPipe?.fileHandleForWriting.closeFile()
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            try? stdinPipe?.fileHandleForWriting.close()
             stdoutFinished.wait()
             stderrFinished.wait()
             return CLIProcessDataResult(status: 1, stdout: Data(), stderr: error.localizedDescription, timedOut: false)
@@ -437,7 +437,7 @@ enum CLIProcessRunner {
             if let data = stdinText.data(using: .utf8) {
                 _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
             }
-            stdinPipe.fileHandleForWriting.closeFile()
+            try? stdinPipe.fileHandleForWriting.close()
         }
 
         let timedOut: Bool

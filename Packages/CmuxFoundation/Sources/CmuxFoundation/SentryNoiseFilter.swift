@@ -28,13 +28,13 @@ public struct SentryNoiseFilter: Sendable {
             t.contains("write to socket")
         if isSocketWriteFailure {
             return t.contains("broken pipe") ||
-                t.contains("errno 32") ||       // EPIPE
+                containsErrno(32, in: t) ||      // EPIPE
                 t.contains("connection reset") ||
-                t.contains("errno 54") ||       // ECONNRESET
+                containsErrno(54, in: t) ||      // ECONNRESET
                 t.contains("bad file descriptor") ||
-                t.contains("errno 9") ||        // EBADF after peer/fd teardown
+                containsErrno(9, in: t) ||       // EBADF after peer/fd teardown
                 t.contains("socket is not connected") ||
-                t.contains("errno 57")          // ENOTCONN
+                containsErrno(57, in: t)         // ENOTCONN
         }
 
         let isSocketConnectFailure =
@@ -46,9 +46,9 @@ public struct SentryNoiseFilter: Sendable {
 
         return t.contains("socket not found at") ||
             t.contains("no such file or directory") ||
-            t.contains("errno 2") ||            // ENOENT
+            containsErrno(2, in: t) ||           // ENOENT
             t.contains("connection refused") ||
-            t.contains("errno 61")              // ECONNREFUSED
+            containsErrno(61, in: t)             // ECONNREFUSED
     }
 
     private func isCLISocketTransportContext(stage: String, dataKeys: Set<String>) -> Bool {
@@ -56,5 +56,11 @@ public struct SentryNoiseFilter: Sendable {
             stage.hasPrefix("socket_command") ||
             dataKeys.contains("socket_phase") ||
             dataKeys.contains("socket_operation")
+    }
+
+    private func containsErrno(_ code: Int, in text: String) -> Bool {
+        let escapedCode = NSRegularExpression.escapedPattern(for: String(code))
+        let pattern = #"(?<![0-9])errno[[:space:]:=]*\#(escapedCode)(?![0-9])"#
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 }

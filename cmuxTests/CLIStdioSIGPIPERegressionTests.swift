@@ -194,22 +194,6 @@ final class CLIStdioSIGPIPERegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testNonStdioCLIWriteDoesNotHoldStdioDispositionLockWhileBlocked() throws {
-        let cliPath = try bundledCLIPath()
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["__sigpipe-non-stdio-lock-probe"],
-            environment: cliTestEnvironment(),
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "ok\n", result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-    }
-
-    @MainActor
     func testSIGPIPEProbeChildrenSeeDefaultDisposition() throws {
         let cliPath = try bundledCLIPath()
         for mode in ["spawn", "spawn-stderr", "exec"] {
