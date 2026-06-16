@@ -10,6 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+PERF_ACTIVATION_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
@@ -221,6 +222,17 @@ check_app_detector_includes_ui_tests() {
   echo "PASS: app-domain change detector includes cmuxUITests/"
 }
 
+check_app_detectors_include_root_entitlements() {
+  for file in "$CI_FILE" "$PERF_ACTIVATION_FILE"; do
+    if ! grep -Fq "[^/]+\\.entitlements$" "$file"; then
+      echo "FAIL: app/runtime change detector in $(basename "$file") must include root entitlement files"
+      exit 1
+    fi
+  done
+
+  echo "PASS: app/runtime change detectors include root entitlement files"
+}
+
 check_swift_package_tests_select_xcode() {
   if ! awk '
     /^  swift-package-tests:/ { in_job=1; next }
@@ -299,6 +311,7 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_agent_session_resources_gate
 check_app_detector_includes_ui_tests
+check_app_detectors_include_root_entitlements
 check_swift_package_tests_select_xcode
 check_daemon_detector_includes_release_asset_script
 check_tmux_terminal_nightly_isolation

@@ -61,7 +61,7 @@ jobs:
           gh api --paginate \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             --jq '.[].filename' > /tmp/changed-files.txt
-          if grep -Eq '^(\.github/workflows/perf-activation\.yml|\.xcode-version|[^/]+\.h$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|bun\.lock|package\.json)' /tmp/changed-files.txt; then
+          if grep -Eq '^(\.github/workflows/perf-activation\.yml|\.xcode-version|[^/]+\.h$|[^/]+\.entitlements$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|bun\.lock|package\.json)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No app runtime or activation benchmark files changed; skipping activation performance."
