@@ -14975,6 +14975,8 @@ struct CMUXCLI {
               close-left | close-right | close-others
               new-terminal-right | new-browser-right
               move-to-new-workspace
+              fork | fork-right | fork-left | fork-top | fork-bottom
+              fork-new-tab | fork-new-workspace
               reload | duplicate
               pin | unpin
               mark-unread
@@ -14992,6 +14994,7 @@ struct CMUXCLI {
             Example:
               cmux tab-action --tab tab:3 --action pin
               cmux tab-action --action close-right
+              cmux tab-action --action fork-right
               cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
             """
