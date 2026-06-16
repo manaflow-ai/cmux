@@ -5187,8 +5187,8 @@ final class BrowserPanel: Panel, ObservableObject {
             reason: "webcontent_process_terminated",
             waitForManualRecovery: true
         )
+        hiddenWebViewDiscardManager.noteWebContentProcessRecovery()
     }
-
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,

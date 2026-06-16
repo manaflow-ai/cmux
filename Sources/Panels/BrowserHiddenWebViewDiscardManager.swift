@@ -48,6 +48,7 @@ final class BrowserHiddenWebViewDiscardManager {
     private var systemSleepObserverCenter: NotificationCenter?
     private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
     private var scheduleGeneration: UInt64 = 0
+    private var webContentProcessRecoveryBlockUntil: Date?
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
@@ -77,6 +78,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
         if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
+        if isWebContentProcessRecoveryActive() { blockers.append("webcontent_recovery") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.isPlayingMedia { blockers.append("media_playback") }
@@ -138,7 +140,10 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     func noteWebContentProcessRecovery(now: Date = Date()) {
-        _ = now
+        webContentProcessRecoveryBlockUntil = now.addingTimeInterval(
+            BrowserHiddenWebViewDiscardPolicy.hiddenDelay
+        )
+        cancel()
     }
 
     /// Tracks system sleep/wake so discard countdowns armed before sleep do not
@@ -253,6 +258,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func resetMetadata() {
         cancel()
+        webContentProcessRecoveryBlockUntil = nil
         isDiscardedForMemory = false
         discardedAt = nil
         lastDiscardReason = nil
@@ -265,6 +271,13 @@ final class BrowserHiddenWebViewDiscardManager {
         guard policyState != nextPolicyState else { return }
         policyState = nextPolicyState
         delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
+    }
+
+    private func isWebContentProcessRecoveryActive(now: Date = Date()) -> Bool {
+        guard let blockUntil = webContentProcessRecoveryBlockUntil else { return false }
+        if now < blockUntil { return true }
+        webContentProcessRecoveryBlockUntil = nil
+        return false
     }
 
     private func stopOnMainActor() {
