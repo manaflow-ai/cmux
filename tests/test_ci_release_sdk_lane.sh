@@ -38,8 +38,8 @@ require_job_contains \
 require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
-  "release must build the app on macOS 26"
+  'runs-on: warp-macos-26-arm64-6x' \
+  "release must sign+notarize on the macOS 26 Warp runner (pinned, not vars.MACOS_RUNNER_26, because the self-hosted minis lack the Developer-ID/WWDR signing chain; see #6264)"
 
 require_job_contains \
   "$CI_FILE" \

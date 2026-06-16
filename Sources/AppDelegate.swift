@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxBrowser
 import CmuxBrowserPanel
 import CmuxCommandPalette
 import CmuxCommandPaletteUI
@@ -681,7 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// path-resolution logic lives in the package; `AppDelegate` only supplies
     /// the `NSWorkspace`/`FileManager` side effect through `FinderRevealing`. The
     /// single instance is shared by both the navigation coordinator and the
-    /// `UNUserNotificationCenter` delegate path (`performTerminalNotificationClickAction`).
+    /// `UNUserNotificationCenter` delivery coordinator.
     /// Weak-owner adapter that satisfies every notification-nav seam by
     /// forwarding to `AppDelegate` helpers. The coordinator and click performer
     /// strong-ref this adapter; the adapter weak-refs `AppDelegate`, so there is
@@ -710,6 +711,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )?.id
             }
         )
+
+    /// OS notification delivery/response coordination, extracted into
+    /// `CmuxNotifications`. The app target injects the concrete
+    /// `UNUserNotificationCenter`, terminal identifiers from
+    /// `TerminalNotificationStore`, localized action titles, and the weak-owner
+    /// Feed/app activation seam.
+    lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
+
+    lazy var notificationDelivery = NotificationDeliveryCoordinator(
+        center: UNUserNotificationCenter.current(),
+        terminalNavigation: notificationNavigation,
+        feedReplying: notificationDeliverySeams,
+        applicationActivation: notificationDeliverySeams,
+        terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
+            categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
+            showActionIdentifier: TerminalNotificationStore.actionShowIdentifier
+        ),
+        actionTitles: notificationDeliveryActionTitles
+    )
+
+    private var notificationDeliveryActionTitles: NotificationDeliveryActionTitles {
+        NotificationDeliveryActionTitles(
+            show: String(
+                localized: "terminal.notification.action.show",
+                defaultValue: "Show"
+            ),
+            feedPermissionAllowOnce: String(
+                localized: "feed.notification.permission.allowOnce",
+                defaultValue: "Allow Once"
+            ),
+            feedPermissionAlways: String(
+                localized: "feed.notification.permission.always",
+                defaultValue: "Always"
+            ),
+            feedPermissionAll: String(
+                localized: "feed.notification.permission.all",
+                defaultValue: "All tools"
+            ),
+            feedPermissionDeny: String(
+                localized: "feed.notification.permission.deny",
+                defaultValue: "Deny"
+            ),
+            feedExitPlanUltraplan: String(
+                localized: "feed.notification.exitPlan.ultraplan",
+                defaultValue: "Ultraplan"
+            ),
+            feedExitPlanManual: String(
+                localized: "feed.notification.exitPlan.manual",
+                defaultValue: "Manual"
+            ),
+            feedExitPlanAutoAccept: String(
+                localized: "feed.notification.exitPlan.autoAccept",
+                defaultValue: "Auto"
+            ),
+            feedQuestionReply: String(
+                localized: "feed.notification.question.reply",
+                defaultValue: "Reply"
+            )
+        )
+    }
     // The open-routing trio (`openNotification` / `openNotificationInContext` /
     // `openNotificationFallback`) intentionally stays in `AppDelegate`, reached
     // through the open-routing seam (`openRouted` / `openInWindow` /
@@ -730,7 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-
+    private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -765,11 +826,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
-    private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatPanelId: UUID?
-    private var browserOmnibarRepeatKeyCode: UInt16?
-    private var browserOmnibarRepeatDelta: Int = 0
+    /// Owns the browser omnibar selection-repeat state machine, extracted into
+    /// `CmuxBrowser`. The app delegate is the composition root: it injects
+    /// the `NotificationCenter` selection-move sink and the debug-trace sink.
+    private lazy var browserOmnibarSelectionRepeat: BrowserOmnibarSelectionRepeatCoordinator = {
+        let debugLog: BrowserOmnibarSelectionRepeatCoordinator.DebugLog?
+#if DEBUG
+        debugLog = { line in cmuxDebugLog(line) }
+#else
+        debugLog = nil
+#endif
+        return BrowserOmnibarSelectionRepeatCoordinator(
+            selectionMove: { panelId, delta in
+                NotificationCenter.default.post(
+                    name: .browserMoveOmnibarSelection,
+                    object: panelId,
+                    userInfo: ["delta": delta]
+                )
+            },
+            debugLog: debugLog
+        )
+    }()
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
@@ -1352,6 +1429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutDefaultsObserver()
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
+            sentryStartMemoryContextRefresh()
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
@@ -1866,6 +1944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
@@ -1883,9 +1962,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
-        if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flush()
-        }
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
@@ -1926,14 +2002,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(
-            coordinator: auth.coordinator,
-            browserSignIn: auth.browserSignIn
-        )
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        AgentChatTranscriptService.shared.start()
+        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
@@ -14108,128 +14182,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func dispatchBrowserOmnibarSelectionMove(panelId: UUID, delta: Int) {
-        guard delta != 0 else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
-        )
-#endif
-        NotificationCenter.default.post(
-            name: .browserMoveOmnibarSelection,
-            object: panelId,
-            userInfo: ["delta": delta]
-        )
+        browserOmnibarSelectionRepeat.dispatchSelectionMove(panelID: panelId, delta: delta)
     }
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(panelId: UUID, keyCode: UInt16, delta: Int) {
-        guard delta != 0 else { return }
-
-        if browserOmnibarRepeatPanelId == panelId,
-           browserOmnibarRepeatKeyCode == keyCode,
-           browserOmnibarRepeatDelta == delta {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-                "key=\(keyCode) delta=\(delta) result=reuse"
-            )
-#endif
-            return
-        }
-
-        stopBrowserOmnibarSelectionRepeat()
-        browserOmnibarRepeatPanelId = panelId
-        browserOmnibarRepeatKeyCode = keyCode
-        browserOmnibarRepeatDelta = delta
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-            "key=\(keyCode) delta=\(delta) result=armed"
-        )
-#endif
-
-        let start = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatStartWorkItem = start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: start)
-    }
-
-    private func scheduleBrowserOmnibarSelectionRepeatTick() {
-        browserOmnibarRepeatStartWorkItem = nil
-        guard let panelId = browserOmnibarRepeatPanelId else {
-#if DEBUG
-            cmuxDebugLog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
-#endif
-            stopBrowserOmnibarSelectionRepeat()
-            return
-        }
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(browserOmnibarRepeatDelta)"
-        )
-#endif
-        dispatchBrowserOmnibarSelectionMove(panelId: panelId, delta: browserOmnibarRepeatDelta)
-
-        let tick = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatTickWorkItem = tick
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055, execute: tick)
+        browserOmnibarSelectionRepeat.startRepeatIfNeeded(panelID: panelId, keyCode: keyCode, delta: delta)
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
-#if DEBUG
-        let previousPanelId = browserOmnibarRepeatPanelId
-        let previousKeyCode = browserOmnibarRepeatKeyCode
-        let previousDelta = browserOmnibarRepeatDelta
-#endif
-        browserOmnibarRepeatStartWorkItem?.cancel()
-        browserOmnibarRepeatTickWorkItem?.cancel()
-        browserOmnibarRepeatStartWorkItem = nil
-        browserOmnibarRepeatTickWorkItem = nil
-        browserOmnibarRepeatPanelId = nil
-        browserOmnibarRepeatKeyCode = nil
-        browserOmnibarRepeatDelta = 0
-#if DEBUG
-        if previousKeyCode != nil || previousDelta != 0 {
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.stop panel=\(previousPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-                "key=\(previousKeyCode.map(String.init) ?? "nil") " +
-                "delta=\(previousDelta)"
-            )
-        }
-#endif
+        browserOmnibarSelectionRepeat.stopRepeat()
     }
 
     private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
         switch event.type {
         case .keyUp:
-            if event.keyCode == browserOmnibarRepeatKeyCode {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
-                    "action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteKeyUp(keyCode: event.keyCode)
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
-                    "flags=\(flags.rawValue) action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteFlagsChanged(
+                shouldContinue: browserOmnibarShouldContinueControlNavigationRepeat(flags: flags),
+                flagsRawValue: flags.rawValue
+            )
         default:
             break
         }
@@ -15322,210 +15295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 
     private func configureUserNotifications() {
-        let actions = [
-            UNNotificationAction(
-                identifier: TerminalNotificationStore.actionShowIdentifier,
-                title: "Show"
-            )
-        ]
-
-        let category = UNNotificationCategory(
-            identifier: TerminalNotificationStore.categoryIdentifier,
-            actions: actions,
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-
-        // Feed categories with inline decision buttons. Identifiers and
-        // action strings are matched in `handleFeedNotificationResponse`.
-        let permissionOnceAction = UNNotificationAction(
-            identifier: "feed.permission.once",
-            title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
-        )
-        let permissionAlwaysAction = UNNotificationAction(
-            identifier: "feed.permission.always",
-            title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
-        )
-        let permissionAllAction = UNNotificationAction(
-            identifier: "feed.permission.all",
-            title: String(localized: "feed.notification.permission.all", defaultValue: "All tools")
-        )
-        let permissionDenyAction = UNNotificationAction(
-            identifier: "feed.permission.deny",
-            title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
-            options: [.destructive]
-        )
-        let permissionCategories = Self.feedPermissionNotificationCategoryIds().map { categoryId in
-            var actions: [UNNotificationAction] = []
-            if categoryId.contains("Once") || categoryId == "CMUXFeedPermission" {
-                actions.append(permissionOnceAction)
-            }
-            if categoryId.contains("Always") || categoryId == "CMUXFeedPermission" {
-                actions.append(permissionAlwaysAction)
-            }
-            if categoryId.contains("All") {
-                actions.append(permissionAllAction)
-            }
-            actions.append(permissionDenyAction)
-            return UNNotificationCategory(
-                identifier: categoryId,
-                actions: actions,
-                intentIdentifiers: [],
-                options: []
-            )
-        }
-        let exitPlanCategory = UNNotificationCategory(
-            identifier: "CMUXFeedExitPlan",
-            actions: [
-                UNNotificationAction(
-                    identifier: "feed.exit_plan.ultraplan",
-                    title: String(localized: "feed.notification.exitPlan.ultraplan", defaultValue: "Ultraplan")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.exit_plan.manual",
-                    title: String(localized: "feed.notification.exitPlan.manual", defaultValue: "Manual")
-                ),
-                UNNotificationAction(
-                    identifier: "feed.exit_plan.autoAccept",
-                    title: String(localized: "feed.notification.exitPlan.autoAccept", defaultValue: "Auto")
-                ),
-            ],
-            intentIdentifiers: [],
-            options: []
-        )
-        let questionCategory = UNNotificationCategory(
-            identifier: "CMUXFeedQuestion",
-            actions: [
-                UNNotificationAction(
-                    identifier: "feed.question.open",
-                    title: String(localized: "feed.notification.question.reply", defaultValue: "Reply"),
-                    options: [.foreground]
-                ),
-            ],
-            intentIdentifiers: [],
-            options: []
-        )
-
-        let center = UNUserNotificationCenter.current()
-        center.setNotificationCategories(Set([category, exitPlanCategory, questionCategory] + permissionCategories))
-        center.delegate = self
-    }
-
-    private static func feedPermissionNotificationCategoryIds() -> [String] {
-        [
-            "CMUXFeedPermission",
-            "CMUXFeedPermissionDeny",
-            "CMUXFeedPermissionOnce",
-            "CMUXFeedPermissionAlways",
-            "CMUXFeedPermissionAll",
-            "CMUXFeedPermissionOnceAlways",
-            "CMUXFeedPermissionOnceAll",
-            "CMUXFeedPermissionAlwaysAll",
-            "CMUXFeedPermissionOnceAlwaysAll",
-        ]
-    }
-
-    /// Routes a notification action identifier like
-    /// `feed.permission.once` back to `FeedCoordinator.deliverReply`.
-    /// Returns `true` if the identifier was Feed-owned.
-    private func handleFeedNotificationResponse(_ response: UNNotificationResponse) -> Bool {
-        let categoryId = response.notification.request.content.categoryIdentifier
-        guard categoryId.hasPrefix("CMUXFeedPermission")
-           || categoryId == "CMUXFeedExitPlan"
-           || categoryId == "CMUXFeedQuestion"
-        else { return false }
-
-        guard let requestId = response.notification.request.content.userInfo["requestId"] as? String else {
-            return true
-        }
-
-        switch response.actionIdentifier {
-        case "feed.permission.once":
-            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .once) else {
-                return true
-            }
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
-        case "feed.permission.always":
-            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .always) else {
-                return true
-            }
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
-        case "feed.permission.all":
-            guard let decision = feedPermissionNotificationDecision(requestId: requestId, requestedMode: .all) else {
-                return true
-            }
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: decision)
-        case "feed.permission.deny":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.deny))
-        case "feed.exit_plan.ultraplan":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.ultraplan))
-        case "feed.exit_plan.bypassPermissions":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.bypassPermissions))
-        case "feed.exit_plan.autoAccept":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.autoAccept))
-        case "feed.exit_plan.manual":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.manual))
-        case "feed.question.open":
-            // Open the app / focus the Feed sidebar; actual reply happens in-app.
-            NSApp.activate(ignoringOtherApps: true)
-        case UNNotificationDismissActionIdentifier,
-             UNNotificationDefaultActionIdentifier:
-            // Tap on the banner body opens the app so user can act in-UI.
-            NSApp.activate(ignoringOtherApps: true)
-        default:
-            break
-        }
-        return true
-    }
-
-    private func feedPermissionNotificationDecision(
-        requestId: String,
-        requestedMode: WorkstreamPermissionMode
-    ) -> WorkstreamDecision? {
-        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
-            guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
-            return itemRequestId == requestId
-        }) else {
-            return .permission(requestedMode)
-        }
-        guard case .permissionRequest(_, _, let toolInputJSON, _) = item.payload else {
-            return .permission(requestedMode)
-        }
-
-        switch requestedMode {
-        case .once:
-            guard FeedPermissionActionPolicy.supportsOncePermissionMode(
-                source: item.source,
-                toolInputJSON: toolInputJSON
-            ) else {
-                return nil
-            }
-            return .permission(.once)
-        case .always:
-            if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
-                source: item.source,
-                toolInputJSON: toolInputJSON
-            ) {
-                return .permission(.always)
-            }
-            if FeedPermissionActionPolicy.supportsOncePermissionMode(
-                source: item.source,
-                toolInputJSON: toolInputJSON
-            ) {
-                return .permission(.once)
-            }
-            return nil
-        case .all:
-            guard FeedPermissionActionPolicy.supportsAllPermissionMode(
-                source: item.source,
-                toolInputJSON: toolInputJSON
-            ) else {
-                return nil
-            }
-            return .permission(.all)
-        default:
-            return .permission(requestedMode)
-        }
+        notificationDelivery.configureUserNotifications(delegate: self)
     }
 
     private func disableNativeTabbingShortcut() {
@@ -15673,77 +15443,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        handleNotificationResponse(response)
-        completionHandler()
+        Task { @MainActor [weak self] in
+            self?.notificationDelivery.handleNotificationResponse(response)
+            completionHandler()
+        }
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        var options: UNNotificationPresentationOptions = [.banner, .list]
-        if notification.request.content.sound != nil {
-            options.insert(.sound)
-        }
-        completionHandler(options)
-    }
-
-    private func handleNotificationResponse(_ response: UNNotificationResponse) {
-        if handleFeedNotificationResponse(response) {
-            return
-        }
-        guard let tabIdString = response.notification.request.content.userInfo["tabId"] as? String,
-              let tabId = UUID(uuidString: tabIdString) else {
-            return
-        }
-        let surfaceId: UUID? = {
-            guard let surfaceIdString = response.notification.request.content.userInfo["surfaceId"] as? String else {
-                return nil
-            }
-            return UUID(uuidString: surfaceIdString)
-        }()
-
-        switch response.actionIdentifier {
-        case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
-            let notificationId: UUID? = {
-                if let id = UUID(uuidString: response.notification.request.identifier) {
-                    return id
-                }
-                if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
-                   let id = UUID(uuidString: idString) {
-                    return id
-                }
-                return nil
-            }()
-            if let clickAction = TerminalNotificationClickAction(userInfo: response.notification.request.content.userInfo) {
-                Task { @MainActor in
-                    let didPerform = self.performTerminalNotificationClickAction(clickAction)
-                    if didPerform, let notificationId {
-                        self.notificationStore?.markRead(id: notificationId)
-                    }
-                }
-                return
-            }
-            DispatchQueue.main.async {
-                _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
-            }
-        case UNNotificationDismissActionIdentifier:
-            DispatchQueue.main.async {
-                if let notificationId = UUID(uuidString: response.notification.request.identifier) {
-                    self.notificationStore?.markRead(id: notificationId)
-                } else if let notificationIdString = response.notification.request.content.userInfo["notificationId"] as? String,
-                          let notificationId = UUID(uuidString: notificationIdString) {
-                    self.notificationStore?.markRead(id: notificationId)
-                }
-            }
-        default:
-            break
+        Task { @MainActor [weak self] in
+            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
+            completionHandler(options)
         }
     }
 
