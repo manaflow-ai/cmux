@@ -116,6 +116,54 @@ struct TerminalKeyboardCopyModeResolverTests {
         )
         #expect(state == TerminalKeyboardCopyModeInputState())
     }
+
+    @Test func uppercaseRawYWithoutShiftModifierYanksLineImmediately() {
+        var state = TerminalKeyboardCopyModeInputState()
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 16,
+                charactersIgnoringModifiers: "Y",
+                modifiers: [],
+                hasSelection: false,
+                state: &state
+            ) == .perform(.copyLineAndExit, count: 1)
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState())
+    }
+
+    @Test func uppercaseRawVDoesNotClearAnExistingSelection() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "V",
+                modifiers: [],
+                hasSelection: true
+            ) != .clearSelection
+        )
+    }
+
+    @Test func uppercaseRawVDoesNotStartCharacterSelection() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "V",
+                modifiers: [],
+                hasSelection: false
+            ) != .startSelection
+        )
+    }
+
+    @Test func shiftVDoesNotClearAnExistingSelection() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifiers: [.shift],
+                hasSelection: true
+            ) != .clearSelection
+        )
+    }
 }
 
 @Suite("Terminal keyboard copy mode cursor")
