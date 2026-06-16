@@ -111,6 +111,46 @@ import CmuxGit
         })
     }
 
+    /// Reapplying the same branch from a filesystem-triggered git probe keeps
+    /// the sidebar branch fresh without forcing another PR refresh. PR lookup
+    /// cadence is owned by the poll service once the branch is already known.
+    @Test func knownBranchSnapshotDoesNotForceDuplicatePullRequestRefresh() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: false
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x", isDirty: true))
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        let events = host.projectionEvents()
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+
+        for await event in events {
+            if case .gitBranch = event { break }
+        }
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: true
+        ))
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
+
     /// With PR polling disabled, a branch probe does not touch the PR seam.
     @Test func pollingDisabledSuppressesPullRequestScheduling() async throws {
         let host = RecordingSidebarGitHost()
