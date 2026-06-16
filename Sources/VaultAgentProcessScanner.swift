@@ -32,7 +32,7 @@ extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         return processDetectedSnapshots(
@@ -48,7 +48,7 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         return processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager,
@@ -64,12 +64,28 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            fileManager: fileManager
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
         )
+
+        // Built-in claude/codex have no Vault registration, so detect them
+        // directly here — this makes hook-less sessions (e.g. `sr claude` /
+        // direct `codex`, which bypass the cmux wrapper's session hook) still
+        // fork-able. Don't overwrite a more-specific opencode/custom match.
+        for (key, entry) in processDetectedClaudeCodexSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: processArgumentsProvider
+        ) where resolved[key] == nil {
+            resolved[key] = entry
+        }
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -103,13 +119,14 @@ extension RestorableAgentSessionIndex {
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
-                  let sessionId = registration.sessionIdSource.sessionId(
+                  let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
                       fileManager: fileManager
                   ) else {
                 continue
             }
+            let sessionId = sessionIDResolution.sessionId
 
             let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
             let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
@@ -130,7 +147,8 @@ extension RestorableAgentSessionIndex {
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: processSnapshot.cmuxScopedProcessIDs(for: key)
+                processIDs: scopedProcessIDsByPanelKey[key] ?? [],
+                sessionIDSource: sessionIDResolution.source
             )
         }
 
@@ -216,12 +234,225 @@ extension RestorableAgentSessionIndex {
         return nil
     }
 
+    // MARK: - Built-in claude/codex live-process detection
+
+    /// Detects CMUX-scoped live `claude`/`codex` processes that cmux never
+    /// recorded a session hook for (e.g. launched through `sr`, bypassing the
+    /// cmux wrapper that injects the SessionStart hook), and resolves a fork-able
+    /// snapshot by reading the agent's on-disk transcript/rollout. An inferred
+    /// (newest-on-disk) session id is only attributed when exactly one same-kind
+    /// process shares the cwd, so an ambiguous cwd never forks the wrong session.
+    static func processDetectedClaudeCodexSnapshots(
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        fileManager: FileManager,
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        struct Candidate {
+            let panelKey: PanelKey
+            let kind: RestorableAgentKind
+            let observed: VaultObservedAgentProcess
+            let cwd: String?
+            let cwdKey: String
+            let explicitSessionId: String?
+        }
+
+        var candidates: [Candidate] = []
+        var panelsByKindAndCwd: [String: Set<PanelKey>] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let processArguments = processArgumentsProvider(process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            let kind: RestorableAgentKind
+            if observed.isClaudeProcess {
+                kind = .claude
+            } else if observed.isCodexProcess {
+                kind = .codex
+            } else {
+                continue
+            }
+            // The hook dispatch shell (`sh -c …`) inherits CMUX scope; the
+            // positive kind match already excludes `sr`/wrappers, but guard the
+            // shell-dispatcher argv form explicitly too.
+            guard !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(observed.arguments) else {
+                continue
+            }
+            let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
+            // Group by the symlink-canonical path (not `standardizingPath`, which
+            // does not resolve arbitrary symlinks) so two panels whose cwds are
+            // different spellings of the same real directory collapse into one
+            // group — otherwise the single-panel ambiguity guard is bypassed and
+            // both could infer the same session. Resolution normalizes the same
+            // way (codex via RovoDevIndex.normalizedPath), so the guard and the
+            // resolved target stay consistent. The snapshot keeps the literal cwd.
+            let cwdKey = cwd.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } ?? ""
+            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            candidates.append(Candidate(
+                panelKey: panelKey,
+                kind: kind,
+                observed: observed,
+                cwd: cwd,
+                cwdKey: cwdKey,
+                explicitSessionId: explicitProcessSessionId(kind: kind, arguments: observed.arguments)
+            ))
+            panelsByKindAndCwd[kind.rawValue + "\u{1f}" + cwdKey, default: []].insert(panelKey)
+        }
+
+        var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
+        var inferredSessionByKindAndCwd: [String: String?] = [:]
+
+        for candidate in candidates {
+            let sessionId: String
+            let source: ProcessDetectedSessionIDSource
+            if let explicit = candidate.explicitSessionId {
+                sessionId = explicit
+                source = .explicit
+            } else {
+                let kindCwdKey = candidate.kind.rawValue + "\u{1f}" + candidate.cwdKey
+                guard (panelsByKindAndCwd[kindCwdKey]?.count ?? 0) == 1,
+                      let cwd = candidate.cwd else {
+                    continue
+                }
+                let inferred: String?
+                if let cached = inferredSessionByKindAndCwd[kindCwdKey] {
+                    inferred = cached
+                } else {
+                    inferred = inferredProcessSessionId(
+                        kind: candidate.kind,
+                        cwd: cwd,
+                        environment: candidate.observed.environment,
+                        fileManager: fileManager
+                    )
+                    inferredSessionByKindAndCwd[kindCwdKey] = inferred
+                }
+                guard let inferred else { continue }
+                sessionId = inferred
+                source = .inferredLatestSessionFile
+            }
+
+            // A panel can have several matching processes (the agent plus a node
+            // worker); keep an explicit-id snapshot over an inferred one.
+            if let existing = resolved[candidate.panelKey],
+               existing.sessionIDSource == .explicit,
+               source != .explicit {
+                continue
+            }
+
+            let executablePath = normalized(candidate.observed.arguments.first)
+                ?? normalized(candidate.observed.processPath)
+            let arguments = candidate.observed.arguments.isEmpty
+                ? [executablePath].compactMap { $0 }
+                : candidate.observed.arguments
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: candidate.kind,
+                sessionId: sessionId,
+                workingDirectory: candidate.cwd,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    processDetectedLauncher: candidate.kind.rawValue,
+                    executablePath: executablePath,
+                    arguments: arguments,
+                    workingDirectory: candidate.cwd,
+                    environment: candidate.observed.environment
+                )
+            )
+            resolved[candidate.panelKey] = (
+                snapshot: snapshot,
+                updatedAt: capturedAt,
+                processIDs: scopedProcessIDsByPanelKey[candidate.panelKey] ?? [],
+                sessionIDSource: source
+            )
+        }
+
+        return resolved
+    }
+
+    private static func inferredProcessSessionId(
+        kind: RestorableAgentKind,
+        cwd: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        switch kind {
+        case .claude:
+            return RestorableAgentSessionIndex.newestClaudeSessionId(
+                forCwd: cwd,
+                configDir: environment["CLAUDE_CONFIG_DIR"],
+                fileManager: fileManager
+            )
+        case .codex:
+            return CodexSessionResolver(fileManager: fileManager).inferredCodexSessionId(
+                cwd: cwd,
+                env: environment
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func explicitProcessSessionId(
+        kind: RestorableAgentKind,
+        arguments: [String]
+    ) -> String? {
+        switch kind {
+        case .claude:
+            return sessionIdAfterOption(
+                arguments,
+                options: ["--resume", "-r", "--session-id"],
+                valuePrefixes: ["--resume=", "--session-id="]
+            )
+        case .codex:
+            if let id = sessionIdAfterOption(arguments, options: ["--resume", "-r"], valuePrefixes: ["--resume="]) {
+                return id
+            }
+            if let index = arguments.firstIndex(of: "resume"),
+               index + 1 < arguments.endIndex,
+               !arguments[index + 1].hasPrefix("-") {
+                return normalized(arguments[index + 1])
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private static func sessionIdAfterOption(
+        _ arguments: [String],
+        options: Set<String>,
+        valuePrefixes: [String]
+    ) -> String? {
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if options.contains(argument),
+               index + 1 < arguments.endIndex,
+               !arguments[index + 1].hasPrefix("-") {
+                return normalized(arguments[index + 1])
+            }
+            for prefix in valuePrefixes where argument.hasPrefix(prefix) {
+                return normalized(String(argument.dropFirst(prefix.count)))
+            }
+            index += 1
+        }
+        return nil
+    }
+
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] = [:]
+        fileManager: FileManager,
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
         var openCodeProcesses: [
@@ -316,7 +547,8 @@ extension RestorableAgentSessionIndex {
             resolved[process.panelKey] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: processSnapshot.cmuxScopedProcessIDs(for: process.panelKey)
+                processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
+                sessionIDSource: .explicit
             )
         }
 
@@ -651,6 +883,40 @@ private struct VaultObservedAgentProcess: Sendable {
         processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
     }
 
+    /// True for a real `claude` process: the binary basename is `claude`
+    /// (`~/.local/bin/claude` symlink), or a node/bun runtime running claude
+    /// (`node …/.claude/cli.js`, `…/claude/versions/…`). Mirrors the live-PID
+    /// matcher `liveProcessExecutableMatchesRecordedAgent`. A `sr claude` / shell
+    /// wrapper has argv[0] basename `sr`/`sh` and is excluded.
+    var isClaudeProcess: Bool {
+        if executableBasenames.contains(where: { $0.lowercased() == "claude" }) {
+            return true
+        }
+        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
+            return false
+        }
+        return arguments.dropFirst().contains { argument in
+            let lowered = argument.lowercased()
+            return (argument as NSString).lastPathComponent.lowercased() == "claude"
+                || lowered.contains("/.claude/")
+                || lowered.contains("/claude/versions/")
+        }
+    }
+
+    /// True for a real `codex` process: the binary basename is `codex` (the
+    /// vendored `…/@openai/codex-darwin-arm64/…/bin/codex`), or a runtime arg
+    /// references the codex npm package. A `sr codex` wrapper has argv[0]
+    /// basename `sr` and is excluded.
+    var isCodexProcess: Bool {
+        if executableBasenames.contains(where: { $0.lowercased() == "codex" }) {
+            return true
+        }
+        return arguments.contains { argument in
+            let lowered = argument.lowercased()
+            return lowered.contains("@openai/codex") || lowered.contains("codex-darwin-arm64")
+        }
+    }
+
     var openCodeExecutableArgument: String? {
         guard let index = openCodeExecutableArgumentIndex,
               arguments.indices.contains(index) else {
@@ -854,28 +1120,42 @@ private extension VaultObservedAgentProcess {
     }
 }
 
+private struct VaultAgentSessionIDResolution {
+    let sessionId: String
+    let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
+}
+
 private extension CmuxVaultAgentSessionIDSource {
-    func sessionId(
+    func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
-    ) -> String? {
+    ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
-            return process.arguments.nonOptionValue(afterOption: option)
+            guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
-                return PiSessionLocator.resolvedSessionPath(
+                let sessionId = PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
             }
-            return PiSessionLocator.latestSessionPath(for: process, registration: registration, fileManager: fileManager)
+            guard let sessionId = PiSessionLocator.latestSessionPath(
+                for: process,
+                registration: registration,
+                fileManager: fileManager
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         case .grokSessionDirectory:
             if let session = process.arguments.grokResumeSessionID {
-                return session
+                return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
             return nil
         }
@@ -883,15 +1163,17 @@ private extension CmuxVaultAgentSessionIDSource {
 }
 
 private extension CmuxTopProcessSnapshot {
-    func cmuxScopedProcessIDs(for key: RestorableAgentSessionIndex.PanelKey) -> Set<Int> {
-        Set(
-            cmuxScopedProcesses()
-                .filter {
-                    $0.cmuxWorkspaceID == key.workspaceId &&
-                        $0.cmuxSurfaceID == key.panelId
-                }
-                .map(\.pid)
-        )
+    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
+        var processIDsByPanelKey: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
+        for process in cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID else {
+                continue
+            }
+            let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+            processIDsByPanelKey[key, default: []].insert(process.pid)
+        }
+        return processIDsByPanelKey
     }
 }
 

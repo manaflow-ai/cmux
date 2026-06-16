@@ -8,6 +8,9 @@ public enum ControlSidebarNewSurfaceResolution: Sendable, Equatable {
     case paneNotFound
     /// The surface was created.
     case created(UUID)
+    /// The create was routed to the remote tmux mirror backing the workspace
+    /// (`new-window`); the tab arrives asynchronously via `%window-add`.
+    case routedToRemote
     /// Creation failed.
     case failed
 }

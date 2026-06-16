@@ -15,6 +15,11 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         /// `duplicate` / `new_terminal_right` / `new_browser_right` — the
         /// created surface's `created_*` identity keys.
         case created(UUID)
+        /// `new_terminal_right` on a remote tmux mirror — the create was
+        /// routed to the remote as `new-window`; the tab arrives via
+        /// `%window-add`, so the `created_*` keys are null and the payload
+        /// carries `accepted` / `routed` instead.
+        case routedToRemote
         /// `close_left` / `close_right` / `close_others` — the `closed` and
         /// `skipped_pinned` counts.
         case closed(closed: Int, skippedPinned: Int)

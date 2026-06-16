@@ -109,14 +109,15 @@ struct DeviceTreeView: View {
     private func deviceSection(_ device: RegistryDevice) -> some View {
         let connectedID = store.connectedMacDeviceID
         let isConnectedDevice = device.deviceId == connectedID
-        // Live status only exists for the connected device; others are described
-        // by their registry "last seen" (best-effort liveness, no active ping).
+        // Live status only exists for the connected device. Every other device
+        // is described by live presence from the heartbeat service (online /
+        // offline within the missed-heartbeat window) when available, falling
+        // back to the registry "last seen" hint when presence has no record.
         // The live *tag* on a multi-tag device is identified by route match (see
         // instanceMatchesActiveRoute), so per-instance liveness is correct.
-        // TODO(device-tree): there is still no active per-host reachability ping
-        // for non-connected devices, so their dot is last-seen-only. Surface a
-        // real ping once the host advertises one.
         let liveStatus: MobileMacConnectionStatus? = isConnectedDevice ? store.macConnectionStatus : nil
+        let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: device.deviceId)
+            .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
 
         Section {
             DeviceTreeDeviceRow(
@@ -127,7 +128,8 @@ struct DeviceTreeView: View {
                     lastSeenAt: device.lastSeenAt,
                     instanceCount: device.instances.count,
                     isConnected: isConnectedDevice,
-                    liveStatus: liveStatus
+                    liveStatus: liveStatus,
+                    presence: presence
                 ),
                 isExpanded: expansion.isExpanded(deviceExpansionID(device)),
                 setExpanded: { expanded in setExpanded(deviceExpansionID(device), expanded) }
@@ -135,7 +137,11 @@ struct DeviceTreeView: View {
 
             if expansion.isExpanded(deviceExpansionID(device)) {
                 ForEach(device.instances) { instance in
-                    instanceRows(device: device, instance: instance, isConnectedDevice: isConnectedDevice)
+                    instanceRows(
+                        device: device,
+                        instance: instance,
+                        isConnectedDevice: isConnectedDevice
+                    )
                 }
             }
         }
@@ -203,7 +209,7 @@ struct DeviceTreeView: View {
                         workspace: workspace,
                         connectionStatus: store.macConnectionStatus,
                         isSelected: false,
-                        navigationStyle: .push,
+                        navigationStyle: .sidebar,
                         wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                         previewLineLimit: displaySettings.workspacePreviewLineCount,
                         selectWorkspace: { id in

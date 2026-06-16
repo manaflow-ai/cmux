@@ -422,6 +422,192 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAcrossPanels() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-collapse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = sessionsRoot.path
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let workspaceId = UUID()
+        let panels = [UUID(), UUID(), UUID()]
+        let sessionIds = ["pi-session-a", "pi-session-b", "pi-session-c"]
+        var hookSessions: [String: [String: Any]] = [:]
+        for (index, sessionId) in sessionIds.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
+            try fm.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
+                ofItemAtPath: sessionFile.path
+            )
+            hookSessions[sessionId] = driftedAgentHookRecord(
+                launcher: "pi",
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                panelId: panels[index],
+                recordedCwd: cwd.path,
+                launchCwd: cwd.path,
+                updatedAt: TimeInterval(10 + index)
+            )
+        }
+        try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
+
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 4_200 + index,
+                parentPID: 1,
+                name: "pi",
+                path: "/usr/local/bin/pi",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processes.contains(where: { $0.pid == processId }) else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/pi"],
+                    environment: [
+                        "PWD": cwd.path,
+                        "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    ]
+                )
+            }
+        )
+
+        let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
+        XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd panels")
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil }
+        )
+        let restoredSessionIds = try panels.map { panelId in
+            try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId)).sessionId
+        }
+
+        XCTAssertEqual(restoredSessionIds, sessionIds)
+    }
+
+    func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-kind-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let claudeSessionId = "11111111-1111-1111-1111-111111111111"
+        let piHookSessionId = "pi-exact-panel-session"
+        let detectedLatestPiSessionId = "pi-newest-cwd-session"
+
+        try writeClaudeTranscript(sessionId: claudeSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                claudeSessionId: hookRecord(
+                    sessionId: claudeSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 50
+                ),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            storeFilename: "pi-hook-sessions.json",
+            sessions: [
+                piHookSessionId: driftedAgentHookRecord(
+                    launcher: "pi",
+                    sessionId: piHookSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: detectedLatestPiSessionId,
+            workingDirectory: cwd.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/usr/local/bin/pi",
+                arguments: ["/usr/local/bin/pi"],
+                workingDirectory: cwd.path,
+                environment: nil,
+                capturedAt: 99,
+                source: "process"
+            )
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 99,
+                    processIDs: Set([123]),
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.kind, .custom("pi"))
+        XCTAssertEqual(snapshot.sessionId, piHookSessionId)
+        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+    }
+
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
     // classifier (in CMUXAgentLaunch) so the app-side resolver and the CLI surface-restore publisher
     // apply one policy. The shared resolver's own behavior is covered in CMUXAgentLaunchTests.
@@ -894,6 +1080,248 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             record["transcriptPath"] = transcriptPath
         }
         return record
+    }
+
+    // MARK: - Live claude/codex process detection (hook-less sessions)
+
+    func testNewestClaudeSessionIdResolvesNewestTranscript() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-newest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let older = "11111111-1111-1111-1111-111111111111"
+        let newer = "22222222-2222-2222-2222-222222222222"
+        try writeClaudeTranscript(sessionId: older, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: newer, cwd: cwd, projectsDir: projectsDir)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)],
+                             ofItemAtPath: projectDir.appendingPathComponent("\(older).jsonl").path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 500)],
+                             ofItemAtPath: projectDir.appendingPathComponent("\(newer).jsonl").path)
+
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.newestClaudeSessionId(
+                forCwd: cwd.path, configDir: configDir.path, homeDirectory: root.path, fileManager: fm),
+            newer
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.newestClaudeSessionId(
+                forCwd: root.appendingPathComponent("nope").path, configDir: configDir.path,
+                homeDirectory: root.path, fileManager: fm)
+        )
+    }
+
+    func testProcessDetectionResolvesHooklessClaude() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-claude-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true),
+            withIntermediateDirectories: true)
+        let sid = "33333333-3333-3333-3333-333333333333"
+        try writeClaudeTranscript(sessionId: sid, cwd: cwd, projectsDir: projectsDir)
+
+        let claude = "\(root.path)/.local/bin/claude"
+        let detected = detectClaudeCodex(
+            processes: [(pid: 5_000, name: "claude", path: claude,
+                         arguments: [claude, "--dangerously-skip-permissions", "--model", "claude-opus-4-8"],
+                         environment: ["PWD": cwd.path, "CLAUDE_CONFIG_DIR": configDir.path])],
+            fileManager: fm)
+        XCTAssertEqual(detected.count, 1)
+        let entry = try XCTUnwrap(detected.values.first)
+        XCTAssertEqual(entry.snapshot.kind, .claude)
+        XCTAssertEqual(entry.snapshot.sessionId, sid)
+    }
+
+    func testProcessDetectionResolvesHooklessCodex() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-codex-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let sid = "019ec8b5-a356-7101-8814-c654a2cc02ab"
+        try writeCodexRollout(sessionId: sid, cwd: cwd,
+                              sessionsDir: codexHome.appendingPathComponent("sessions", isDirectory: true))
+
+        let codex = "\(root.path)/node_modules/@openai/codex-darwin-arm64/bin/codex"
+        let detected = detectClaudeCodex(
+            processes: [(pid: 6_000, name: "codex", path: codex,
+                         arguments: [codex, "--dangerously-bypass-approvals-and-sandbox"],
+                         environment: ["PWD": cwd.path, "CODEX_HOME": codexHome.path])],
+            fileManager: fm)
+        XCTAssertEqual(detected.count, 1)
+        let entry = try XCTUnwrap(detected.values.first)
+        XCTAssertEqual(entry.snapshot.kind, .codex)
+        XCTAssertEqual(entry.snapshot.sessionId, sid)
+    }
+
+    func testProcessDetectionSkipsAmbiguousSharedCwd() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-ambiguous-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true),
+            withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "44444444-4444-4444-4444-444444444444",
+                                  cwd: cwd, projectsDir: projectsDir)
+
+        // Two claude panels share the cwd — the newest-transcript heuristic is
+        // ambiguous, so neither panel gets an inferred fork snapshot.
+        let claude = "\(root.path)/.local/bin/claude"
+        let env = ["PWD": cwd.path, "CLAUDE_CONFIG_DIR": configDir.path]
+        let detected = detectClaudeCodex(
+            processes: [
+                (pid: 5_001, name: "claude", path: claude, arguments: [claude], environment: env),
+                (pid: 5_002, name: "claude", path: claude, arguments: [claude], environment: env),
+            ],
+            fileManager: fm, distinctPanels: true)
+        XCTAssertTrue(detected.isEmpty)
+    }
+
+    func testProcessDetectionSkipsSymlinkAliasedSharedCwd() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-symlink-amb-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let realCwd = root.appendingPathComponent("repo-real", isDirectory: true)
+        let linkCwd = root.appendingPathComponent("repo-link", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: realCwd, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linkCwd, withDestinationURL: realCwd)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(realCwd.path), isDirectory: true),
+            withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "66666666-6666-6666-6666-666666666666",
+                                  cwd: realCwd, projectsDir: projectsDir)
+
+        // Two panels whose cwds are different spellings of the same real dir
+        // (real path vs symlink) must collapse into one group, so neither gets an
+        // inferred session — otherwise both would fork the same conversation.
+        let claude = "\(root.path)/.local/bin/claude"
+        let detected = detectClaudeCodex(
+            processes: [
+                (pid: 8_001, name: "claude", path: claude, arguments: [claude],
+                 environment: ["PWD": realCwd.path, "CLAUDE_CONFIG_DIR": configDir.path]),
+                (pid: 8_002, name: "claude", path: claude, arguments: [claude],
+                 environment: ["PWD": linkCwd.path, "CLAUDE_CONFIG_DIR": configDir.path]),
+            ],
+            fileManager: fm, distinctPanels: true)
+        XCTAssertTrue(detected.isEmpty)
+    }
+
+    func testProcessDetectionRejectsShellAndSubrouterWrappers() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-detect-wrappers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true),
+            withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "55555555-5555-5555-5555-555555555555",
+                                  cwd: cwd, projectsDir: projectsDir)
+
+        let env = ["PWD": cwd.path, "CLAUDE_CONFIG_DIR": configDir.path]
+        // `sr claude` (argv[0] basename `sr`) and the hook dispatch shell
+        // (`zsh -lc claude …`) both inherit CMUX scope but are not the agent.
+        let detected = detectClaudeCodex(
+            processes: [
+                (pid: 7_001, name: "sr", path: "\(root.path)/bin/sr",
+                 arguments: ["\(root.path)/bin/sr", "claude", "--model", "claude-opus-4-8"], environment: env),
+                (pid: 7_002, name: "zsh", path: "/bin/zsh",
+                 arguments: ["/bin/zsh", "-lc", "claude --model claude-opus-4-8"], environment: env),
+            ],
+            fileManager: fm, distinctPanels: true)
+        XCTAssertTrue(detected.isEmpty)
+    }
+
+    // Drives `processDetectedSnapshots` with synthetic CMUX-scoped processes.
+    private func detectClaudeCodex(
+        processes: [(pid: Int, name: String, path: String, arguments: [String], environment: [String: String])],
+        fileManager: FileManager,
+        distinctPanels: Bool = false,
+        workspaceId: UUID = UUID()
+    ) -> [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] {
+        // distinctPanels gives each process its own panel (so two same-cwd agents
+        // read as two panels and exercise the ambiguity guard); otherwise all
+        // processes share one panel.
+        let sharedPanel = UUID()
+        let infos = processes.map { process in
+            CmuxTopProcessInfo(
+                pid: process.pid,
+                parentPID: 1,
+                name: process.name,
+                path: process.path,
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: distinctPanels ? UUID() : sharedPanel,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: infos,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let argumentsByPid = Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
+        return RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: snapshot,
+            capturedAt: 1,
+            processArgumentsProvider: { pid in
+                guard let process = argumentsByPid[pid] else { return nil }
+                return CmuxTopProcessArguments(arguments: process.arguments, environment: process.environment)
+            }
+        )
+    }
+
+    private func writeCodexRollout(
+        sessionId: String,
+        cwd: URL,
+        sessionsDir: URL,
+        shard: String = "2026/06/15"
+    ) throws {
+        let dir = sessionsDir.appendingPathComponent(shard, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("rollout-2026-06-15T00-00-00-\(sessionId).jsonl", isDirectory: false)
+        let meta: [String: Any] = ["type": "session_meta", "payload": ["id": sessionId, "cwd": cwd.path]]
+        var data = try JSONSerialization.data(withJSONObject: meta)
+        data.append(0x0A)
+        try data.write(to: url)
     }
 
     private func writeClaudeTranscript(sessionId: String, cwd: URL, projectsDir: URL) throws {

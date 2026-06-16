@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
-          "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
+          "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
+          "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
+          "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+        },
+        "fileExplorer": {
+          "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
+          "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler."
+          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
+          "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dobbeltklikk på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
       "shortcutsWhenIntro": "Valgfrie kontekstpredikater per handling (VS Code-lignende when-klausuler), indeksert etter cmux-handlings-id. En binding utløses bare — og kolliderer bare med en annen binding på samme tastetrykk — når klausulen er sann. Utelat klausulen for å beholde handlingens innebygde kontekst. Klausulenes vokabular:",
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",
@@ -922,6 +934,8 @@
         "surfaces": "Overflater",
         "surfacesBlurb": "Overflater er faner inne i et panel.",
         "splitPanes": "Delte paneler",
+        "canvas": "Lerret",
+        "canvasBlurb": "En fri 2D-oppsettmodus der ruter flyter på et uendelig lerret som kan panoreres. Justerings- og fordelingskommandoer er tilgjengelige fra kommandopaletten.",
         "browser": "Nettleser",
         "notifications": "Varsler",
         "find": "Finn",

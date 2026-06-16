@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 
 // MARK: - Mobile workspace list (iOS-facing payloads)
@@ -103,9 +104,16 @@ extension TerminalController {
                     data: ["workspace_id": requestedWorkspaceID.uuidString]
                 )
             }
+            // Adopt any title-detected coding agent before serializing, so a
+            // hook-bypassed Claude registers and the phone can show the chat
+            // toggle as soon as the workspace rows refresh.
+            for workspace in visibleWorkspaces {
+                adoptDetectedAgentSessions(workspace: workspace)
+            }
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
                     isSelected: workspace.id == tabManager.selectedTabId,
                     requestedTerminalID: requestedTerminalID
                 )
@@ -146,9 +154,11 @@ extension TerminalController {
                     )
                 )
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    adoptDetectedAgentSessions(workspace: workspace)
                     flattened.append(
                         mobileWorkspacePayload(
                             workspace: workspace,
+                            windowID: summary.windowId,
                             isSelected: workspace.id == selectedWorkspaceID,
                             requestedTerminalID: requestedTerminalID
                         )
@@ -184,6 +194,7 @@ extension TerminalController {
     /// the unread/activity fields are deterministic.
     func mobileWorkspacePayload(
         workspace: Workspace,
+        windowID: UUID? = nil,
         isSelected: Bool,
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil
@@ -210,6 +221,7 @@ extension TerminalController {
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         return [
             "id": workspace.id.uuidString,
+            "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
@@ -234,6 +246,57 @@ extension TerminalController {
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals
         ]
+    }
+
+    /// Mobile-gated close of one explicit workspace. The Mac remains
+    /// authoritative: protected/last-workspace cases are rejected here and the
+    /// phone refreshes afterward to snap back to the real list state.
+    func v2MobileWorkspaceClose(params: [String: Any]) -> V2CallResult {
+        if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to close workspace", data: nil)
+        v2MainSync {
+            let windowID = v2ResolveWindowId(tabManager: tabManager)
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": workspaceID.uuidString
+                ])
+                return
+            }
+            guard tabManager.tabs.count > 1, tabManager.canCloseWorkspace(workspace) else {
+                result = .err(
+                    code: "protected",
+                    message: String(
+                        localized: "workspace.closeBlocked.message",
+                        defaultValue: "This workspace can't be closed right now."
+                    ),
+                    data: [
+                        "workspace_id": workspaceID.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                        "window_id": v2OrNull(windowID?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowID),
+                    ]
+                )
+                return
+            }
+            tabManager.closeWorkspace(workspace)
+            result = .ok([
+                "closed": true,
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+            ])
+        }
+        return result
     }
 
     /// The most recent activity line shown under a workspace row on the phone.

@@ -85,6 +85,8 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
+                setUnread: setWorkspaceUnreadClosure,
+                closeWorkspace: closeWorkspaceClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
@@ -109,8 +111,11 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            guard let selectedWorkspaceID = path.last,
-                  store.selectedWorkspaceID != selectedWorkspaceID else {
+            guard let selectedWorkspaceID = path.last else {
+                return
+            }
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            guard store.selectedWorkspaceID != selectedWorkspaceID else {
                 return
             }
             store.selectedWorkspaceID = selectedWorkspaceID
@@ -143,6 +148,8 @@ struct WorkspaceShellView: View {
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
+                setUnread: setWorkspaceUnreadClosure,
+                closeWorkspace: closeWorkspaceClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
@@ -195,6 +202,18 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceReadStateActions else { return nil }
+        let store = store
+        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
+    }
+
+    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCloseActions else { return nil }
+        let store = store
+        return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real

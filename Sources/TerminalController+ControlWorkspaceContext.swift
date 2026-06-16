@@ -1,4 +1,7 @@
 import CmuxControlSocket
+import CmuxCore
+import CmuxPanes
+import CmuxWorkspaces
 import Foundation
 
 /// The workspace-domain witnesses for the stage-3c ``ControlCommandCoordinator``:
@@ -56,8 +59,7 @@ extension TerminalController: ControlWorkspaceContext {
     /// coordinator now owns), bridging the app-typed `remoteStatusPayload()`.
     private func controlWorkspaceSummary(_ workspace: Workspace) -> ControlWorkspaceSummary {
         ControlWorkspaceSummary(
-            id: workspace.id,
-            title: workspace.title,
+            id: workspace.id, title: workspace.title, customTitle: workspace.customTitle,
             customDescription: workspace.customDescription,
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
@@ -381,7 +383,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         let tree = ws.bonsplitController.treeSnapshot()
-        let equalizeResult = SplitEqualizer.equalize(
+        let equalizeResult = tabManager.paneLayout.equalizeSplits(
             in: tree,
             controller: ws.bonsplitController,
             orientationFilter: orientationFilter
@@ -438,7 +440,10 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
@@ -446,7 +451,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard workspace.remoteConfiguration != nil else {
             return .notConfigured(workspaceID: workspaceID)
         }
-        workspace.reconnectRemoteConnection()
+        workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(

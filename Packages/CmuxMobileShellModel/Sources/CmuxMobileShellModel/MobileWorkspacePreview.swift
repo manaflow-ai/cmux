@@ -27,6 +27,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 
     /// The workspace's stable identifier.
     public var id: ID
+    /// The Mac window that owns this workspace, when reported by the paired Mac.
+    public var windowID: String?
     /// The workspace's user-facing display name.
     public var name: String
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
@@ -58,6 +60,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Creates a workspace preview.
     /// - Parameters:
     ///   - id: The workspace's stable identifier.
+    ///   - windowID: The owning Mac window identifier, when known.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
     ///   - groupID: The group this workspace belongs to, if any. Defaults to `nil`.
@@ -68,6 +71,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
+        windowID: String? = nil,
         name: String,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
@@ -78,6 +82,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
+        self.windowID = windowID
         self.name = name
         self.isPinned = isPinned
         self.groupID = groupID

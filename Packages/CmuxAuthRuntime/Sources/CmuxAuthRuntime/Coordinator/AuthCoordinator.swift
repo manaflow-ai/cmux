@@ -231,16 +231,14 @@ public final class AuthCoordinator {
 
     /// Re-validate the persisted session against the live token store.
     ///
-    /// Call this when the app returns to the foreground so a session that died
-    /// while backgrounded (the SDK definitively rejected the refresh token, or
-    /// the keychain was cleared) routes to the sign-in page on resume instead of
-    /// surfacing a stale signed-in shell that fails at connect time. Reuses the
-    /// same live-store probe as launch restore, which ends in
-    /// ``clearAuthState()`` when no usable token remains and otherwise preserves
-    /// the cached session on transient failures. Re-entrant calls (e.g. two
-    /// rapid foreground transitions) coalesce: a second call while one is in
-    /// flight returns immediately.
+    /// Call this on foreground so a session that died while backgrounded (the
+    /// SDK rejected the refresh token, or the keychain was cleared) routes to
+    /// sign-in on resume instead of surfacing a stale shell. Reuses the same
+    /// live-store probe as launch restore. A fully signed-out foreground return
+    /// is a no-op so it can't discard an in-progress email-code nonce before the
+    /// user enters it; re-entrant foreground calls coalesce.
     public func revalidateSession() async {
+        guard isAuthenticated || isRestoringSession || sessionCache.hasTokens else { return }
         await checkExistingSession()
     }
 
@@ -632,9 +630,9 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    func clearAuthState() {
+    func clearAuthState(preservePendingCode: Bool = false) {
         sessionGeneration &+= 1
-        pendingNonce = nil
+        if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
         sessionCache.clear()
         availableTeams = []

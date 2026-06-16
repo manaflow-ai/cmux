@@ -52,8 +52,9 @@ public struct CmxAttachTicketInput {
             decoder.dateDecodingStrategy = .iso8601
             ticket = try decoder.decode(CmxAttachTicket.self, from: data)
         }
-        try ticket.validate()
-        return ticket
+        let normalizedTicket = try ticket.withUnknownCompatibilityVersionForPairingURL()
+        try normalizedTicket.validate()
+        return normalizedTicket
     }
 
     private static func ticket(from payload: MobileSyncPairingPayload) throws -> CmxAttachTicket {
@@ -67,6 +68,7 @@ public struct CmxAttachTicketInput {
             terminalID: nil,
             macDeviceID: payload.macDeviceID,
             macDisplayName: payload.macDisplayName,
+            macPairingCompatibilityVersion: 0,
             routes: [route],
             expiresAt: payload.expiresAt
         )
@@ -83,5 +85,28 @@ public struct CmxAttachTicketInput {
             base64.append(String(repeating: "=", count: 4 - padding))
         }
         return Data(base64Encoded: base64)
+    }
+}
+
+private extension CmxAttachTicket {
+    func withUnknownCompatibilityVersionForPairingURL() throws -> CmxAttachTicket {
+        guard macPairingCompatibilityVersion == nil else {
+            return self
+        }
+        return try CmxAttachTicket(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: macUserEmail,
+            macUserID: macUserID,
+            macPairingCompatibilityVersion: 0,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
     }
 }

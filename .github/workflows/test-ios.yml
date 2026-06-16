@@ -11,7 +11,12 @@ on:
       - "Packages/CMUXMobile*/**"
       - "Sources/Mobile/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
+      # The namespace-type convention rule scans every package, so any package
+      # change must run the conventions lint job (heavier iOS jobs still gate
+      # on iOS-owned paths via should_run).
+      - "Packages/**"
       - "scripts/lint-ios-package-conventions.sh"
+      - "scripts/lint-namespace-types-baseline.txt"
       - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
@@ -42,6 +47,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
+      should_lint: ${{ steps.detect.outputs.should_lint }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -60,20 +66,29 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
+          # The conventions lint (free-function ban, namespace-type rule, ...)
+          # covers every package, so it runs for any Packages/ change too.
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+            echo "should_lint=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No package-owned files changed; skipping conventions lint."
+            echo "should_lint=false" >> "$GITHUB_OUTPUT"
+          fi
 
   package-conventions-lint:
     needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -88,8 +103,11 @@ jobs:
         run: |
           # Mechanical enforcement of the modular-refactor conventions over the
           # iOS line (no singletons / Combine / locks / timer hacks / KVO /
-          # namespace-enums). Exits non-zero on any unjustified ERROR; sanctioned
-          # exceptions carry a lint:allow / TRANSITIONAL / carve-out marker.
+          # namespace-enums) plus the repo-wide namespace-type rule (no
+          # all-static "namespace" types in any package). Exits non-zero on any
+          # unjustified ERROR; sanctioned exceptions carry a lint:allow /
+          # TRANSITIONAL / carve-out marker, and pre-existing namespace-type
+          # debt is grandfathered in scripts/lint-namespace-types-baseline.txt.
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
@@ -125,6 +143,12 @@ jobs:
       - name: Run CMUXMobileCore package tests
         run: |
           swift test --package-path Packages/CMUXMobileCore
+
+      - name: Run CmuxSyncStore package tests
+        run: |
+          # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
+          # or app-target dependency, so it runs as a real CI gate here.
+          swift test --package-path Packages/CmuxSyncStore
 
   ios-simulator:
     needs: detect-ios-changes

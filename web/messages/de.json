@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Aktiviere cmux-Integrations-Hooks für Amp. Wenn deaktiviert, bleibt das gebündelte Plugin inaktiv, ohne entfernt werden zu müssen.",
-          "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben."
+          "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben.",
+          "workspaceAutoNaming": "Opt-in: KI-basierte automatische Benennung von Workspaces und Tabs aus dem Gesprächsinhalt der Agenten. Wenn aktiviert, fasst cmux unterstützte Agent-Sitzungen mit dem eigenen Binary des jeweiligen Agenten zu kurzen Titeln zusammen; manuelle Umbenennungen haben immer Vorrang.",
+          "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt."
         },
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
+          "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
+        },
+        "fileExplorer": {
+          "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",
+          "doubleClickAction": "Legt fest, was ein Doppelklick auf eine Datei im Dateiexplorer bewirkt (oder Return bei einem Suchergebnis). `preview` öffnet die integrierte cmux-Dateivorschau (Standard und bisheriges Verhalten). `defaultEditor` öffnet die Datei mit der macOS-Standard-App für diesen Dateityp. `preferredEditor` öffnet mit dem Befehl `app.preferredEditor` und fällt auf die Standard-App zurück, wenn keiner gesetzt ist. Gilt nur für Dateien; Verzeichnisse werden immer ein-/ausgeklappt, und nicht-lokale (Remote-)Dateiexplorer öffnen immer die cmux-Vorschau."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat."
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Doppelklick auf eine Datei: preview (Standard), defaultEditor (macOS-Standard-App) oder preferredEditor (der app.preferredEditor-Befehl).",
       "shortcutsWhenIntro": "Optionale Kontextprädikate pro Aktion (VS-Code-artige when-Klauseln), nach cmux-Aktions-ID indiziert. Eine Belegung wird nur ausgelöst — und kollidiert nur mit einer anderen Belegung auf demselben Tastendruck — wenn ihre Klausel erfüllt ist. Ohne Klausel behält die Aktion ihren eingebauten Kontext. Das Klausel-Vokabular:",
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
       "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",
@@ -922,6 +934,8 @@
         "surfaces": "Oberflächen",
         "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
         "splitPanes": "Geteilte Bereiche",
+        "canvas": "Canvas",
+        "canvasBlurb": "Ein freier 2D-Layoutmodus, in dem Panels auf einem unendlichen, verschiebbaren Canvas schweben. Ausrichtungs- und Verteilungsbefehle sind über die Befehlspalette verfügbar.",
         "browser": "Browser",
         "notifications": "Benachrichtigungen",
         "find": "Suche",

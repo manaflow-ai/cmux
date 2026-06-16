@@ -172,87 +172,6 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
-struct TerminalHardwareKeyCommand: Sendable {
-    let input: String
-    let modifierFlags: UIKeyModifierFlags
-}
-
-struct TerminalHardwareKeyResolver {
-    private init() {}
-
-    private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
-    private static let keyCommands: [TerminalHardwareKeyCommand] = {
-        let navigation = [
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputHome, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEnd, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageUp, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageDown, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: [.shift]),
-        ]
-        let controlInputs = Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control]) }
-        let shiftedControlInputs = Array("@^_?").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control, .shift]) }
-        return navigation + controlInputs + shiftedControlInputs
-    }()
-
-    static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
-        keyCommands.map { command in
-            UIKeyCommand(
-                input: command.input,
-                modifierFlags: command.modifierFlags,
-                action: action
-            )
-        }
-    }
-
-    /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
-    /// Returns `nil` for ordinary character inputs.
-    private static func specialKey(for input: String) -> TerminalSpecialKey? {
-        switch input {
-        case UIKeyCommand.inputUpArrow: return .upArrow
-        case UIKeyCommand.inputDownArrow: return .downArrow
-        case UIKeyCommand.inputLeftArrow: return .leftArrow
-        case UIKeyCommand.inputRightArrow: return .rightArrow
-        case UIKeyCommand.inputHome: return .home
-        case UIKeyCommand.inputEnd: return .end
-        case UIKeyCommand.inputPageUp: return .pageUp
-        case UIKeyCommand.inputPageDown: return .pageDown
-        case UIKeyCommand.inputDelete: return .delete
-        case UIKeyCommand.inputEscape: return .escape
-        case "\t": return .tab
-        default: return nil
-        }
-    }
-
-    /// Translates `UIKeyModifierFlags` into the kit's platform-neutral set.
-    private static func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
-        var result: TerminalKeyModifier = []
-        if flags.contains(.shift) { result.insert(.shift) }
-        if flags.contains(.control) { result.insert(.control) }
-        if flags.contains(.alternate) { result.insert(.alternate) }
-        return result
-    }
-
-    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
-        let modifiers = kitModifiers(modifierFlags)
-        if let key = specialKey(for: input) {
-            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
-        }
-        return TerminalKeyEncoder.encode(character: input, modifiers: modifiers)
-    }
-}
-
 public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case control
     case alternate
@@ -291,6 +210,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// Appended at the end so existing persisted raw values (user accessory bar
     /// order/enabled set) are preserved.
     case composer
+    /// Send a carriage return (Enter). Appended at the end so existing persisted
+    /// raw values (which are the `Int` rawValues, stored as `builtin.<n>`) stay
+    /// stable; its default on-bar position is curated separately in
+    /// ``defaultConfigurableOrder``.
+    case returnKey
     var title: String {
         title(isMacRemote: false)
     }
@@ -315,6 +239,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
         case .tab:
             return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
+        case .returnKey:
+            return "⏎"
         case .ctrlC:
             return "^C"
         case .ctrlD:
@@ -369,6 +295,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .composer: return "terminal.inputAccessory.composer"
         case .escape: return "terminal.inputAccessory.escape"
         case .tab: return "terminal.inputAccessory.tab"
+        case .returnKey: return "terminal.inputAccessory.return"
         case .upArrow: return "terminal.inputAccessory.up"
         case .downArrow: return "terminal.inputAccessory.down"
         case .leftArrow: return "terminal.inputAccessory.left"
@@ -441,7 +368,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var output: Data? {
+    public var output: Data? {
         switch self {
         case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
             return nil
@@ -449,6 +376,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return Data([0x1B])
         case .tab:
             return Data([0x09])
+        case .returnKey:
+            return Data([0x0D]) // CR (Enter)
         case .tilde:
             return Data([0x7E]) // ~
         case .pipe:
@@ -492,16 +421,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     /// Whether the user can show/hide/reorder this action.
     ///
-    /// Every button on the bar is configurable except ``shift`` and ``composer``,
-    /// which have armed machinery but are intentionally not surfaced as bar
-    /// buttons (``composer`` is the iMessage-style composer toggle, not a normal
-    /// shortcut). The leading modifier keys (⌃ ⌥ ⌘), zoom controls, and paste used
-    /// to be structurally pinned; they are now part of the user-configurable
-    /// region too, so their position can be moved alongside the insertable
-    /// shortcuts.
+    /// Every button is configurable except ``composer`` (the iMessage-style
+    /// composer toggle, pinned outside the scroll view, not a normal shortcut).
+    /// The leading modifiers (⌃ ⌥ ⌘ ⇧), zoom, and paste were once structurally
+    /// pinned but now move freely. ⇧ became configurable in this build;
+    /// ``TerminalAccessoryConfiguration`` folds it into existing layouts.
     public var isUserConfigurable: Bool {
         switch self {
-        case .shift, .composer:
+        case .composer:
             return false
         default:
             return true
@@ -515,12 +442,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         allCases.filter { $0.isUserConfigurable }
     }
 
-    /// The configurable actions that previously sat in the bar's fixed leading
-    /// region, in their shipped left-to-right order. They lead ``defaultConfigurableOrder``
-    /// on a fresh install, and the v1/v2→v3 migration force-enables and inserts
-    /// them at the front so an upgrading user's bar looks unchanged.
+    /// The modifier/paste controls leading the default bar: ⌃ ⌥ ⌘ ⇧ then paste
+    /// (⇧ right after ⌘ so all four modifiers are adjacent). The v1/v2→v3 migration
+    /// force-enables and prepends them, so an upgrading user keeps these controls
+    /// and gains ⇧.
     public static var defaultLeadingActions: [TerminalInputAccessoryAction] {
-        [.control, .alternate, .command, .paste]
+        [.control, .alternate, .command, .shift, .paste]
     }
 
     /// The configurable actions that previously sat in the bar's fixed trailing
@@ -533,10 +460,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     /// The default on-bar arrangement of the configurable shortcuts: the leading
     /// modifier/paste controls, then the high-traffic agent and control keys (Tab,
-    /// Esc, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then the
-    /// punctuation and navigation keys, then the trailing zoom controls. Esc sits
-    /// immediately to the right of Tab so the two most common terminal keys are
-    /// adjacent. Curated independently of the enum's `rawValue` order so the
+    /// Esc, Return, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then
+    /// the punctuation and navigation keys, then the trailing zoom controls. Esc and
+    /// Return sit immediately to the right of Tab so the most common terminal keys
+    /// are adjacent. Curated independently of the enum's `rawValue` order so the
     /// default bar can be arranged without perturbing the persisted identifiers,
     /// which are the `rawValue`s.
     ///
@@ -547,6 +474,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         defaultLeadingActions + [
             .tab,
             .escape,
+            .returnKey,
             .ctrlC, .ctrlD,
             .claude, .codex,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
@@ -563,6 +491,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         switch self {
         case .escape: return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
         case .tab: return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
+        case .returnKey: return String(localized: "terminal.shortcut.name.return", defaultValue: "Return")
         case .upArrow: return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
         case .downArrow: return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
         case .leftArrow: return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
@@ -588,7 +517,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .command: return String(localized: "terminal.shortcut.name.command", defaultValue: "Command")
         case .zoomIn: return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
         case .zoomOut: return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .shift, .composer:
+        case .shift: return String(localized: "terminal.shortcut.name.shift", defaultValue: "Shift")
+        case .composer:
             return title
         }
     }
@@ -713,6 +643,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
+    private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
+    private var scrollMechanicsIsRecentering = false
+    private var lastScrollMechanicsOffsetY: CGFloat?
+    private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    private lazy var scrollMechanicsView: UIScrollView = {
+        let view = UIScrollView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.showsVerticalScrollIndicator = false
+        view.showsHorizontalScrollIndicator = false
+        view.alwaysBounceVertical = true
+        view.alwaysBounceHorizontal = false
+        view.bounces = true
+        view.decelerationRate = .normal
+        view.delaysContentTouches = false
+        view.canCancelContentTouches = true
+        view.scrollsToTop = false
+        view.contentInsetAdjustmentBehavior = .never
+        view.panGestureRecognizer.cancelsTouchesInView = false
+        view.delegate = self
+        return view
+    }()
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
@@ -796,6 +748,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
             "toolbarOriginX=\(toolbarOriginX)",
             "lastIntent=\(intent)",
+            // Rendered terminal height vs the surface bounds, so a UI test can
+            // assert the grid returns to (near) full height once the keyboard is
+            // down: the "terminal not full height when keyboard closed" guard. The
+            // grid floors to whole cells so it is a few points under bounds even at
+            // full height; the test compares the gap, not equality.
+            "renderHeight=\(Int(lastRenderRect.height))",
+            "boundsHeight=\(Int(bounds.height))",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -1035,6 +994,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         isAccessibilityElement = false
         #endif
         addSubview(snapshotFallbackView)
+        addSubview(scrollMechanicsView)
         addSubview(inputProxy)
         #if DEBUG
         addSubview(debugAccessibilityProxy)
@@ -1050,11 +1010,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
-
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan(_:)))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 1
-        addGestureRecognizer(pan)
 
         // Suspend rendering on `willResignActive` (fires before
         // `didEnterBackground`, while the GPU is still usable) so an in-flight
@@ -1276,9 +1231,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateDockedToolbarVisibility()
         animateDockedToolbar(with: notification)
         setNeedsGeometrySync()
+        // Bug fix (terminal not full height when keyboard closed): the inset this
+        // first sync reads can be stale. At `keyboardWillHide` the view's own
+        // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
+        // to its keyboard-down value, and `setNeedsGeometrySync` only QUEUES a sync
+        // for the next display-link frame — if the link is momentarily stopped
+        // (a transition, a quick background/foreground) that queued sync can be
+        // missed, leaving the grid stuck at the shorter keyboard-up height until an
+        // unrelated relayout corrects it. Force a second sync after the keyboard
+        // hide layout pass settles so full height is restored deterministically.
+        // `safeAreaInsetsDidChange` already covers the inset-arrives-late case, but
+        // it does not fire when the inset value is unchanged yet the sync was
+        // dropped, so this is the belt-and-suspenders path.
+        scheduleKeyboardHideHeightResync()
         // No explicit scrollback request here: the grid grew, so the viewport
         // report resizes the Mac surface and the producer exports the taller
         // viewport (which reveals more history) on its own.
+    }
+
+    /// Force a follow-up geometry sync shortly after the keyboard-hide layout
+    /// pass, so the terminal reliably returns to full height even if the first
+    /// sync read a stale safe-area inset or its display-link frame was dropped.
+    ///
+    /// Runs on the main queue (one runloop later, after UIKit has applied the
+    /// keyboard-hide layout) and only while the keyboard is still down and the
+    /// view is on a window, so a fast hide/show flicker does not re-shrink the
+    /// grid. `setNeedsGeometrySync` itself applies directly when the display link
+    /// is stopped, so this guarantees an APPLIED sync, not just a queued one.
+    private func scheduleKeyboardHideHeightResync() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, self.keyboardHeight == 0 else { return }
+            self.setNeedsGeometrySync()
+        }
     }
 
     #if DEBUG
@@ -1362,7 +1346,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// composer band and toolbar stack ABOVE this inset; the grid reserves it too.
     /// Used by ``bottomDockFrames()`` and the grid reservation.
     private var keyboardOccupancyInBounds: CGFloat {
-        keyboardHeight > 0 ? keyboardHeight : safeAreaInsetsBottom
+        TerminalLetterboxGeometry.keyboardOccupancy(
+            keyboardHeight: keyboardHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom
+        )
     }
 
     /// The bottom safe-area inset (home-indicator height) in this surface's bounds.
@@ -1373,9 +1360,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the view's own inset, falling back to the window's, because `safeAreaInsets`
     /// can be zero before the view is on a window.
     private var safeAreaInsetsBottom: CGFloat {
-        let own = safeAreaInsets.bottom
-        if own > 0 { return own }
-        return window?.safeAreaInsets.bottom ?? 0
+        TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+            viewInset: safeAreaInsets.bottom,
+            windowInset: window?.safeAreaInsets.bottom ?? 0
+        )
     }
 
     /// Reconcile the docked bar's visibility (and its reserved grid height) with
@@ -1817,38 +1805,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var pinchAccumulatedScale: CGFloat = 1.0
 
-    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
-        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
-            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
-        }
-        // Forward scroll to the MAC's real surface instead of scrolling this
-        // display-only mirror. The Mac owns scrollback (normal screen) and the
-        // program owns alt-screen scroll (mouse-wheel to the PTY); a single
-        // `ghostty_surface_mouse_scroll` on the real surface does the
-        // mode-correct thing, and the render-grid (which exports the live
-        // viewport, `vp_top`) mirrors the result back. Scrolling the local
-        // mirror could never do either: it has no scrollback and no program.
-        switch gesture.state {
-        case .changed:
-            let translation = gesture.translation(in: self)
-            // Aim for ~1:1 natural scrolling. Measured: the Mac applies a ~3x
-            // line multiplier to the wheel delta, so dividing the finger travel
-            // by (cell height in points × 3) makes a swipe move the content
-            // roughly its own distance. Falls back to a fixed divisor before the
-            // first geometry pass measures the cell.
-            let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-            let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
-            pendingScrollLines += Double(translation.y) / divisor
-            pendingScrollCell = scrollCell(at: gesture.location(in: self))
-            gesture.setTranslation(.zero, in: self)
-        case .ended, .cancelled:
-            flushPendingScrollIfNeeded()
-        default:
-            break
-        }
+    private func layoutScrollMechanicsView() {
+        scrollMechanicsView.frame = bounds
+        scrollMechanicsView.contentSize = CGSize(
+            width: max(bounds.width, 1),
+            height: max(Self.scrollMechanicsContentHeight, bounds.height * 8)
+        )
+        recenterScrollMechanicsViewIfNeeded(force: lastScrollMechanicsOffsetY == nil)
     }
 
-    /// Coalesced scroll forwarded to the Mac once per display-link frame.
+    private func recenterScrollMechanicsViewIfNeeded(force: Bool = false) {
+        let contentHeight = scrollMechanicsView.contentSize.height
+        let visibleHeight = max(scrollMechanicsView.bounds.height, 1)
+        let currentY = scrollMechanicsView.contentOffset.y
+        let edgeMargin = visibleHeight * 2
+        guard force || currentY < edgeMargin || currentY > contentHeight - visibleHeight - edgeMargin else {
+            return
+        }
+
+        let centeredY = max(0, (contentHeight - visibleHeight) / 2)
+        scrollMechanicsIsRecentering = true
+        scrollMechanicsView.setContentOffset(CGPoint(x: 0, y: centeredY), animated: false)
+        lastScrollMechanicsOffsetY = centeredY
+        scrollMechanicsIsRecentering = false
+    }
+
+    private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
+        // The transparent UIScrollView supplies native iOS tracking,
+        // deceleration, and momentum. The Mac still owns terminal semantics:
+        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        guard deltaY != 0 else { return }
+        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
+        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
+        pendingScrollLines += -Double(deltaY) / divisor
+        pendingScrollCell = scrollCell(at: touchPoint)
+    }
+
+    /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
@@ -1868,7 +1861,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        MobileDebugLog.anchormux("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
+        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -2110,6 +2103,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public override func layoutSubviews() {
         super.layoutSubviews()
         snapshotFallbackView.frame = bounds
+        layoutScrollMechanicsView()
         #if DEBUG
         debugAccessibilityProxy.frame = bounds
         // The dock probe stays a 1×1 off-screen carrier; its accessibility value is
@@ -2163,7 +2157,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface, !isDismantled else { return }
+        processOutput(data, completion: nil)
+    }
+
+    /// Process terminal output and return after the output has been applied.
+    ///
+    /// The call still performs libghostty output processing on the serial
+    /// background output queue. The returned async boundary lets callers apply
+    /// per-surface backpressure without blocking the main actor while Ghostty
+    /// consumes the chunk.
+    /// - Parameter data: VT or PTY bytes to feed into the surface.
+    public func processOutputAndWait(_ data: Data) async {
+        await withCheckedContinuation { continuation in
+            processOutput(data) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func processOutput(
+        _ data: Data,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard let surface, !isDismantled else {
+            completion?()
+            return
+        }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -2215,7 +2234,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
-                guard let self, !self.isDismantled else { return }
+                guard let self, !self.isDismantled else {
+                    completion?()
+                    return
+                }
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -2242,6 +2264,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
+                completion?()
             }
         }
     }
@@ -2932,27 +2955,37 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The main thread only applies the UIKit result. This is the single
         // off-main surface owner: main never calls a blocking libghostty API.
         let scale = preferredScreenScale
-        // Reserve, from the bottom up, the keyboard/safe-area inset
-        // (`keyboardOccupancyInBounds`: keyboard height when up, else the bottom safe
-        // area so the always-visible toolbar clears the home indicator), the open
-        // composer band, and the persistent toolbar — the surface owns the whole bottom
-        // dock in one coordinate system, so the grid shrinks by all three. The order is
-        // immaterial to the reserved total; only the frame positions in
-        // ``bottomDockFrames()`` encode the `terminal / toolbar / composer / keyboard`
-        // stack. While the HIDE button has suppressed the chrome (``chromeHidden``) the
-        // toolbar is off screen and reserves nothing, and the composer band is hidden,
-        // so the grid reclaims the whole height — including the bottom safe area
-        // (the home-indicator strip), matching ``bottomDockFrames()`` pinning the
-        // dock to `bounds.height`. Reserve only an actual keyboard if it is
-        // somehow still up; `keyboardOccupancyInBounds` must not be used here
-        // because its keyboard-down fallback is the safe-area inset, which would
-        // leave an empty strip under the full-screen grid.
-        let reservedBottom = chromeHidden
-            ? max(0, keyboardHeight)
-            : composerBandHeight + reservedToolbarHeight + keyboardOccupancyInBounds
-        let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
-        let containerW = max(1, bounds.width)
-        let containerH = max(1, bounds.height - bottomInset)
+        // Reserve, from the bottom up, the keyboard/safe-area inset (keyboard
+        // height when up, else the bottom safe area so the always-visible toolbar
+        // clears the home indicator), the open composer band, and the persistent
+        // toolbar: the surface owns the whole bottom dock in one coordinate system,
+        // so the grid shrinks by all three. The order is immaterial to the reserved
+        // total; only the frame positions in `bottomDockFrames()` encode the
+        // `terminal / toolbar / composer / keyboard` stack. While the HIDE button
+        // has suppressed the chrome (`chromeHidden`) the toolbar is off screen and
+        // reserves nothing and the composer band is hidden, so the grid reclaims the
+        // whole height including the bottom safe area, matching `bottomDockFrames()`
+        // pinning the dock to `bounds.height`; only an actual keyboard is reserved
+        // then if one is somehow still up.
+        //
+        // The reservation + container math is the host-tested
+        // `TerminalLetterboxGeometry.terminalContainerSize` (the same arithmetic
+        // that was inlined here), so the keyboard open/closed full-height contract
+        // is locked by a unit test and the surface cannot drift from it. Passing
+        // the CURRENT `keyboardHeight` means a keyboard-down sync never inherits a
+        // stale keyboard value (the "terminal not full height when keyboard closed"
+        // bug); the safe-area inset is resolved from the window when the view inset
+        // is a stale 0 right after the keyboard hides (see `safeAreaInsetsBottom`).
+        let container = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: bounds.size,
+            keyboardHeight: keyboardHeight,
+            composerBandHeight: composerBandHeight,
+            toolbarHeight: reservedToolbarHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom,
+            chromeHidden: chromeHidden
+        )
+        let containerW = container.width
+        let containerH = container.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
         let eff = effectiveGrid
@@ -3495,6 +3528,33 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
     }
 }
 
+extension GhosttySurfaceView: UIScrollViewDelegate {
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView,
+              !scrollMechanicsIsRecentering else {
+            return
+        }
+
+        let offsetY = scrollView.contentOffset.y
+        guard let previousOffsetY = lastScrollMechanicsOffsetY else {
+            lastScrollMechanicsOffsetY = offsetY
+            return
+        }
+
+        let deltaY = offsetY - previousOffsetY
+        lastScrollMechanicsOffsetY = offsetY
+        if scrollView.isTracking || scrollView.isDragging {
+            lastScrollMechanicsTouchPoint = scrollView.panGestureRecognizer.location(in: self)
+        }
+        let fallbackPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+        let touchPoint = bounds.contains(lastScrollMechanicsTouchPoint)
+            ? lastScrollMechanicsTouchPoint
+            : fallbackPoint
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
+        recenterScrollMechanicsViewIfNeeded()
+    }
+}
+
 /// One surface's request for the bounded visible-terminal snapshot.
 ///
 /// The `ghostty_surface_t` is a C pointer that the snapshot only dereferences on
@@ -3532,7 +3592,7 @@ private class DisplayLinkProxy {
 // MARK: - Arrow Nub (draggable directional pad)
 
 final class TerminalArrowNubView: UIView {
-    var onArrowKey: ((Data) -> Void)?
+    var onArrowKey: ((TerminalInputAccessoryAction) -> Void)?
 
     // Locked to the size the docked bar actually pins the nub to, so the circular
     // background (cornerRadius = nubSize/2) and the drag clamp track the real frame.
@@ -3554,6 +3614,15 @@ final class TerminalArrowNubView: UIView {
         case up, down, left, right
 
         var repeatDirection: TerminalArrowRepeatService.Direction {
+            switch self {
+            case .up:    return .upArrow
+            case .down:  return .downArrow
+            case .right: return .rightArrow
+            case .left:  return .leftArrow
+            }
+        }
+
+        var accessoryAction: TerminalInputAccessoryAction {
             switch self {
             case .up:    return .upArrow
             case .down:  return .downArrow
@@ -3647,10 +3716,10 @@ final class TerminalArrowNubView: UIView {
             clock: ContinuousClock()
         )
         repeatTask = Task { @MainActor [weak self] in
-            for await bytes in stream {
+            for await _ in stream {
                 guard let self else { return }
                 self.feedbackGenerator.impactOccurred()
-                self.onArrowKey?(bytes)
+                self.onArrowKey?(direction.accessoryAction)
             }
         }
     }

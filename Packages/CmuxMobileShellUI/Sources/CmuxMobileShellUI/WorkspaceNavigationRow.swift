@@ -14,45 +14,51 @@ struct WorkspaceNavigationRow: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
-    var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
-    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
+    /// Mark the workspace read or unread on the Mac. When `nil` the read-state
+    /// affordance is hidden.
+    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
+    /// Close the workspace on the Mac. When `nil` the delete affordance is
+    /// hidden.
+    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
+    /// Whether this row's destructive close action is awaiting confirmation.
+    /// The binding is owned by the list so recycled rows do not own presentation
+    /// state, but the presenter stays attached to the swiped row.
+    var isConfirmingClose: Binding<Bool> = .constant(false)
+    /// Performs the confirmed close. Separate from ``closeWorkspace`` so a
+    /// full-swipe can request confirmation without directly closing the row.
+    var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
 
     var body: some View {
-        Group {
-            switch navigationStyle {
-            case .push:
-                NavigationLink(value: workspace.id) {
-                    WorkspaceRow(
-                        workspace: workspace,
-                        connectionStatus: connectionStatus,
-                        isSelected: false,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles,
-                        previewLineLimit: previewLineLimit
-                    )
-                }
-                .simultaneousGesture(TapGesture().onEnded {
-                    selectWorkspace(workspace.id)
-                })
-            case .sidebar:
+        rowTarget
+        .contextMenu { contextMenu }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if let setUnread {
                 Button {
-                    selectWorkspace(workspace.id)
+                    setUnread(workspace.id, !workspace.hasUnread)
                 } label: {
-                    WorkspaceRow(
-                        workspace: workspace,
-                        connectionStatus: connectionStatus,
-                        isSelected: isSelected,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles,
-                        previewLineLimit: previewLineLimit
-                    )
+                    Label(readStateActionTitle, systemImage: readStateActionSystemImage)
                 }
-                .buttonStyle(.plain)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileWorkspaceReadStateSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .contextMenu { contextMenu }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let closeWorkspace {
+                Button {
+                    closeWorkspace(workspace.id)
+                } label: {
+                    Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
+                }
+                .tint(.red)
+                .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
@@ -63,6 +69,50 @@ struct WorkspaceNavigationRow: View {
                 renameWorkspace?(workspace.id, newName)
             }
         }
+        .confirmationDialog(
+            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            isPresented: isConfirmingClose,
+            titleVisibility: .visible
+        ) {
+            if let confirmCloseWorkspace {
+                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                    confirmCloseWorkspace(workspace.id)
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingClose.wrappedValue = false
+            }
+        } message: {
+            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
+        }
+    }
+
+    @ViewBuilder
+    private var rowTarget: some View {
+        switch navigationStyle {
+        case .push:
+            NavigationLink(value: workspace.id) {
+                rowLabel
+            }
+        case .sidebar:
+            Button {
+                selectWorkspace(workspace.id)
+            } label: {
+                rowLabel
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var rowLabel: some View {
+        WorkspaceRow(
+            workspace: workspace,
+            connectionStatus: connectionStatus,
+            isSelected: navigationStyle == .sidebar && isSelected,
+            wrapWorkspaceTitles: wrapWorkspaceTitles,
+            previewLineLimit: previewLineLimit
+        )
     }
 
     @ViewBuilder
@@ -87,5 +137,31 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspaceRenameButton-\(workspace.id.rawValue)")
         }
+        if let setUnread {
+            Button {
+                setUnread(workspace.id, !workspace.hasUnread)
+            } label: {
+                Label(readStateActionTitle, systemImage: readStateActionSystemImage)
+            }
+            .accessibilityIdentifier("MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)")
+        }
+        if let closeWorkspace {
+            Button(role: .destructive) {
+                closeWorkspace(workspace.id)
+            } label: {
+                Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
+            }
+            .accessibilityIdentifier("MobileWorkspaceDeleteMenuButton-\(workspace.id.rawValue)")
+        }
+    }
+
+    private var readStateActionTitle: String {
+        workspace.hasUnread
+            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread")
+    }
+
+    private var readStateActionSystemImage: String {
+        workspace.hasUnread ? "envelope.open" : "envelope.badge"
     }
 }

@@ -715,6 +715,40 @@
         }
       }
     },
+    "mobile.composer.attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach Photo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を添付"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を削除"
+          }
+        }
+      }
+    },
     "mobile.composer.close": {
       "extractionState": "manual",
       "localizations": {
@@ -1265,13 +1299,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
+            "value": "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスで同じ cmux アカウントと一致するビルド（どちらもリリース版、またはどちらも開発版）を使用していることを確認してから、もう一度お試しください。"
+            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスが同じメールアドレスでサインインしていることを確認してから、もう一度お試しください。"
           }
         }
       }
@@ -2013,13 +2047,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter the 6-digit code from your email."
+            "value": "Enter the 6-character code from your email."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メールに届いた 6 桁のコードを入力してください。"
+            "value": "メールに届いた6文字のコードを入力してください。"
           }
         }
       }
@@ -2030,13 +2064,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "000000"
+            "value": "ABC123"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "000000"
+            "value": "ABC123"
           }
         }
       }
@@ -3503,6 +3537,125 @@
         }
       }
     },
+    "mobile.workspace.close.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.workspace.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "mobile.workspace.delete.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "mobile.workspace.delete.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the workspace on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上のワークスペースを閉じます。"
+          }
+        }
+      }
+    },
+    "mobile.workspace.delete.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Workspace?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.workspace.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既読にする"
+          }
+        }
+      }
+    },
+    "mobile.workspace.markUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読にする"
+          }
+        }
+      }
+    },
     "mobile.workspace.new": {
       "extractionState": "manual",
       "localizations": {
@@ -4047,6 +4200,23 @@
         }
       }
     },
+    "terminal.shortcut.name.shift": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        }
+      }
+    },
     "terminal.zoom.current_size": {
       "extractionState": "manual",
       "localizations": {
@@ -4183,6 +4353,91 @@
         }
       }
     },
+    "mobile.pairing.emailMismatchFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR is for %@, but this iPhone is signed in as %@. Sign in with the same email as the Mac, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この QR は %@ 用ですが、この iPhone は %@ としてサインインしています。Mac と同じメールアドレスでサインインしてから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.emailMissingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR is for %@. Sign in with the same email as the Mac, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この QR は %@ 用です。Mac と同じメールアドレスでサインインしてから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue anyway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それでも続行"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different compatibility levels can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone は cmux %@ を実行していますが、Mac は cmux %@ を実行しています。異なる互換性レベル間でペアリングすると、ターミナル入力、ワークスペース同期、通知が壊れる可能性があります。この Mac を信頼し、一部の機能が失敗する可能性を受け入れる場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatibility mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性が一致していません"
+          }
+        }
+      }
+    },
     "mobile.pairing.appNotRunning": {
       "extractionState": "manual",
       "localizations": {
@@ -4213,6 +4468,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.compatibilityDisplayFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "compatibility %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性 %@"
+          }
+        }
+      }
+    },
+    "mobile.pairing.compatibilityUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown compatibility"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な互換性"
           }
         }
       }
@@ -5339,6 +5628,23 @@
         }
       }
     },
+    "terminal.shortcut.name.return": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リターン"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.tab": {
       "extractionState": "manual",
       "localizations": {
@@ -5662,6 +5968,40 @@
         }
       }
     },
+    "mobile.deviceTree.online": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンライン"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン"
+          }
+        }
+      }
+    },
     "mobile.terminal.viewAsText": {
       "extractionState": "manual",
       "localizations": {
@@ -5964,6 +6304,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべて表示"
+          }
+        }
+      }
+    },
+    "mobile.workspace.agentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット"
           }
         }
       }
