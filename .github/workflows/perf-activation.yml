@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner (auto follows the MACOS_RUNNER_15 repo variable, then warp)
+        description: macOS runner (PRs use Depot for GUI activation; manual auto follows MACOS_RUNNER_15, then warp)
         required: false
         default: auto
         type: choice
@@ -20,6 +20,8 @@ on:
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
           - warp-macos-26-arm64-6x
+          - depot-macos-latest
+          - depot-macos-14
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -43,11 +45,30 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
     timeout-minutes: 45
     env:
       PERF_TAG: perf-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Validate Depot runner identity
+        if: ${{ startsWith(github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner), 'depot-macos-') }}
+        env:
+          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$RUNNER_CONTEXT_NAME" in
+            depot-*)
+              echo "Resolved runner matches depot-*? yes"
+              ;;
+            *)
+              echo "Resolved runner matches depot-*? no"
+              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -98,8 +119,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
+          key: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages

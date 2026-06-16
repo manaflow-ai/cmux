@@ -715,6 +715,11 @@ jobs:
       - name: Create virtual display
         run: |
           set -euo pipefail
+          LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+          eval "$LOCK_ENV"
+          echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
+          echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
           HELPER_PATH="$RUNNER_TEMP/create-virtual-display"
           VDISPLAY_READY="$RUNNER_TEMP/cmux-build-lag-vdisplay.ready"
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-build-lag-vdisplay.id"
@@ -729,6 +734,7 @@ jobs:
             --display-id-path "$VDISPLAY_ID_PATH" \
             >"$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PID=$!
+          scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PID"
 
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           echo "VDISPLAY_HELPER_PATH=$HELPER_PATH" >> "$GITHUB_ENV"
@@ -824,7 +830,12 @@ jobs:
           set -euo pipefail
           if [ -n "${VDISPLAY_PID:-}" ]; then
             kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
           fi
+          scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-ghostty-cli-helper:
@@ -1092,6 +1103,20 @@ jobs:
             -destination "platform=macOS" \
             build-for-testing
 
+      - name: Enable XCTest automation mode
+        run: |
+          set -euo pipefail
+          if ! command -v automationmodetool >/dev/null 2>&1; then
+            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
+            exit 0
+          fi
+
+          if sudo -n true 2>/dev/null; then
+            sudo -n automationmodetool enable-automationmode-without-authentication
+          else
+            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
+          fi
+
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
@@ -1105,6 +1130,25 @@ jobs:
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
           HELPER_PID=""
+          DISPLAY_LOCK_DIR=""
+          DISPLAY_LOCK_TOKEN=""
+
+          acquire_display_lock() {
+            LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+            eval "$LOCK_ENV"
+            DISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR"
+            DISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN"
+          }
+
+          release_display_lock() {
+            if [ -n "${DISPLAY_LOCK_DIR:-}" ]; then
+              CMUX_VDISPLAY_LOCK_DIR="$DISPLAY_LOCK_DIR" \
+              CMUX_VDISPLAY_LOCK_TOKEN="$DISPLAY_LOCK_TOKEN" \
+                scripts/ci/virtual-display-lock.sh release || true
+              DISPLAY_LOCK_DIR=""
+              DISPLAY_LOCK_TOKEN=""
+            fi
+          }
 
           cleanup_attempt() {
             if [ -n "${HELPER_PID:-}" ]; then
@@ -1112,6 +1156,7 @@ jobs:
               wait "$HELPER_PID" 2>/dev/null || true
               HELPER_PID=""
             fi
+            release_display_lock
             pkill -x "cmux DEV" 2>/dev/null || true
             rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
@@ -1138,6 +1183,8 @@ jobs:
           for attempt in 1 2; do
             cleanup_attempt 2>/dev/null || true
 
+            acquire_display_lock
+
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
             # runner is sandboxed and can't write to /tmp/ for the start signal.
@@ -1152,6 +1199,7 @@ jobs:
               --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
+            scripts/ci/virtual-display-lock.sh set-owner "$HELPER_PID"
 
             # Wait for display ready
             echo "Waiting for virtual display..."
@@ -1280,6 +1328,11 @@ jobs:
       - name: Create persistent virtual display
         run: |
           set -euo pipefail
+          LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+          eval "$LOCK_ENV"
+          echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
+          echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
           HELPER_PATH="$RUNNER_TEMP/create-virtual-display-persistent"
           clang -framework Foundation -framework CoreGraphics \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
@@ -1295,6 +1348,7 @@ jobs:
             --display-id-path "$VDISPLAY_ID_PATH" \
             >"$VDISPLAY_LOG" 2>&1 &
           VDISPLAY_PERSISTENT_PID=$!
+          scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PERSISTENT_PID"
 
           echo "VDISPLAY_PERSISTENT_PID=$VDISPLAY_PERSISTENT_PID" >> "$GITHUB_ENV"
           echo "VDISPLAY_PERSISTENT_HELPER_PATH=$HELPER_PATH" >> "$GITHUB_ENV"
@@ -1324,20 +1378,6 @@ jobs:
           echo "Persistent virtual display ready: ID=$(tr -d '\n' < "$VDISPLAY_ID_PATH")"
           cat "$VDISPLAY_LOG"
 
-      - name: Enable XCTest automation mode
-        run: |
-          set -euo pipefail
-          if ! command -v automationmodetool >/dev/null 2>&1; then
-            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
-            exit 0
-          fi
-
-          if sudo -n true 2>/dev/null; then
-            sudo -n automationmodetool enable-automationmode-without-authentication
-          else
-            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
-          fi
-
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
@@ -1362,5 +1402,10 @@ jobs:
         run: |
           if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
             kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
           fi
+          scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_PERSISTENT_HELPER_PATH:-}" "${VDISPLAY_PERSISTENT_READY:-}" "${VDISPLAY_PERSISTENT_ID_PATH:-}" "${VDISPLAY_PERSISTENT_LOG:-}"
