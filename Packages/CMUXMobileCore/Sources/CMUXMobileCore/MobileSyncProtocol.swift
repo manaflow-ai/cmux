@@ -33,6 +33,11 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
     /// so it is rejected with a clear error instead of a doomed connect;
     /// loopback pairing is reserved for the dev-injected attach URL path.
     case loopbackRouteRejected
+    /// A pairing/attach URL whose grammar version (`v=`) is newer than this
+    /// build understands. The associated value is the version read off the URL.
+    /// Surfaced distinctly so the user is told to update the app rather than
+    /// shown the generic "not a valid code" copy.
+    case unrecognizedURLVersion(Int)
 }
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
@@ -109,14 +114,14 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "cmux-ios://pair?v=\(version)&payload=\(payload)") else {
+        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
     }
 
     public static func decodeURL(_ url: URL, now: Date = Date()) throws -> MobileSyncPairingPayload {
-        guard url.scheme == "cmux-ios",
+        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
               url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,

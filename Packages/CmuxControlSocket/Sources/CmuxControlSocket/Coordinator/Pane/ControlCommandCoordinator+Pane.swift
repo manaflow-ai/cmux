@@ -245,6 +245,14 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No source surface to split", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create pane", data: nil)
+        case .mirrorUnsupportedOptions(let unsupported):
+            return mirrorUnsupportedOptionsResult(unsupported)
+        case .routedToRemote(let windowID, let workspaceID, let typeRawValue):
+            return remoteRoutedCreationResult(
+                windowID: windowID,
+                workspaceID: workspaceID,
+                typeRawValue: typeRawValue
+            )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

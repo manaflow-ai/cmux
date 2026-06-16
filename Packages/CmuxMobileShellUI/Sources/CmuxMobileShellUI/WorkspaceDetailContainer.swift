@@ -22,6 +22,17 @@ struct WorkspaceDetailContainer: View {
         return store.selectedWorkspace
     }
 
+    /// Close-workspace closure for the detail top-bar menu. Present only when the
+    /// connected Mac advertises `workspace.close.v1`, matching the workspace
+    /// list's gating so the menu item stays hidden on older Macs. Built as an
+    /// explicit closure literal (the compiler fails to type-check a
+    /// method-reference ternary inside the large `WorkspaceDetailView` init).
+    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCloseActions else { return nil }
+        let store = store
+        return { id in Task { await store.closeWorkspace(id: id) } }
+    }
+
     var body: some View {
         if let workspace {
             WorkspaceDetailView(
@@ -31,6 +42,7 @@ struct WorkspaceDetailContainer: View {
                 store: store,
                 createWorkspace: createWorkspace,
                 createTerminal: { store.createTerminal(in: workspace.id) },
+                closeWorkspace: closeWorkspaceClosure,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext

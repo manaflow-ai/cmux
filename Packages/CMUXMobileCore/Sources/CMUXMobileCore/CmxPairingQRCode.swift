@@ -84,7 +84,11 @@ public struct CmxPairingQRCode: Sendable {
             return "r=\(hostPortString(host: host, port: port))"
         }
         items.append(contentsOf: routeItems)
-        return "cmux-ios://attach?" + items.joined(separator: "&")
+        // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
+        // Mac's QR opens the dev iOS build, a release Mac's QR opens the
+        // release build, and the system camera can no longer hand a beta/prod
+        // code to a dev build that also claimed the scheme.
+        return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the minimal grammar; see
@@ -137,12 +141,23 @@ public struct CmxPairingQRCode: Sendable {
         components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
     }
 
+    /// The integer grammar version declared by an attach URL's `v` query item,
+    /// or `nil` when absent or non-numeric. Used to tell a *newer* grammar
+    /// (`v` greater than ``version``) apart from a malformed code so the user is
+    /// told to update the app instead of seeing the generic invalid-code copy.
+    public static func attachURLVersion(_ components: URLComponents) -> Int? {
+        guard let raw = components.queryItems?.first(where: { $0.name == "v" })?.value else {
+            return nil
+        }
+        return Int(raw)
+    }
+
     /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
         guard let url = URL(string: rawValue),
-              url.scheme == "cmux-ios",
+              CmxPairingURLScheme.isPairingScheme(url.scheme),
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return false
