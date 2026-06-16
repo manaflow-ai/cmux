@@ -228,7 +228,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     exec "$REAL_CLAUDE" "$@"
 fi
 
-if [[ "$IN_CMUX" == "0" ]] || { [[ "${CMUX_CLAUDE_WRAPPER_ASSUME_SOCKET_AVAILABLE:-}" != "1" ]] && ! cmux_socket_available; }; then
+if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -473,10 +473,12 @@ done
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
-export CMUX_AGENT_LAUNCH_KIND="claude"
-export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
-export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
-export CMUX_AGENT_LAUNCH_CWD="$PWD"
+if [[ "${CMUX_CLAUDE_WRAPPER_PRESERVE_AGENT_LAUNCH:-}" != "1" || -z "${CMUX_AGENT_LAUNCH_KIND:-}" || -z "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" || -z "${CMUX_AGENT_LAUNCH_ARGV_B64:-}" ]]; then
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+fi
 if [[ "${CMUX_CLAUDE_WRAPPER_SKIP_NODE_OPTIONS:-}" != "1" ]] && GUARD_PATH="$(ensure_node_options_restore_module)"; then
     if [[ ${NODE_OPTIONS+x} ]]; then
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1

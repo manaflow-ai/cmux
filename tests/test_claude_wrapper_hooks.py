@@ -46,6 +46,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -188,6 +189,8 @@ exit 0
             env["TMPDIR"] = tmpdir
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if extra_env is not None:
+            env.update(extra_env)
 
         try:
             proc = subprocess.run(
@@ -587,6 +590,26 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     argv = decode_nul_argv(launch_argv_b64)
     expect(len(argv) == 1, f"plain claude: expected only executable in encoded launch argv, got {argv}", failures)
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
+
+
+def test_preserve_agent_launch_keeps_launcher_metadata(failures: list[str]) -> None:
+    encoded_teams_argv = base64.b64encode(b"/tmp/cmux\0claude-teams\0--teammate-mode\0auto").decode("ascii")
+    code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        extra_env={
+            "CMUX_CLAUDE_WRAPPER_PRESERVE_AGENT_LAUNCH": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claudeTeams",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/tmp/cmux",
+            "CMUX_AGENT_LAUNCH_ARGV_B64": encoded_teams_argv,
+        },
+    )
+    expect(code == 0, f"preserve launch metadata: wrapper exited {code}: {stderr}", failures)
+    expect(
+        launch_argv_b64 == encoded_teams_argv,
+        f"preserve launch metadata: expected existing launch argv, got {launch_argv_b64!r}",
+        failures,
+    )
 
 
 def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
@@ -1167,6 +1190,7 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_preserve_agent_launch_keeps_launcher_metadata(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)

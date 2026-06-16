@@ -232,6 +232,16 @@ extension CMUXCLI {
         return wrapperPath
     }
 
+    func claudeTeamsProviderLaunchPath(claudeExecutablePath: String) -> String {
+        guard let wrapperPath = bundledClaudeWrapperExecutablePath() else {
+            return claudeExecutablePath
+        }
+        setenv("CMUX_CUSTOM_CLAUDE_PATH", claudeExecutablePath, 1)
+        setenv("CMUX_CLAUDE_WRAPPER_PRESERVE_AGENT_LAUNCH", "1", 1)
+        setenv("CMUX_CLAUDE_WRAPPER_SKIP_NODE_OPTIONS", "1", 1)
+        return wrapperPath
+    }
+
     private func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {
         cmuxAppBundleResourceBinComponentIndex(path).map { index in
             URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 4

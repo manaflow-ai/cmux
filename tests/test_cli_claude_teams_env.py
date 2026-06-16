@@ -9,6 +9,8 @@ import os
 import json
 import subprocess
 import tempfile
+import socket
+import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -23,6 +25,54 @@ def read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8").strip()
+
+
+def start_ping_socket(path: str) -> tuple[threading.Event, threading.Thread]:
+    stop = threading.Event()
+    ready = threading.Event()
+
+    def run() -> None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(path)
+            server.listen()
+            server.settimeout(0.05)
+            ready.set()
+            while not stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except socket.timeout:
+                    continue
+                with conn:
+                    conn.settimeout(0.5)
+                    pending = b""
+                    try:
+                        while not stop.is_set():
+                            chunk = conn.recv(4096)
+                            if not chunk:
+                                break
+                            pending += chunk
+                            while b"\n" in pending:
+                                line, pending = pending.split(b"\n", 1)
+                                response = b"PONG\n" if line == b"ping" else b"OK\n"
+                                conn.sendall(response)
+                    except socket.timeout:
+                        pass
+                    except OSError:
+                        pass
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    if not ready.wait(timeout=2):
+        raise RuntimeError("timed out starting fake cmux socket")
+    return stop, thread
 
 
 def run_claude_teams(
@@ -49,6 +99,7 @@ def run_claude_teams(
         node_options_log = tmp / "node-options.log"
         runtime_node_options_log = tmp / "runtime-node-options.log"
         child_node_options_log = tmp / "child-node-options.log"
+        launch_kind_log = tmp / "launch-kind.log"
         fake_home = tmp / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
 
@@ -67,6 +118,7 @@ printf '%s\\n' "${TERM_PROGRAM-__UNSET__}" > "$FAKE_TERM_PROGRAM_LOG"
 printf '%s\\n' "${CMUX_SOCKET_PATH-__UNSET__}" > "$FAKE_SOCKET_PATH_LOG"
 printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_NODE_OPTIONS_LOG"
+printf '%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}" > "$FAKE_LAUNCH_KIND_LOG"
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
 """,
         )
@@ -119,6 +171,7 @@ fs.writeFileSync(
         env["FAKE_SOCKET_PATH_LOG"] = str(socket_path_log)
         env["FAKE_SOCKET_PASSWORD_LOG"] = str(socket_password_log)
         env["FAKE_NODE_OPTIONS_LOG"] = str(node_options_log)
+        env["FAKE_LAUNCH_KIND_LOG"] = str(launch_kind_log)
         env["FAKE_RUNTIME_NODE_OPTIONS_LOG"] = str(runtime_node_options_log)
         env["FAKE_CHILD_NODE_OPTIONS_LOG"] = str(child_node_options_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_bin / "claude-real.js")
@@ -133,22 +186,27 @@ fs.writeFileSync(
             env["TMPDIR"] = tmpdir
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
+        socket_stop, socket_thread = start_ping_socket(explicit_socket_path)
 
-        proc = subprocess.run(
-            [
-                cli_path,
-                "--socket",
-                explicit_socket_path,
-                "--password",
-                explicit_socket_password,
-                "claude-teams",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=30,
-        )
+        try:
+            proc = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    explicit_socket_path,
+                    "--password",
+                    explicit_socket_password,
+                    "claude-teams",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+        finally:
+            socket_stop.set()
+            socket_thread.join(timeout=1)
 
         if proc.returncode != 0:
             return proc, "", "", ""
@@ -183,6 +241,11 @@ fs.writeFileSync(
 
         if not os.path.exists(cmux_bin_value):
             print(f"FAIL: CMUX_CLAUDE_TEAMS_CMUX_BIN does not exist: {cmux_bin_value!r}")
+            raise SystemExit(1)
+
+        launch_kind_value = read_text(launch_kind_log)
+        if launch_kind_value != "claudeTeams":
+            print(f"FAIL: expected claudeTeams launch metadata, got {launch_kind_value!r}")
             raise SystemExit(1)
 
         expected_wrapper_hooks = Path(cli_path).with_name("cmux-claude-wrapper").exists()
