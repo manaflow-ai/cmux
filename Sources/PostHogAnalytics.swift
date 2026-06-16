@@ -2,7 +2,9 @@ import AppKit
 import Foundation
 import PostHog
 
-final class PostHogAnalytics {
+// `@unchecked Sendable` is safe here because mutable analytics state is confined
+// to `workQueue`; `activeCheckTimer` is only touched through the main queue.
+final class PostHogAnalytics: @unchecked Sendable {
     static let shared = PostHogAnalytics()
 
     // The PostHog project API key is intentionally embedded in the app (it's a public key).
@@ -22,9 +24,9 @@ final class PostHogAnalytics {
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
     private let userDefaults: UserDefaults
-    private let now: () -> Date
-    private let capturePostHog: (String, [String: Any]) -> Void
-    private let flushPostHog: () -> Void
+    private let now: @Sendable () -> Date
+    private let capturePostHog: @Sendable (String, [String: Any]) -> Void
+    private let flushPostHog: @Sendable () -> Void
 
     private var didStart: Bool
     private var activeCheckTimer: Timer?
@@ -33,11 +35,11 @@ final class PostHogAnalytics {
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
         userDefaults: UserDefaults = .standard,
-        now: @escaping () -> Date = Date.init,
-        capturePostHog: @escaping (String, [String: Any]) -> Void = { event, properties in
+        now: @escaping @Sendable () -> Date = { Date() },
+        capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void = { event, properties in
             PostHogSDK.shared.capture(event, properties: properties)
         },
-        flushPostHog: @escaping () -> Void = { PostHogSDK.shared.flush() }
+        flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() }
     ) {
         self.workQueue = workQueue
         self.didStart = didStart
@@ -55,9 +57,9 @@ final class PostHogAnalytics {
         workQueue: DispatchQueue,
         didStart: Bool,
         userDefaults: UserDefaults,
-        now: @escaping () -> Date,
-        capturePostHog: @escaping (String, [String: Any]) -> Void,
-        flushPostHog: @escaping () -> Void
+        now: @escaping @Sendable () -> Date,
+        capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void,
+        flushPostHog: @escaping @Sendable () -> Void
     ) -> PostHogAnalytics {
         PostHogAnalytics(
             workQueue: workQueue,
@@ -211,7 +213,7 @@ final class PostHogAnalytics {
         return true
     }
 
-    private func dispatchAsyncOnWorkQueue(_ block: @escaping () -> Void) {
+    private func dispatchAsyncOnWorkQueue(_ block: @escaping @Sendable () -> Void) {
         if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
             block()
             return
