@@ -60,37 +60,37 @@ struct DesktopNotificationSettingsRowTests {
             DesktopNotificationAuthorizationState.unknown,
             "settings.notifications.desktop.status.checking",
             "settings.notifications.desktop.subtitle.checking",
-            nil
+            Optional<DesktopNotificationPrimaryAction>.none
         ),
         (
             .notDetermined,
             "settings.notifications.desktop.status.notDetermined",
             "settings.notifications.desktop.subtitle.notDetermined",
-            .requestAuthorization
+            DesktopNotificationPrimaryAction.requestAuthorization
         ),
         (
             .authorized,
             "settings.notifications.desktop.status.allowed",
             "settings.notifications.desktop.subtitle.allowed",
-            .sendTest
+            DesktopNotificationPrimaryAction.sendTest
         ),
         (
             .denied,
             "settings.notifications.desktop.status.denied",
             "settings.notifications.desktop.subtitle.denied",
-            .openSystemSettings
+            DesktopNotificationPrimaryAction.openSystemSettings
         ),
         (
             .provisional,
             "settings.notifications.desktop.status.provisional",
             "settings.notifications.desktop.subtitle.provisional",
-            .sendTest
+            DesktopNotificationPrimaryAction.sendTest
         ),
         (
             .ephemeral,
             "settings.notifications.desktop.status.ephemeral",
             "settings.notifications.desktop.subtitle.ephemeral",
-            .sendTest
+            DesktopNotificationPrimaryAction.sendTest
         ),
     ])
     func presentationMapsAuthorizationState(
@@ -105,56 +105,4 @@ struct DesktopNotificationSettingsRowTests {
         #expect(presentation.subtitle.key == subtitleKey)
         #expect(presentation.primaryAction == primaryAction)
     }
-}
-
-private final class RecordingSettingsHostActions: SettingsHostActions {
-    private var state: DesktopNotificationAuthorizationState
-    private let refreshedState: DesktopNotificationAuthorizationState
-
-    private(set) var requestAuthorizationCallCount = 0
-    private(set) var sendTestNotificationCallCount = 0
-    private(set) var openSystemSettingsCallCount = 0
-    private(set) var refreshCallCount = 0
-
-    init(
-        state: DesktopNotificationAuthorizationState,
-        refreshedState: DesktopNotificationAuthorizationState
-    ) {
-        self.state = state
-        self.refreshedState = refreshedState
-    }
-
-    func clearBrowserHistory() {}
-    func openConfigInExternalEditor() {}
-    func sendFeedback() {}
-    func sendTestNotification() {
-        sendTestNotificationCallCount += 1
-    }
-
-    func openSystemNotificationSettings() {
-        openSystemSettingsCallCount += 1
-    }
-
-    func restartApp() {}
-    func openBrowserImportFlow() {}
-
-    func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState {
-        state
-    }
-
-    func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState {
-        refreshCallCount += 1
-        state = refreshedState
-        return state
-    }
-
-    func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
-        requestAuthorizationCallCount += 1
-        state = refreshedState
-        return state
-    }
-
-    func openTerminalConfigWindow() {}
-    func openMobilePairingWindow() {}
-    func previewNotificationSound(value: String, customFilePath: String) {}
 }

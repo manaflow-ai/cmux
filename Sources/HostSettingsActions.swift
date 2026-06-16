@@ -118,30 +118,15 @@ final class HostSettingsActions: SettingsHostActions {
 
     func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
         AsyncStream { continuation in
-            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
-                bufferingPolicy: .bufferingNewest(1)
-            )
-            let observer = MobileHostStatusObserverToken(
-                NotificationCenter.default.addObserver(
-                    forName: TerminalNotificationStore.authorizationStateDidChangeNotification,
-                    object: TerminalNotificationStore.shared,
-                    queue: nil
-                ) { _ in
-                    signalContinuation.yield(())
-                }
-            )
             let drainTask = Task { @MainActor in
-                continuation.yield(DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState))
-                for await _ in signals {
+                for await state in TerminalNotificationStore.shared.authorizationStateUpdates() {
                     if Task.isCancelled { break }
-                    continuation.yield(DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState))
+                    continuation.yield(DesktopNotificationAuthorizationState(state))
                 }
                 continuation.finish()
             }
             continuation.onTermination = { _ in
                 drainTask.cancel()
-                signalContinuation.finish()
-                observer.remove()
             }
         }
     }

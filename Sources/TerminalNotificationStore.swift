@@ -237,9 +237,6 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
-    static let authorizationStateDidChangeNotification = Notification.Name(
-        "cmux.notificationAuthorizationStateDidChange"
-    )
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -466,15 +463,13 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown {
+    private(set) var authorizationState: NotificationAuthorizationState = .unknown {
         didSet {
             guard authorizationState != oldValue else { return }
-            NotificationCenter.default.post(
-                name: Self.authorizationStateDidChangeNotification,
-                object: self
-            )
+            authorizationStateBroadcaster.publish(authorizationState)
         }
     }
+    private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -676,6 +671,10 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
+    }
+
+    func authorizationStateUpdates() -> AsyncStream<NotificationAuthorizationState> {
+        authorizationStateBroadcaster.stream(current: authorizationState)
     }
 
     @MainActor

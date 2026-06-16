@@ -189,18 +189,22 @@ public extension SettingsHostActions {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
     }
 
+    /// Default: unknown, for previews and tests without a live notification host.
     func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState {
         .unknown
     }
 
+    /// Default: returns the cached unknown state when no host can query the OS.
     func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState {
         desktopNotificationAuthorizationState()
     }
 
+    /// Default: an immediately-finished stream for hosts without authorization updates.
     func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
         AsyncStream { $0.finish() }
     }
 
+    /// Default: no authorization prompt for previews and tests without a live host.
     func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
         desktopNotificationAuthorizationState()
     }
@@ -233,19 +237,42 @@ public extension SettingsHostActions {
 /// have to branch on an optional host.
 @MainActor
 public final class NoopSettingsHostActions: SettingsHostActions {
+    /// Creates a host-action object whose methods intentionally do nothing.
     public init() {}
+
+    /// Does nothing because previews/tests have no browser history host.
     public func clearBrowserHistory() {}
+
+    /// Does nothing because previews/tests have no external config editor host.
     public func openConfigInExternalEditor() {}
+
+    /// Does nothing because previews/tests have no feedback host.
     public func sendFeedback() {}
+
+    /// Does nothing because previews/tests cannot post real notifications.
     public func sendTestNotification() {}
+
+    /// Does nothing because previews/tests cannot open host System Settings.
     public func openSystemNotificationSettings() {}
+
+    /// Does nothing because previews/tests must not restart the host app.
     public func restartApp() {}
+
+    /// Does nothing because previews/tests have no browser-import host.
     public func openBrowserImportFlow() {}
+
+    /// Returns `.unknown` because this preview/test host has no OS notification center.
     public func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState { .unknown }
+
+    /// Returns `.unknown` because this preview/test host cannot query OS permission.
     public func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState { .unknown }
+
+    /// Finishes immediately because this preview/test host emits no permission updates.
     public func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
         AsyncStream { $0.finish() }
     }
+
+    /// Returns `.unknown` because this preview/test host cannot request OS permission.
     public func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState { .unknown }
     public func openTerminalConfigWindow() {}
     public func openMobilePairingWindow() {}
