@@ -23400,6 +23400,12 @@ struct CMUXCLI {
                 )
                 let surfaceId = resolvedSurface.surfaceId
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let launchCapture = agentLaunchCommandCaptureFromEnvironment(
+                    ProcessInfo.processInfo.environment,
+                    fallbackPID: claudePid,
+                    fallbackKind: "claude",
+                    cwd: parsedInput.cwd ?? mappedSession?.cwd
+                )
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
@@ -23452,11 +23458,12 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
-                        allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
-                            mappedSession,
-                            launchCommand: mappedSession?.launchCommand,
-                            transcriptPath: parsedInput.transcriptPath
-                        )
+                        allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                            && hasPositiveAgentResumeRestorabilitySignal(
+                                mappedSession,
+                                launchCommand: mappedSession?.launchCommand,
+                                transcriptPath: parsedInput.transcriptPath
+                            )
                     )
                 }
 
@@ -26788,15 +26795,10 @@ struct CMUXCLI {
 
     private func hasPositiveAgentResumeRestorabilitySignal(
         _ record: ClaudeHookSessionRecord?,
-        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        launchCommand _: AgentHookLaunchCommandRecord? = nil,
         transcriptPath: String? = nil
     ) -> Bool {
         if record?.isRestorable == true {
-            return true
-        }
-        let effectiveLaunchCommand = launchCommand ?? record?.launchCommand
-        if effectiveLaunchCommand?.arguments.isEmpty == true,
-           effectiveLaunchCommand?.environment?.isEmpty == false {
             return true
         }
         if normalizedHookValue(transcriptPath) != nil {

@@ -3334,6 +3334,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "startedAt": now,
                     "updatedAt": now,
                     "pid": deadPID,
+                    "isRestorable": true,
                 ],
             ],
         ]
@@ -3508,8 +3509,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     /// Issue #6209 / #5393: a reaped Codex session with no captured launch command and no positive
-    /// restorability signal must not synthesize a default `codex resume <id>` surface binding. That
-    /// command can outlive Codex's own saved session and restore into "No saved session found".
+    /// restorability signal must not synthesize a default `codex resume <id>` surface binding. An
+    /// env-only CODEX_HOME capture is provenance that should be preserved only after another positive
+    /// signal proves the session is restorable.
     func testCodexHookDoesNotPublishDefaultResumeBindingWithoutRestorabilitySignal() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-no-restorable-signal")
@@ -3586,7 +3588,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        for key in ["CODEX_HOME", "CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+        for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
             environment.removeValue(forKey: key)
         }
 
@@ -3606,6 +3609,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 self.jsonObject(command)?["method"] as? String == "surface.resume.set"
             },
             "nil launchCommand with no restorable signal must not publish a synthesized codex resume binding; saw \(state.snapshot())"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+            },
+            "nil launchCommand with no restorable signal must not clear an existing resume binding; saw \(state.snapshot())"
         )
     }
 
@@ -3875,6 +3884,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 self.jsonObject(command)?["method"] as? String == "surface.resume.set"
             },
             "transcript_path must not bypass sanitizer rejection for non-restorable codex exec; saw \(state.snapshot())"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+            },
+            "sanitizer rejection must not clear an existing resume binding; saw \(state.snapshot())"
         )
 
         // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
