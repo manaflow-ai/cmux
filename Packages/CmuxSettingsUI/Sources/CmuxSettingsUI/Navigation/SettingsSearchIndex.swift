@@ -182,6 +182,12 @@ public struct SettingsSearchIndex: Sendable {
 
     private static func matchScore(_ entry: Entry, tokens queryTokens: [String], normalizedQuery: String) -> Int? {
         var total = 0
+        // An exact title match is the strongest possible signal and must
+        // outrank rows that match only via synonyms. Without this, typing a
+        // section name (e.g. "automation") ranked child settings above the
+        // section itself, because their dotted-path synonyms ("automation.*")
+        // match the query and settings carry the +20 bonus below.
+        if Self.normalize(entry.title) == normalizedQuery { total += 1_000 }
         if case .setting = entry.kind { total += 20 }
         if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
         for token in queryTokens {

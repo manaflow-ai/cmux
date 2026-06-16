@@ -25,6 +25,17 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    /// Typing an exact section name navigates to that section first.
+    /// Child settings' dotted-path synonyms (e.g. "automation.*") also
+    /// match the query and carry a +20 bonus, so without an exact-title
+    /// boost they floated above the section. Guards that ranking regression.
+    @Test func exactSectionNameRanksSectionFirst() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let first = try #require(index.match("automation").first)
+        #expect(first.kind == .section)
+        #expect(first.title == "Automation")
+    }
+
     @Test func modifierHoldHintSynonymsFindKeyboardShortcutSetting() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("hotkey hint chips")
