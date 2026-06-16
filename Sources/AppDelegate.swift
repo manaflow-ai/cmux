@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxBrowser
 import CmuxBrowserPanel
 import CmuxCommandPalette
 import CmuxCommandPaletteUI
@@ -790,7 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-
+    private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -825,11 +826,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
-    private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatPanelId: UUID?
-    private var browserOmnibarRepeatKeyCode: UInt16?
-    private var browserOmnibarRepeatDelta: Int = 0
+    /// Owns the browser omnibar selection-repeat state machine, extracted into
+    /// `CmuxBrowser`. The app delegate is the composition root: it injects
+    /// the `NotificationCenter` selection-move sink and the debug-trace sink.
+    private lazy var browserOmnibarSelectionRepeat: BrowserOmnibarSelectionRepeatCoordinator = {
+        let debugLog: BrowserOmnibarSelectionRepeatCoordinator.DebugLog?
+#if DEBUG
+        debugLog = { line in cmuxDebugLog(line) }
+#else
+        debugLog = nil
+#endif
+        return BrowserOmnibarSelectionRepeatCoordinator(
+            selectionMove: { panelId, delta in
+                NotificationCenter.default.post(
+                    name: .browserMoveOmnibarSelection,
+                    object: panelId,
+                    userInfo: ["delta": delta]
+                )
+            },
+            debugLog: debugLog
+        )
+    }()
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
@@ -1412,6 +1429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutDefaultsObserver()
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
+            sentryStartMemoryContextRefresh()
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
@@ -1926,6 +1944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
@@ -1943,9 +1962,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
-        if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flush()
-        }
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
@@ -1986,14 +2002,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(
-            coordinator: auth.coordinator,
-            browserSignIn: auth.browserSignIn
-        )
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        AgentChatTranscriptService.shared.start()
+        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
@@ -14168,128 +14182,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func dispatchBrowserOmnibarSelectionMove(panelId: UUID, delta: Int) {
-        guard delta != 0 else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
-        )
-#endif
-        NotificationCenter.default.post(
-            name: .browserMoveOmnibarSelection,
-            object: panelId,
-            userInfo: ["delta": delta]
-        )
+        browserOmnibarSelectionRepeat.dispatchSelectionMove(panelID: panelId, delta: delta)
     }
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(panelId: UUID, keyCode: UInt16, delta: Int) {
-        guard delta != 0 else { return }
-
-        if browserOmnibarRepeatPanelId == panelId,
-           browserOmnibarRepeatKeyCode == keyCode,
-           browserOmnibarRepeatDelta == delta {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-                "key=\(keyCode) delta=\(delta) result=reuse"
-            )
-#endif
-            return
-        }
-
-        stopBrowserOmnibarSelectionRepeat()
-        browserOmnibarRepeatPanelId = panelId
-        browserOmnibarRepeatKeyCode = keyCode
-        browserOmnibarRepeatDelta = delta
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-            "key=\(keyCode) delta=\(delta) result=armed"
-        )
-#endif
-
-        let start = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatStartWorkItem = start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: start)
-    }
-
-    private func scheduleBrowserOmnibarSelectionRepeatTick() {
-        browserOmnibarRepeatStartWorkItem = nil
-        guard let panelId = browserOmnibarRepeatPanelId else {
-#if DEBUG
-            cmuxDebugLog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
-#endif
-            stopBrowserOmnibarSelectionRepeat()
-            return
-        }
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(browserOmnibarRepeatDelta)"
-        )
-#endif
-        dispatchBrowserOmnibarSelectionMove(panelId: panelId, delta: browserOmnibarRepeatDelta)
-
-        let tick = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatTickWorkItem = tick
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055, execute: tick)
+        browserOmnibarSelectionRepeat.startRepeatIfNeeded(panelID: panelId, keyCode: keyCode, delta: delta)
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
-#if DEBUG
-        let previousPanelId = browserOmnibarRepeatPanelId
-        let previousKeyCode = browserOmnibarRepeatKeyCode
-        let previousDelta = browserOmnibarRepeatDelta
-#endif
-        browserOmnibarRepeatStartWorkItem?.cancel()
-        browserOmnibarRepeatTickWorkItem?.cancel()
-        browserOmnibarRepeatStartWorkItem = nil
-        browserOmnibarRepeatTickWorkItem = nil
-        browserOmnibarRepeatPanelId = nil
-        browserOmnibarRepeatKeyCode = nil
-        browserOmnibarRepeatDelta = 0
-#if DEBUG
-        if previousKeyCode != nil || previousDelta != 0 {
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.stop panel=\(previousPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-                "key=\(previousKeyCode.map(String.init) ?? "nil") " +
-                "delta=\(previousDelta)"
-            )
-        }
-#endif
+        browserOmnibarSelectionRepeat.stopRepeat()
     }
 
     private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
         switch event.type {
         case .keyUp:
-            if event.keyCode == browserOmnibarRepeatKeyCode {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
-                    "action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteKeyUp(keyCode: event.keyCode)
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
-                    "flags=\(flags.rawValue) action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteFlagsChanged(
+                shouldContinue: browserOmnibarShouldContinueControlNavigationRepeat(flags: flags),
+                flagsRawValue: flags.rawValue
+            )
         default:
             break
         }
