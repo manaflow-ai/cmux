@@ -216,6 +216,46 @@ check_signing_intermediate_imports() {
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }
 
+check_sentry_cli_install_portability() {
+  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
+  if [[ ! -x "$helper" ]]; then
+    echo "FAIL: sentry-cli helper must exist and be executable"
+    exit 1
+  fi
+
+  for needle in \
+    'https://sentry.io/get-cli/' \
+    'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
+    'SENTRY_CLI_VERSION="${SENTRY_CLI_VERSION:-3.3.0}"' \
+    '--connect-timeout 20' \
+    '--max-time 120'; do
+    if ! grep -Fq -- "$needle" "$helper"; then
+      echo "FAIL: sentry-cli helper must contain $needle"
+      exit 1
+    fi
+  done
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if grep -Fq 'brew install getsentry/tools/sentry-cli' "$file"; then
+      echo "FAIL: $(basename "$file") must not require Homebrew for sentry-cli on self-hosted signing runners"
+      exit 1
+    fi
+
+    if ! awk '
+      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /SENTRY_CLI="\$\(\.\/scripts\/ensure-sentry-cli\.sh\)"/ { saw_helper=1 }
+      in_step && /"\$SENTRY_CLI" debug-files upload --include-sources/ { saw_upload=1 }
+      END { exit !(saw_helper && saw_upload) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must install sentry-cli through scripts/ensure-sentry-cli.sh before dSYM upload"
+      exit 1
+    fi
+  done
+
+  echo "PASS: dSYM upload installs sentry-cli without requiring Homebrew"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -308,6 +348,7 @@ check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
 check_signing_intermediate_imports
+check_sentry_cli_install_portability
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests

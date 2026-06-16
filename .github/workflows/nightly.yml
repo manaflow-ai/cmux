@@ -564,8 +564,8 @@ jobs:
             echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
             exit 0
           fi
-          brew install getsentry/tools/sentry-cli || true
-          sentry-cli debug-files upload --include-sources \
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload --include-sources \
             build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcasts (nightly)
