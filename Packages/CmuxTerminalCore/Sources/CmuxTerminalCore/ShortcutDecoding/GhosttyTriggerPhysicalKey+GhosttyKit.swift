@@ -1,4 +1,4 @@
-import GhosttyKit
+public import GhosttyKit
 
 extension GhosttyTriggerPhysicalKey {
     /// Maps a GhosttyKit C physical key (`ghostty_input_key_e`) onto the
@@ -8,7 +8,7 @@ extension GhosttyTriggerPhysicalKey {
     /// GhosttyKit binary target, so the C symbols are visible here alongside the
     /// glyphs and decode rules. Returns `nil` for any key cmux does not render
     /// as a goto-split shortcut, matching the original switch's `default` branch.
-    init?(ghosttyPhysicalKey physical: ghostty_input_key_e) {
+    public init?(ghosttyPhysicalKey physical: ghostty_input_key_e) {
         switch physical {
         case GHOSTTY_KEY_ARROW_LEFT: self = .arrowLeft
         case GHOSTTY_KEY_ARROW_RIGHT: self = .arrowRight

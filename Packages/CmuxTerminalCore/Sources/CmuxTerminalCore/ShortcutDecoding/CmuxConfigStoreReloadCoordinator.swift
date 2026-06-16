@@ -1,5 +1,3 @@
-public import Observation
-
 /// Orchestrates reloading every per-window cmux configuration store and refreshing
 /// window titles, as the app delegate's `reloadCmuxConfigStores(source:)` did.
 ///
@@ -9,7 +7,6 @@ public import Observation
 /// the stores' own `loadAll()` and the environment's title refresh, deduping shared
 /// stores by object identity exactly as before.
 @MainActor
-@Observable
 public final class CmuxConfigStoreReloadCoordinator {
     private weak var environment: (any CmuxConfigStoreReloadEnvironment)?
     private let onReload: (@MainActor (_ source: String, _ storeCount: Int) -> Void)?
