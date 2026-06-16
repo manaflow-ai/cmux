@@ -590,6 +590,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// settled layer size rather than leaving a stale mid-animation surface.
     /// Bounded to avoid a perpetual main-queue present flood.
     private var pendingRenderFrames: Int = 0
+    /// Media-time deadline until which the display link keeps requesting a
+    /// redraw after a geometry change, UNTIL a frame actually presents at the
+    /// current render rect.
+    ///
+    /// The blind `pendingRenderFrames` burst was best-effort: on iOS every
+    /// present goes through libghostty's `setSurfaceCallback`, which DISCARDS
+    /// any IOSurface whose pixel size != `layer.bounds × layer.contentsScale`
+    /// at present time, and the discard is silent (no embedder feedback, so
+    /// `needsDraw` is never re-armed). The surface is rendered at the layer
+    /// size read on the off-main output queue, then presented from a GPU
+    /// completion handler that hops to main an arbitrary moment later. On
+    /// iPhone the keyboard/composer occupy a large fraction of the screen, so
+    /// show/hide and per-keystroke composer churn resize the layer frequently;
+    /// a frame rendered at the old size then presents after the layer resized
+    /// and is dropped. If the fixed burst is exhausted before one frame lands
+    /// at a stable size, the terminal stays BLANK (or freshly-typed text never
+    /// appears) until an unrelated event forces another draw — the reported
+    /// "blank on iPhone" / "typed text disappears" symptoms.
+    ///
+    /// This converts the fixed countdown into a CONVERGENCE guarantee: after a
+    /// geometry change we keep `needsDraw` armed every frame until the renderer
+    /// layer has presented `contents` at the current `lastRenderRect`, bounded
+    /// only by this wall-clock deadline so a layer that never settles cannot
+    /// spin the main queue forever. Time-based off the continuous display link
+    /// (no timer / `Task.sleep`), honoring the no-sleep rule.
+    private var geometryConvergeDeadline: CFTimeInterval = 0
+    /// How long after a geometry change to keep retrying a present until one
+    /// lands at the settled layer size. Generous enough to outlast a keyboard
+    /// show/hide animation (~0.35s) plus a few settle frames, short enough to
+    /// stop a genuinely stuck layer from pumping the main queue indefinitely.
+    private static let geometryConvergeWindow: CFTimeInterval = 1.0
+    /// Minimum time the convergence loop holds before it is allowed to disarm
+    /// early on a presented-match read, so it never stops mid-layout-animation
+    /// on a transiently-matching (but stale) bounds value. ~0.4s outlasts the
+    /// UIKit keyboard show/hide curve (~0.25–0.35s).
+    private static let geometryConvergeMinHold: CFTimeInterval = 0.4
     /// At most one `render_now` is in flight on `outputQueue` at a time. The
     /// display link can fire at 120Hz and previously enqueued a render every
     /// frame with no guard, so during a continuous pinch renders piled up
@@ -1087,6 +1123,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `willResignActive` and `didEnterBackground`.
     private func suspendRendering() {
         renderingSuspended = true
+        // No frame pump while suspended; drop any pending convergence retry so
+        // it does not spin on resume against a stale deadline. A foreground
+        // geometry sync re-arms it if needed.
+        geometryConvergeDeadline = 0
         stopDisplayLink()
         guard let surface else { return }
         ghostty_surface_set_occlusion(surface, false)  // false = occluded; drawFrame skips
@@ -2586,10 +2626,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
                 : -1
+            // `presentedMatch` mirrors libghostty's size-discard test
+            // (presented IOSurface size == layer.bounds × contentsScale).
+            // presentedMatch=false while the screen looks blank/stale ⇒ frames
+            // are being DISCARDED for a size mismatch (the blank /
+            // invisible-typing root cause), distinct from contents=false (lost
+            // frame) and contents=true-but-empty (producer/stream gap). `render`
+            // is the live render rect, `layerPx` the presented layer pixels.
+            let renderLayerScale = max(renderLayer?.contentsScale ?? 1, 1)
+            let layerPxW = Int(renderSize.width * renderLayerScale)
+            let layerPxH = Int(renderSize.height * renderLayerScale)
             MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) suspended=\(renderingSuspended) "
                 + "renderInFlight=\(renderInFlight) "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
+                + "presentedMatch=\(rendererHasPresentedAtCurrentSize()) "
+                + "render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height)) "
+                + "layerPx=\(layerPxW)x\(layerPxH) "
+                + "kbd=\(Int(keyboardHeight)) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
                 + "sinceOutput=\(sinceOutputMs)ms"
             )
@@ -2636,7 +2690,41 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // blocks, which made the app unresponsive.
         let geometrySettling = pendingRenderFrames > 0
         if geometrySettling { pendingRenderFrames -= 1 }
-        if needsDraw || blinkChanged || geometrySettling {
+        // Convergence retry: after the fixed burst, keep redrawing across the
+        // whole geometry-settle window. On iOS every present passes through
+        // libghostty's size-discard check, which drops a frame whose surface
+        // size != the live layer and gives the embedder NO feedback, so
+        // `needsDraw` is never re-armed — a frame lost to a mid-resize race
+        // leaves the surface blank until an unrelated event forces a redraw.
+        // The keyboard/composer geometry on iPhone animates over several
+        // hundred ms and the layer can settle a tick or two AFTER the bounds
+        // model value jumps, so a single post-settle redraw can still be
+        // discarded. Re-requesting a (coalesced) frame every tick for the full
+        // window guarantees that once the layer is genuinely stable a frame
+        // lands and is NOT discarded. We stop early only once a frame has
+        // actually presented at the current render rect AND the window has run
+        // long enough to outlast the layout animation (so we never disarm
+        // mid-animation on a stale-but-matching bounds read). Bounded by the
+        // wall-clock deadline so a layer that never matches can't pump forever.
+        var geometryConverging = false
+        if geometryConvergeDeadline > 0 {
+            let windowElapsed = now >= (geometryConvergeDeadline - Self.geometryConvergeWindow + Self.geometryConvergeMinHold)
+            let presented = rendererHasPresentedAtCurrentSize()
+            if now >= geometryConvergeDeadline || (windowElapsed && presented) {
+                #if DEBUG
+                if now >= geometryConvergeDeadline, !presented {
+                    MobileDebugLog.anchormux(
+                        "geom.converge.timeout render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height)) "
+                        + "presentedMatch=\(presented)"
+                    )
+                }
+                #endif
+                geometryConvergeDeadline = 0
+            } else {
+                geometryConverging = true
+            }
+        }
+        if needsDraw || blinkChanged || geometrySettling || geometryConverging {
             needsDraw = false
             requestRender()
             updateCursorOverlay()
@@ -3387,6 +3475,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
         isGhosttyRendererLayer(layer) && layer.contents != nil
+    }
+
+    /// Whether the Ghostty renderer layer has presented contents whose pixel
+    /// size matches the current `lastRenderRect` at the current scale.
+    ///
+    /// This is the Swift-side mirror of libghostty's `setSurfaceCallback`
+    /// discard test (`surface.size == layer.bounds × layer.contentsScale`): a
+    /// presented IOSurface whose dimensions match the live layer is a frame
+    /// that was NOT discarded. Used to know when the post-geometry redraw loop
+    /// has converged (a good frame is on screen) so it can stop, and to flag a
+    /// likely discard in diagnostics. Reads CALayer properties only — no
+    /// libghostty call, so no futex / main-thread-wedge risk.
+    private func rendererHasPresentedAtCurrentSize() -> Bool {
+        guard let renderLayer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer),
+              renderLayer.contents != nil else { return false }
+        // `contents` is the presented IOSurface; its pixel size is the layer's
+        // point bounds × contentsScale (the exact quantity the discard check
+        // compares). A 1px tolerance absorbs the floor/round both sides apply.
+        let scale = max(renderLayer.contentsScale, 1)
+        let presentedW = renderLayer.bounds.width * scale
+        let presentedH = renderLayer.bounds.height * scale
+        let targetW = lastRenderRect.width * scale
+        let targetH = lastRenderRect.height * scale
+        return abs(presentedW - targetW) <= 1.5 && abs(presentedH - targetH) <= 1.5
     }
 
     nonisolated private static func handleWrite(
