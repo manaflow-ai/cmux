@@ -21,6 +21,9 @@ public enum ControlSurfaceReadTextResolution: Sendable, Equatable {
     /// The resolved surface is not a terminal (legacy `invalid_params` / "Surface
     /// is not a terminal", `data: {"surface_id": …}`). Carries the surface id.
     case surfaceNotTerminal(UUID)
+    /// The read started cold terminal materialization, but the runtime surface is
+    /// not ready yet. Carries the surface id.
+    case terminalNotReady(UUID)
     /// The read failed (legacy `internal_error`). Carries the app-side message.
     case internalError(message: String)
     /// The text was read. Carries the decoded text, its base64, and the identity.

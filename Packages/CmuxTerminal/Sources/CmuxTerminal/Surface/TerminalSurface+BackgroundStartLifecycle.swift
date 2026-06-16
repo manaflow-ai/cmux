@@ -18,6 +18,12 @@ extension TerminalSurface {
         requestSurfaceStartIfNeeded(source: .inputDemand, reason: "input-demand")
     }
 
+    /// Requests a cold runtime start for socket reads.
+    @MainActor
+    public func requestReadDemandSurfaceStartIfNeeded() {
+        requestSurfaceStartIfNeeded(source: .inputDemand, reason: "read-demand")
+    }
+
     @MainActor
     private func requestSurfaceStartIfNeeded(
         source: RuntimeSurfaceCreationSource,

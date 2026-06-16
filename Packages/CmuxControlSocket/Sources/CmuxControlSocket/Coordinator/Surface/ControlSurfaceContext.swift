@@ -229,13 +229,16 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
     ///   - includeScrollback: Whether to include scrollback.
     ///   - lineLimit: The optional tail line limit (already validated `> 0`).
+    ///   - startIfNeeded: Whether a cold terminal should be started to satisfy
+    ///     this read.
     /// - Returns: The read-text resolution.
     func controlSurfaceReadText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         includeScrollback: Bool,
-        lineLimit: Int?
+        lineLimit: Int?,
+        startIfNeeded: Bool
     ) -> ControlSurfaceReadTextResolution
 
     // MARK: - resume.set / get / clear

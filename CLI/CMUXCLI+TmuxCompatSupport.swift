@@ -143,7 +143,8 @@ extension CMUXCLI {
         guard let payload = try? client.sendV2(method: "surface.read_text", params: [
             "workspace_id": workspaceId,
             "surface_id": surfaceId,
-            "lines": 4
+            "lines": 4,
+            "start_if_needed": false
         ]),
             let text = payload["text"] as? String else {
             return nil

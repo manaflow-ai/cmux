@@ -5005,28 +5005,6 @@ class TerminalController {
         return String(decoding: rawData, as: UTF8.self)
     }
 
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-            return "ERROR: Terminal surface not found"
-        }
-        guard let snapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return "ERROR: Terminal surface not found"
-        }
-        switch Self.terminalTextPayload(
-            from: snapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
-    }
-
     nonisolated static func terminalTextPayload(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
@@ -10517,7 +10495,8 @@ class TerminalController {
             result = readTerminalTextBase64(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                startIfNeeded: true
             )
         }
         return result

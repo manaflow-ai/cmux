@@ -296,7 +296,8 @@ extension TerminalController {
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         includeScrollback: Bool,
-        lineLimit: Int?
+        lineLimit: Int?,
+        startIfNeeded: Bool
     ) -> ControlSurfaceReadTextResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -314,6 +315,13 @@ extension TerminalController {
         }
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
+        }
+        guard ensureTerminalSurfaceReadyForRead(
+            terminalPanel,
+            reason: "controlSurfaceReadText",
+            startIfNeeded: startIfNeeded
+        ) else {
+            return .terminalNotReady(surfaceId)
         }
 
         guard let rawSnapshot = readTerminalTextRawSnapshot(
