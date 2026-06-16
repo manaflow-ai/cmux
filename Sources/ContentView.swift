@@ -13611,10 +13611,10 @@ struct TabItemView: View, Equatable {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .layoutPriority(1)
                 }
-                .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth + 8 : 0)
+                .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth : 0)
 
-                // Reserve the close affordance with fixed trailing padding so
-                // hover visibility never changes the title's proposed width.
+                // Reserve only the close affordance itself so hover visibility
+                // never changes layout, while titles still use the row width.
                 if canCloseWorkspace {
                     Button(action: {
                         #if DEBUG
