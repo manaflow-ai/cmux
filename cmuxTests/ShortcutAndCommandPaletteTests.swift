@@ -1234,16 +1234,32 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertNil(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0))
         )
-        XCTAssertNil(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "A", modifiers: [.shift], keyCode: 0))
-        )
         XCTAssertTrue(
             observedActions.isEmpty,
             "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
         )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "A", modifiers: [.shift], keyCode: 0))
+        )
         #else
         throw XCTSkip("shortcutLookupObserver is only available in DEBUG builds")
         #endif
+    }
+
+    func testModeShortcutSupportsShiftOnlyConfiguredBinding() {
+        let customFilesShortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: true,
+            option: false,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.shift], keyCode: 18)),
+            .files
+        )
     }
 
     func testModeShortcutUsesConfiguredBindings() {

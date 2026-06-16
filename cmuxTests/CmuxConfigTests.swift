@@ -1132,6 +1132,113 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHooksStartingFromDirectoryRefreshesEditedConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = configDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "first-local", "command": "cat" }]
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: projectDirectory.path).map(\.id),
+            ["global", "first-local"]
+        )
+
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "second-local", "command": "cat" }]
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 5)],
+            ofItemAtPath: localConfigURL.path
+        )
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: projectDirectory.path).map(\.id),
+            ["global", "second-local"]
+        )
+    }
+
+    @MainActor
+    func testNotificationHooksStartingFromDirectoryRefreshesNewAncestorConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let childDirectory = projectDirectory.appendingPathComponent("child", isDirectory: true)
+        let parentConfigDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: childDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let parentConfigURL = parentConfigDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: childDirectory.path).map(\.id),
+            ["global"]
+        )
+
+        try FileManager.default.createDirectory(at: parentConfigDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "parent", "command": "cat" }]
+          }
+        }
+        """.write(to: parentConfigURL, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: childDirectory.path).map(\.id),
+            ["global", "parent"]
+        )
+    }
+
+    @MainActor
     func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

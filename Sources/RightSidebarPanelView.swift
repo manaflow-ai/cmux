@@ -92,6 +92,7 @@ extension RightSidebarMode {
         .command,
         .control,
         .option,
+        .shift,
     ]
 
     static func shouldCheckModeShortcut(for event: NSEvent) -> Bool {

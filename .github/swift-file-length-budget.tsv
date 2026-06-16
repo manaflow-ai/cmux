@@ -30,7 +30,7 @@
 3903	cmuxTests/WindowAndDragTests.swift
 3734	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
-3422	Sources/CmuxConfig.swift
+3488	Sources/CmuxConfig.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3055	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
@@ -44,8 +44,8 @@
 2328	cmuxTests/CJKIMEInputTests.swift
 2309	Sources/TerminalNotificationStore.swift
 2259	Sources/TerminalWindowPortal.swift
-2117	cmuxTests/CmuxConfigTests.swift
-2117	cmuxTests/ShortcutAndCommandPaletteTests.swift
+2224	cmuxTests/CmuxConfigTests.swift
+2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2082	Sources/SessionPersistence.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -122,7 +122,7 @@
 749	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
-737	Sources/RightSidebarPanelView.swift
+738	Sources/RightSidebarPanelView.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift

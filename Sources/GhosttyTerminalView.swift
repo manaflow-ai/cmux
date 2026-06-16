@@ -465,7 +465,7 @@ class GhosttyApp {
     /// Gates rendered-frame notifications (was the
     /// `GhosttyRenderedFrameNotificationDemand` namespace enum).
     static let renderedFrameNotificationDemand = RenderDemandCounter()
-    static let renderedFrameNotificationDemandGate = GhosttyRenderedFrameNotificationDemandGate(
+    fileprivate static let renderedFrameNotificationDemandGate = GhosttyRenderedFrameNotificationDemandGate(
         base: renderedFrameNotificationDemand
     )
 
