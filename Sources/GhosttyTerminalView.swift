@@ -10067,6 +10067,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return "consume"
             case .accept:
                 return "accept"
+            case .insertForEdit:
+                return "insertForEdit"
             }
         }()
         cmuxDebugLog(
@@ -10086,6 +10088,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .accept(let accepted):
             sendAcceptedCommandHistoryCommand(accepted, to: terminalSurface)
             return true
+        case .insertForEdit(let accepted):
+            sendEditableCommandHistoryCommand(accepted, to: terminalSurface)
+            return true
         }
     }
 
@@ -10100,12 +10105,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = terminalSurface.sendInputResult(input)
     }
 
+    fileprivate func sendEditableCommandHistoryCommand(
+        _ accepted: TerminalCommandHistoryAcceptedCommand,
+        to terminalSurface: TerminalSurface
+    ) {
+        unmarkText()
+        let input = accepted.needsInputReplacement
+            ? "\u{15}" + accepted.command
+            : accepted.command
+        _ = terminalSurface.sendInputResult(input)
+    }
+
     private func terminalCommandHistoryKeyEvent(for event: NSEvent) -> TerminalCommandHistoryKeyEvent? {
         switch event.keyCode {
         case 126:
             return .up
         case 125:
             return .down
+        case 124:
+            return .right
         case 53:
             return .escape
         case 36, 76:
@@ -12742,6 +12760,10 @@ private struct TerminalCommandHistoryOverlay: View {
             keycap("↑")
             keycap("↓")
             Text("to navigate")
+                .foregroundStyle(secondaryTextColor)
+            keycap("→")
+                .padding(.leading, 10)
+            Text("to edit")
                 .foregroundStyle(secondaryTextColor)
             keycap("esc")
                 .padding(.leading, 10)

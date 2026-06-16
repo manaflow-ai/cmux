@@ -40,6 +40,7 @@ struct TerminalCommandHistorySnapshotEntry: Equatable {
 enum TerminalCommandHistoryKeyEvent: Equatable {
     case up
     case down
+    case right
     case escape
     case enter
 }
@@ -57,6 +58,7 @@ enum TerminalCommandHistoryKeyHandlingResult: Equatable {
     case passThrough
     case consume
     case accept(TerminalCommandHistoryAcceptedCommand)
+    case insertForEdit(TerminalCommandHistoryAcceptedCommand)
 }
 
 struct TerminalCommandHistoryMenuState: Equatable {
@@ -90,6 +92,7 @@ final class TerminalCommandHistoryStore: ObservableObject {
     private let maxEntriesPerPanel: Int
     private var historyByScope: [Scope: [TerminalCommandHistoryItem]] = [:]
     private var promptInputsByScope: [Scope: PromptInputState] = [:]
+    private var menuAutoOpenSuppressedScopes: Set<Scope> = []
 
     private enum PromptInputState: Equatable {
         case reliable(String)
@@ -218,12 +221,15 @@ final class TerminalCommandHistoryStore: ObservableObject {
     }
 
     func markPromptIdle(workspaceId: UUID, panelId: UUID) {
-        promptInputsByScope[Scope(workspaceId: workspaceId, panelId: panelId)] = .reliable("")
+        let scope = Scope(workspaceId: workspaceId, panelId: panelId)
+        promptInputsByScope[scope] = .reliable("")
+        menuAutoOpenSuppressedScopes.remove(scope)
     }
 
     func markCommandRunning(workspaceId: UUID, panelId: UUID) {
         let scope = Scope(workspaceId: workspaceId, panelId: panelId)
         promptInputsByScope.removeValue(forKey: scope)
+        menuAutoOpenSuppressedScopes.remove(scope)
         if activeMenu?.matches(workspaceId: workspaceId, panelId: panelId) == true {
             activeMenu = nil
         }
@@ -234,7 +240,9 @@ final class TerminalCommandHistoryStore: ObservableObject {
     }
 
     func markPromptInputUnreliable(workspaceId: UUID, panelId: UUID) {
-        promptInputsByScope[Scope(workspaceId: workspaceId, panelId: panelId)] = .unreliable
+        let scope = Scope(workspaceId: workspaceId, panelId: panelId)
+        promptInputsByScope[scope] = .unreliable
+        menuAutoOpenSuppressedScopes.remove(scope)
         if activeMenu?.matches(workspaceId: workspaceId, panelId: panelId) == true {
             activeMenu = nil
         }
@@ -246,6 +254,7 @@ final class TerminalCommandHistoryStore: ObservableObject {
         guard case .reliable(let current) = promptInputsByScope[scope] else { return }
         let next = current + text
         promptInputsByScope[scope] = .reliable(next)
+        guard !menuAutoOpenSuppressedScopes.contains(scope) else { return }
         openOrRefreshMenu(workspaceId: workspaceId, panelId: panelId, promptPrefix: next)
     }
 
@@ -253,6 +262,7 @@ final class TerminalCommandHistoryStore: ObservableObject {
         guard !text.isEmpty else { return }
         let scope = Scope(workspaceId: workspaceId, panelId: panelId)
         guard case .reliable(let current) = promptInputsByScope[scope] else { return }
+        guard !menuAutoOpenSuppressedScopes.contains(scope) else { return }
         openOrRefreshMenu(workspaceId: workspaceId, panelId: panelId, promptPrefix: current + text)
     }
 
@@ -262,6 +272,9 @@ final class TerminalCommandHistoryStore: ObservableObject {
         guard !current.isEmpty else { return }
         current.removeLast()
         promptInputsByScope[scope] = .reliable(current)
+        if menuAutoOpenSuppressedScopes.contains(scope) {
+            return
+        }
         if activeMenu?.matches(workspaceId: workspaceId, panelId: panelId) == true {
             if current.isEmpty {
                 activeMenu = nil
@@ -297,6 +310,7 @@ final class TerminalCommandHistoryStore: ObservableObject {
     func removeAll() {
         historyByScope.removeAll()
         promptInputsByScope.removeAll()
+        menuAutoOpenSuppressedScopes.removeAll()
         activeMenu = nil
     }
 
@@ -315,7 +329,7 @@ final class TerminalCommandHistoryStore: ObservableObject {
         }
 
         if activeMenu?.matches(workspaceId: workspaceId, panelId: panelId) == true {
-            return handleMenuKey(key)
+            return handleMenuKey(key, workspaceId: workspaceId, panelId: panelId)
         }
 
         guard key == .up || key == .down else { return .passThrough }
@@ -334,11 +348,16 @@ final class TerminalCommandHistoryStore: ObservableObject {
             matchingPrefix: promptPrefix,
             limit: 50
         )
+        menuAutoOpenSuppressedScopes.remove(Scope(workspaceId: workspaceId, panelId: panelId))
         openMenu(workspaceId: workspaceId, panelId: panelId, promptPrefix: promptPrefix, items: items)
         return .consume
     }
 
-    private func handleMenuKey(_ key: TerminalCommandHistoryKeyEvent) -> TerminalCommandHistoryKeyHandlingResult {
+    private func handleMenuKey(
+        _ key: TerminalCommandHistoryKeyEvent,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> TerminalCommandHistoryKeyHandlingResult {
         guard var menu = activeMenu else { return .passThrough }
         switch key {
         case .up:
@@ -349,6 +368,21 @@ final class TerminalCommandHistoryStore: ObservableObject {
             menu.selectedIndex = min(max(0, menu.items.count - 1), menu.selectedIndex + 1)
             activeMenu = menu
             return .consume
+        case .right:
+            guard let command = menu.selectedItem?.command else {
+                activeMenu = nil
+                return .consume
+            }
+            let scope = Scope(workspaceId: workspaceId, panelId: panelId)
+            activeMenu = nil
+            promptInputsByScope[scope] = .reliable(command)
+            menuAutoOpenSuppressedScopes.insert(scope)
+            return .insertForEdit(
+                TerminalCommandHistoryAcceptedCommand(
+                    command: command,
+                    replacementPrefix: menu.promptPrefix
+                )
+            )
         case .escape:
             activeMenu = nil
             return .consume

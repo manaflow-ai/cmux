@@ -584,6 +584,55 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNil(store.activeMenu)
     }
 
+    func testTerminalCommandHistoryRightArrowInsertsSelectionForEditing() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: panelId, command: "brew list"))
+        XCTAssertTrue(store.record(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            command: "brew autoremove --cask app-cleaner stats brave-browser"
+        ))
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.appendPromptInputText("brew a", workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.activeMenu?.selectedItem?.command,
+            "brew autoremove --cask app-cleaner stats brave-browser"
+        )
+
+        XCTAssertEqual(
+            store.handleKey(
+                .right,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .insertForEdit(
+                TerminalCommandHistoryAcceptedCommand(
+                    command: "brew autoremove --cask app-cleaner stats brave-browser",
+                    replacementPrefix: "brew a"
+                )
+            )
+        )
+        XCTAssertNil(store.activeMenu)
+        XCTAssertEqual(
+            store.currentPromptInput(workspaceId: workspaceId, panelId: panelId),
+            "brew autoremove --cask app-cleaner stats brave-browser"
+        )
+
+        store.appendPromptInputText(" --dry-run", workspaceId: workspaceId, panelId: panelId)
+        XCTAssertNil(store.activeMenu)
+        XCTAssertEqual(
+            store.currentPromptInput(workspaceId: workspaceId, panelId: panelId),
+            "brew autoremove --cask app-cleaner stats brave-browser --dry-run"
+        )
+    }
+
     func testReportCommandHistoryDecodesBase64AndStoresForPanel() throws {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
