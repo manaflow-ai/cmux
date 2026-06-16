@@ -1323,7 +1323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.begin")
             SentrySDK.start { options in
-                options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+                // Ingest via our own GCP-hosted, Sentry-envelope-compatible
+                // backend (cmux-errors), which owns the raw data and forwards a
+                // sampled subset to sentry.io. Same project id + public key;
+                // only the host changes.
+                options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@errors.cmux.dev/4510796264636416"
                 #if DEBUG
                 options.environment = "development"
                 options.debug = true

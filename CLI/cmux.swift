@@ -67,7 +67,10 @@ final class CLISocketSentryTelemetry {
 #if canImport(Sentry)
     private static let startupLock = NSLock()
     private static var started = false
-    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+    // Ingest via our own GCP-hosted, Sentry-envelope-compatible backend
+    // (cmux-errors), which owns the raw data and forwards a sampled subset to
+    // sentry.io. Same project id + public key; only the host changes.
+    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@errors.cmux.dev/4510796264636416"
 
     private static func currentSentryReleaseName() -> String? {
         guard let bundleIdentifier = currentSentryBundleIdentifier(),
