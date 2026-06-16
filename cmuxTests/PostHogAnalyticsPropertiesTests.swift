@@ -110,6 +110,7 @@ struct PostHogAnalyticsPropertiesTests {
         )))
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.capture")
         var capturedEvents: [(event: String, properties: [String: Any])] = []
+        let eventsCaptured = DispatchSemaphore(value: 0)
         let flushCalled = DispatchSemaphore(value: 0)
         let analytics = PostHogAnalytics.makeForTesting(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
@@ -119,6 +120,9 @@ struct PostHogAnalyticsPropertiesTests {
             capturePostHog: { event, properties in
                 capturedQueue.sync {
                     capturedEvents.append((event: event, properties: properties))
+                    if capturedEvents.count == 2 {
+                        eventsCaptured.signal()
+                    }
                 }
             },
             flushPostHog: {
@@ -127,6 +131,7 @@ struct PostHogAnalyticsPropertiesTests {
         )
 
         analytics.trackActive(reason: "didBecomeActive")
+        #expect(eventsCaptured.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushCalled.wait(timeout: .now() + .seconds(1)) == .success)
         let events = capturedQueue.sync { capturedEvents }
         #expect(events.map(\.event) == ["cmux_daily_active", "cmux_hourly_active"])
