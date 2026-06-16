@@ -109,6 +109,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case browserBack
     case browserForward
     case browserReload
+    /// Hard refreshes the focused browser pane, bypassing WebKit's cache.
     case browserHardReload
     case browserZoomIn
     case browserZoomOut
