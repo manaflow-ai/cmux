@@ -99,31 +99,39 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertEqual(presenter.consumePendingContentNavigationTarget(), .browserImport)
     }
 
-    func testPresenterRetainsConfiguredSettingsWindowForReopen() async {
+    func testClosedSettingsWindowReopensThroughSceneInsteadOfRetainingHiddenTree() async {
         let presenter = SettingsWindowPresenter()
-        let testWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
-        var settingsWindow: TestSettingsWindow? = testWindow
-        weak var weakSettingsWindow = settingsWindow
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         var didOpen = false
+        defer {
+            settingsWindow.orderOut(nil)
+            settingsWindow.close()
+        }
 
         presenter.show(openWindowOverride: {})
-        presenter.configure(window: settingsWindow!)
+        presenter.configure(window: settingsWindow)
         await Task.yield()
-        settingsWindow?.orderOut(nil)
-        settingsWindow = nil
-        await Task.yield()
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
 
-        XCTAssertNotNil(weakSettingsWindow)
+        settingsWindow.close()
+        await Task.yield()
 
         presenter.show(
             openWindowOverride: { didOpen = true }
         )
 
-        XCTAssertFalse(didOpen)
-        XCTAssertEqual(testWindow.makeKeyAndOrderFrontCallCount, 2)
-        XCTAssertTrue(testWindow === weakSettingsWindow)
-        weakSettingsWindow?.orderOut(nil)
-        weakSettingsWindow?.close()
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
+    }
+
+    func testRepeatedShowWhileSettingsSceneIsOpeningCoalescesOpenRequests() {
+        let presenter = SettingsWindowPresenter()
+        var openCallCount = 0
+
+        presenter.show(openWindowOverride: { openCallCount += 1 })
+        presenter.show(openWindowOverride: { openCallCount += 1 })
+
+        XCTAssertEqual(openCallCount, 1)
     }
 
     func testRefocusIfVisibleDoesNotReopenClosedSettingsWindow() async {
