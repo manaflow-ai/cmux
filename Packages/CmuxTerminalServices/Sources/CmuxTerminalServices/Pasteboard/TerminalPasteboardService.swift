@@ -46,6 +46,9 @@ public final class TerminalPasteboardService: Sendable {
     }
 
     static let utf8PlainTextType = NSPasteboard.PasteboardType("public.utf8-plain-text")
+    static let remoteClipboardType = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
+    static let flatRTFDType = NSPasteboard.PasteboardType("com.apple.flat-rtfd")
+    static let uikitAttributedStringType = NSPasteboard.PasteboardType("com.apple.uikit.attributedstring")
     static let temporaryImageFilenamePrefix = "clipboard-"
     static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
     /// Mirrors the clipboard-image size cap applied to every materialization

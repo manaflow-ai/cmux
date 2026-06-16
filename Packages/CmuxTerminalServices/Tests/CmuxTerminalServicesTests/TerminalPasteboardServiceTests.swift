@@ -81,6 +81,45 @@ struct PasteboardTextContentsTests {
         #expect(contents == "/tmp/with\\ space.png")
     }
 
+    @Test func universalClipboardRTFDFileURLPrefersRichText() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let text = "copied from iPhone"
+        let rtfdData = try NSAttributedString(string: text).data(
+            from: NSRange(location: 0, length: text.utf16.count),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        let backingURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Group Containers/group.com.apple.coreservices.useractivityd/shared-pasteboard/items")
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("\(UUID().uuidString).rtfd")
+
+        scratch.pasteboard.clearContents()
+        #expect(scratch.pasteboard.writeObjects([backingURL as NSURL]))
+        scratch.pasteboard.setData(rtfdData, forType: .rtfd)
+
+        #expect(service.stringContents(from: scratch.pasteboard) == text)
+    }
+
+    @Test func universalClipboardRemoteTextPrefersPlainTextOverRTFDFileURL() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let text = "copied from iPhone after repro"
+        let backingURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Group Containers/group.com.apple.coreservices.useractivityd/shared-pasteboard/items")
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("\(UUID().uuidString).rtfd")
+
+        scratch.pasteboard.clearContents()
+        #expect(scratch.pasteboard.writeObjects([backingURL as NSURL]))
+        scratch.pasteboard.setString(text, forType: .init("public.utf8-plain-text"))
+        scratch.pasteboard.setString(text, forType: .string)
+        scratch.pasteboard.setData(Data("not locally decodable rtfd".utf8), forType: .rtfd)
+        scratch.pasteboard.setString("1", forType: .init("com.apple.is-remote-clipboard"))
+
+        #expect(service.stringContents(from: scratch.pasteboard) == text)
+    }
+
     @Test func imageOnlyHTMLWithNoVisibleTextReturnsNil() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()

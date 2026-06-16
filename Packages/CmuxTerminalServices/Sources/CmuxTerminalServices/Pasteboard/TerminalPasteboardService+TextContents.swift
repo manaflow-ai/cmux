@@ -10,6 +10,14 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func stringContents(from pasteboard: NSPasteboard) -> String? {
         let types = pasteboard.types ?? []
 
+        if let remoteClipboardText = remoteClipboardText(from: pasteboard, types: types) {
+            return remoteClipboardText
+        }
+
+        if let sharedPasteboardText = sharedPasteboardRTFDText(from: pasteboard, types: types) {
+            return sharedPasteboardText
+        }
+
         if (types.contains(.fileURL) || types.contains(.URL)),
            let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
            !urls.isEmpty {
@@ -100,6 +108,36 @@ extension TerminalPasteboardService {
         return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
     }
 
+    private func remoteClipboardText(
+        from pasteboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> String? {
+        guard types.contains(Self.remoteClipboardType),
+              types.contains(.fileURL) || types.contains(.URL),
+              types.contains(where: isRemoteClipboardRichTextType) else {
+            return nil
+        }
+
+        return plainTextContents(from: pasteboard)
+    }
+
+    private func sharedPasteboardRTFDText(
+        from pasteboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> String? {
+        guard types.contains(.rtfd),
+              hasSharedPasteboardRTFDFileURL(in: pasteboard, types: types),
+              let richText = richTextContents(from: pasteboard) else {
+            return nil
+        }
+
+        if let plainText = plainTextContents(from: pasteboard),
+           PasteboardTextFidelity.shouldPreferPlainText(plainText, overRichText: richText) {
+            return plainText
+        }
+        return richText
+    }
+
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {
         let allTypes = pasteboard.types ?? []
 
@@ -136,6 +174,28 @@ extension TerminalPasteboardService {
         return hasImageData(in: pasteboard)
     }
 
+    private func hasSharedPasteboardRTFDFileURL(
+        in pasteboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> Bool {
+        guard (types.contains(.fileURL) || types.contains(.URL)),
+              let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
+            return false
+        }
+
+        return urls.contains { url in
+            guard url.isFileURL,
+                  url.pathExtension.caseInsensitiveCompare("rtfd") == .orderedSame else {
+                return false
+            }
+
+            let components = url.standardizedFileURL.pathComponents
+            return components.contains("group.com.apple.coreservices.useractivityd")
+                && components.contains("shared-pasteboard")
+                && components.contains("items")
+        }
+    }
+
     private func isPlainTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
         if type == .string || type == Self.utf8PlainTextType {
             return true
@@ -152,6 +212,12 @@ extension TerminalPasteboardService {
 
     private func isRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
         type == .html || type == .rtf || type == .rtfd
+    }
+
+    private func isRemoteClipboardRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        isRichTextType(type)
+            || type == Self.flatRTFDType
+            || type == Self.uikitAttributedStringType
     }
 
     func hasImageData(in pasteboard: NSPasteboard) -> Bool {
