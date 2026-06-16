@@ -11073,7 +11073,6 @@ struct VerticalTabsSidebar: View {
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
-                            focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                             bonsplitDropIndicator: dropIndicatorBinding
@@ -12115,7 +12114,6 @@ struct VerticalTabsSidebar: View {
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                     dragAutoScrollController: dragAutoScrollController,
-                    focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
                     topDropIndicatorVisible: false,
                     tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                     bonsplitDropIndicator: dropIndicatorBinding,
@@ -12973,7 +12971,6 @@ private struct SidebarEmptyArea: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
-    let focusWorkspaceSidebar: () -> Void
     // Value snapshot + closure bundles instead of an @Observable store
     // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
@@ -13005,7 +13002,6 @@ private struct SidebarEmptyArea: View {
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
                 }
                 selection = .tabs
-                focusWorkspaceSidebar()
             }
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
             .overlay {
@@ -14376,7 +14372,6 @@ struct TabItemView: View, Equatable {
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
         setSelectionToTabs()
-        focusWorkspaceSidebar()
     }
 
     private func updateSelection() {
@@ -14455,7 +14450,11 @@ struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
-        focusWorkspaceSidebar()
+        if isCommand || isShift {
+            // Modified row selection is the sidebar-owned path for grouping;
+            // plain workspace activation should leave typing with the terminal.
+            focusWorkspaceSidebar()
+        }
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
