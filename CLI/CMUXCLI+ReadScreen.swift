@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 extension CMUXCLI {
     func readScreenPayload(
@@ -10,16 +9,7 @@ extension CMUXCLI {
         if readParams["start_if_needed"] == nil {
             readParams["start_if_needed"] = true
         }
-        var readAttempt = 0
-        while true {
-            do {
-                return try client.sendV2(method: "surface.read_text", params: readParams)
-            } catch let error as CLIError
-                where error.message.hasPrefix("terminal_not_ready:") && readAttempt < 60 {
-                readAttempt += 1
-                usleep(100_000)
-            }
-        }
+        return try client.sendV2(method: "surface.read_text", params: readParams)
     }
 
     func contentSearchTerminalText(

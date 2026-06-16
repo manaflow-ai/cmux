@@ -16,6 +16,10 @@ final class FakeSurfaceReadTextControlCommandContext: ControlCommandContext {
         true
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings {
+        ControlSurfaceReadTextStrings(terminalNotReady: "Terminal surface is starting")
+    }
+
     func controlSurfaceReadText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,

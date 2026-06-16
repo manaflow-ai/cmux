@@ -177,6 +177,15 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings {
+        ControlSurfaceReadTextStrings(
+            terminalNotReady: String(
+                localized: "socket.terminal.surfaceStarting",
+                defaultValue: "The terminal surface is starting. Try again in a moment."
+            )
+        )
+    }
+
     /// Resolves the send target surface, matching the legacy
     /// `params["surface_id"] != nil` branch (an explicit param that did not parse
     /// signals `surfaceNotFoundForID`; otherwise the focused surface).

@@ -317,7 +317,7 @@ extension ControlCommandCoordinator {
         case .terminalNotReady(let id):
             return .err(
                 code: "terminal_not_ready",
-                message: "Terminal surface is starting",
+                message: context?.controlSurfaceReadTextStrings().terminalNotReady ?? "",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .internalError(let message):

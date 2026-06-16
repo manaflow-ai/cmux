@@ -419,6 +419,8 @@ extension ControlSurfaceContext {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings { .init(terminalNotReady: "") }
+
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,

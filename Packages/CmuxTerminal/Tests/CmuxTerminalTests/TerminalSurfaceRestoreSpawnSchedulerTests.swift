@@ -295,6 +295,32 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
+    @Test func readDemandHeadlessStartIsImmediate() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallCompleted = true
+        surface.backgroundSurfaceStartQueued = true
+        surface.backgroundSurfaceStartSource = .normal
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.requestReadDemandSurfaceStartIfNeeded()
+
+        #expect(surface.backgroundSurfaceStartQueued == false)
+        #expect(surface.backgroundSurfaceStartSource == .normal)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
     @Test func inputDemandPromotesInFlightClaudeShimCreationSource() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
