@@ -119,12 +119,14 @@ binary_entitlement_value() {
   printf '%s\n' "$value"
 }
 
-if [[ -n "$APP_ID" ]]; then
-  SIGNED_APP_ID="$(signed_entitlement_value "com.apple.application-identifier")"
-  if [[ "$SIGNED_APP_ID" != "$APP_ID" ]]; then
-    echo "error: signed app missing application-identifier $APP_ID" >&2
-    exit 1
-  fi
+if [[ -z "$APP_ID" ]]; then
+  echo "error: app entitlements missing application-identifier: $APP_ENTITLEMENTS" >&2
+  exit 1
+fi
+SIGNED_APP_ID="$(signed_entitlement_value "com.apple.application-identifier")"
+if [[ "$SIGNED_APP_ID" != "$APP_ID" ]]; then
+  echo "error: signed app missing application-identifier $APP_ID" >&2
+  exit 1
 fi
 
 if [[ "$(signed_entitlement_value "com.apple.developer.web-browser")" != "true" ]]; then
