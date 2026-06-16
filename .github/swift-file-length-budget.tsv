@@ -18,9 +18,8 @@
 6156	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
-5987	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+5989	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
-5553	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4920	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
@@ -183,7 +182,6 @@
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
-557	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
