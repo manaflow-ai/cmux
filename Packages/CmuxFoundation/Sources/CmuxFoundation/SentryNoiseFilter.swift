@@ -2,10 +2,12 @@ import Foundation
 
 /// Classifies Sentry-bound error text so expected, non-actionable transport
 /// disconnects can be dropped before capture or send.
-public enum SentryNoiseFilter {
+public struct SentryNoiseFilter: Sendable {
+    public init() {}
+
     /// Returns `true` when a CLI socket transport stage failed because the peer
     /// was absent, refused the connection, or disappeared during a write.
-    public static func isExpectedCLISocketTransportFailure(
+    public func isExpectedCLISocketTransportFailure(
         stage: String,
         message: String,
         dataKeys: Set<String> = []
@@ -18,7 +20,7 @@ public enum SentryNoiseFilter {
 
     /// Returns `true` for expected CLI socket connect/write error messages that
     /// are normal lifecycle races at fleet scale.
-    public static func isExpectedCLISocketTransportMessage(_ text: String) -> Bool {
+    public func isExpectedCLISocketTransportMessage(_ text: String) -> Bool {
         let t = text.lowercased()
 
         let isSocketWriteFailure =
@@ -49,7 +51,7 @@ public enum SentryNoiseFilter {
             t.contains("errno 61")              // ECONNREFUSED
     }
 
-    private static func isCLISocketTransportContext(stage: String, dataKeys: Set<String>) -> Bool {
+    private func isCLISocketTransportContext(stage: String, dataKeys: Set<String>) -> Bool {
         stage == "socket_connect" ||
             stage.hasPrefix("socket_command") ||
             dataKeys.contains("socket_phase") ||

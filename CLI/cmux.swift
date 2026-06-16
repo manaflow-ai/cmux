@@ -62,6 +62,7 @@ final class CLISocketSentryTelemetry {
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
+    private let noiseFilter: SentryNoiseFilter
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
@@ -132,6 +133,7 @@ final class CLISocketSentryTelemetry {
         self.disabledByEnv =
             processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
+        self.noiseFilter = SentryNoiseFilter()
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -144,7 +146,7 @@ final class CLISocketSentryTelemetry {
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
         let errorDescription = String(describing: error)
-        guard !SentryNoiseFilter.isExpectedCLISocketTransportFailure(
+        guard !noiseFilter.isExpectedCLISocketTransportFailure(
             stage: stage,
             message: errorDescription,
             dataKeys: Set(data.keys)
@@ -196,13 +198,14 @@ final class CLISocketSentryTelemetry {
 
 #if canImport(Sentry)
     private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
+        let noiseFilter = SentryNoiseFilter()
         if let message = event.message?.formatted,
-           SentryNoiseFilter.isExpectedCLISocketTransportMessage(message) {
+           noiseFilter.isExpectedCLISocketTransportMessage(message) {
             return true
         }
         for exception in event.exceptions ?? [] {
             if let value = exception.value,
-               SentryNoiseFilter.isExpectedCLISocketTransportMessage(value) {
+               noiseFilter.isExpectedCLISocketTransportMessage(value) {
                 return true
             }
         }
