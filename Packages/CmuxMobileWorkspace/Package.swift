@@ -15,12 +15,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CMUXMobileCore"),
         .package(path: "../CmuxMobileShellModel"),
     ],
     targets: [
         .target(
             name: "CmuxMobileWorkspace",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxMobileShellModel",
             ],
             swiftSettings: [

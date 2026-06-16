@@ -224,4 +224,40 @@ import Testing
         #expect(decoded.routes == ticket.routes)
         #expect(decoded.authToken == "dev-token")
     }
+
+    @Test func decodesPairingCodeFromAnyChannelScheme() throws {
+        // Cross-channel pairing from inside the app: the decoder accepts both
+        // the release scheme (cmux-ios) and the dev scheme (cmux-ios-dev), so a
+        // phone on either channel pairs from a QR minted by either channel.
+        for scheme in CmxPairingURLScheme.all {
+            let decoded = try CmxAttachTicketInput.decode(
+                "\(scheme)://attach?v=2&r=100.64.0.5:58465"
+            )
+            #expect(decoded.routes.count == 1)
+            #expect(decoded.routes.first?.kind == .tailscale)
+        }
+    }
+
+    @Test func newerGrammarVersionThrowsUnrecognizedVersion() {
+        // A QR minted by a newer cmux whose grammar version this build predates
+        // (the field report: beta 1.0.2 scanned a v2 QR a newer Mac emitted).
+        // It must surface distinctly so the UI says "update the app" instead of
+        // the generic invalid-code copy. Use one past the build's known version
+        // so the test tracks the constant rather than hardcoding 3.
+        let newerVersion = CmxPairingQRCode.version + 1
+        #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(newerVersion)) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios://attach?v=\(newerVersion)&r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func knownVersionDoesNotThrowUnrecognizedVersion() throws {
+        // The current grammar version is not "newer", so it decodes normally
+        // rather than tripping the unrecognized-version path.
+        let decoded = try CmxAttachTicketInput.decode(
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
+        )
+        #expect(decoded.routes.count == 1)
+    }
 }
