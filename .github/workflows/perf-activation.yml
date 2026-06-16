@@ -130,15 +130,34 @@ jobs:
             ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Run activation session benchmark
+        env:
+          WORKSPACE_COUNT_INPUT: ${{ inputs.workspace_count || '12' }}
+          HEAVY_SCROLLBACK_LINES_INPUT: ${{ inputs.heavy_scrollback_lines || '2400' }}
+          OTHER_SCROLLBACK_LINES_INPUT: ${{ inputs.other_scrollback_lines || '1400' }}
+          SCROLLBACK_TARGET_CHARS_INPUT: ${{ inputs.scrollback_target_chars || '1500000' }}
         run: |
           set -euo pipefail
+          validate_non_negative_integer() {
+            local name="$1"
+            local value="$2"
+            case "$value" in
+              ''|*[!0-9]*)
+                echo "Invalid $name: must be a non-negative integer" >&2
+                exit 1
+                ;;
+            esac
+          }
+          validate_non_negative_integer workspace_count "$WORKSPACE_COUNT_INPUT"
+          validate_non_negative_integer heavy_scrollback_lines "$HEAVY_SCROLLBACK_LINES_INPUT"
+          validate_non_negative_integer other_scrollback_lines "$OTHER_SCROLLBACK_LINES_INPUT"
+          validate_non_negative_integer scrollback_target_chars "$SCROLLBACK_TARGET_CHARS_INPUT"
           mkdir -p perf-results
           python3 scripts/perf-activation-session.py \
             --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
-            --scrollback-target-chars "${{ inputs.scrollback_target_chars || '1500000' }}" \
+            --workspace-count "$WORKSPACE_COUNT_INPUT" \
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES_INPUT" \
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES_INPUT" \
+            --scrollback-target-chars "$SCROLLBACK_TARGET_CHARS_INPUT" \
             --synthetic-scrollback-fallback \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
