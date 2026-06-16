@@ -107,6 +107,7 @@ extension VerticalTabsSidebar {
             tabDropDelegateFactory: tabDropDelegateFactory,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
+                focusWorkspaceSidebarForKeyboardShortcut()
             },
             onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
                 guard let tabManager else { return }
@@ -118,6 +119,7 @@ extension VerticalTabsSidebar {
                 if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
                 }
+                focusWorkspaceSidebarForKeyboardShortcut()
             },
             onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }

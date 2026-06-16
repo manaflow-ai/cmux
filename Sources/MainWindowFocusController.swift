@@ -53,6 +53,7 @@ final class MainWindowFocusController {
     private weak var window: NSWindow?
     private weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
+    private weak var workspaceSidebarHost: WorkspaceSidebarKeyboardFocusView?
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
@@ -102,6 +103,10 @@ final class MainWindowFocusController {
         }
         syncBonsplitTabShortcutHintEligibility()
         publishFeedFocusSnapshot()
+    }
+
+    func registerWorkspaceSidebarHost(_ host: WorkspaceSidebarKeyboardFocusView) {
+        workspaceSidebarHost = host
     }
 
     func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
@@ -206,6 +211,31 @@ final class MainWindowFocusController {
             return true
         }
         return false
+    }
+
+    func ownsWorkspaceSidebarFocus(_ responder: NSResponder) -> Bool {
+        workspaceSidebarHost?.ownsKeyboardFocus(responder) == true
+    }
+
+    @discardableResult
+    func focusWorkspaceSidebar() -> Bool {
+        guard let host = workspaceSidebarHost,
+              let hostWindow = host.window ?? window else {
+            return false
+        }
+        noteWorkspaceSidebarInteraction()
+        let result = hostWindow.makeFirstResponder(host)
+        if result {
+            syncAfterResponderChange(responder: hostWindow.firstResponder)
+        }
+        return result
+    }
+
+    func noteWorkspaceSidebarInteraction() {
+        rightSidebarFocusState = .inactive
+        intent = nil
+        feedSelectedItemId = nil
+        publishFeedFocusSnapshot()
     }
 
     func shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: NSResponder?) -> Bool {
@@ -351,6 +381,10 @@ final class MainWindowFocusController {
                 feedSelectedItemId = nil
             }
             publishFeedFocusSnapshot()
+            return
+        }
+        if ownsWorkspaceSidebarFocus(responder) {
+            noteWorkspaceSidebarInteraction()
             return
         }
         if rightSidebarFocusState.request != nil {

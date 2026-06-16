@@ -10759,6 +10759,113 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
     }
 
+    func testGroupSelectedWorkspacesShortcutGroupsWhenWorkspaceSidebarOwnsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window with tab manager")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(appDelegate.shouldRouteWorkspaceSidebarShortcut(in: window))
+
+        let workspaceGroupCountBefore = manager.workspaceGroups.count
+
+        XCTAssertTrue(
+            appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window),
+            "The grouping shortcut should remain available while the workspace sidebar owns focus"
+        )
+        XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore + 1)
+    }
+
+    func testCmdShiftGShortcutFallsThroughForGhosttyFirstResponderWithSidebarMultiSelection() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+Shift+G"
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "G",
+            charactersIgnoringModifiers: "g",
+            isARepeat: false,
+            keyCode: 5
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+G event")
+            return
+        }
+
+        let workspaceGroupCountBefore = manager.workspaceGroups.count
+        let workspaceCountBefore = manager.tabs.count
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "cmux must not consume Ghostty's Cmd+Shift+G binding while Ghostty owns first responder"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore)
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
+    }
+
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

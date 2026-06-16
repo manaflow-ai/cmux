@@ -5326,8 +5326,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // never re-route the keystroke to the terminal. Symmetric with
         // applyFirstResponderIfNeeded's foreign focus guard.
         if let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               isRightSidebarFocusResponder($0, in: window)
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               isNonTerminalFocusResponder($0, in: window)
            }) {
             return
         }
@@ -6584,6 +6584,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (issue #5269).
         guard let window, (responder as? NSView)?.window === window else { return false }
         return keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus(responder) == true
+    }
+
+    func isWorkspaceSidebarFocusResponder(_ responder: NSResponder, in window: NSWindow?) -> Bool {
+        // Match the right-sidebar stranded-responder guard: a detached or reparented sidebar host
+        // is not a legitimate keyboard owner for this window.
+        guard let window, (responder as? NSView)?.window === window else { return false }
+        return keyboardFocusCoordinator(for: window)?.ownsWorkspaceSidebarFocus(responder) == true
+    }
+
+    func isNonTerminalFocusResponder(_ responder: NSResponder, in window: NSWindow?) -> Bool {
+        isRightSidebarFocusResponder(responder, in: window) ||
+            isWorkspaceSidebarFocusResponder(responder, in: window)
+    }
+
+    @discardableResult
+    func focusWorkspaceSidebar(in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?.focusWorkspaceSidebar() ?? false
+    }
+
+    func shouldRouteWorkspaceSidebarShortcut(in window: NSWindow?) -> Bool {
+        guard let window,
+              let responder = window.firstResponder else {
+            return false
+        }
+        return isWorkspaceSidebarFocusResponder(responder, in: window)
     }
 
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
@@ -13542,7 +13567,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
-            if !didHandle { NSSound.beep() }
+            if didHandle {
+                return true
+            }
+            if focusedTerminalShortcutContext(
+                preferredWindow: mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            ) != nil {
+                return false
+            }
+            NSSound.beep()
             return true
         }
 
@@ -14504,6 +14537,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // looking at. Fall back to the app-level tabManager only if no window
         // context resolves.
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard shouldRouteWorkspaceSidebarShortcut(in: targetWindow) else {
+            return false
+        }
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
         let selectedSet = tabManager.sidebarSelectedWorkspaceIds

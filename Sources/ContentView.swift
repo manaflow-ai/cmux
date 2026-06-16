@@ -10799,11 +10799,16 @@ struct VerticalTabsSidebar: View {
                     )
                 }
                 .background(
-                    SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
-                        dragAutoScrollController.attach(scrollView: scrollView)
+                    ZStack {
+                        WorkspaceSidebarKeyboardFocusBridge()
+                            .frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                        SidebarScrollViewResolver { scrollView in
+                            configureSidebarScrollView(scrollView)
+                            dragAutoScrollController.attach(scrollView: scrollView)
+                        }
+                        .frame(width: 0, height: 0)
                     }
-                    .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
                     Color.clear.frame(height: scrollInsets.top)
@@ -10957,6 +10962,13 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
+    @discardableResult
+    func focusWorkspaceSidebarForKeyboardShortcut() -> Bool {
+        AppDelegate.shared?.focusWorkspaceSidebar(
+            in: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        ) ?? false
+    }
+
     @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
@@ -11061,6 +11073,7 @@ struct VerticalTabsSidebar: View {
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
+                            focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                             bonsplitDropIndicator: dropIndicatorBinding
@@ -12082,6 +12095,7 @@ struct VerticalTabsSidebar: View {
                 selectedTabIds: $selectedTabIds,
                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                 dragAutoScrollController: dragAutoScrollController,
+                focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                 bonsplitDropIndicator: dropIndicatorBinding,
@@ -12336,6 +12350,7 @@ struct VerticalTabsSidebar: View {
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
+            focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
@@ -12940,6 +12955,7 @@ private struct SidebarEmptyArea: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
+    let focusWorkspaceSidebar: () -> Void
     // Value snapshot + closure bundles instead of an @Observable store
     // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
@@ -12971,6 +12987,7 @@ private struct SidebarEmptyArea: View {
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
                 }
                 selection = .tabs
+                focusWorkspaceSidebar()
             }
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
             .overlay {
@@ -13164,6 +13181,7 @@ struct TabItemView: View, Equatable {
     let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
+    let focusWorkspaceSidebar: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
@@ -14340,6 +14358,7 @@ struct TabItemView: View, Equatable {
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
         setSelectionToTabs()
+        focusWorkspaceSidebar()
     }
 
     private func updateSelection() {
@@ -14418,6 +14437,7 @@ struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
+        focusWorkspaceSidebar()
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {

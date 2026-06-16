@@ -9957,11 +9957,15 @@ final class GhosttySurfaceScrollView: NSView {
             }
             if respectForeignFirstResponder,
                let firstResponder = window.firstResponder,
-               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
-           }) {
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+                   AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
+               }) {
 #if DEBUG
-                let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+                let reason = firstResponder is NSText
+                    ? "textEditorFocused"
+                    : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                        ? "workspaceSidebarFocused"
+                        : "rightSidebarFocused")
                 dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dock.\(reason)")
 #endif
                 return
@@ -10033,11 +10037,15 @@ final class GhosttySurfaceScrollView: NSView {
         // surface already owns focus.
         if respectForeignFirstResponder,
            let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
            }) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+            let reason = firstResponder is NSText
+                ? "textEditorFocused"
+                : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                    ? "workspaceSidebarFocused"
+                    : "rightSidebarFocused")
             dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=\(reason)")
 #endif
             return
@@ -10326,11 +10334,15 @@ final class GhosttySurfaceScrollView: NSView {
         // own GhosttyNSView for input, so NSText and the feed focus host are always foreign focus
         // owners that should survive deferred terminal visibility applies.
         if let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
            }) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+            let reason = firstResponder is NSText
+                ? "textEditorFocused"
+                : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                    ? "workspaceSidebarFocused"
+                    : "rightSidebarFocused")
             cmuxDebugLog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=\(reason)")
 #endif
             return
