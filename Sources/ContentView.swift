@@ -10059,135 +10059,21 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
-/// Transient sidebar drag/drop state, owned by `VerticalTabsSidebar` and passed
-/// by reference into rows and drop delegates. `@Observable` gives per-property
-/// tracking: writing `draggedTabId` or `dropIndicator` during drag invalidates
-/// only the views that read those properties (the dragged row's opacity and the
-/// drop-indicator overlays), never the sidebar body or the `LazyVStack` itself.
-/// That invariant is what prevents the layout-invalidation loop that caused
-/// https://github.com/manaflow-ai/cmux/issues/2586.
-@MainActor
-@Observable
-final class SidebarDragState {
-    var draggedTabId: UUID?
-    var dropIndicator: SidebarDropIndicator?
-    var dropIndicatorUsesTopLevelRows = false
-    /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
-    /// driving the drag state. The lifecycle observers honor this by not
-    /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
-    /// `mouse_up_failsafe` clear request immediately since no real mouse is
-    /// pressed during simulation). DEBUG-only by convention; never set in
-    /// release flows.
-    var isSimulated: Bool = false
-
-    /// True only in the window that *originated* the current drag (set via
-    /// ``beginDragging(tabId:)``). A destination window that mirrors a foreign
-    /// drag id into ``draggedTabId`` for cross-window rendering does not own the
-    /// process-wide ``SidebarWorkspaceDragRegistry`` entry, so it must not clear
-    /// it when its own local drag state is reset.
-    private var originatedActiveDrag = false
-
-    /// Pin state of a foreign (cross-window) dragged workspace, resolved once
-    /// when the drag is mirrored into this window and reused for every hover
-    /// update. A workspace's pin state can't change mid-drag, so this avoids an
-    /// `AppDelegate.tabManagerFor(tabId:)` scan over every window on each
-    /// pointer-move. `nil` when no foreign drag is mirrored here.
-    var foreignDraggedIsPinned: Bool?
-
-    init() {}
-
-    func beginDragging(tabId: UUID) {
-        draggedTabId = tabId
-        clearDropIndicator()
-        originatedActiveDrag = true
-        SidebarWorkspaceDragRegistry.begin(workspaceId: tabId)
-    }
-
-    func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
-        dropIndicator = indicator
-        dropIndicatorUsesTopLevelRows = indicator != nil && usesTopLevelRows
-    }
-
-    func clearDropIndicator() {
-        setDropIndicator(nil)
-    }
-
-    func clearDrag() {
-        if originatedActiveDrag, let draggedTabId {
-            SidebarWorkspaceDragRegistry.end(workspaceId: draggedTabId)
-        }
-        originatedActiveDrag = false
-        foreignDraggedIsPinned = nil
-        draggedTabId = nil
-        clearDropIndicator()
+// `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
+// `SidebarDragStateRegistry` now live in the `CmuxSidebar`// package. This app-side convenience keeps the `SidebarDragState()` call site
+// unchanged by injecting the process-wide cross-window registry the app owns
+// at its composition root (`AppDelegate`).
+extension SidebarDragState {
+    /// Builds a drag state wired to the app's process-wide cross-window drag
+    /// registry. Falls back to a fresh registry only if `AppDelegate.shared` is
+    /// not yet available (never the case once a sidebar has mounted).
+    convenience init() {
+        self.init(
+            workspaceDragRegistry: AppDelegate.shared?.sidebarWorkspaceDragRegistry
+                ?? SidebarWorkspaceDragRegistry()
+        )
     }
 }
-
-/// Process-wide identity of the workspace currently being dragged in any
-/// window's sidebar.
-///
-/// A sidebar drag is a single, process-global event: at most one workspace is
-/// being dragged at a time. The originating window records it here synchronously
-/// at drag start (``SidebarDragState/beginDragging(tabId:)``) and clears it when
-/// that drag ends. A *destination* window — which has no local
-/// ``SidebarDragState/draggedTabId`` because the drag began elsewhere — reads
-/// this to resolve the dragged workspace for a cross-window move.
-///
-/// This is deliberately not sourced from `NSPasteboard(name: .drag)`: SwiftUI's
-/// `.onDrag` registers the payload through an `NSItemProvider` whose data
-/// representation is delivered asynchronously, so a synchronous pasteboard read
-/// inside a `DropDelegate` can race and return `nil`. A plain in-process value,
-/// set synchronously on the main actor, has no such materialization race.
-@MainActor
-enum SidebarWorkspaceDragRegistry {
-    private static var activeWorkspaceId: UUID?
-
-    /// The workspace currently being sidebar-dragged anywhere in the process,
-    /// or `nil` when no sidebar drag is in flight.
-    static var currentWorkspaceId: UUID? { activeWorkspaceId }
-
-    /// Record the start of a sidebar drag. Called by the originating window.
-    static func begin(workspaceId: UUID) {
-        activeWorkspaceId = workspaceId
-    }
-
-    /// Clear the active drag, but only if `workspaceId` still matches the
-    /// in-flight drag, so a stale clear from a superseded drag is a no-op.
-    static func end(workspaceId: UUID) {
-        if activeWorkspaceId == workspaceId {
-            activeWorkspaceId = nil
-        }
-    }
-}
-
-#if DEBUG
-/// Debug-only registry that exposes the live `SidebarDragState` of each
-/// mounted `VerticalTabsSidebar` keyed by `windowId`. The debug-socket
-/// `debug.sidebar.simulate_drag` handler reads from this so external
-/// profiling tools (e.g. the `profile-pr` skill driving `xctrace`) can
-/// generate deterministic drag-state mutations against the running app
-/// without HID synthesis.
-@MainActor
-enum SidebarDragStateRegistry {
-    private static var statesByWindowId: [UUID: SidebarDragState] = [:]
-
-    static func register(windowId: UUID, dragState: SidebarDragState) {
-        statesByWindowId[windowId] = dragState
-    }
-
-    static func unregister(windowId: UUID) {
-        statesByWindowId.removeValue(forKey: windowId)
-    }
-
-    static func state(forWindowId windowId: UUID) -> SidebarDragState? {
-        statesByWindowId[windowId]
-    }
-
-    static func registeredWindowIds() -> [UUID] {
-        Array(statesByWindowId.keys)
-    }
-}
-#endif
 
 /// Per-row drop-indicator visibility, computed by the parent from value
 /// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
@@ -10308,106 +10194,85 @@ struct VerticalTabsSidebar: View {
     /// itself, so it respects the sidebar snapshot-boundary rule.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
-        let workspaces: [SwiftValue] = tabManager.tabs.enumerated().map { index, workspace in
-            customSidebarWorkspaceValue(workspace, index: index, selectedId: selectedId)
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let c = Calendar.current.dateComponents([.hour, .minute, .second, .weekday], from: now)
-        let hour = c.hour ?? 0, minute = c.minute ?? 0, second = c.second ?? 0
-        let clock: SwiftValue = .object([
-            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
-            "hour": .int(hour),
-            "minute": .int(minute),
-            "second": .int(second),
-            "weekday": .int(c.weekday ?? 0),
-            "epoch": .int(Int(now.timeIntervalSince1970)),
-        ])
-        return [
-            "workspaces": .array(workspaces),
-            "workspaceCount": .int(tabManager.tabs.count),
-            "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
-            "selectedId": .string(selectedId?.uuidString ?? ""),
-            "unreadTotal": .int(sidebarUnread.totalUnreadCount),
-            "clock": clock,
-        ]
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    /// Projects one workspace's live state into the interpreter value tree.
-    /// Optional fields are omitted when absent so interpreted `if let` / ternary
-    /// truthiness behaves; always-present fields default sensibly. Keep this in
-    /// sync with the data keys documented in `docs/custom-sidebars.md`.
-    private func customSidebarWorkspaceValue(_ workspace: Workspace, index: Int, selectedId: UUID?) -> SwiftValue {
+    /// Projects one workspace's live state into the interpreter input snapshot.
+    /// The SwiftValue assembly and optional-field omission rules live in
+    /// `CustomSidebarDataContextBuilder`; keep the projected fields in sync with
+    /// the data keys documented in `docs/custom-sidebars.md`.
+    private func customSidebarWorkspaceSnapshot(_ workspace: Workspace, index: Int, selectedId: UUID?) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = workspace.focusedPanelId
-        var fields: [String: SwiftValue] = [
-            "id": .string(workspace.id.uuidString),
-            "title": .string(workspace.customTitle ?? workspace.title),
-            "selected": .bool(workspace.id == selectedId),
-            "pinned": .bool(workspace.isPinned),
-            "index": .int(index),
-            "directory": .string(workspace.currentDirectory),
-            "ports": .array(workspace.listeningPorts.map { .int($0) }),
-            "portCount": .int(workspace.listeningPorts.count),
-            "unread": .int(sidebarUnread.unreadCount(forWorkspaceId: workspace.id)),
-            "tabs": .array(customSidebarSurfaceValues(workspace, focusedPanelId: focusedPanelId)),
-            "tabCount": .int(workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count }),
-        ]
-        if let description = workspace.customDescription, !description.isEmpty { fields["description"] = .string(description) }
-        if let color = workspace.customColor, !color.isEmpty { fields["color"] = .string(color) }
-        if let git = workspace.sidebarGitBranchesInDisplayOrder().first {
-            fields["branch"] = .string(git.branch)
-            fields["dirty"] = .bool(git.isDirty)
+        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
+        let progress = workspace.progress.map {
+            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
         }
-        let pullRequestValues = workspace.customSidebarPullRequestValues()
-        if let firstPullRequest = pullRequestValues.first {
-            fields["pr"] = firstPullRequest
-            fields["prs"] = .array(pullRequestValues)
+        let remote = workspace.remoteDisplayTarget.map { target in
+            CustomSidebarWorkspaceSnapshot.Remote(
+                target: target,
+                stateRawValue: workspace.remoteConnectionState.rawValue,
+                isConnected: workspace.remoteConnectionState == .connected
+            )
         }
-        if let progress = workspace.progress {
-            var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
-            if let label = progress.label { progressFields["label"] = .string(label) }
-            fields["progress"] = .object(progressFields)
-        }
-        if let message = workspace.latestConversationMessage, !message.isEmpty { fields["latestMessage"] = .string(message) }
-        if let prompt = workspace.latestSubmittedMessage, !prompt.isEmpty { fields["latestPrompt"] = .string(prompt) }
-        if let at = workspace.latestSubmittedAt { fields["latestAt"] = .int(Int(at.timeIntervalSince1970)) }
-        if let target = workspace.remoteDisplayTarget {
-            fields["remote"] = .object([
-                "target": .string(target),
-                "state": .string(workspace.remoteConnectionState.rawValue),
-                "connected": .bool(workspace.remoteConnectionState == .connected),
-            ])
-        }
-        return .object(fields)
+        return CustomSidebarWorkspaceSnapshot(
+            id: workspace.id,
+            title: workspace.customTitle ?? workspace.title,
+            isSelected: workspace.id == selectedId,
+            isPinned: workspace.isPinned,
+            index: index,
+            directory: workspace.currentDirectory,
+            listeningPorts: workspace.listeningPorts,
+            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+            surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
+            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
+            customDescription: workspace.customDescription,
+            customColor: workspace.customColor,
+            gitBranch: firstBranch?.branch,
+            gitIsDirty: firstBranch?.isDirty ?? false,
+            pullRequestValues: workspace.customSidebarPullRequestValues(),
+            progress: progress,
+            latestConversationMessage: workspace.latestConversationMessage,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
+            latestSubmittedAt: workspace.latestSubmittedAt,
+            remote: remote
+        )
     }
 
     /// Projects a workspace's surfaces (terminal/browser/etc. tabs) into the
-    /// interpreter value tree, enriched with per-surface directory, pin, git,
-    /// and ports where available.
-    private func customSidebarSurfaceValues(_ workspace: Workspace, focusedPanelId: UUID?) -> [SwiftValue] {
-        var tabs: [SwiftValue] = []
+    /// interpreter input snapshots, enriched with per-surface directory, pin,
+    /// git, and ports where available.
+    private func customSidebarSurfaceSnapshots(_ workspace: Workspace, focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
+        var surfaces: [CustomSidebarSurfaceSnapshot] = []
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                var surfaceFields: [String: SwiftValue] = [
-                    "id": .string(panelId.uuidString),
-                    "title": .string(tab.title),
-                    "focused": .bool(panelId == focusedPanelId),
-                    "pinned": .bool(workspace.pinnedPanelIds.contains(panelId)),
-                ]
-                if let directory = workspace.panelDirectories[panelId], !directory.isEmpty {
-                    surfaceFields["directory"] = .string(directory)
-                }
-                if let git = workspace.panelGitBranches[panelId] {
-                    surfaceFields["branch"] = .string(git.branch)
-                    surfaceFields["dirty"] = .bool(git.isDirty)
-                }
-                if let ports = workspace.surfaceListeningPorts[panelId], !ports.isEmpty {
-                    surfaceFields["ports"] = .array(ports.map { .int($0) })
-                }
-                tabs.append(.object(surfaceFields))
+                let git = workspace.panelGitBranches[panelId]
+                surfaces.append(
+                    CustomSidebarSurfaceSnapshot(
+                        panelId: panelId,
+                        title: tab.title,
+                        isFocused: panelId == focusedPanelId,
+                        isPinned: workspace.pinnedPanelIds.contains(panelId),
+                        directory: workspace.panelDirectories[panelId],
+                        gitBranch: git?.branch,
+                        gitIsDirty: git?.isDirty ?? false,
+                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
+                    )
+                )
             }
         }
-        return tabs
+        return surfaces
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
@@ -10709,7 +10574,7 @@ struct VerticalTabsSidebar: View {
             // re-mount, which would silently bypass the real-drag failsafe.
             dragState.isSimulated = false
             #if DEBUG
-            SidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
+            AppDelegate.shared?.sidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
             #endif
             SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,
@@ -10726,7 +10591,7 @@ struct VerticalTabsSidebar: View {
             // inherit a stale bypass and skip the real-drag failsafe monitor.
             dragState.isSimulated = false
             #if DEBUG
-            SidebarDragStateRegistry.unregister(windowId: windowId)
+            AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
             #endif
             SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,
@@ -15589,7 +15454,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// keys on, so an intra-window reorder and a cross-window move share the same
     /// code instead of forking into parallel drop delegates.
     private var effectiveDraggedTabId: UUID? {
-        dragState.draggedTabId ?? SidebarWorkspaceDragRegistry.currentWorkspaceId
+        dragState.draggedTabId ?? dragState.currentWorkspaceDragId
     }
 
     /// Whether `draggedTabId` belongs to a *different* window than this drop
@@ -15662,7 +15527,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// mouse-up (and `performDrop` clears it on a successful drop).
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
-              let foreignId = SidebarWorkspaceDragRegistry.currentWorkspaceId,
+              let foreignId = dragState.currentWorkspaceDragId,
               isCrossWindowDrag(foreignId),
               !isCrossWindowGroupAnchorDrag(foreignId) else { return }
         // Resolve the foreign workspace's pin state once; it can't change while
