@@ -329,6 +329,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         command: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
+        tmuxStartCommand: String? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -337,7 +338,8 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
             command: command,
             url: url,
             environment: environment,
-            workingDirectory: workingDirectory ?? currentBaseDirectory()
+            workingDirectory: workingDirectory ?? currentBaseDirectory(),
+            tmuxStartCommand: tmuxStartCommand
         ) else { return nil }
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
@@ -363,6 +365,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         command: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
+        tmuxStartCommand: String? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -371,7 +374,8 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
             command: command,
             url: url,
             environment: environment,
-            workingDirectory: workingDirectory ?? currentBaseDirectory()
+            workingDirectory: workingDirectory ?? currentBaseDirectory(),
+            tmuxStartCommand: tmuxStartCommand
         ) else { return nil }
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
@@ -456,7 +460,8 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         command: String?,
         url: URL?,
         environment: [String: String],
-        workingDirectory: String
+        workingDirectory: String,
+        tmuxStartCommand: String? = nil
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -465,6 +470,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
                 useLoginShellWrapper: false,
                 workingDirectory: workingDirectory,
                 environment: environment,
+                tmuxStartCommand: tmuxStartCommand,
                 controlId: nil,
                 controlTitle: nil
             )
@@ -515,6 +521,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         useLoginShellWrapper: Bool,
         workingDirectory: String,
         environment: [String: String],
+        tmuxStartCommand: String? = nil,
         controlId: String?,
         controlTitle: String?
     ) -> TerminalPanel {
@@ -536,6 +543,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialEnvironmentOverrides: resolvedEnvironment,
             focusPlacement: .rightSidebarDock
         )

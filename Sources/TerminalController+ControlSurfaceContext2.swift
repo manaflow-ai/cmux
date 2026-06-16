@@ -433,6 +433,7 @@ extension TerminalController {
             command: kind == .terminal ? inputs.initialCommand : nil,
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
+            tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             focus: focus
         )
         guard let newPanelId else {

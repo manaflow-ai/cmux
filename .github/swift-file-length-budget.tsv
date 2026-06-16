@@ -85,7 +85,7 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1038	Sources/RemoteTmuxController.swift
-1023	Sources/DockSplitStore.swift
+1031	Sources/DockSplitStore.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -123,7 +123,7 @@
 746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
-727	Sources/TerminalController+ControlPaneContext.swift
+728	Sources/TerminalController+ControlPaneContext.swift
 726	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 722	Packages/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -206,7 +206,7 @@
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 517	Sources/TerminalImageTransfer.swift
-515	Sources/TerminalController+ControlSurfaceContext2.swift
+516	Sources/TerminalController+ControlSurfaceContext2.swift
 514	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
