@@ -56,7 +56,7 @@ type ConfigProps = {
 
 type AppState = {
   activeItemId: string;
-  activeReviewTab: "overview" | string;
+  activeReviewTab: string;
   activeTreePath: string;
   comments: DiffCommentRecord[];
   copyFeedback: string;
@@ -81,7 +81,7 @@ type AppAction =
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
-  | { type: "set-active-review-tab"; tab: "overview" | string }
+  | { type: "set-active-review-tab"; tab: string }
   | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
@@ -116,13 +116,15 @@ const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
+// Git paths cannot contain NUL, so this tab id cannot collide with a file path.
+const overviewReviewTabId = "\0overview";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
   return {
     activeItemId: "",
-    activeReviewTab: "overview",
+    activeReviewTab: overviewReviewTabId,
     activeTreePath: "",
     comments: [],
     copyFeedback: "",
@@ -213,8 +215,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     return {
       ...state,
       activeReviewTab: action.tab,
-      activeItemId: action.tab === "overview" ? state.activeItemId : action.tab,
-      activeTreePath: action.tab === "overview"
+      activeItemId: isOverviewReviewTab(action.tab) ? state.activeItemId : action.tab,
+      activeTreePath: isOverviewReviewTab(action.tab)
         ? state.activeTreePath
         : state.treeSource?.treePathByItemId.get(action.tab) ?? state.activeTreePath,
     };
@@ -352,10 +354,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
   const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const effectiveReviewTab = state.activeReviewTab === "overview" || state.items.some((item) => item.id === state.activeReviewTab)
-    ? state.activeReviewTab
-    : "overview";
-  const activeFileTabId = effectiveReviewTab === "overview" ? "" : effectiveReviewTab;
+  const effectiveReviewTab = effectiveReviewTabId(state.activeReviewTab, state.items);
+  const activeFileTabId = activeFileTabIdForReviewTab(effectiveReviewTab);
   const visibleItems = activeFileTabId === ""
     ? state.items
     : state.items.filter((item) => item.id === activeFileTabId);
@@ -577,9 +577,13 @@ export function recollapseExpandedContextSeparator(
   codeView: Pick<CodeViewHandle<any>, "getInstance"> | null,
 ): boolean {
   const path = eventPath(event.nativeEvent);
-  const clickedExpandControl = path.find((node) => isHTMLElement(node) &&
-    (node.hasAttribute("data-expand-button") || node.hasAttribute("data-unmodified-lines")));
-  if (!clickedExpandControl) {
+  const clickedExpandButton = path.some((node) => isHTMLElement(node) && node.hasAttribute("data-expand-button"));
+  if (clickedExpandButton) {
+    return false;
+  }
+
+  const clickedUnmodifiedLines = path.find((node) => isHTMLElement(node) && node.hasAttribute("data-unmodified-lines"));
+  if (!clickedUnmodifiedLines) {
     return false;
   }
 
@@ -770,7 +774,7 @@ function Toolbar({
 }: {
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
-  effectiveReviewTab: "overview" | string;
+  effectiveReviewTab: string;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onJump: (itemId: string) => void;
@@ -909,7 +913,7 @@ function ReviewTabs({
   label,
   openFileTabIds,
 }: {
-  activeTab: "overview" | string;
+  activeTab: string;
   dispatch: React.Dispatch<AppAction>;
   items: DiffItem[];
   label: DiffViewerLabelResolver;
@@ -925,8 +929,8 @@ function ReviewTabs({
         type="button"
         className="review-tab"
         role="tab"
-        aria-selected={activeTab === "overview"}
-        onClick={() => dispatch({ type: "set-active-review-tab", tab: "overview" })}
+        aria-selected={isOverviewReviewTab(activeTab)}
+        onClick={() => dispatch({ type: "set-active-review-tab", tab: overviewReviewTabId })}
       >
         <Icon name="documentPlus" />
         <span>{label("reviewTab")}</span>
@@ -1977,6 +1981,20 @@ export function fileSelectionPlan(
     shouldOpenFileTab: openInTab || (activeFileTabId !== "" && activeFileTabId !== targetItemId),
     targetItemId,
   };
+}
+
+export function effectiveReviewTabId(activeReviewTab: string, items: Array<Pick<DiffItem, "id">>): string {
+  return isOverviewReviewTab(activeReviewTab) || items.some((item) => item.id === activeReviewTab)
+    ? activeReviewTab
+    : overviewReviewTabId;
+}
+
+export function activeFileTabIdForReviewTab(tab: string): string {
+  return isOverviewReviewTab(tab) ? "" : tab;
+}
+
+function isOverviewReviewTab(tab: string): boolean {
+  return tab === overviewReviewTabId;
 }
 
 export function commentNavigationPlan(

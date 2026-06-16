@@ -2,7 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App, commentNavigationPlan, fileSelectionPlan, recollapseExpandedContextSeparator } from "../src/App";
+import {
+  App,
+  activeFileTabIdForReviewTab,
+  commentNavigationPlan,
+  effectiveReviewTabId,
+  fileSelectionPlan,
+  recollapseExpandedContextSeparator,
+} from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -156,6 +163,23 @@ test("context separator click re-collapses an already expanded hunk", () => {
   expect(harness.stopImmediatePropagationCount()).toBe(1);
 });
 
+test("context separator expand button keeps native progressive expansion", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const harness = contextSeparatorToggleHarness({ fromEnd: 10, fromStart: 0 }, { expandButton: true });
+
+  const handled = recollapseExpandedContextSeparator(harness.event, harness.codeView);
+
+  expect(handled).toBe(false);
+  expect(harness.expandedHunks.has(4)).toBe(true);
+  expect(harness.renderCacheCleared()).toBe(false);
+  expect(harness.preventDefaultCount()).toBe(0);
+  expect(harness.stopPropagationCount()).toBe(0);
+  expect(harness.stopImmediatePropagationCount()).toBe(0);
+});
+
 test("comment navigation switches file tabs when the target is filtered out", () => {
   const entry = {
     anchor: { line: 12, state: "anchored" },
@@ -196,6 +220,16 @@ test("file selection opens a tab when the review tab add flow is armed", () => {
     targetItemId: "file-b",
   });
   expect(fileSelectionPlan("missing", [], "", true)).toBeNull();
+});
+
+test("review tab state treats a root file named overview as a file tab", () => {
+  const items = [{ id: "overview" }, { id: "src/app.ts" }] as any;
+
+  const tab = effectiveReviewTabId("overview", items);
+
+  expect(tab).toBe("overview");
+  expect(activeFileTabIdForReviewTab(tab)).toBe("overview");
+  expect(activeFileTabIdForReviewTab(effectiveReviewTabId("missing", items))).toBe("");
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
@@ -371,12 +405,15 @@ function contentFilesWidth(): string | undefined {
   return dom?.window.document.getElementById("content")?.style.getPropertyValue("--cmux-diff-files-width");
 }
 
-function contextSeparatorToggleHarness(region?: { fromEnd?: number; fromStart?: number }) {
+function contextSeparatorToggleHarness(
+  region?: { fromEnd?: number; fromStart?: number },
+  options: { expandButton?: boolean } = {},
+) {
   const itemElement = dom!.window.document.createElement("diffs-container");
   const separator = dom!.window.document.createElement("div");
   const control = dom!.window.document.createElement("span");
   separator.setAttribute("data-expand-index", "4");
-  control.setAttribute("data-unmodified-lines", "");
+  control.setAttribute(options.expandButton ? "data-expand-button" : "data-unmodified-lines", "");
   separator.appendChild(control);
   itemElement.appendChild(separator);
   dom!.window.document.body.appendChild(itemElement);
