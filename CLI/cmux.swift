@@ -30063,7 +30063,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     sessionId: sessionId,
                     cwd: latest.cwd,
                     launchCommand: latest.launchCommand,
-                    allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(latest)
+                    allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                        && hasPositiveAgentResumeRestorabilitySignal(latest)
                 )
                 if let lifecycle = latest.agentLifecycle {
                     setAgentLifecycle(
