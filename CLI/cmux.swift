@@ -3224,7 +3224,7 @@ struct CMUXCLI {
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
-        "--function", "--id", "--image", "--index", "--key", "--kind",
+        "--format", "--function", "--id", "--image", "--index", "--key", "--kind",
         "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
@@ -3434,10 +3434,7 @@ struct CMUXCLI {
         }
         let commandArgs = presentationOptions.remaining
 
-        if command == "version" {
-            print(versionSummary())
-            return
-        }
+        if command == "version" { print(versionSummary()); return }
 
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
@@ -3452,6 +3449,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
+        if command == "subrouter" || command == "sr" { try runSubrouter(commandName: command, commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -14463,6 +14461,7 @@ struct CMUXCLI {
               cmux cloud exec <id> -- echo hello
               cmux vm rm <id>
             """
+        case "subrouter", "sr": return subrouterUsage(commandName: command)
         case "rpc":
             return """
             Usage: cmux rpc <method> [json-params]
@@ -34258,6 +34257,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          subrouter <status|doctor|env> [args...]     (alias: sr)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
