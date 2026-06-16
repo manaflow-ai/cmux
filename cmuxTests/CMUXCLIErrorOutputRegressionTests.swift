@@ -559,8 +559,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testStaleSocketConnectRefusalDoesNotCaptureSentryTelemetry() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-sentry-refused-\(UUID().uuidString)", isDirectory: true)
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-sr-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
