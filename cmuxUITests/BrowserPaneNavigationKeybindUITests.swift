@@ -1414,7 +1414,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ?? controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {

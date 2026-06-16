@@ -169,6 +169,28 @@ extension XCTestCase {
             diagnostics["socketPathOwnedByListener"] == "1"
     }
 
+    /// Sends a JSON-RPC object through the same `nc -U` fallback as line-based
+    /// socket commands and decodes one JSON response object.
+    func controlSocketJSONViaNetcat(
+        _ object: [String: Any],
+        socketPath: String,
+        responseTimeout: TimeInterval = 2.0
+    ) -> [String: Any]? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let line = String(data: data, encoding: .utf8),
+              let response = controlSocketCommandViaNetcat(
+                line,
+                socketPath: socketPath,
+                responseTimeout: responseTimeout
+              ),
+              let responseData = response.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            return nil
+        }
+        return decoded
+    }
+
     private func controlSocketShellSingleQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
