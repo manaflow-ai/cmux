@@ -589,7 +589,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: depot-macos-latest
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -597,6 +597,24 @@ jobs:
     # CA and lag regressions beyond 35 min before the cache could repopulate.
     timeout-minutes: 55
     steps:
+      - name: Validate Depot runner identity
+        env:
+          REQUESTED_RUNNER: depot-macos-latest
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$RUNNER_CONTEXT_NAME" in
+            depot-*)
+              echo "Resolved runner matches depot-*? yes"
+              ;;
+            *)
+              echo "Resolved runner matches depot-*? no"
+              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

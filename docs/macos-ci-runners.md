@@ -37,7 +37,7 @@ gh variable list --repo manaflow-ai/cmux
 
 ## Manual runs
 
-`perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp fallback, so flipping the repo variable redirects those workflows. `perf-activation.yml` pull-request runs and `ci.yml` `ui-regressions` use `depot-macos-latest` because Cmd-Tab timing, virtual displays, and XCTest automation need a GUI-capable runner. An explicit manual choice wins over the variable; both dropdowns expose Blacksmith, Warp, and `depot-macos-*` choices, with a Depot identity guard for GUI-activation runs.
+`perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp fallback, so flipping the repo variable redirects those workflows. `perf-activation.yml` pull-request runs plus `ci.yml` `tests-build-and-lag` and `ui-regressions` use `depot-macos-latest` because Cmd-Tab timing, virtual displays, and XCTest automation need a GUI-capable runner. An explicit manual choice wins over the variable; both dropdowns expose Blacksmith, Warp, and `depot-macos-*` choices, with a Depot identity guard for GUI-activation runs.
 
 ## Guard
 
