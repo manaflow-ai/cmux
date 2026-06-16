@@ -41,7 +41,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-                requestBackgroundSurfaceStartIfNeeded()
+                requestInputDemandSurfaceStartIfNeeded()
             }
             return queued
         }
@@ -89,7 +89,7 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-            requestBackgroundSurfaceStartIfNeeded()
+            requestInputDemandSurfaceStartIfNeeded()
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -148,7 +148,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-                requestBackgroundSurfaceStartIfNeeded()
+                requestInputDemandSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -487,6 +487,40 @@ extension TerminalSurface {
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
         }
+    }
+
+    /// Sets whether a manual-I/O surface should suppress Ghostty's primary
+    /// screen reflow on resize. Remote tmux marks TUI/alt-screen panes true and
+    /// plain shell panes false.
+    @MainActor
+    public func setManualIONoReflow(_ value: Bool) {
+        guard manualIONoReflow != value else { return }
+        manualIONoReflow = value
+    }
+
+    /// Inject remote tmux `%output` into the terminal parser. If the Ghostty
+    /// runtime is not live yet, buffer a bounded tail and flush it on creation.
+    @MainActor
+    public func processRemoteOutput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
+            pendingRemoteOutput.append(data)
+            if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
+                pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
+            }
+            return
+        }
+        flushPendingRemoteOutput(to: surface)
+        writeProcessOutputData(data, to: surface)
+        ghostty_surface_refresh(surface)
+    }
+
+    @MainActor
+    func flushPendingRemoteOutput(to surface: ghostty_surface_t) {
+        guard !pendingRemoteOutput.isEmpty else { return }
+        let buffered = pendingRemoteOutput
+        pendingRemoteOutput = Data()
+        writeProcessOutputData(buffered, to: surface)
     }
 
     static func readText(

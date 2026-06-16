@@ -3189,6 +3189,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
+            customTitleSource: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
@@ -3617,7 +3618,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.browser
+            SurfaceKind.browser.rawValue
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -5696,7 +5697,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool.rawValue
         )
     }
 
