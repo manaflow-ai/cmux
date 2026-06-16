@@ -155,21 +155,21 @@ class TerminalController {
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
 #endif
-    private static var terminalProcessExitedMessage: String {
+    static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
 
-    private static var terminalInputQueueFullMessage: String {
+    static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
 
-    private static var terminalSurfaceUnavailableMessage: String {
+    static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
@@ -1992,6 +1992,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+        case "chat.sessions.dump":
+            return v2Result(id: id, self.v2ChatSessionsDump())
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
@@ -5332,6 +5334,7 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
+        Task { @MainActor in AgentChatTranscriptService.shared.noteHookEvent(event) }
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -13609,6 +13612,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case let method where method.hasPrefix("mobile.chat."):
+            result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
@@ -14466,7 +14471,7 @@ class TerminalController {
     /// Mac and inject the shell-escaped path as terminal input, exactly the way a
     /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
     /// attaches the image from the path.
-    private func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
         guard let base64 = v2RawString(params, "image_base64"),
               let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
@@ -14530,7 +14535,7 @@ class TerminalController {
     ///
     /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
     /// submit; `none` pastes without submitting so the composer can keep editing.
-    private func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
@@ -14779,7 +14784,7 @@ class TerminalController {
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
     }
 
-    private func mobileResolveWorkspaceAndSurface(
+    func mobileResolveWorkspaceAndSurface(
         params: [String: Any],
         requireTerminal: Bool
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {

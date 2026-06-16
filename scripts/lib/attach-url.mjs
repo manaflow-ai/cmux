@@ -61,6 +61,21 @@ export function buildAttachURL(payload, filter = {}) {
   const ticket = { ...payload.ticket, routes };
   const result = { ...payload, ticket, routes };
 
+  // Newer Mac builds return the canonical pairing URL from the Swift ticket
+  // store. Prefer it when the caller did not narrow the route set locally:
+  // the Swift path may emit the v2 bare-route QR grammar, while this JS module
+  // can only reconstruct the older v1 JSON payload. If a caller filters an
+  // unfiltered payload locally, the canonical URL may point at a different
+  // route set, so fall through to the lossless v1 reconstruction.
+  if (
+    typeof payload.attach_url === "string" &&
+    payload.attach_url.startsWith("cmux-ios://attach?") &&
+    routes.length === payload.ticket.routes.length
+  ) {
+    result.attach_url = payload.attach_url;
+    return { attachURL: result.attach_url, routes, payload: result };
+  }
+
   const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(
     "base64url",
   );

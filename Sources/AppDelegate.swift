@@ -1935,6 +1935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
+        AgentChatTranscriptService.shared.start()
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
