@@ -3616,6 +3616,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "nil launchCommand with no restorable signal must not clear an existing resume binding; saw \(state.snapshot())"
         )
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertNil(
+            persisted["launchCommand"],
+            "env-only launch provenance must not be persisted without a positive restorable signal"
+        )
     }
 
     /// G3 (https://github.com/manaflow-ai/cmux/issues/5333): the codex surface jumble. CMUX_SURFACE_ID
@@ -3898,6 +3906,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
            let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let sessions = storeJSON["sessions"] as? [String: Any],
            let persisted = sessions[sessionId] as? [String: Any] {
+            XCTAssertEqual(
+                persisted["isRestorable"] as? Bool,
+                false,
+                "sanitizer-rejected codex exec must be durably marked non-restorable"
+            )
             let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
             XCTAssertNil(
                 env?["CODEX_HOME"],

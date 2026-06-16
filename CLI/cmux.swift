@@ -704,6 +704,7 @@ final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
@@ -735,7 +736,7 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -810,6 +811,7 @@ final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String?,
         lastBody: String?,
@@ -840,7 +842,7 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -1041,6 +1043,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
+        isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false
@@ -1068,7 +1071,7 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -1092,7 +1095,8 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
-        launchCommand: AgentHookLaunchCommandRecord? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        isRestorable: Bool? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -1117,7 +1121,7 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 agentLifecycle: .running,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -1166,6 +1170,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
+        isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil
     ) throws {
@@ -1188,7 +1193,7 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -1401,12 +1406,18 @@ final class ClaudeHookSessionStore {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
             let incomingHasArguments = !launchCommand.arguments.isEmpty
             let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            let hasPositiveRestorabilitySignal = isRestorable != false
+                && (
+                    record.isRestorable == true
+                        || isRestorable == true
+                        || normalizeOptional(record.transcriptPath) != nil
+                )
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
-            // captured) only when we don't already hold an argv-bearing one — so the durable store
-            // keeps the non-default home for the fork/resume path without ever downgrading a richer
-            // earlier capture to an env-only stub.
-            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+            // captured) only after some other signal proves the session is restorable. Otherwise an
+            // unproven record would survive app restart and synthesize the same bogus default resume
+            // command this gate is meant to block.
+            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments && hasPositiveRestorabilitySignal) {
                 record.launchCommand = launchCommand
             }
         }
@@ -29922,6 +29933,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
+            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
             var acceptedFreshSessionStart = false
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
@@ -29941,6 +29953,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: sanitizerRestorableOverride,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -29954,6 +29967,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: sanitizerRestorableOverride,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30062,6 +30076,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
+            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -30208,6 +30223,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: sanitizerRestorableOverride,
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -30264,7 +30280,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        isRestorable: sanitizerRestorableOverride
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -30275,6 +30292,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: sanitizerRestorableOverride,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -30497,6 +30515,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: cwd
             )
             let launchCommand = launchCapture.command
+            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
@@ -30533,6 +30552,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: sanitizerRestorableOverride,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -30560,6 +30580,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
                                   launchCommand: launchCommand,
+                                  isRestorable: sanitizerRestorableOverride,
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -30742,6 +30763,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
+            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.markNotificationResolved(
@@ -30752,6 +30774,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
+                    isRestorable: sanitizerRestorableOverride,
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )

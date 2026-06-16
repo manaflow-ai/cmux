@@ -832,6 +832,83 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         }
     }
 
+    // Env-only launch records preserve account/config paths, but they are not proof that a session can
+    // be resumed. Old poisoned hook stores must not synthesize default resume commands on app reload.
+    func testEnvOnlyHookRecordRequiresPositiveRestorabilitySignal() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-env-only-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let codexHome = root.appendingPathComponent("codex-accounts/work", isDirectory: true)
+
+        let unprovenWorkspaceId = UUID()
+        let unprovenPanelId = UUID()
+        let restorableWorkspaceId = UUID()
+        let restorablePanelId = UUID()
+        let unprovenSessionId = "77777777-7777-7777-7777-777777777777"
+        let restorableSessionId = "88888888-8888-8888-8888-888888888888"
+
+        func envOnlyRecord(
+            sessionId: String,
+            workspaceId: UUID,
+            panelId: UUID,
+            isRestorable: Bool?
+        ) -> [String: Any] {
+            var record: [String: Any] = [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": dir.path,
+                "pid": NSNull(),
+                "updatedAt": 10,
+                "launchCommand": [
+                    "launcher": "codex",
+                    "executablePath": "/usr/local/bin/codex",
+                    "arguments": [],
+                    "workingDirectory": dir.path,
+                    "environment": ["CODEX_HOME": codexHome.path],
+                    "capturedAt": 10,
+                    "source": "environment",
+                ],
+            ]
+            if let isRestorable {
+                record["isRestorable"] = isRestorable
+            }
+            return record
+        }
+
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [
+                unprovenSessionId: envOnlyRecord(
+                    sessionId: unprovenSessionId,
+                    workspaceId: unprovenWorkspaceId,
+                    panelId: unprovenPanelId,
+                    isRestorable: nil
+                ),
+                restorableSessionId: envOnlyRecord(
+                    sessionId: restorableSessionId,
+                    workspaceId: restorableWorkspaceId,
+                    panelId: restorablePanelId,
+                    isRestorable: true
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: unprovenWorkspaceId, panelId: unprovenPanelId),
+            "env-only provenance without isRestorable/transcript must not synthesize codex resume"
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restorableWorkspaceId, panelId: restorablePanelId))
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resume.contains("'codex' 'resume' '\(restorableSessionId)'"), resume)
+        XCTAssertTrue(resume.contains("CODEX_HOME=\(codexHome.path)"), resume)
+    }
+
     // Spawn an agent, end it, spawn a new one on the same surface: restore must pick the NEWEST
     // session (highest updatedAt), not the stale earlier one.
     func testReplacementRestoresNewestSessionForSurface() throws {

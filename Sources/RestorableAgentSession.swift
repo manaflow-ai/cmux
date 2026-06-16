@@ -1242,7 +1242,7 @@ struct RestorableAgentSessionIndex: Sendable {
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
         guard kind == .claude else {
-            return record.isRestorable != false
+            return record.isRestorable != false && hookRecordHasPositiveRestorabilitySignal(record)
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
@@ -1252,6 +1252,18 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    private static func hookRecordHasPositiveRestorabilitySignal(
+        _ record: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        if record.isRestorable == true {
+            return true
+        }
+        if normalizedNonEmptyValue(record.transcriptPath) != nil {
+            return true
+        }
+        return !(record.launchCommand?.arguments.isEmpty ?? true)
     }
 
     private static func resolvedClaudeWorkflowRecord(
