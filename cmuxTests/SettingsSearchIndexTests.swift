@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,8 +6,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class SettingsSearchIndexTests: XCTestCase {
-    func testAlternativeSearchTermsFindSettingsRows() {
+@Suite("SettingsSearchIndex")
+struct SettingsSearchIndexTests {
+    @Test func alternativeSearchTermsFindSettingsRows() {
         assertSearch("dockless", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "menu-bar-only"))
         assertSearch("menubar", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "show-menu-bar"))
         assertSearch("vscode", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "preferred-editor"))
@@ -36,109 +37,102 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("auto name", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("rename workspace", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("naming agent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("automation.autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
     }
 
-    func testExactSectionNameRanksSectionFirst() {
-        let results = SettingsSearchIndex.entries(matching: "automation")
-        guard let first = results.first else {
-            return XCTFail("expected results for 'automation'")
+    @Test func exactSectionNameRanksSectionFirst() throws {
+        let first = try #require(SettingsSearchIndex.entries(matching: "automation").first)
+        if case .section = first.kind {
+            #expect(first.title == "Automation")
+        } else {
+            Issue.record("expected the Automation section first, got setting \(first.id)")
         }
-        guard case .section = first.kind else {
-            return XCTFail("expected the Automation section first, got setting \(first.id)")
-        }
-        XCTAssertEqual(first.title, "Automation")
     }
 
-    func testSettingsPathAnchorIncludesBrowserEnabled() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled"),
-            SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+    @Test func settingsPathAnchorIncludesBrowserEnabled() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled")
+                == SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
         )
     }
 
-    func testSettingsPathAnchorIncludesAgentAutoResume() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
-            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+    @Test func settingsPathAnchorIncludesAgentAutoResume() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
         )
     }
 
-    func testSettingsPathAnchorIncludesTextBoxMaxLines() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.textBoxMaxLines"),
-            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "textbox-max-lines")
+    @Test func settingsPathAnchorIncludesTextBoxMaxLines() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.textBoxMaxLines")
+                == SettingsSearchIndex.settingID(for: .textBox, idSuffix: "textbox-max-lines")
         )
     }
 
-    func testSettingsPathAnchorIncludesShowTextBoxOnNewTerminals() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.showTextBoxOnNewTerminals"),
-            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals")
+    @Test func settingsPathAnchorIncludesShowTextBoxOnNewTerminals() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.showTextBoxOnNewTerminals")
+                == SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals")
         )
     }
 
-    func testSettingsPathAnchorIncludesFocusTextBoxOnNewTerminals() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.focusTextBoxOnNewTerminals"),
-            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals")
+    @Test func settingsPathAnchorIncludesFocusTextBoxOnNewTerminals() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.focusTextBoxOnNewTerminals")
+                == SettingsSearchIndex.settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals")
         )
     }
 
-    func testSettingsPathAnchorIncludesWorkspaceWorkingDirectoryInheritance() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory"),
-            SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
+    @Test func settingsPathAnchorIncludesWorkspaceWorkingDirectoryInheritance() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory")
+                == SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
         )
     }
 
-    func testSettingsPathAnchorIncludesIMessageMode() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "app.iMessageMode"),
-            SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode")
+    @Test func settingsPathAnchorIncludesIMessageMode() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.iMessageMode")
+                == SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode")
         )
     }
 
-    func testSettingsPathAnchorIncludesClickablePullRequests() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.makePullRequestsClickable"),
-            SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable")
+    @Test func settingsPathAnchorIncludesClickablePullRequests() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.makePullRequestsClickable")
+                == SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable")
         )
     }
 
-    func testSettingsPathAnchorIncludesShortcutBindings() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings"),
-            SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
+    @Test func settingsPathAnchorIncludesShortcutBindings() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings")
+                == SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
         )
     }
 
-    func testSettingsPathAnchorIncludesWorkspaceAutoNaming() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "automation.workspaceAutoNaming"),
-            SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
+    @Test func settingsPathAnchorIncludesWorkspaceAutoNaming() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.workspaceAutoNaming")
+                == SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
         )
     }
 
-    func testSettingsPathAnchorIncludesAutoNamingAgent() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent"),
-            SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
+    @Test func settingsPathAnchorIncludesAutoNamingAgent() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent")
+                == SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
         )
     }
 
-    private func assertSearch(
-        _ query: String,
-        contains expectedID: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
+    private func assertSearch(_ query: String, contains expectedID: String) {
         let resultIDs = Set(SettingsSearchIndex.entries(matching: query).map(\.id))
-        XCTAssertTrue(
+        #expect(
             resultIDs.contains(expectedID),
-            "Expected settings search for '\(query)' to include \(expectedID), got \(resultIDs.sorted())",
-            file: file,
-            line: line
+            "Expected settings search for '\(query)' to include \(expectedID), got \(resultIDs.sorted())"
         )
     }
 }

@@ -42,7 +42,7 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
-    @Test(arguments: ["naming", "auto name", "rename workspace", "naming agent"])
+    @Test(arguments: ["naming", "auto name", "rename workspace", "naming agent", "automation.autoNamingAgent", "autoNamingAgent"])
     func autoNamingQueriesFindWorkspaceAutoNamingSetting(query: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match(query)
