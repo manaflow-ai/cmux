@@ -48,6 +48,34 @@ struct SettingsSearchIndexTests {
         )
     }
 
+    @Test(arguments: [
+        ("browser settings", [
+            "setting:browser:search-engine",
+            "setting:browser:terminal-links",
+            "setting:browser:http-allowlist",
+        ]),
+        ("notification settings", [
+            "setting:app:dock-badge",
+            "setting:app:desktop-notifications",
+            "setting:app:notification-sound",
+            "setting:app:notification-command",
+        ]),
+        ("shortcut split right", [
+            "setting:keyboardShortcuts:shortcuts",
+        ]),
+        ("browzer lniks", [
+            "setting:browser:terminal-links",
+        ]),
+    ])
+    func fuzzyKeywordQueriesSurfaceRelatedSettings(query: String, expectedIDs: [String]) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let resultIDs = Set(index.match(query).map(\.id))
+        #expect(
+            expectedIDs.allSatisfy { resultIDs.contains($0) },
+            "Expected settings search for '\(query)' to include \(expectedIDs), got \(resultIDs.sorted())"
+        )
+    }
+
     @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(try #require(index.match("Terminal Config").first).id == "setting:app:terminal-config")
