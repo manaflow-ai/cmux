@@ -1251,3 +1251,112 @@ jobs:
             kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
           fi
           rm -f /tmp/cmux-vdisplay-persistent.ready /tmp/cmux-vdisplay-persistent.id /tmp/cmux-vdisplay-persistent.log
+
+  ios-build:
+    # Deterministic iOS compile gate. The iOS app and the iOS-only CmuxMobile*
+    # packages are otherwise compiled ONLY in the non-required, flaky
+    # ios-simulator job (test-ios.yml), so an iOS-only compile break can merge
+    # green even though every required check passed. That is exactly how the
+    # @MainActor/nonisolated break in the composer image-decode path
+    # (TerminalComposerView) reached main. This job compiles the iOS app for the
+    # simulator WITHOUT running tests or booting a simulator, so it is
+    # deterministic (no virtual display, no sim boot) and safe to require.
+    # It runs on every PR and on push to main; make it a required status check.
+    # Use GitHub-hosted macos-26 (NOT the warp/self-hosted MACOS_RUNNER_26 label
+    # the macOS app jobs use): ensure-ghosttykit.sh calls sudo during
+    # provisioning, which has no passwordless/tty path on the self-hosted fleet.
+    # The proven iOS jobs (ios-simulator, mobile-core-package in test-ios.yml)
+    # run on hosted macos-26 for the same reason.
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Provision GhosttyKit
+        run: |
+          # The iOS app links GhosttyKit (incl. its iOS + iOS-simulator slices)
+          # via a local-path binaryTarget, so it must exist before resolve.
+          # Mirror the ios-simulator job exactly: ensure-ghosttykit.sh manages
+          # its own $HOME/.cache/cmux/ghosttykit cache and writes the framework
+          # where the iOS workspace expects it. Do NOT add an actions/cache step
+          # keyed on repo-root GhosttyKit.xcframework here: ensure-ghosttykit.sh
+          # does not populate that path, and the shared ghosttykit-<sha> key is
+          # owned by the macOS jobs that use download-prebuilt (a real dir), so
+          # caching a symlink/absent path from this job would poison that key.
+          ./scripts/install-zig-ci.sh
+          ./scripts/ensure-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache-ios
+          key: spm-ios-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
+          restore-keys: spm-ios-
+
+      - name: Pick simulator
+        run: |
+          set -euo pipefail
+          # Resolve a concrete available iPhone simulator UDID, exactly like the
+          # ios-simulator job. A concrete destination is what reliably compiles the
+          # app for the simulator; a generic 'platform=iOS Simulator' destination
+          # did not. No simulator is booted, build-for-testing only compiles.
+          python3 - <<'PY' > /tmp/iosbuild-sim.env
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [d for runtime in data.get("devices", {}).values() for d in runtime if d.get("isAvailable", True)]
+          preferred = ["iPhone 17", "iPhone 16"]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next(d for d in devices if d.get("name", "").startswith("iPhone"))
+          print(f"SIMULATOR_ID={selected['udid']}")
+          print(f"SIMULATOR_NAME={selected['name']}")
+          PY
+          cat /tmp/iosbuild-sim.env
+          cat /tmp/iosbuild-sim.env >> "$GITHUB_ENV"
+
+      - name: Resolve packages
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath /tmp/cmux-ios-build \
+            -clonedSourcePackagesDirPath .spm-cache-ios \
+            -resolvePackageDependencies
+
+      - name: Build iOS app for simulator (compile only, no tests, no boot)
+        run: |
+          set -euo pipefail
+          # Compile the iOS app and its package dependencies (incl. the
+          # CmuxMobile* packages where the actor-isolation break lived) for a
+          # concrete iOS Simulator. build-for-testing compiles the app + test
+          # targets WITHOUT booting a simulator or running tests, mirroring the
+          # ios-simulator job's build phase, so it is deterministic and catches
+          # the Swift compile breaks the macOS jobs miss.
+          xcodebuild -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath /tmp/cmux-ios-build \
+            -clonedSourcePackagesDirPath .spm-cache-ios \
+            CODE_SIGNING_ALLOWED=NO \
+            build-for-testing
