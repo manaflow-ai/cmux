@@ -18,7 +18,10 @@ extension CmuxWebView {
         const bridgeToken = "\(token)";
         const maxPayloadBytes = \(maxScriptedDownloadPayloadBytes);
         const maxDataURLCharacters = \(maxScriptedDownloadDataURLCharacters);
+        const trustedActivationWindowMs = 2000;
         let blobDownloadInFlight = false;
+        let lastTrustedActivationMs = 0;
+        let lastDownloadPostMs = 0;
 
         const handler = (() => {
           try {
@@ -34,6 +37,40 @@ extension CmuxWebView {
         const URLCtor = window.URL || null;
         const originalCreateObjectURL = URLCtor && URLCtor.createObjectURL;
         const originalRevokeObjectURL = URLCtor && URLCtor.revokeObjectURL;
+
+        const noteTrustedActivation = (event) => {
+          try {
+            if (event && event.isTrusted) lastTrustedActivationMs = Date.now();
+          } catch (_) {}
+        };
+
+        const hasUserActivation = (event) => {
+          try {
+            if (event && event.isTrusted) return true;
+            if (navigator.userActivation && navigator.userActivation.isActive) return true;
+            return Date.now() - lastTrustedActivationMs <= trustedActivationWindowMs;
+          } catch (_) {
+            return false;
+          }
+        };
+
+        const reserveDownloadPost = () => {
+          const now = Date.now();
+          if (now - lastDownloadPostMs < 500) return false;
+          lastDownloadPostMs = now;
+          return true;
+        };
+
+        const sameOriginDownloadURL = (href) => {
+          try {
+            const parsed = new URL(href, document.baseURI);
+            const scheme = parsed.protocol.toLowerCase();
+            if ((scheme === "http:" || scheme === "https:") && parsed.origin === window.location.origin) {
+              return parsed.href;
+            }
+          } catch (_) {}
+          return "";
+        };
 
         const postURLDownload = (url, suggestedFilename) => {
           try {
@@ -147,8 +184,13 @@ extension CmuxWebView {
           return "";
         };
 
-        const interceptAnchorDownload = (anchor) => {
+        ["pointerdown", "mousedown", "keydown", "click"].forEach((eventName) => {
+          document.addEventListener(eventName, noteTrustedActivation, true);
+        });
+
+        const interceptAnchorDownload = (anchor, event) => {
           try {
+            if (!hasUserActivation(event)) return false;
             if (!anchor || !anchor.hasAttribute("download")) return false;
             const href = String(anchor.href || anchor.getAttribute("href") || "");
             if (!href) return false;
@@ -156,11 +198,19 @@ extension CmuxWebView {
             const suggestedFilename = suggestedFilenameForAnchor(anchor);
 
             if (scheme === "blob") {
+              if (!reserveDownloadPost()) return false;
               return postBlobURLDownload(href, suggestedFilename);
             }
-            if (scheme === "data" || scheme === "http" || scheme === "https" || scheme === "file") {
+            if (scheme === "data") {
               if (scheme === "data" && href.length > maxDataURLCharacters) return false;
+              if (!reserveDownloadPost()) return false;
               postURLDownload(href, suggestedFilename);
+              return true;
+            }
+            if (scheme === "http" || scheme === "https") {
+              const sameOriginURL = sameOriginDownloadURL(href);
+              if (!sameOriginURL || !reserveDownloadPost()) return false;
+              postURLDownload(sameOriginURL, suggestedFilename);
               return true;
             }
           } catch (_) {}
@@ -169,7 +219,7 @@ extension CmuxWebView {
 
         document.addEventListener("click", (event) => {
           const anchor = anchorForEvent(event);
-          if (!interceptAnchorDownload(anchor)) return;
+          if (!interceptAnchorDownload(anchor, event)) return;
           event.preventDefault();
           event.stopPropagation();
         }, true);
@@ -178,7 +228,7 @@ extension CmuxWebView {
         const originalAnchorClick = anchorPrototype?.click ?? null;
         if (typeof originalAnchorClick === "function") {
           anchorPrototype.click = function() {
-            if (interceptAnchorDownload(this)) return;
+            if (interceptAnchorDownload(this, null)) return;
             return originalAnchorClick.apply(this, arguments);
           };
         }
@@ -270,6 +320,12 @@ extension CmuxWebView {
         _ url: URL,
         suggestedFilename: String?
     ) {
+        guard Self.isScriptedDownloadSupportedURL(url) else {
+#if DEBUG
+            debugContextDownload("browser.scriptdl.start stage=rejectUnsupportedScheme scheme=\(url.scheme ?? "nil")")
+#endif
+            return
+        }
         let traceID = Self.makeContextDownloadTraceID(prefix: "scriptdl")
         debugContextDownload("browser.scriptdl.start trace=\(traceID) scheme=\(url.scheme ?? "nil")")
         downloadURLViaSession(
@@ -280,6 +336,11 @@ extension CmuxWebView {
             fallbackTarget: nil,
             traceID: traceID
         )
+    }
+
+    private static func isScriptedDownloadSupportedURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "http" || scheme == "https" || scheme == "data"
     }
 
     static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
