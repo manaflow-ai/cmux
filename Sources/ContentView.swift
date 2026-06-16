@@ -1253,7 +1253,7 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
-    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
+    private static let minimumContentWidthWithSidebar: CGFloat = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
     private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
@@ -1322,13 +1322,32 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return Self.maximumSidebarWidth(
+                availableWidth: resolvedAvailableWidth,
+                minimumWidth: minimumSidebarWidth
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return Self.maximumSidebarWidth(
+            availableWidth: fallbackScreenWidth,
+            minimumWidth: minimumSidebarWidth
+        )
+    }
+
+    static func maximumSidebarWidth(
+        availableWidth: CGFloat,
+        minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
+    ) -> CGFloat {
+        guard availableWidth.isFinite, availableWidth > 0 else {
+            return max(minimumWidth, CGFloat(SessionPersistencePolicy.maximumSidebarWidth))
+        }
+        let maximumPersistedWidth = CGFloat(SessionPersistencePolicy.maximumSidebarWidth)
+        let contentPreservingCap = availableWidth - Self.minimumContentWidthWithSidebar
+        let maximumWidth = min(maximumPersistedWidth, contentPreservingCap)
+        return max(minimumWidth, maximumWidth)
     }
 
     static func clampedSidebarWidth(
