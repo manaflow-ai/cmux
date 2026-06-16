@@ -24,6 +24,17 @@ canonical_install_root() {
   printf '%s/%s\n' "$(cd "$(dirname "$root")" && pwd -P)" "$(basename "$root")"
 }
 
+read_zig_lib_dir_from_stdin() {
+  python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text).get("lib_dir", ""))
+except Exception:
+    match = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]*)\"", text)
+    print(match.group(1) if match else "")
+'
+}
+
 ZIG_REQUIRED="99.99.99"
 case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
@@ -51,6 +62,10 @@ WRONG_VERSION_GITHUB_PATH_FILE="$TMP_DIR/wrong-version-github-path"
 WRONG_VERSION_GITHUB_ENV_FILE="$TMP_DIR/wrong-version-github-env"
 WRONG_VERSION_RUNNER_TEMP_DIR="$TMP_DIR/wrong-version-runner-temp"
 WRONG_VERSION_LIB_DIR="$TMP_DIR/wrong-version-zig-lib"
+SUDO_OUTPUT_FILE="$TMP_DIR/sudo-output"
+SUDO_GITHUB_PATH_FILE="$TMP_DIR/sudo-github-path"
+SUDO_GITHUB_ENV_FILE="$TMP_DIR/sudo-github-env"
+SUDO_SYSTEM_PREFIX="$TMP_DIR/system-prefix"
 FORCE_LOCAL_OUTPUT_FILE="$TMP_DIR/force-local-output"
 FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
@@ -67,7 +82,31 @@ mkdir -p "$SHARED_TMP_ZIG_DIR"
 printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
-echo "$ZIG_REQUIRED"
+set -euo pipefail
+self="\$0"
+if [ -L "\$self" ]; then
+  target="\$(readlink "\$self")"
+  case "\$target" in
+    /*)
+      self="\$target"
+      ;;
+    *)
+      self="\$(cd "\$(dirname "\$self")" && pwd -P)/\$target"
+      ;;
+  esac
+fi
+case "\${1:-}" in
+  version)
+    echo "$ZIG_REQUIRED"
+    ;;
+  env)
+    zig_dir="\$(cd "\$(dirname "\$self")" && pwd -P)"
+    printf '.{\\n    .lib_dir = "%s/lib",\\n}\\n' "\$zig_dir"
+    ;;
+  *)
+    echo "$ZIG_REQUIRED"
+    ;;
+esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
 printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
@@ -205,10 +244,61 @@ fi
 
 cat > "$BIN_DIR/sudo" <<EOF
 #!/usr/bin/env bash
+set -euo pipefail
 printf '%s\n' "\$*" >> "$SUDO_LOG"
-exit 0
+if [ "\${1:-}" = "-n" ]; then
+  shift
+fi
+exec "\$@"
 EOF
 chmod +x "$BIN_DIR/sudo"
+rm -f "$SUDO_LOG"
+
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$SUDO_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$SUDO_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="$ZIG_REQUIRED" \
+  FAKE_ZIG_LIB_DIR="$BROKEN_ZIG_LIB_DIR" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_SYSTEM_PREFIX="$SUDO_SYSTEM_PREFIX" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$SUDO_OUTPUT_FILE" 2>&1
+
+EXPECTED_SUDO_BIN_DIR="$(cd "$SUDO_SYSTEM_PREFIX/bin" && pwd)"
+EXPECTED_SUDO_LIB_DIR="$(canonical_install_root "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib")"
+if [ ! -x "$SUDO_SYSTEM_PREFIX/bin/zig" ]; then
+  cat "$SUDO_OUTPUT_FILE"
+  echo "FAIL: sudo install did not publish an executable zig in the system bin dir" >&2
+  exit 1
+fi
+
+if [ "$(canonical_install_root "$(readlink "$SUDO_SYSTEM_PREFIX/lib/zig")")" != "$EXPECTED_SUDO_LIB_DIR" ]; then
+  cat "$SUDO_OUTPUT_FILE"
+  echo "FAIL: sudo install did not preserve the system Zig lib_dir symlink" >&2
+  exit 1
+fi
+
+SUDO_LIB_DIR="$("$SUDO_SYSTEM_PREFIX/bin/zig" env | read_zig_lib_dir_from_stdin)"
+if [ ! -f "$SUDO_LIB_DIR/compiler/build_runner.zig" ]; then
+  cat "$SUDO_OUTPUT_FILE"
+  echo "FAIL: sudo-installed zig does not resolve compiler/build_runner.zig through zig env" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_SUDO_BIN_DIR" "$SUDO_GITHUB_PATH_FILE"; then
+  cat "$SUDO_OUTPUT_FILE"
+  echo "FAIL: sudo install did not publish the system zig bin dir to GITHUB_PATH" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "CMUX_ZIG=$EXPECTED_SUDO_BIN_DIR/zig" "$SUDO_GITHUB_ENV_FILE"; then
+  cat "$SUDO_OUTPUT_FILE"
+  echo "FAIL: sudo install did not publish CMUX_ZIG" >&2
+  exit 1
+fi
+
 rm -f "$SUDO_LOG"
 mkdir -p "$FORCE_LOCAL_INSTALL_PARENT"
 printf 'keep\n' > "$FORCE_LOCAL_MARKER"
@@ -308,4 +398,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"

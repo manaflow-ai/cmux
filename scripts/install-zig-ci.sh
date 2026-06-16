@@ -6,6 +6,8 @@ ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb1
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
 ZIG_WORK_PARENT="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
+ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX:-/usr/local}"
+ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX%/}"
 export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
@@ -23,12 +25,24 @@ publish_zig_for_later_steps() {
   fi
 }
 
+read_zig_lib_dir() {
+  local zig_path="$1"
+  "$zig_path" env 2>/dev/null | python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text).get("lib_dir", ""))
+except Exception:
+    match = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]*)\"", text)
+    print(match.group(1) if match else "")
+'
+}
+
 zig_has_required_version() {
   local zig_path="$1"
   local zig_lib_dir
   [ -x "$zig_path" ] || return 1
   [ "$("$zig_path" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ] || return 1
-  zig_lib_dir="$("$zig_path" env 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("lib_dir", ""))' 2>/dev/null || true)"
+  zig_lib_dir="$(read_zig_lib_dir "$zig_path" || true)"
   [ -n "$zig_lib_dir" ] || return 1
   [ -f "$zig_lib_dir/compiler/build_runner.zig" ] || return 1
 }
@@ -161,14 +175,33 @@ install_zig_without_sudo() {
 }
 
 install_zig_with_sudo() {
-  local install_root="/usr/local/lib/${ZIG_NAME}"
-  sudo mkdir -p /usr/local/bin /usr/local/lib
-  sudo rm -rf /usr/local/lib/zig "$install_root"
+  local system_prefix="$ZIG_SYSTEM_PREFIX"
+  local bin_dir="${system_prefix}/bin"
+  local lib_dir="${system_prefix}/lib"
+  local install_root="${lib_dir}/${ZIG_NAME}"
+  if [ -z "$system_prefix" ] || [ "$system_prefix" = "/" ]; then
+    echo "Refusing unsafe Zig system prefix: ${ZIG_SYSTEM_PREFIX}" >&2
+    exit 1
+  fi
+  case "$system_prefix" in
+    /*) ;;
+    *)
+      echo "Refusing non-absolute Zig system prefix: ${system_prefix}" >&2
+      exit 1
+      ;;
+  esac
+  sudo mkdir -p "$bin_dir" "$lib_dir"
+  sudo rm -rf "${lib_dir}/zig" "$install_root"
   sudo cp -R "$ZIG_DIR" "$install_root"
-  sudo rm -f /usr/local/bin/zig
-  sudo ln -s "$install_root/zig" /usr/local/bin/zig
-  publish_zig_for_later_steps /usr/local/bin/zig
-  /usr/local/bin/zig version
+  sudo ln -s "${install_root}/lib" "${lib_dir}/zig"
+  sudo rm -f "${bin_dir}/zig"
+  sudo ln -s "${install_root}/zig" "${bin_dir}/zig"
+  if ! zig_has_required_version "${bin_dir}/zig"; then
+    echo "Installed zig ${ZIG_REQUIRED} at ${bin_dir}/zig, but its lib_dir is incomplete" >&2
+    exit 1
+  fi
+  publish_zig_for_later_steps "${bin_dir}/zig"
+  "${bin_dir}/zig" version
 }
 
 echo "Installing verified zig ${ZIG_REQUIRED}"
