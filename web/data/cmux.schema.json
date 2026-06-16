@@ -139,6 +139,14 @@
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
+              "forkCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
+              },
               "cwd": {
                 "type": "string",
                 "enum": ["preserve", "ignore"],
@@ -733,6 +741,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
@@ -891,6 +905,18 @@
           "type": "string",
           "default": "",
           "description": "Custom path to the claude binary."
+        },
+        "workspaceAutoNaming": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
+          "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
+        },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
         "ripgrepBinaryPath": {
           "type": "string",
@@ -1152,6 +1178,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},

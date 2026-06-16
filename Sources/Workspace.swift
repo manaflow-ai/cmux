@@ -129,6 +129,7 @@ extension Workspace {
             workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
+            customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
@@ -217,7 +218,7 @@ extension Workspace {
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
         applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle)
+        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -393,6 +394,9 @@ extension Workspace {
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource: CustomTitleSource? = customTitle != nil
+            ? (panelCustomTitleSources[panelId] ?? .user)
+            : nil
         let directory: String? = {
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
@@ -613,6 +617,7 @@ extension Workspace {
             type: panel.panelType,
             title: panelTitle,
             customTitle: customTitle,
+            customTitleSource: customTitleSource,
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
@@ -1255,6 +1260,15 @@ extension Workspace {
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            // Reuse the persisted surface id so the restored terminal keeps
+            // the same identity (the panel/surface id IS the ghostty surface
+            // id), which keeps agent-session terminal bindings valid across
+            // relaunch/restore. Only reuse when no live surface already holds
+            // that id (duplicate-workspace / restore-into-live can collide);
+            // otherwise fall back to a fresh id and let the old->new remap
+            // handle it, exactly as before.
+            let reusableSurfaceId: UUID? =
+                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -1263,8 +1277,10 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
+                runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
-                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+                restoredSurfaceId: reusableSurfaceId
             ) else {
                 return nil
             }
@@ -1405,7 +1421,7 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         if snapshot.isManuallyUnread {
@@ -1875,6 +1891,17 @@ final class SharedLiveAgentIndex: ObservableObject {
     // Holds a pending rate-limited reload when changes arrive faster than the floor.
     private var deferredReloadTask: Task<Void, Never>?
 
+    // Process-detection layer. Heavier than the hook-store reload above (a full
+    // process snapshot + per-agent transcript/rollout scans), so it is NOT wired
+    // into the chatty hook-store watcher. It is loaded lazily on demand and on a
+    // slower TTL, and only powers the tab-menu fork fallback for live agents cmux
+    // never recorded a hook for (e.g. `sr claude` / direct `codex`, which bypass
+    // the cmux wrapper's SessionStart hook).
+    @Published private(set) var processDetectedIndex: RestorableAgentSessionIndex?
+    private var processDetectedLoadedAt: Date?
+    private var processDetectedRefreshTask: Task<Void, Never>?
+    private static let processDetectedCacheTTL: TimeInterval = 30.0
+
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
     private static let cacheTTL: TimeInterval = 60.0
@@ -1900,6 +1927,34 @@ final class SharedLiveAgentIndex: ObservableObject {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
+    }
+
+    /// Process-detected snapshot for a panel (lazy, slower-cadence). Never blocks.
+    /// The tab-menu fork affordance reads this as a fallback when neither the
+    /// restored snapshot nor the hook-store index resolves the panel, so the
+    /// expensive process scan is paid only on demand. When the scan lands, the
+    /// `@Published` change re-renders subscribed workspaces and the menu item
+    /// appears without a second right-click.
+    func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        scheduleProcessDetectedRefreshIfStale()
+        return processDetectedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    private func scheduleProcessDetectedRefreshIfStale() {
+        guard processDetectedRefreshTask == nil else { return }
+        if let processDetectedLoadedAt,
+           Date().timeIntervalSince(processDetectedLoadedAt) < Self.processDetectedCacheTTL {
+            return
+        }
+        processDetectedRefreshTask = Task { @MainActor [weak self] in
+            // `loadIncludingProcessDetectedSnapshots` runs the heavy capture +
+            // scan off the main actor internally; here we only await + assign.
+            let newIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard let self else { return }
+            self.processDetectedIndex = newIndex
+            self.processDetectedLoadedAt = Date()
+            self.processDetectedRefreshTask = nil
+        }
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -2036,6 +2091,12 @@ final class Workspace: Identifiable, ObservableObject {
     let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?
+    /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
+    /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
+    /// custom title is set. A present title with absent provenance is
+    /// treated as `.user` so auto-naming never overwrites a title it
+    /// cannot prove it owns.
+    @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
@@ -2259,6 +2320,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
+    /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
+    /// An entry may be absent for a title carried across panel moves or
+    /// restored from older snapshots; absent provenance is treated as `.user`.
+    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
@@ -2850,6 +2915,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.processTitle = title
         self.title = title
         self.customTitle = nil
+        self.customTitleSource = nil
         self.customDescription = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -3167,6 +3233,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
+    /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
+    /// confirmation in flight, so click spam can't double-kill or stack dialogs.
+    private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
+
     /// Tab IDs whose next close attempt should be treated as an explicit
     /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
     /// shortcut when the shortcut preference is set to close the workspace on the last surface),
@@ -3258,6 +3328,12 @@ final class Workspace: Identifiable, ObservableObject {
         splitLayout.activeDetachCloseTransactions
     }
     private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
+    /// True while ``reorderRemoteTmuxMirrorTabs(toPanelOrder:)`` is rearranging tabs.
+    /// bonsplit's `reorderTab`/`selectTab`/`focusPane` fire `didSelectTab` /
+    /// `didFocusPane`, each of which runs the full `applyTabSelection` activation
+    /// (focus moves, hibernation resume, focus-LRU record). A reactive tmux-driven
+    /// reorder must not run any of that because the user's selection/focus is unchanged.
+    private var isApplyingRemoteTmuxTabReorder = false
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
@@ -3303,6 +3379,35 @@ final class Workspace: Identifiable, ObservableObject {
 
         let closed = requestCloseTab(tabId, force: force)
         return closed
+    }
+
+    /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
+    /// routed to tmux before a local forced close is attempted; otherwise
+    /// `forceCloseTabIds` bypasses `shouldCloseTab` and removes the cmux tab
+    /// while leaving the remote tmux window alive.
+    @discardableResult
+    func requestNonInteractiveCloseTabRecordingHistory(_ tabId: TabID) -> Bool {
+        switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+        case .routed:
+            return true
+        case .rejectedMirrorTab:
+            return false
+        case .notMirrorTab:
+            return requestCloseTabRecordingHistory(tabId, force: true)
+        }
+    }
+
+    func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> WorkspaceRemoteTmuxNonInteractiveCloseRoute {
+        guard isRemoteTmuxMirror,
+              let panelId = panelIdFromSurfaceId(tabId),
+              let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+              remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
+        else {
+            return .notMirrorTab
+        }
+        return remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+            ? .routed
+            : .rejectedMirrorTab
     }
 
     func withClosedPanelHistorySuppressed(_ body: () -> Void) {
@@ -3754,25 +3859,48 @@ final class Workspace: Identifiable, ObservableObject {
         return max(rawTarget, pinnedCount)
     }
 
-    func setPanelCustomTitle(panelId: UUID, title: String?) {
-        guard panels[panelId] != nil else { return }
+    /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
-            guard previous != nil else { return }
+            guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
+            panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else { return }
+            guard previous != trimmed else {
+                // Same text: a user write still claims ownership so a later
+                // auto write cannot replace a title the user re-confirmed.
+                if source == .user { panelCustomTitleSources[panelId] = .user }
+                return true
+            }
             panelCustomTitles[panelId] = trimmed
+            panelCustomTitleSources[panelId] = source
         }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
+        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
         bonsplitController.updateTab(
             tabId,
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        // A remote tmux mirror tab rename propagates to `rename-window`.
+        if isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+                workspaceId: id, panelId: panelId, title: trimmed
+            )
+        }
+        return true
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -4001,9 +4129,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Title Management
 
+    /// Who set a custom title. Auto-naming (AI-generated titles) must never
+    /// overwrite a user-set title; this enum carries that distinction for
+    /// workspace and panel custom titles, and round-trips through session
+    /// persistence.
+    enum CustomTitleSource: String, Codable, Sendable {
+        case user
+        case auto
+    }
+
     var hasCustomTitle: Bool {
         let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !trimmed.isEmpty
+    }
+
+    /// The provenance of the current custom title, normalizing legacy state:
+    /// `nil` when no custom title is set; `.user` when a title exists but
+    /// provenance was never recorded (pre-provenance snapshots, carried moves).
+    var effectiveCustomTitleSource: CustomTitleSource? {
+        hasCustomTitle ? (customTitleSource ?? .user) : nil
     }
 
     var hasCustomDescription: Bool {
@@ -4052,15 +4196,27 @@ final class Workspace: Identifiable, ObservableObject {
         return normalizedLineEndings
     }
 
-    func setCustomTitle(_ title: String?) {
+    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
+    ///
+    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
+    /// never clears. Returns whether the write landed.
+    @discardableResult
+    func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if source == .auto {
+            guard !trimmed.isEmpty else { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+        }
         if trimmed.isEmpty {
             customTitle = nil
+            customTitleSource = nil
             self.title = processTitle
         } else {
             customTitle = trimmed
+            customTitleSource = source
             self.title = trimmed
         }
+        return true
     }
 
     func setCustomDescription(_ description: String?) {
@@ -4114,6 +4270,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
+        // A remote tmux mirror's directories are paths on the REMOTE host.
+        // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
+        // the ancestor chain with FileManager.fileExists on the main thread,
+        // and stat'ing e.g. /home/… locally blocks on the autofs automounter
+        // for hundreds of ms (measured via sample during tab-reveal stalls).
+        // No local per-directory config can apply to a remote path — track none.
+        if isRemoteTmuxMirror { return nil }
         if let panelId {
             for candidate in [
                 panelDirectories[panelId],
@@ -4447,6 +4610,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {
         guard let panel = panels[panelId] else { return false }
+        // Mirrored remote tmux window-tab: closing it kills the remote window,
+        // and its manual-I/O surface has no local child process for the ghostty
+        // fallback (which reports "needs confirm" whenever the cursor isn't at a
+        // marked prompt — i.e. always, for a mirror). Ask the control connection
+        // whether any of the window's panes is running an active command instead.
+        if isRemoteTmuxMirror,
+           let activity = AppDelegate.shared?.remoteTmuxController
+               .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
+            return activity.hasActiveCommand
+        }
         if let terminalPanel = panel as? TerminalPanel {
             return panelNeedsConfirmClose(
                 panelId: panelId,
@@ -4683,6 +4856,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
@@ -4927,7 +5101,37 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
+    /// True when this workspace is an ephemeral mirror of a remote tmux session
+    /// (created by ``RemoteTmuxController``). Such workspaces are rebuilt from
+    /// the remote on each launch, so they are excluded from cmux's own session
+    /// snapshot/restore to avoid resurrecting stale, disconnected copies.
+    var isRemoteTmuxMirror: Bool = false
+
+    /// Per-window multi-pane renderers, keyed by the window-tab's panel id. When
+    /// a mirrored tmux window has more than one pane, its tab renders this
+    /// in-tab split container (``RemoteTmuxWindowMirrorView``) instead of the
+    /// single-surface ``PanelContentView``. Owned by ``RemoteTmuxSessionMirror``;
+    /// the view layer only reads it.
+    private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
+
+    /// The multi-pane renderer for a window-tab's panel, if that window is
+    /// currently multi-pane.
+    func remoteTmuxWindowMirror(forPanelId panelId: UUID) -> RemoteTmuxWindowMirror? {
+        remoteTmuxWindowMirrors[panelId]
+    }
+
+    /// Registers (or replaces) a window's multi-pane renderer.
+    func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
+        objectWillChange.send()
+        if let mirror {
+            remoteTmuxWindowMirrors[panelId] = mirror
+        } else {
+            remoteTmuxWindowMirrors.removeValue(forKey: panelId)
+        }
+    }
+
     var isRestorableInSessionSnapshot: Bool {
+        if isRemoteTmuxMirror { return false }
         guard let remoteConfiguration else { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
@@ -5006,6 +5210,26 @@ final class Workspace: Identifiable, ObservableObject {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+    }
+
+    /// Whether remote listening-port discovery may run, derived from the global
+    /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
+    /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see
+    /// `SidebarWorkspaceAuxiliaryDetailVisibility.resolved`): when the ports
+    /// detail is not displayed there is nothing for the remote scans to
+    /// populate, so the backend ssh port-scan loop is suspended (issue #6123).
+    static func remotePortScanningEnabledFromSettings(defaults: UserDefaults = .standard) -> Bool {
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        let showsPorts = settings.value(for: catalog.sidebar.showPorts)
+        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
+        return showsPorts && !hidesAllDetails
+    }
+
+    /// Pushes the current remote port-scanning enablement to this workspace's
+    /// active remote session, if any. No-op for non-remote workspaces.
+    func applyRemotePortScanningEnabled(_ enabled: Bool) {
+        remoteSessionController?.updateRemotePortScanningEnabled(enabled)
     }
 
     func listRemotePTYSessions() throws -> [[String: Any]] {
@@ -5230,6 +5454,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
+        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()
         controller.start()
@@ -6471,6 +6696,81 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
+        return newTerminalSplitOutcome(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
+        ).panel
+    }
+
+    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
+    /// but distinguishes a split routed to the remote tmux mirror from a genuine
+    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    /// (Reporting an error makes automation retry and duplicate remote panes.)
+    func newTerminalSplitOutcome(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        focus: Bool = true,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
+    ) -> TerminalPanelCreationOutcome {
+        // In a remote tmux mirror workspace a split means "split the mirrored
+        // tmux pane": route it to the remote and let the resulting
+        // %layout-change render the new pane (one source of truth). NEVER
+        // create a local split here, even when the route can't be taken
+        // (dead/missing connection) — a local pane would be an orphan the
+        // mirror's rebuild() never reconciles, breaking the 1:1 invariant
+        // (same rule as newTerminalSurfaceOutcome). Routing by the requested
+        // panel — not the pane's selected tab, which is all the bonsplit-level
+        // veto in splitTabBar(_:shouldSplitPane:orientation:) can see — keeps
+        // programmatic splits aimed at a background window-tab precise.
+        if isRemoteTmuxMirror {
+            let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id,
+                panelId: panelId,
+                vertical: orientation == .vertical
+            ) ?? false
+            return routed ? .routedToRemote : .failed
+        }
+        guard let panel = newTerminalSplitLocal(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
+        ) else { return .failed }
+        return .created(panel)
+    }
+
+    private func newTerminalSplitLocal(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        focus: Bool,
+        workingDirectory: String?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        startupEnvironment: [String: String],
+        initialDividerPosition: CGFloat?,
+        remotePTYSessionID: String?
+    ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
         let splitTransport = remoteConfiguration?.transport.rawValue ?? "local"
@@ -6652,12 +6952,102 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
+        restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
+    ) -> TerminalPanel? {
+        return newTerminalSurfaceOutcome(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
+            autoRefreshMetadata: autoRefreshMetadata,
+            preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            remotePTYSessionID: remotePTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+            restoredSurfaceId: restoredSurfaceId,
+            inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
+            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
+        ).panel
+    }
+
+    /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
+    /// but distinguishes a request routed to the remote tmux mirror from a genuine
+    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    func newTerminalSurfaceOutcome(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        autoRefreshMetadata: Bool = true,
+        preserveFocusWhenUnfocused: Bool = true,
+        remotePTYSessionID: String? = nil,
+        suppressWorkspaceRemoteStartupCommand: Bool = false,
+        restoredSurfaceId: UUID? = nil,
+        inheritWorkingDirectoryFallback: Bool = false,
+        workingDirectoryFallbackSourcePanelId: UUID? = nil
+    ) -> TerminalPanelCreationOutcome {
+        // In a remote tmux mirror workspace, a new tab means "create a tmux
+        // window" — route it to the remote and let the resulting %window-add
+        // notification add the tab (one source of truth). NEVER create a local
+        // terminal here, even when the remote route can't be taken (dead/missing
+        // connection): a local tab would be an orphan the mirror can't reconcile,
+        // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
+        // mirror workspace is torn down separately via handleSessionEndedRemotely.
+        if isRemoteTmuxMirror {
+            let routed = AppDelegate.shared?.remoteTmuxController
+                .handleMirrorNewTabRequested(workspaceId: id) ?? false
+            return routed ? .routedToRemote : .failed
+        }
+        guard let panel = newTerminalSurfaceLocal(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
+            autoRefreshMetadata: autoRefreshMetadata,
+            preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            remotePTYSessionID: remotePTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+            restoredSurfaceId: restoredSurfaceId,
+            inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
+            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
+        ) else { return .failed }
+        return .created(panel)
+    }
+
+    private func newTerminalSurfaceLocal(
+        inPane paneId: PaneID,
+        focus: Bool?,
+        workingDirectory: String?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?,
+        startupEnvironment: [String: String],
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
+        autoRefreshMetadata: Bool,
+        preserveFocusWhenUnfocused: Bool,
+        remotePTYSessionID: String?,
+        suppressWorkspaceRemoteStartupCommand: Bool,
+        restoredSurfaceId: UUID?,
+        inheritWorkingDirectoryFallback: Bool,
+        workingDirectoryFallbackSourcePanelId: UUID?
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -6681,7 +7071,8 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
+            ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
         let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory,
@@ -6689,8 +7080,12 @@ final class Workspace: Identifiable, ObservableObject {
             )
             : workingDirectory
 
-        // Create new terminal panel
+        // Create new terminal panel. A restored panel reuses its persisted
+        // surface id (the panel/surface id IS the ghostty surface id, a
+        // Swift-side UUID), so a session's terminal binding survives relaunch
+        // and restore. The caller only passes an id it has verified is free.
         let newPanel = TerminalPanel(
+            id: restoredSurfaceId ?? UUID(),
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
@@ -6699,7 +7094,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -6766,6 +7162,148 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    /// Creates a configured MANUAL-I/O ``TerminalPanel`` for one remote tmux pane,
+    /// WITHOUT inserting it into the workspace's bonsplit/`panels` (the
+    /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
+    /// inside a single tab, so the pane gets the full native cmux pane chrome —
+    /// background, focus overlay, dividers).
+    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel {
+        let surface = TerminalSurface(
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            manualIO: true,
+            manualInputHandler: onInput
+        )
+        let panel = TerminalPanel(workspaceId: id, surface: surface)
+        configureNewTerminalPanel(panel)
+        return panel
+    }
+
+    /// Mounts a remote tmux pane as a live display tab in this workspace.
+    ///
+    /// The tab is backed by a MANUAL-I/O ``TerminalSurface`` (no local process):
+    /// the caller feeds `%output` via ``TerminalSurface/processRemoteOutput(_:)``
+    /// and receives typed input through `onInput` (→ tmux `send-keys`). Used by
+    /// ``RemoteTmuxController`` to render a mirrored remote tmux pane.
+    ///
+    /// - Parameter focus: when `true`, selects and reasserts AppKit keyboard
+    ///   focus onto the created tab (a user-initiated attach). When `false`
+    ///   (socket/background mirroring), the tab is created and selected within
+    ///   its pane but the user's keyboard focus is left untouched, per the
+    ///   socket focus policy.
+    @discardableResult
+    func addRemoteTmuxDisplayPane(
+        remotePaneId: Int,
+        title customTitle: String? = nil,
+        focus: Bool = false,
+        onInput: @escaping @Sendable (Data) -> Void,
+        onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
+    ) -> TerminalPanel? {
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        else { return nil }
+
+        let title = customTitle ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
+        let surface = TerminalSurface(
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            manualIO: true,
+            manualInputHandler: onInput
+        )
+        surface.onManualGridResize = onResize
+        let newPanel = TerminalPanel(workspaceId: id, surface: surface)
+        configureNewTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = title
+
+        guard let newTabId = bonsplitController.createTab(
+            title: title,
+            icon: "rectangle.connected.to.line.below",
+            kind: SurfaceKind.terminal.rawValue,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            return nil
+        }
+        surfaceIdToPanelId[newTabId] = newPanel.id
+        if focus {
+            bonsplitController.focusPane(paneId)
+        }
+        bonsplitController.selectTab(newTabId)
+        if focus {
+            newPanel.focus()
+        }
+        // Reassert AppKit first-responder (keyboard focus) only on a user-initiated
+        // attach; a background/socket mirror must not steal focus.
+        applyTabSelection(tabId: newTabId, inPane: paneId, reassertAppKitFocus: focus)
+        return newPanel
+    }
+
+    /// Closes one pane of a mirrored multi-pane tmux window (the pane-header ✕),
+    /// confirming first when that pane is running an active foreground command —
+    /// kill-pane is destructive, and the mirror pane has no local child process
+    /// for the normal needs-confirm check. The decision uses a LIVE activity
+    /// query (the subscription cache lags ~1s, which would let a just-started
+    /// command slip through), falling back to the cached state when the link is
+    /// down. The pane is removed by the resulting `%layout-change` (or
+    /// `%window-close` for the window's last pane), never locally.
+    func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
+        // Close warnings disabled → even an active command wouldn't confirm;
+        // kill with no added round trip.
+        guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+            requiresConfirmation: true, source: .tabCloseButton
+        ) else {
+            windowMirror.requestKillPane(tmuxPaneId)
+            return
+        }
+        guard !pendingRemoteTmuxPaneCloseIds.contains(tmuxPaneId) else { return }
+        pendingRemoteTmuxPaneCloseIds.insert(tmuxPaneId)
+        windowMirror.queryPaneActivity(tmuxPaneId) { [weak self, weak windowMirror] states in
+            // Hop off the control-stream dispatch before a (modal) dialog can
+            // block it; the defer keeps the in-flight guard balanced on every path.
+            Task { @MainActor [weak self, weak windowMirror] in
+                guard let self else { return }
+                defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
+                guard let windowMirror else { return }
+                let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
+                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                    requiresConfirmation: state?.hasActiveCommand ?? false,
+                    source: .tabCloseButton
+                ) {
+                    // No manager → no way to ask → refuse the destructive kill rather
+                    // than falling through to an unconfirmed one (only reachable in
+                    // teardown states where the pane header shouldn't be clickable).
+                    guard let manager = self.owningTabManager
+                        ?? AppDelegate.shared?.tabManagerFor(tabId: self.id)
+                        ?? AppDelegate.shared?.tabManager else { return }
+                    let message: String
+                    if let command = state?.command, state?.hasActiveCommand == true, !command.isEmpty {
+                        message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(command)\".")
+                    } else {
+                        message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+                    }
+                    guard manager.confirmClose(
+                        title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+                        message: message,
+                        acceptCmdD: false
+                    ) else { return }
+                }
+                windowMirror.requestKillPane(tmuxPaneId)
+            }
+        }
+    }
+
+    /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
+    /// `%window-renamed`). No-ops if the panel is no longer mounted.
+    func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        panelTitles[panelId] = title
+        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
+        bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+    }
+
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
     @discardableResult
     func respawnTerminalSurface(
@@ -6793,6 +7331,7 @@ final class Workspace: Identifiable, ObservableObject {
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
         let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
         let customTitle = panelCustomTitles[panelId]
+        let customTitleSource = panelCustomTitleSources[panelId]
         let wasPinned = pinnedPanelIds.contains(panelId)
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
@@ -6851,6 +7390,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {
             panelCustomTitles[panelId] = customTitle
+            panelCustomTitleSources[panelId] = customTitleSource ?? .user
         }
         if wasPinned {
             pinnedPanelIds.insert(panelId)
@@ -6920,6 +7460,9 @@ final class Workspace: Identifiable, ObservableObject {
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
+        // No local browser surfaces in a remote tmux mirror workspace (it is a
+        // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
+        if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let url {
@@ -7030,6 +7573,11 @@ final class Workspace: Identifiable, ObservableObject {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
+        // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
+        // has no browser concept). A local browser tab here would be an orphan
+        // that the mirror's rebuild() never reconciles, breaking the 1:1
+        // invariant — so refuse browser creation in a mirror workspace.
+        if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let externalURL = url ?? initialRequest?.url {
@@ -8164,6 +8712,59 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
+    /// order matches `panelOrder` (the tmux window order), preserving the user's
+    /// current tab selection and pane focus.
+    ///
+    /// This follows reorders that originate on the remote (a second tmux client, or
+    /// a manual `move-window` / a `new-window` inserted mid-list). The cmux→tmux
+    /// drag direction is handled by `handleMirrorWindowsReordered`. bonsplit's
+    /// `reorderTab` selects+focuses the moved tab (and `selectTab`/`focusPane` fire
+    /// the same activation), so the whole operation runs under
+    /// ``isApplyingRemoteTmuxTabReorder`` to suppress that churn — a reactive tmux
+    /// event must not steal focus or resume agents (socket focus policy). The user's
+    /// selection/focus are unchanged, so bonsplit's internal state is just restored
+    /// to match. No-ops when the tabs already match or aren't all in one pane.
+    ///
+    /// Known beta limitation: if a *remote* window reorder arrives while the user is
+    /// mid tab-drag, this can move tabs under the drag. The trigger is narrow (a
+    /// concurrent remote reorder during a ~1s local drag) and self-heals — the
+    /// drop's `didReorderTabsInPane` reconciles `connection.windowOrder` to the
+    /// final order. A drag-aware guard would need bonsplit to expose drag state.
+    @discardableResult
+    func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
+        // All mirror tabs must live in a single pane: a global tmux window order
+        // can't be expressed across a user-arranged split. If the requested panels
+        // resolve to more than one pane (or none), skip rather than reorder a
+        // subset of one pane.
+        let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
+        guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
+        let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
+        guard let desired = RemoteTmuxSessionMirror.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
+#if DEBUG
+        cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
+#endif
+
+        let savedSelectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
+        let savedFocusedPaneId = bonsplitController.focusedPaneId
+
+        isApplyingRemoteTmuxTabReorder = true
+        defer { isApplyingRemoteTmuxTabReorder = false }
+        for (index, panelId) in desired.enumerated() {
+            guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
+            _ = bonsplitController.reorderTab(tabId, toIndex: index)
+        }
+        // Restore bonsplit's internal selection + focus (the loop moved them to the
+        // last-reordered tab). cmux's own focus/selection were never touched (the
+        // delegate handlers short-circuited), so this just realigns bonsplit with
+        // the user's unchanged state — no `applyTabSelection` runs.
+        if let savedSelectedTabId { bonsplitController.selectTab(savedSelectedTabId) }
+        if let savedFocusedPaneId { bonsplitController.focusPane(savedFocusedPaneId) }
+
+        scheduleTerminalGeometryReconcile()
+        return true
+    }
+
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
@@ -8262,6 +8863,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
+            panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
         }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
@@ -8302,6 +8904,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
+            panelCustomTitleSources.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -9550,6 +10153,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Mirror-rendered window-tab panels are driven by the in-tab mirror
+            // view, not the workspace; never reattach/refresh their dismantled
+            // hostedView here (matches the visibility/follow-up skips, and avoids
+            // a non-converging layout follow-up loop during zoom).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             guard visiblePanelIds.contains(terminalPanel.id) else { continue }
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
@@ -9655,6 +10263,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // A multi-pane remote-tmux window-tab is rendered by its
+            // RemoteTmuxWindowMirrorView (its own panel's surface is not mounted),
+            // so the workspace must not drive that panel's portal here.
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
@@ -9679,6 +10291,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
+            // Skip mirror-rendered window-tab panels (see reconcile above).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             let hostedView = terminalPanel.hostedView
 
@@ -9838,7 +10452,12 @@ final class Workspace: Identifiable, ObservableObject {
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
-        guard let newPanel = newTerminalSurface(inPane: paneId, focus: true, inheritWorkingDirectoryFallback: true, workingDirectoryFallbackSourcePanelId: sourcePanelId) else { return }
+        guard let newPanel = newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            inheritWorkingDirectoryFallback: true,
+            workingDirectoryFallbackSourcePanelId: sourcePanelId
+        ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
@@ -10277,7 +10896,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+            return snapshot
+        }
+        // Last resort: a live agent cmux never recorded a hook for (e.g. an
+        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
+        // Lazily process-detected and debounced, off the hot hook-store path.
+        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -10454,9 +11079,18 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
-    private func confirmClosePanel(for tabId: TabID) async -> Bool {
+    /// - Parameter nameOverride: when non-nil, the dialog names this instead of
+    ///   the panel title. The mirror window-tab path passes the LIVE foreground
+    ///   command here so the dialog says "sleep" the instant the close fires —
+    ///   the tab's own title (tmux's window name) only catches up to the
+    ///   automatic-rename a beat later, which otherwise reads like the dialog is
+    ///   naming a different tab.
+    private func confirmClosePanel(for tabId: TabID, nameOverride: String? = nil) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
+            if let nameOverride, !nameOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nameOverride
+            }
             guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
             if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return custom
@@ -10929,6 +11563,124 @@ extension Workspace: BonsplitDelegate {
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
+        // Remote tmux mirror: closing a window tab means "kill that tmux window".
+        // Route ANY non-programmatic close (close button, ⌘W, and batch closes
+        // like "close others / close to the left/right") to the remote and veto
+        // the immediate local close — the tab is removed when tmux reports
+        // %window-close, which also tears the window mirror down (so a batch
+        // close can't abandon the mirror's pane surfaces, and the window doesn't
+        // reappear on the next rebuild). Programmatic closes (forceCloseTabIds,
+        // used by the mirror's own rebuild) are excluded — they do the actual
+        // removal. Falls through to the normal local close when there is no live
+        // mirror connection.
+        //
+        // Kill-window is destructive (unlike detach), so it gets the same close
+        // confirmation as a local tab with a running process. The decision uses a
+        // LIVE activity query (tmux evaluates pane_current_command at query time)
+        // rather than the subscription cache, which tmux only refreshes about
+        // once a second — otherwise a command started right before ⌘W would
+        // slip through unconfirmed. The kill is only sent on Confirm (or when
+        // the fresh answer says idle); the %window-close round trip still does
+        // the actual tab removal, so the silent-close case costs one extra
+        // round trip on a path that already waits one. Batch closes never reach
+        // this confirmation: they confirm once up front and route the kill
+        // directly (see closeTabsFromContextMenu), bypassing this delegate.
+        if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
+           let panelId = panelIdFromSurfaceId(tab.id),
+           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+           remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
+            let confirmationSource: CloseTabCloseSource =
+                tabCloseButtonClose ? .tabCloseButton : .shortcut
+            if !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                requiresConfirmation: true, source: confirmationSource
+            ) {
+                // Close warnings disabled → even an active command wouldn't
+                // confirm; kill with no added round trip. Veto unconditionally:
+                // the target resolved two lines up on the same main-actor tick,
+                // and falling through to a LOCAL close of a mirror tab would
+                // leave the remote window alive to resurrect it.
+                _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+                return false
+            } else {
+                if pendingCloseConfirmTabIds.contains(tab.id) {
+                    return false
+                }
+                let confirmationManager = owningTabManager
+                    ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+                    ?? AppDelegate.shared?.tabManager
+                if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
+                    return false
+                }
+                pendingCloseConfirmTabIds.insert(tab.id)
+                let tabId = tab.id
+
+                // Begins the confirmation session and runs the dialog → kill-window
+                // flow; shared by the always-warn path (no query) and the queried
+                // active-command path. `commandName` (the live foreground command)
+                // names the dialog so it can't lag the tab's own rename. Balances
+                // pendingCloseConfirmTabIds on every exit.
+                let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
+                    guard let self else { return }
+                    if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        return
+                    }
+                    Task { @MainActor in
+                        defer {
+                            self.pendingCloseConfirmTabIds.remove(tabId)
+                            confirmationManager?.endCloseConfirmationSession()
+                        }
+
+                        // If the tab disappeared while we were scheduling (e.g. the
+                        // command finished and another client killed the window), do nothing.
+                        guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                        let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
+                        guard confirmed else { return }
+
+                        // Re-resolves the target, so a window that died while the
+                        // dialog was up is a no-op rather than a stray kill.
+                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                            workspaceId: self.id, panelId: panelId
+                        )
+                    }
+                }
+
+                // "Always warn on the tab ✕" makes the dialog unconditional — a
+                // live query couldn't change WHETHER we confirm, but it still
+                // supplies the fresh command name, so use the cached classification
+                // for the name (no round trip) and present immediately.
+                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                    requiresConfirmation: false, source: confirmationSource
+                ) {
+                    let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
+                    presentConfirmation(cached?.activeCommandName)
+                    return false
+                }
+
+                remoteTmuxController.queryMirrorTabActivity(
+                    workspaceId: id, panelId: panelId
+                ) { [weak self] activity in
+                    guard let self else { return }
+                    // Tab vanished while the query was in flight (e.g. the window
+                    // died remotely) — nothing left to close.
+                    guard self.panelIdFromSurfaceId(tabId) != nil else {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        return
+                    }
+                    guard activity.hasActiveCommand else {
+                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                            workspaceId: self.id, panelId: panelId
+                        )
+                        return
+                    }
+                    presentConfirmation(activity.activeCommandName)
+                }
+                return false
+            }
+        }
+
         if forceCloseTabIds.contains(tab.id) {
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
@@ -11091,6 +11843,9 @@ extension Workspace: BonsplitDelegate {
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
+                customTitleSource: panelCustomTitles[panelId] != nil
+                    ? (panelCustomTitleSources[panelId] ?? .user)
+                    : nil,
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
@@ -11189,7 +11944,38 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        // Suppress the per-move selection churn of a reactive mirror-tab reorder
+        // (the user's selection/focus is restored explicitly afterwards).
+        guard !isApplyingRemoteTmuxTabReorder else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        // In a remote tmux mirror, a split (button or any bonsplit-level split)
+        // becomes a tmux `split-window`; the new pane arrives via %layout-change.
+        // Local workspaces split normally. ALWAYS veto the local split in a
+        // mirror — even when the route can't be taken (tab lookup failed, or
+        // the connection is reconnecting and can't deliver the command) — a
+        // local pane would be an orphan the mirror's rebuild() never
+        // reconciles, breaking the 1:1 invariant.
+        guard isRemoteTmuxMirror else { return true }
+        if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+           let panelId = panelIdFromSurfaceId(tabId) {
+            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id, panelId: panelId, vertical: orientation == .vertical
+            )
+        }
+        return false
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        // A remote tmux mirror tab reorder propagates to tmux window order.
+        guard isRemoteTmuxMirror else { return }
+        let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
+        guard !orderedPanelIds.isEmpty else { return }
+        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
+            workspaceId: id, orderedPanelIds: orderedPanelIds
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
@@ -11247,6 +12033,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        // See `isApplyingRemoteTmuxTabReorder`: a reactive reorder restores the
+        // prior pane focus itself, without re-running tab activation.
+        guard !isApplyingRemoteTmuxTabReorder else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
@@ -11636,7 +12425,12 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput, inheritWorkingDirectoryFallback: true)
+                _ = self.newTerminalSurface(
+                    inPane: pane,
+                    focus: true,
+                    initialInput: shellInput,
+                    inheritWorkingDirectoryFallback: true
+                )
             }
         }
         guard didExecute else {
