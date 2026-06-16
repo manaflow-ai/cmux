@@ -5753,7 +5753,6 @@ extension TabManager {
             hashTextBoxAttachmentSnapshot(part.attachment, into: &hasher)
         }
     }
-
     nonisolated private static func hashTextBoxAttachmentSnapshot(
         _ snapshot: SessionTextBoxInputAttachmentSnapshot?,
         into hasher: inout Hasher
@@ -5770,7 +5769,6 @@ extension TabManager {
         hashOptionalString(snapshot.localPath, into: &hasher)
         hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
     }
-
     nonisolated private static func hashNotifications(
         _ notifications: [TerminalNotification],
         into hasher: inout Hasher
@@ -5788,7 +5786,6 @@ extension TabManager {
             hasher.combine(notification.clickAction)
         }
     }
-
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
         if let value {
             hasher.combine(true)
@@ -5823,14 +5820,17 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
-        var remainingScrollbackCaptures = 8
-        let claimScrollbackCapture = { guard remainingScrollbackCaptures > 0 else { return false }; remainingScrollbackCaptures -= 1; return true }
+        let selectedSnapshotWorkspaceId = selectedTabId; var selectedScrollbackCaptures = 8, backgroundScrollbackCaptures = 8
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
-            .map {
-                $0.sessionSnapshot(
+            .map { workspace in
+                let claimScrollbackCapture = { () -> Bool in
+                    if workspace.id == selectedSnapshotWorkspaceId { guard selectedScrollbackCaptures > 0 else { return false }; selectedScrollbackCaptures -= 1; return true }
+                    guard backgroundScrollbackCaptures > 0 else { return false }; backgroundScrollbackCaptures -= 1; return true
+                }
+                return workspace.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
                     claimScrollbackCapture: claimScrollbackCapture,
