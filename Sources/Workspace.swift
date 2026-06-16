@@ -2572,6 +2572,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
+    /// terminal/browser panels, separate from the main-area `bonsplitController`.
+    /// Lazily created so workspaces that never open the Dock pay nothing.
+    lazy var dockSplit: DockSplitStore = DockSplitStore(
+        workspaceId: id,
+        baseDirectoryProvider: { [weak self] in self?.currentDirectory }
+    )
+
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.

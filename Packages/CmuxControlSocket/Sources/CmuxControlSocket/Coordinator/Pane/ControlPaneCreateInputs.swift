@@ -39,6 +39,10 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The raw `initial_divider_position` value, if present (legacy `v2Double`,
     /// pre-clamp). The seam validates finiteness and clamps to `[0.1, 0.9]`.
     public let initialDividerPositionRaw: Double?
+    /// The raw `placement` string, if present. The seam resolves it to the
+    /// target container (main workspace vs. right-sidebar Dock), defaulting to
+    /// the workspace when absent.
+    public let placementRaw: String?
 
     /// Creates the pane-create inputs.
     ///
@@ -54,6 +58,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ///   - requestedFocus: Whether to focus the new pane.
     ///   - hasInitialDividerPosition: Whether a divider param was present.
     ///   - initialDividerPositionRaw: The raw divider value, if present.
+    ///   - placementRaw: The raw `placement` string, if present.
     public init(
         directionRaw: String?,
         typeRaw: String?,
@@ -65,7 +70,8 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         requestedSourceSurfaceID: UUID?,
         requestedFocus: Bool,
         hasInitialDividerPosition: Bool,
-        initialDividerPositionRaw: Double?
+        initialDividerPositionRaw: Double?,
+        placementRaw: String? = nil
     ) {
         self.directionRaw = directionRaw
         self.typeRaw = typeRaw
@@ -78,5 +84,6 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         self.requestedFocus = requestedFocus
         self.hasInitialDividerPosition = hasInitialDividerPosition
         self.initialDividerPositionRaw = initialDividerPositionRaw
+        self.placementRaw = placementRaw
     }
 }

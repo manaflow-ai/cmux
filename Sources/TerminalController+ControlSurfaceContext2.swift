@@ -311,11 +311,26 @@ extension TerminalController {
             ))
         }
 
+        let placement = resolveControlPlacement(inputs.placementRaw)
+        if case .invalid(let raw) = placement {
+            return .invalidPlacement(rawValue: raw)
+        }
+
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+        if case .dock = placement {
+            return dockSurfaceCreate(
+                ws: ws,
+                tabManager: tabManager,
+                panelType: panelType,
+                url: url,
+                inputs: inputs
+            )
+        }
 
         let paneId: PaneID? = {
             if let paneUUID = inputs.requestedPaneID {
@@ -381,6 +396,45 @@ extension TerminalController {
             }
         }
 
+        guard let newPanelId else {
+            return .createFailed
+        }
+        return .created(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: ws.id,
+            paneID: paneId.id,
+            surfaceID: newPanelId,
+            typeRawValue: panelType.rawValue
+        )
+    }
+
+    /// Creates a surface (tab) in the workspace's right-sidebar Dock. The Dock
+    /// hosts terminal and browser surfaces only; agent-session is unsupported.
+    private func dockSurfaceCreate(
+        ws: Workspace,
+        tabManager: TabManager,
+        panelType: PanelType,
+        url: URL?,
+        inputs: ControlSurfaceCreateInputs
+    ) -> ControlSurfaceCreateResolution {
+        guard panelType == .terminal || panelType == .browser else {
+            return .createFailed
+        }
+        let dock = ws.dockSplit
+        guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
+            return .paneNotFound
+        }
+        let focus = v2FocusAllowed(requested: inputs.requestedFocus)
+        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let newPanelId = dock.newSurface(
+            kind: kind,
+            inPane: paneId,
+            url: kind == .browser ? url : nil,
+            command: kind == .terminal ? inputs.initialCommand : nil,
+            workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
+            environment: inputs.startupEnvironment,
+            focus: focus
+        )
         guard let newPanelId else {
             return .createFailed
         }

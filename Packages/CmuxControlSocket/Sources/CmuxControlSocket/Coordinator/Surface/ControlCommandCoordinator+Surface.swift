@@ -403,7 +403,8 @@ extension ControlCommandCoordinator {
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
-            requestedFocus: bool(params, "focus") ?? false
+            requestedFocus: bool(params, "focus") ?? false,
+            placementRaw: string(params, "placement")
         )
 
         let resolution = context?.controlSurfaceCreate(routing: routing, inputs: inputs)
@@ -422,6 +423,12 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "Invalid renderer (react|solid)",
                 data: .object(["renderer": .string(rawValue)])
+            )
+        case .invalidPlacement(let rawValue):
+            return .err(
+                code: "invalid_params",
+                message: "placement must be one of: workspace, dock",
+                data: .object(["placement": .string(rawValue)])
             )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)

@@ -192,6 +192,11 @@ extension TerminalController: ControlPaneContext {
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
+        let placement = resolveControlPlacement(inputs.placementRaw)
+        if case .invalid(let raw) = placement {
+            return .invalidPlacement(rawValue: raw)
+        }
+
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
 
@@ -208,6 +213,19 @@ extension TerminalController: ControlPaneContext {
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+        if case .dock = placement {
+            return dockPaneCreate(
+                ws: ws,
+                tabManager: tabManager,
+                panelType: panelType,
+                url: url,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                inputs: inputs
+            )
+        }
+
         guard let sourcePanelId = inputs.requestedSourceSurfaceID ?? ws.focusedPanelId,
               ws.panels[sourcePanelId] != nil else {
             return .noSourceSurface
@@ -318,6 +336,48 @@ extension TerminalController: ControlPaneContext {
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .browserDisabledOpenedExternally(windowID: windowId, url: url.absoluteString)
+    }
+
+    // MARK: - dock placement
+
+    /// Creates a pane in the workspace's right-sidebar Dock instead of the main
+    /// area, splitting the Dock's own Bonsplit tree. Browser-disabled is handled
+    /// by `controlPaneCreate` before this is reached.
+    func dockPaneCreate(
+        ws: Workspace,
+        tabManager: TabManager,
+        panelType: PanelType,
+        url: URL?,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        inputs: ControlPaneCreateInputs
+    ) -> ControlPaneCreateResolution {
+        let dock = ws.dockSplit
+        let focus = v2FocusAllowed(requested: inputs.requestedFocus)
+        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let newPanelId = dock.newSplit(
+            kind: kind,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            sourcePanelId: inputs.requestedSourceSurfaceID,
+            url: kind == .browser ? url : nil,
+            command: kind == .terminal ? inputs.initialCommand : nil,
+            workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
+            environment: inputs.startupEnvironment,
+            focus: focus
+        )
+        guard let newPanelId else {
+            return .createFailed
+        }
+        let paneUUID = dock.paneId(forPanelId: newPanelId)?.id
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .created(
+            windowID: windowId,
+            workspaceID: ws.id,
+            paneID: paneUUID,
+            surfaceID: newPanelId,
+            typeRawValue: panelType.rawValue
+        )
     }
 
     // MARK: - resize
@@ -632,5 +692,31 @@ extension TerminalController: ControlPaneContext {
             paneID: target.id,
             selectedSurfaceID: selectedSurfaceId
         )
+    }
+}
+
+/// Where a `pane.create` / `surface.create` request should land: the main-area
+/// workspace split, or the workspace's right-sidebar Dock.
+enum ControlPlacementResolution: Equatable {
+    case workspace
+    case dock
+    case invalid(String)
+}
+
+/// Resolves the raw `placement` param. Absent → `.workspace`; `dock` → `.dock`;
+/// any other non-empty value → `.invalid`. Shared by the pane and surface
+/// create paths.
+func resolveControlPlacement(_ raw: String?) -> ControlPlacementResolution {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty else {
+        return .workspace
+    }
+    switch trimmed {
+    case "workspace", "main", "content", "split":
+        return .workspace
+    case "dock", "rightsidebardock", "right-sidebar-dock", "sidebar":
+        return .dock
+    default:
+        return .invalid(raw ?? trimmed)
     }
 }

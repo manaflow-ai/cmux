@@ -20,6 +20,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// `invalid_params` / "initial_divider_position must be numeric", `data:
     /// nil`).
     case invalidDividerPosition
+    /// The `placement` was present but not one of `workspace|dock`
+    /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
+    case invalidPlacement(rawValue: String)
     /// The `type` resolved to `agent-session`, which `pane.create` rejects
     /// (legacy `invalid_params` / "agent-session is only supported by
     /// surface.create", `data: {"type": rawValue}`). Carries the raw type value.

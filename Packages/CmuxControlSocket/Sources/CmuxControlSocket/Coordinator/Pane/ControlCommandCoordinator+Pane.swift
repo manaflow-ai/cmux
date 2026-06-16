@@ -187,7 +187,8 @@ extension ControlCommandCoordinator {
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),
             requestedFocus: bool(params, "focus") ?? false,
             hasInitialDividerPosition: hasNonNull(params, "initial_divider_position"),
-            initialDividerPositionRaw: double(params, "initial_divider_position")
+            initialDividerPositionRaw: double(params, "initial_divider_position"),
+            placementRaw: string(params, "placement")
         )
 
         let resolution = context?.controlPaneCreate(routing: routing, inputs: inputs)
@@ -206,6 +207,12 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "initial_divider_position must be numeric",
                 data: nil
+            )
+        case .invalidPlacement(let rawValue):
+            return .err(
+                code: "invalid_params",
+                message: "placement must be one of: workspace, dock",
+                data: .object(["placement": .string(rawValue)])
             )
         case .agentSessionRejected(let typeRawValue):
             return .err(

@@ -16,6 +16,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The agent-session `renderer` token was invalid (legacy `invalid_params` /
     /// "Invalid renderer (react|solid)", `data: {"renderer": …}`).
     case invalidRenderer(rawValue: String)
+    /// The `placement` was present but not one of `workspace|dock`
+    /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
+    case invalidPlacement(rawValue: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").
