@@ -158,13 +158,13 @@ enum TerminalCopyOnSelectSettings {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
 
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
-        guard storedValue(defaults: defaults) == true else { return nil }
-        return "clipboard"
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let enabled = storedValue(defaults: defaults) else { return nil }
+        return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
     }
 
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
-        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }
         return "copy-on-select = \(value)"
     }
 
@@ -200,9 +200,9 @@ enum TerminalCopyOnSelectSettings {
 }
 
 enum TerminalManagedGhosttySettings {
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [
-            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }
         return lines.joined(separator: "\n")

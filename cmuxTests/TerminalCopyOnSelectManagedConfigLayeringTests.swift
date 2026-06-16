@@ -19,7 +19,10 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
 
         let effectiveValue = Self.effectiveCopyOnSelectValue(afterLoading: [
             "copy-on-select = true",
-            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            TerminalManagedGhosttySettings.ghosttyConfigContents(
+                defaults: defaults,
+                emitsCopyOnSelectFalse: false
+            ),
         ])
 
         #expect(effectiveValue == "true")

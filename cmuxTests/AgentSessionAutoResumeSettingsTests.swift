@@ -825,8 +825,14 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
             notificationCenter: notificationCenter
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
-        XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
         XCTAssertEqual(notificationCount, 2)
 
         TerminalCopyOnSelectSettings.reset(
