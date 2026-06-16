@@ -138,21 +138,28 @@ final class ComposerDictationController {
         baseText = existingText
         self.onText = onText
         state = .requestingPermission
+        // The Speech/AVFoundation authorization callbacks fire on their own
+        // (non-main) queues, so `requestAuthorization` is nonisolated with a
+        // `@Sendable` completion. Hop to the main actor ONCE, here, via
+        // `Task { @MainActor in }` (an async enqueue, not a synchronous executor
+        // assertion) before touching any actor-isolated state.
         requestAuthorization { [weak self] granted in
-            guard let self else { return }
-            // A second tap may have cancelled (or otherwise moved on) while
-            // authorization resolved; if so this start is stale. Do nothing, so a
-            // cancel during the permission flow neither starts the engine nor
-            // overwrites the user's idle state with `unavailable`.
-            guard self.state == .requestingPermission else { return }
-            guard granted else {
-                // Denied or restricted: a terminal rest state that disables the
-                // mic. The captured callback is dropped.
-                self.onText = nil
-                self.state = .unavailable
-                return
+            Task { @MainActor in
+                guard let self else { return }
+                // A second tap may have cancelled (or otherwise moved on) while
+                // authorization resolved; if so this start is stale. Do nothing, so
+                // a cancel during the permission flow neither starts the engine nor
+                // overwrites the user's idle state with `unavailable`.
+                guard self.state == .requestingPermission else { return }
+                guard granted else {
+                    // Denied or restricted: a terminal rest state that disables the
+                    // mic. The captured callback is dropped.
+                    self.onText = nil
+                    self.state = .unavailable
+                    return
+                }
+                self.beginRecognition()
             }
-            self.beginRecognition()
         }
     }
 
@@ -210,34 +217,39 @@ final class ComposerDictationController {
 
     // MARK: - Authorization
 
-    /// Resolve both speech-recognition and microphone authorization, calling back
-    /// on the main actor with whether BOTH were granted.
-    private func requestAuthorization(_ completion: @escaping @MainActor (Bool) -> Void) {
+    /// Resolve speech-recognition then microphone authorization and report whether
+    /// BOTH were granted.
+    ///
+    /// `nonisolated` with a `@Sendable` completion ON PURPOSE: `SFSpeechRecognizer`
+    /// / `AVFoundation` invoke their completion handlers on their own (non-main)
+    /// queues. If those closures were main-actor-isolated (the default for a
+    /// closure written inside this `@MainActor` type), Swift 6 on iOS 26 asserts
+    /// executor isolation when the system calls them off-main and traps
+    /// (`EXC_BREAKPOINT` in `swift_task_isCurrentExecutor` ->
+    /// `dispatch_assert_queue_fail`), which is the mic-tap crash. Keeping the
+    /// whole authorization chain nonisolated means no `@MainActor` closure is ever
+    /// invoked off-main; the caller hops to the main actor once.
+    private nonisolated func requestAuthorization(_ completion: @escaping @Sendable (Bool) -> Void) {
         SFSpeechRecognizer.requestAuthorization { speechStatus in
-            // The Speech callback arrives off the main actor; hop back before
-            // touching any state or the microphone request.
-            Task { @MainActor in
-                guard speechStatus == .authorized else {
-                    completion(false)
-                    return
-                }
-                Self.requestMicrophonePermission { micGranted in
-                    completion(micGranted)
-                }
+            guard speechStatus == .authorized else {
+                completion(false)
+                return
             }
+            Self.requestMicrophonePermission(completion)
         }
     }
 
-    /// Request microphone permission, bridging the iOS 17+ API to its
-    /// pre-17 fallback. Calls back on the main actor.
-    private static func requestMicrophonePermission(_ completion: @escaping @MainActor (Bool) -> Void) {
+    /// Request microphone permission, bridging the iOS 17+ API to its pre-17
+    /// fallback. `nonisolated` + `@Sendable` for the same off-main-isolation
+    /// reason as ``requestAuthorization(_:)``; reports on the system's queue.
+    private nonisolated static func requestMicrophonePermission(_ completion: @escaping @Sendable (Bool) -> Void) {
         if #available(iOS 17.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
-                Task { @MainActor in completion(granted) }
+                completion(granted)
             }
         } else {
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                Task { @MainActor in completion(granted) }
+                completion(granted)
             }
         }
     }
