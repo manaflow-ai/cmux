@@ -90,7 +90,7 @@ enum WorkspaceActionDispatcher {
     }
 
     @MainActor
-    static func liveWorkspaceIds(
+    private static func liveWorkspaceIds(
         workspacesById: [UUID: Workspace],
         from workspaceIds: [UUID]
     ) -> [UUID] {
