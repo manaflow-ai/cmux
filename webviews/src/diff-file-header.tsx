@@ -1,7 +1,13 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type { KeyboardEvent } from "react";
+import { fileName } from "./diff-stream";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
+
+type DiffFileHeaderMetadata = FileDiffMetadata & {
+  newName?: string;
+  oldName?: string;
+};
 
 /**
  * File-type badge for the header, derived from the file extension (Graphite
@@ -12,7 +18,7 @@ import type { DiffViewerLabelResolver } from "./labels";
  * (e.g. `Makefile`) so they don't get a noisy badge.
  */
 export function diffFileLanguageLabel(fileDiff: FileDiffMetadata): string {
-  const name = fileDiff.name ?? "";
+  const name = fileName(fileDiff, "");
   const slash = name.lastIndexOf("/");
   const dot = name.lastIndexOf(".");
   // Only a real trailing ".ext" on the basename counts (ignore dotfiles like
@@ -70,8 +76,10 @@ export function DiffFileHeader({
   onOpenInTab?: () => void;
   onToggleCollapsed?: () => void;
 }) {
-  const name = fileDiff.name ?? "";
-  const previousName = fileDiff.prevName;
+  const metadata = fileDiff as DiffFileHeaderMetadata;
+  const name = fileName(metadata, "");
+  const rawPreviousName = metadata.prevName ?? metadata.oldName;
+  const previousName = rawPreviousName && rawPreviousName !== name ? rawPreviousName : undefined;
   const badge = diffFileLanguageLabel(fileDiff);
   const { additions, deletions } = diffFileLineTotals(fileDiff);
   const title = previousName ? `${previousName} → ${name}` : name;

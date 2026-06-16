@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App, recollapseExpandedContextSeparator } from "../src/App";
+import { App, commentNavigationPlan, recollapseExpandedContextSeparator } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -125,6 +125,30 @@ test("context separator click re-collapses an already expanded hunk", () => {
   expect(harness.preventDefaultCount()).toBe(1);
   expect(harness.stopPropagationCount()).toBe(1);
   expect(harness.stopImmediatePropagationCount()).toBe(1);
+});
+
+test("comment navigation switches file tabs when the target is filtered out", () => {
+  const entry = {
+    anchor: { line: 12, state: "anchored" },
+    comment: { id: "comment-1", side: "additions" },
+    itemId: "file-b",
+    pending: false,
+  } as any;
+  const items = [{ id: "file-a" }, { id: "file-b" }] as any;
+
+  expect(commentNavigationPlan(entry, items, "")).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan(entry, items, "file-a")).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan(entry, items, "file-b")).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan({ ...entry, itemId: null }, items, "file-a")).toBeNull();
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {

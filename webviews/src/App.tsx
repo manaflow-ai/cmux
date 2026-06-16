@@ -95,6 +95,16 @@ type AppAction =
   | { type: "toggle-item-collapsed"; itemId: string }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
 
+type CommentNavigationPlan = {
+  shouldOpenFileTab: boolean;
+  targetItemId: string;
+};
+
+type PendingCommentNavigation = {
+  entry: SidebarCommentEntry;
+  targetItemId: string;
+};
+
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
@@ -277,6 +287,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingCommentNavigationRef = useRef<PendingCommentNavigation | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -323,29 +334,6 @@ export function App({ config, initialStatus }: ConfigProps) {
 
   const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
   const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
-  const selectCommentEntry = (entry: SidebarCommentEntry) => {
-    if (entry.itemId == null) {
-      return;
-    }
-    if (entry.anchor.state === "outdated") {
-      codeViewRef.current?.scrollTo({ type: "item", id: entry.itemId, align: "start", behavior: "smooth-auto" });
-    } else {
-      codeViewRef.current?.scrollTo({
-        type: "line",
-        id: entry.itemId,
-        lineNumber: entry.anchor.line,
-        side: entry.comment.side,
-        align: "center",
-        behavior: "smooth-auto",
-      });
-    }
-    dispatch({
-      type: "set-active-item",
-      itemId: entry.itemId,
-      treePath: state.treeSource?.treePathByItemId.get(entry.itemId),
-    });
-  };
-
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
   const effectiveReviewTab = state.activeReviewTab === "overview" || state.items.some((item) => item.id === state.activeReviewTab)
     ? state.activeReviewTab
@@ -361,6 +349,51 @@ export function App({ config, initialStatus }: ConfigProps) {
       treePath: state.treeSource?.treePathByItemId.get(itemId),
     });
   };
+  const scrollToCommentEntry = useCallback((entry: SidebarCommentEntry, targetItemId: string) => {
+    if (entry.anchor.state === "outdated") {
+      codeViewRef.current?.scrollTo({ type: "item", id: targetItemId, align: "start", behavior: "smooth-auto" });
+    } else {
+      codeViewRef.current?.scrollTo({
+        type: "line",
+        id: targetItemId,
+        lineNumber: entry.anchor.line,
+        side: entry.comment.side,
+        align: "center",
+        behavior: "smooth-auto",
+      });
+    }
+  }, []);
+  const selectCommentEntry = (entry: SidebarCommentEntry) => {
+    const plan = commentNavigationPlan(entry, state.items, activeFileTabId);
+    if (!plan) {
+      return;
+    }
+    if (plan.shouldOpenFileTab) {
+      pendingCommentNavigationRef.current = { entry, targetItemId: plan.targetItemId };
+      openFileInTab(plan.targetItemId);
+      return;
+    }
+    scrollToCommentEntry(entry, plan.targetItemId);
+    dispatch({
+      type: "set-active-item",
+      itemId: plan.targetItemId,
+      treePath: state.treeSource?.treePathByItemId.get(plan.targetItemId),
+    });
+  };
+  useEffect(() => {
+    const pending = pendingCommentNavigationRef.current;
+    if (!pending) {
+      return;
+    }
+    if (activeFileTabId !== "" && activeFileTabId !== pending.targetItemId) {
+      return;
+    }
+    if (!visibleItems.some((item) => item.id === pending.targetItemId)) {
+      return;
+    }
+    pendingCommentNavigationRef.current = null;
+    scrollToCommentEntry(pending.entry, pending.targetItemId);
+  }, [activeFileTabId, scrollToCommentEntry, visibleItems]);
   const scrollToItem = (itemId: string) => {
     const target = scrollTargetForItem(itemId, state.items);
     if (!target) {
@@ -1905,6 +1938,24 @@ function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function commentNavigationPlan(
+  entry: SidebarCommentEntry,
+  items: DiffItem[],
+  activeFileTabId: string,
+): CommentNavigationPlan | null {
+  if (entry.itemId == null) {
+    return null;
+  }
+  const targetItemId = scrollTargetForItem(entry.itemId, items);
+  if (!targetItemId) {
+    return null;
+  }
+  return {
+    shouldOpenFileTab: activeFileTabId !== "" && activeFileTabId !== targetItemId,
+    targetItemId,
+  };
 }
 
 function getInitialFileTreeRowCount(): number {

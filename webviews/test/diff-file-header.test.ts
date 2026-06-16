@@ -64,6 +64,22 @@ test("DiffFileHeader renders rename source path as visible text", () => {
   expect(text).toContain("Sources/NewName.swift");
 });
 
+test("DiffFileHeader renders parsed oldName/newName fallback paths", () => {
+  const diff = {
+    type: "change",
+    hunks: [],
+    oldName: "src/OldWidget.ts",
+    newName: "src/NewWidget.ts",
+  } as unknown as FileDiffMetadata;
+  const markup = renderToStaticMarkup(createElement(DiffFileHeader, { fileDiff: diff }));
+  const text = visibleText(markup);
+
+  expect(diffFileLanguageLabel(diff)).toBe("TS");
+  expect(text).toContain("src/OldWidget.ts");
+  expect(text).toContain("→");
+  expect(text).toContain("src/NewWidget.ts");
+});
+
 test("DiffFileHeader toggles collapse and opens a dedicated tab without also toggling", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>");
   const previousWindow = (globalThis as any).window;
