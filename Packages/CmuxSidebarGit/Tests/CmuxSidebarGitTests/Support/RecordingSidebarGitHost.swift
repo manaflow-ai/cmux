@@ -112,6 +112,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func isSelectedFocusedPanel(workspaceId: UUID, panelId: UUID) -> Bool {
         selectedWorkspaceId == workspaceId && state(workspaceId)?.focusedPanelId == panelId
     }
+    func selectedFocusedPanel() -> (workspaceId: UUID, panelId: UUID)? {
+        guard let selectedWorkspaceId, let panelId = state(selectedWorkspaceId)?.focusedPanelId else { return nil }
+        return (selectedWorkspaceId, panelId)
+    }
 
     // MARK: Writes
 

@@ -187,31 +187,101 @@ extension PullRequestPollService {
             workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
         }
 
-        if case .resolved(let resolvedPullRequest) = resolution,
-           let status = PullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
-           status != .open {
+        let outcome = classifyWorkspacePullRequestPollOutcome(key: key, resolution: resolution)
+        switch outcome {
+        case .terminalPullRequest:
             workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(PullRequestProbeService.terminalStateSweepInterval)
-            return
-        }
-
-        if case .transientFailure = resolution,
-           workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil {
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(PullRequestProbeService.terminalStateSweepInterval)
-            return
-        }
-
-        if case .unsupportedRepository = resolution {
+        case .openPullRequest, .noPullRequest, .unsupportedRepository:
             workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
-            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: Self.backgroundPollInterval))
+        case .transientFailure:
+            break
+        }
+        workspacePullRequestLastOutcomeByKey[key] = outcome
+
+        let isFocused = host?.isSelectedFocusedPanel(workspaceId: workspaceId, panelId: panelId) ?? false
+        workspacePullRequestNextPollAtByKey[key] = Self.nextWorkspacePullRequestPollAt(
+            from: now,
+            outcome: outcome,
+            isFocused: isFocused
+        )
+    }
+
+    func classifyWorkspacePullRequestPollOutcome(
+        key: WorkspaceGitProbeKey,
+        resolution: WorkspacePullRequestRefreshResult.Resolution
+    ) -> WorkspacePullRequestPollOutcome {
+        switch resolution {
+        case .resolved(let resolvedPullRequest):
+            if let status = PullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
+               status != .open {
+                return .terminalPullRequest
+            }
+            return .openPullRequest
+        case .notFound:
+            return .noPullRequest
+        case .unsupportedRepository:
+            return .unsupportedRepository
+        case .transientFailure:
+            return .transientFailure(hadTerminalState: workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil)
+        }
+    }
+
+    /// Brings the newly-focused panel's next-poll deadline forward when the focused cadence would fire sooner than
+    /// the previously scheduled (unfocused) deadline. Called by the host when its selection changes so the focused
+    /// cadence asymmetry takes effect immediately. The previously-focused key keeps its existing deadline — it fires
+    /// on the already-shorter focused schedule and is rescheduled to the unfocused cadence afterwards.
+    public func rescheduleWorkspacePullRequestPollsForFocusChange() {
+        guard let host, let (workspaceId, panelId) = host.selectedFocusedPanel() else { return }
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard let outcome = workspacePullRequestLastOutcomeByKey[key],
+              Self.workspacePullRequestPollOutcomeIsFocusSensitive(outcome) else { return }
+        let now = Date()
+        // The newly-selected workspace's focused panel is by definition focused — host.selectedFocusedPanel resolved it.
+        let target = Self.nextWorkspacePullRequestPollAt(from: now, outcome: outcome, isFocused: true)
+        if let current = workspacePullRequestNextPollAtByKey[key], current <= target {
             return
         }
+        workspacePullRequestNextPollAtByKey[key] = target
+        updateWorkspacePullRequestPollTimer()
+    }
 
-        workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
-        let baseInterval = (host?.isSelectedFocusedPanel(workspaceId: workspaceId, panelId: panelId) ?? false)
-            ? Self.selectedPollInterval
-            : Self.backgroundPollInterval
-        workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: baseInterval))
+    nonisolated static func workspacePullRequestPollOutcomeIsFocusSensitive(
+        _ outcome: WorkspacePullRequestPollOutcome
+    ) -> Bool {
+        switch outcome {
+        case .openPullRequest, .transientFailure(hadTerminalState: false):
+            return true
+        case .terminalPullRequest, .noPullRequest, .unsupportedRepository, .transientFailure(hadTerminalState: true):
+            return false
+        }
+    }
+
+    /// Returns the next-poll Date for a key given its last classified outcome and current focus state. Jitter is
+    /// applied uniformly so simultaneous transitions (e.g. ten PRs merging in one sweep) don't converge on a single
+    /// wake-up.
+    nonisolated static func nextWorkspacePullRequestPollAt(
+        from now: Date,
+        outcome: WorkspacePullRequestPollOutcome,
+        isFocused: Bool
+    ) -> Date {
+        let base: TimeInterval
+        switch outcome {
+        case .terminalPullRequest:
+            base = PullRequestProbeService.terminalStateSweepInterval
+        case .transientFailure(let hadTerminalState):
+            if hadTerminalState {
+                base = PullRequestProbeService.terminalStateSweepInterval
+            } else {
+                base = isFocused ? workspacePullRequestTransientFailurePollInterval : backgroundPollInterval
+            }
+        case .noPullRequest:
+            base = workspacePullRequestNoPullRequestPollInterval
+        case .unsupportedRepository:
+            base = workspacePullRequestUnsupportedRepositoryPollInterval
+        case .openPullRequest:
+            base = isFocused ? selectedPollInterval : backgroundPollInterval
+        }
+        return now.addingTimeInterval(jitteredPollInterval(base: base))
     }
 
     // MARK: Tracking bookkeeping
@@ -221,6 +291,7 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestLastOutcomeByKey = workspacePullRequestLastOutcomeByKey.filter { validKeys.contains($0.key) }
         let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
         workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
             $0.value.fetchedAt >= repoCacheCutoff
@@ -233,6 +304,7 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey.removeValue(forKey: key)
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
         workspacePullRequestTransientFailureCountByKey.removeValue(forKey: key)
+        workspacePullRequestLastOutcomeByKey.removeValue(forKey: key)
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -247,6 +319,7 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestLastOutcomeByKey = workspacePullRequestLastOutcomeByKey.filter { $0.key.workspaceId != workspaceId }
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -271,6 +344,7 @@ extension PullRequestPollService {
         workspacePullRequestNextPollAtByKey.removeAll()
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
+        workspacePullRequestLastOutcomeByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()

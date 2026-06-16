@@ -65,6 +65,7 @@ final class RecordingPullRequestProbing: PullRequestProbing {
     func resetWorkspacePullRequestRefreshState() {
         resetCount += 1
     }
+    func rescheduleWorkspacePullRequestPollsForFocusChange() {}
     func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> { [] }
 }
 

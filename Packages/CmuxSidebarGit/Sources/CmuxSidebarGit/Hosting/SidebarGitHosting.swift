@@ -55,6 +55,9 @@ public protocol SidebarGitHosting: AnyObject {
     /// Whether the panel is the focused panel of the selected workspace
     /// (drives the faster selected-panel PR poll cadence).
     func isSelectedFocusedPanel(workspaceId: UUID, panelId: UUID) -> Bool
+    /// The (workspace id, panel id) of the currently selected workspace's focused panel, if any. Used by the PR poll
+    /// service to recompute the focused-cadence deadline when the host's selection changes.
+    func selectedFocusedPanel() -> (workspaceId: UUID, panelId: UUID)?
 
     // MARK: Projection writes
 
