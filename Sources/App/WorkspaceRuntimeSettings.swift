@@ -147,6 +147,9 @@ enum TerminalTextBoxInputSettings {
 
 enum TerminalCopyOnSelectSettings {
     static let copyOnSelectKey = "terminal.copyOnSelect"
+    // This cmux toggle only opts into copying selections to the system
+    // clipboard. When off/default, omit the Ghostty key so Ghostty's own
+    // selection-clipboard default and user config keep winning.
     static let defaultCopyOnSelect = false
     static let didChangeNotification = Notification.Name("cmux.terminalCopyOnSelectSettingsDidChange")
 
@@ -159,8 +162,8 @@ enum TerminalCopyOnSelectSettings {
     }
 
     static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
-        guard let enabled = storedValue(defaults: defaults) else { return nil }
-        return enabled ? "clipboard" : "false"
+        guard storedValue(defaults: defaults) == true else { return nil }
+        return "clipboard"
     }
 
     static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
