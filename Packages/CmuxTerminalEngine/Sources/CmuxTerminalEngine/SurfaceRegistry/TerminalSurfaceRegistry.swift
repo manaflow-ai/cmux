@@ -109,6 +109,23 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return surfaceFocusPlacements[id] == .rightSidebarDock
     }
 
+    /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.
+    public func diagnosticSnapshot() -> TerminalSurfaceRegistryDiagnosticSnapshot {
+        lock.lock()
+        let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
+        let runtimeSurfaceCount = runtimeSurfaceOwners.count
+        lock.unlock()
+
+        let workspaceSurfaceCount = objects.filter { $0.focusPlacement == .workspace }.count
+        let rightSidebarDockSurfaceCount = objects.filter { $0.focusPlacement == .rightSidebarDock }.count
+        return TerminalSurfaceRegistryDiagnosticSnapshot(
+            registeredSurfaceCount: objects.count,
+            workspaceSurfaceCount: workspaceSurfaceCount,
+            rightSidebarDockSurfaceCount: rightSidebarDockSurfaceCount,
+            runtimeSurfaceCount: runtimeSurfaceCount
+        )
+    }
+
     /// All live registered surfaces, ordered by id for stable iteration.
     public func allSurfaces() -> [any TerminalSurfacing] {
         lock.lock()
