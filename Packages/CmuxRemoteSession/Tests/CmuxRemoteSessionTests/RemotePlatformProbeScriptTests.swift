@@ -195,6 +195,10 @@ struct RemotePlatformProbeScriptTests {
     }
 
     private static func runProcess(executablePath: String, arguments: [String]) throws -> ProcessResult {
+        // Serialize against the other real-subprocess suite; see
+        // ``remoteSubprocessTestLock``.
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

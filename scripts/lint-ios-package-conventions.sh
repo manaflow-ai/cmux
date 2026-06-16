@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 SCOPES=()
-for d in Packages/CMUXMobile* Packages/CmuxMobile* ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/CMUXMobile* Packages/CmuxMobile* Packages/CmuxAgentChat* Packages/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 
