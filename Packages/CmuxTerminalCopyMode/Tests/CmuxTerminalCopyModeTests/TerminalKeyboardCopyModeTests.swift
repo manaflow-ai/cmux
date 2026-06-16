@@ -132,36 +132,36 @@ struct TerminalKeyboardCopyModeResolverTests {
         #expect(state == TerminalKeyboardCopyModeInputState())
     }
 
-    @Test func uppercaseRawVDoesNotClearAnExistingSelection() {
+    @Test func uppercaseRawVRestartsVisualLineSelectionWhenSelectionExists() {
         #expect(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
                 charactersIgnoringModifiers: "V",
                 modifiers: [],
                 hasSelection: true
-            ) != .clearSelection
+            ) == .startLineSelection
         )
     }
 
-    @Test func uppercaseRawVDoesNotStartCharacterSelection() {
+    @Test func uppercaseRawVStartsVisualLineSelection() {
         #expect(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
                 charactersIgnoringModifiers: "V",
                 modifiers: [],
                 hasSelection: false
-            ) != .startSelection
+            ) == .startLineSelection
         )
     }
 
-    @Test func shiftVDoesNotClearAnExistingSelection() {
+    @Test func shiftVRestartsVisualLineSelectionWhenSelectionExists() {
         #expect(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifiers: [.shift],
                 hasSelection: true
-            ) != .clearSelection
+            ) == .startLineSelection
         )
     }
 }
