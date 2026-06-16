@@ -79,7 +79,13 @@ extension TabManager: SidebarGitHosting {
     }
 
     func isSelectedFocusedPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        selectedWorkspace?.id == workspaceId && selectedWorkspace?.focusedPanelId == panelId
+        guard let selected = selectedWorkspace else { return false }
+        return selected.id == workspaceId && selected.focusedPanelId == panelId
+    }
+
+    func selectedFocusedPanel() -> (workspaceId: UUID, panelId: UUID)? {
+        guard let workspace = selectedWorkspace, let panelId = workspace.focusedPanelId else { return nil }
+        return (workspace.id, panelId)
     }
 
     // MARK: Projection writes

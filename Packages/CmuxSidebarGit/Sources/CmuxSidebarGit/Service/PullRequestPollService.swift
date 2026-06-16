@@ -25,7 +25,14 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Tuning constants (legacy TabManager values, preserved exactly)
 
     nonisolated static let backgroundPollInterval: TimeInterval = 60
-    nonisolated static let selectedPollInterval: TimeInterval = 10
+    nonisolated static let selectedPollInterval: TimeInterval = 15
+    // No-PR branches gain a PR via local action that fires its own event-driven refresh, so poll rarely here (issue #3136).
+    // Coincides with backgroundPollInterval today but is intentionally its own constant: the no-PR rationale is
+    // event-driven coverage, not the unfocused-watch cadence, so the two are free to diverge.
+    nonisolated static let workspacePullRequestNoPullRequestPollInterval: TimeInterval = 60
+    nonisolated static let workspacePullRequestUnsupportedRepositoryPollInterval: TimeInterval = 5 * 60
+    // Transient failures keep their own short retry so they don't ride the open-PR cadence (which is intentionally relaxed to 15s).
+    nonisolated static let workspacePullRequestTransientFailurePollInterval: TimeInterval = 10
     nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
     nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     nonisolated static let workspacePullRequestRefreshBatchLimit = 3
@@ -52,6 +59,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
+    var workspacePullRequestLastOutcomeByKey: [WorkspaceGitProbeKey: WorkspacePullRequestPollOutcome] = [:]
     var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?

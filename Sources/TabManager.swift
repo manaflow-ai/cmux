@@ -362,6 +362,7 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            pullRequestProbing.rescheduleWorkspacePullRequestPollsForFocusChange()
             let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
             let switchId = debugWorkspaceSwitchId

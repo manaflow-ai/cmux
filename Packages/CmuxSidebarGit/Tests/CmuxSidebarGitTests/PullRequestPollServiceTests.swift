@@ -33,7 +33,7 @@ import CmuxGit
 
     /// A refresh against a panel whose directory resolves to no GitHub repo
     /// applies `unsupportedRepository` (badge cleared) and re-arms the poll
-    /// timer with the jittered background interval, floored at 0.25 seconds.
+    /// timer with the jittered 5-minute non-GitHub-repo interval, floored at 0.25 seconds.
     @Test func unsupportedRepositoryClearsBadgeAndArmsJitteredPollDeadline() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
@@ -60,11 +60,11 @@ import CmuxGit
         #expect(cleared)
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
 
-        // The next poll deadline: max(0.25, jittered 60s background interval).
+        // The next poll deadline: max(0.25, jittered 5-min non-GitHub-repo interval).
         await clock.waitForSleeper()
         let armed = try #require(await clock.lastRecordedDuration)
         #expect(armed >= 0.25)
-        #expect(armed <= 66.1)
+        #expect(armed <= 330.1)
         // The panel stays tracked for the next sweep.
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId) == [panelId])
     }

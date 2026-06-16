@@ -36,6 +36,10 @@ public protocol PullRequestProbing: AnyObject {
     func clearWorkspacePullRequestTracking(workspaceId: UUID)
     /// Cancels any in-flight refresh and drops all tracking and caches.
     func resetWorkspacePullRequestRefreshState()
+    /// Brings the newly-focused panel's next-poll deadline forward when the focused cadence would fire sooner than
+    /// the previously scheduled (unfocused) deadline. Hosts call this when their selection changes so the
+    /// focused/unfocused asymmetry takes effect immediately instead of waiting out the prior poll.
+    func rescheduleWorkspacePullRequestPollsForFocusChange()
     /// Panel ids with any PR poll tracking state (test seam).
     func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID>
 }
