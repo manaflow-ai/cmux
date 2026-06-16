@@ -64,6 +64,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.ripgrepBinaryPath",
         "automation.socketControlMode",
         "automation.suppressSubagentNotifications",
+        "automation.workspaceAutoNaming",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
