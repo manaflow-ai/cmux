@@ -6,13 +6,18 @@ public import Foundation
 ///
 /// Shared foundation utility (not sidebar-specific); used to render workspace
 /// descriptions in the sidebar and reusable anywhere a lightweight inline
-/// markdown render is needed.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarMarkdownRenderer {
-    /// Renders a workspace-description markdown string into an
-    /// `AttributedString`, interpreting only inline syntax and preserving
-    /// whitespace. Returns `nil` when the markdown cannot be parsed.
-    public static func renderWorkspaceDescription(_ markdown: String) -> AttributedString? {
+/// markdown render is needed. Construct it with the markdown source and read
+/// ``workspaceDescription``.
+public struct SidebarMarkdownRenderer {
+    private let markdown: String
+
+    public init(markdown: String) {
+        self.markdown = markdown
+    }
+
+    /// The markdown rendered into an `AttributedString`, interpreting only
+    /// inline syntax and preserving whitespace. `nil` when it cannot be parsed.
+    public var workspaceDescription: AttributedString? {
         try? AttributedString(
             markdown: markdown,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)

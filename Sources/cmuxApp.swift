@@ -1476,6 +1476,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
+    "cmux.mobilePairingWindow",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -2792,7 +2793,6 @@ private struct FileExplorerStyleDebugView: View {
 
 extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
-    static let titlebarShortcutHintsVisibilityChanged = Notification.Name("titlebarShortcutHintsVisibilityChanged")
 }
 
 private final class FileExplorerStyleDebugWindowController: NSWindowController, NSWindowDelegate {

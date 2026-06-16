@@ -95,9 +95,42 @@ extension TerminalSurface {
         }
 
         if sizeChanged {
+            // Mirror (manual-I/O) surfaces must not reflow their primary screen
+            // on resize. tmux is authoritative for pane reflow and streams only
+            // incremental post-SIGWINCH redraws, so a local reflow diverges from
+            // the tmux grid. Ghostty reflows iff DECAWM is enabled at resize
+            // time, so disable it across the size change for TUI-like panes.
+            let suppressManualReflow = manualIO && manualIONoReflow
+            if suppressManualReflow {
+                writeProcessOutputData(Self.decawmDisableSequence, to: surface)
+            }
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            if manualIO {
+                // Async refresh, not render_now: render_now runs updateFrame on
+                // the main thread and races the always-live macOS renderer
+                // thread on a grid-size change (shaper double-free). Keep the
+                // DECAWM re-enable after the resize so no-reflow ordering holds.
+                ghostty_surface_refresh(surface)
+                if suppressManualReflow {
+                    writeProcessOutputData(Self.decawmEnableSequence, to: surface)
+                }
+            }
+        }
+
+        // Remote tmux display surfaces: keep the remote tmux client sized to
+        // the rendered grid, and report only real cell-grid changes while the
+        // surface is on screen.
+        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
+            let grid = ghostty_surface_size(surface)
+            let cols = Int(grid.columns)
+            let rows = Int(grid.rows)
+            if cols > 1, rows > 1,
+               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
+                lastReportedManualGrid = (cols, rows)
+                report(cols, rows)
+            }
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
@@ -245,6 +278,33 @@ extension TerminalSurface {
         let maxCells = max(1, (Int(UInt32.max) - clampedNonGridPixels) / clampedCellSize)
         let clampedCellCount = min(max(1, cellCount), maxCells)
         return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
+    }
+
+    /// The current monospace cell size in points, or nil if the runtime
+    /// surface is not ready. Used by remote tmux mirror sizing.
+    @MainActor
+    public func cellSizePoints() -> CGSize? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
+        let scale = max(Double(lastXScale), 1)
+        return CGSize(
+            width: Double(size.cell_width_px) / scale,
+            height: Double(size.cell_height_px) / scale
+        )
+    }
+
+    /// The on-screen rendered grid, or nil while the runtime surface is not
+    /// live, is not in a window, or has no real grid yet.
+    @MainActor
+    public func renderedGridCells() -> (columns: Int, rows: Int)? {
+        guard attachedView?.window != nil,
+              let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
+        let size = ghostty_surface_size(surface)
+        let cols = Int(size.columns)
+        let rows = Int(size.rows)
+        guard cols > 1, rows > 1 else { return nil }
+        return (cols, rows)
     }
 
     @MainActor

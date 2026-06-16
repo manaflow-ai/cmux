@@ -68,6 +68,62 @@ extension RemoteDaemonRPCClient {
         }
     }
 
+    func startWebSocketKeepaliveLocked() {
+        webSocketKeepaliveTimer?.cancel()
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = nil
+        webSocketKeepaliveInFlight = false
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
+        timer.schedule(
+            deadline: .now() + Self.webSocketKeepaliveInterval,
+            repeating: Self.webSocketKeepaliveInterval
+        )
+        timer.setEventHandler { [weak self] in
+            self?.sendWebSocketKeepaliveLocked()
+        }
+        webSocketKeepaliveTimer = timer
+        timer.resume()
+    }
+
+    func stopWebSocketKeepaliveLocked() {
+        webSocketKeepaliveTimer?.cancel()
+        webSocketKeepaliveTimer = nil
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = nil
+        webSocketKeepaliveInFlight = false
+    }
+
+    func sendWebSocketKeepaliveLocked() {
+        guard !isClosed, let task = webSocketTask else {
+            stopWebSocketKeepaliveLocked()
+            return
+        }
+        if webSocketKeepaliveInFlight {
+            return
+        }
+
+        webSocketKeepaliveInFlight = true
+        let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.isClosed, self.webSocketKeepaliveInFlight else { return }
+            self.handleWebSocketTermination("daemon websocket keepalive timed out")
+        }
+        webSocketKeepaliveTimeoutWorkItem?.cancel()
+        webSocketKeepaliveTimeoutWorkItem = timeoutWorkItem
+        stateQueue.asyncAfter(deadline: .now() + Self.webSocketKeepaliveInterval, execute: timeoutWorkItem)
+        task.sendPing { [weak self] error in
+            guard let self else { return }
+            self.stateQueue.async {
+                guard !self.isClosed else { return }
+                self.webSocketKeepaliveTimeoutWorkItem?.cancel()
+                self.webSocketKeepaliveTimeoutWorkItem = nil
+                self.webSocketKeepaliveInFlight = false
+                if let error {
+                    self.handleWebSocketTermination("daemon websocket keepalive failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     func consumeJSONPayload(_ data: Data) {
         guard let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
             return
@@ -216,6 +272,7 @@ extension RemoteDaemonRPCClient {
         let capturedSession = webSocketSession
 
         isClosed = true
+        stopWebSocketKeepaliveLocked()
         webSocketTask = nil
         webSocketSession = nil
         webSocketDelegate = nil
