@@ -179,8 +179,20 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
-            pipe.fileHandleForWriting.write(stdin)
-            try? pipe.fileHandleForWriting.close()
+            // Write stdin on a background queue so a stalled peer (one that stops
+            // draining the pipe) cannot block past the timeout wait below. A
+            // synchronous write here would fill the pipe buffer and block before
+            // `exitSemaphore.wait(timeout:)` ever starts, so the request timeout
+            // would not bound the transfer. When the timeout/cancel path
+            // terminates the process, the read end closes and this write fails
+            // out; `F_SETNOSIGPIPE` turns that into an EPIPE throw instead of a
+            // process-killing SIGPIPE.
+            let writeHandle = pipe.fileHandleForWriting
+            _ = fcntl(writeHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global(qos: .utility).async {
+                try? writeHandle.write(contentsOf: stdin)
+                try? writeHandle.close()
+            }
         }
 
         func terminateProcessAndWait() {

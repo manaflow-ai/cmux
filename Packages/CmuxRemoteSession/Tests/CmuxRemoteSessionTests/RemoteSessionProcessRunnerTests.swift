@@ -121,4 +121,32 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription == "sh timed out after 1s"
         }
     }
+
+    @Test("Timeout still fires when a large stdin write would block on a non-draining process")
+    func timeoutBoundsBlockedStdinWrite() {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
+        let runner = RemoteSessionProcessRunner()
+        // 1 MiB exceeds the OS pipe buffer (~64 KiB), so the write cannot finish
+        // until the child drains it; `sleep 30` never reads stdin. A synchronous
+        // pre-timeout write would block past the timeout, so the write must run
+        // off the timeout path for the 1s budget to still terminate the process.
+        let oversizedStdin = Data(count: 1_048_576)
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sh",
+                    arguments: ["-c", "sleep 30"],
+                    stdin: oversizedStdin,
+                    timeout: 1
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 2
+                && nsError.localizedDescription == "sh timed out after 1s"
+        }
+    }
 }
