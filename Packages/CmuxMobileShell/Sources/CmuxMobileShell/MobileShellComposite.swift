@@ -344,7 +344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Per-image encoded-bytes cap. An add whose single image exceeds this is
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).
-    public static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
+    public nonisolated static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
     /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
     /// just the target's. The per-terminal cap bounds one draft, but each live
     /// terminal carries its own per-terminal budget, so staging photos across many
