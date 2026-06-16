@@ -148,7 +148,7 @@ public struct SettingsSearchIndex: Sendable {
         }
         let normalizedQuery = Self.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.enumerated().compactMap { index, entry -> (entry: Entry, score: Int, index: Int)? in
-            guard let score = matchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
+            guard let score = Self.matchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
             return (entry, score, index)
         }
         .sorted { lhs, rhs in
