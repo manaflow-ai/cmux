@@ -108,4 +108,37 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(named.text.startsWith("Hi Ada!")).toBe(true);
     expect(anonymous.text.startsWith("Hi there!")).toBe(true);
   });
+
+  test("announces the iOS beta and asks for a corrected TestFlight email", () => {
+    const email = buildFoundersWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_test_aaa",
+    });
+
+    const iosBetaParagraph =
+      "cmux iOS Beta is out for cmux Founder's Edition! If you have a different " +
+      "TestFlight email, please reply to this email with the new email address. " +
+      "Otherwise, we'll send it to the one on file.";
+
+    // The new paragraph must be present verbatim (lowercase "cmux", "cmux
+    // Founder's Edition", and one-word "TestFlight" are intentional brand/style).
+    expect(email.text).toContain(iosBetaParagraph);
+
+    // It must be its own block — separated by blank lines from the surrounding
+    // paragraphs — and sit after the contact details, just above the sign-off.
+    const paragraphs = email.text.split("\n\n");
+    expect(paragraphs).toContain(iosBetaParagraph);
+
+    const contactIndex = paragraphs.findIndex((p) =>
+      p.startsWith("My number is"),
+    );
+    const iosBetaIndex = paragraphs.indexOf(iosBetaParagraph);
+    const signOffIndex = paragraphs.findIndex((p) => p.startsWith("Best,"));
+
+    expect(contactIndex).toBeGreaterThanOrEqual(0);
+    expect(signOffIndex).toBeGreaterThanOrEqual(0);
+    expect(iosBetaIndex).toBeGreaterThan(contactIndex);
+    expect(iosBetaIndex).toBeLessThan(signOffIndex);
+  });
 });
