@@ -4474,7 +4474,7 @@ extension CMUXCLI {
             ),
             rootDirectory: rootDirectory
         )
-        FileHandle.standardOutput.write(Data("\(port)\n".utf8))
+        cliWriteStdout(Data("\(port)\n".utf8))
 
         while true {
             let clientFD = accept(serverFD, nil, nil)

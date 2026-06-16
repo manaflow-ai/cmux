@@ -3051,6 +3051,7 @@ final class SocketClient {
 
 struct CMUXCLI {
     let args: [String]
+    let initialSIGPIPEInspectionPayload: [String: Any]?
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -3062,6 +3063,11 @@ struct CMUXCLI {
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
         keys.insert(claudeCodeStatusKey)
         return keys
+    }
+
+    init(args: [String], initialSIGPIPEInspectionPayload: [String: Any]? = nil) {
+        self.args = args
+        self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -3456,6 +3462,10 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
+        if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
+        if command == "__sigpipe-non-stdio-lock-probe" { try runSIGPIPENonStdioLockProbe(); return }
+        if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
@@ -4107,9 +4117,9 @@ struct CMUXCLI {
                 }
                 if !stdout.isEmpty { print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n") }
                 if !stderr.isEmpty {
-                    FileHandle.standardError.write(Data(stderr.utf8))
+                    cliWriteStderr(Data(stderr.utf8))
                     if !stderr.hasSuffix("\n") {
-                        FileHandle.standardError.write(Data("\n".utf8))
+                        cliWriteStderr(Data("\n".utf8))
                     }
                 }
                 if exitCode != 0 {
@@ -8310,9 +8320,7 @@ struct CMUXCLI {
     static func warnLegacyVerbDeprecated(_ legacy: String, replacement: String) {
         if ProcessInfo.processInfo.environment["CMUX_QUIET"] != nil { return }
         if getenv(cliDeprecationNoticeShownKey) != nil { return }
-        FileHandle.standardError.write(Data(
-            "cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n".utf8
-        ))
+        cliWriteStderr("cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n")
         setenv(cliDeprecationNoticeShownKey, "1", 1)
     }
 
@@ -9092,7 +9100,7 @@ struct CMUXCLI {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
                     let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                    FileHandle.standardError.write(Data(warning.utf8))
+                    cliWriteStderr(warning)
                 }
                 throw CLIError(
                     message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
@@ -9194,7 +9202,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                cliWriteStderr(Data(warning.utf8))
             }
             throw error
         }
@@ -10669,7 +10677,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                cliWriteStderr(Data(warning.utf8))
             }
             throw error
         }
@@ -10951,7 +10959,7 @@ struct CMUXCLI {
             while let message = try receiveSync(delegate: delegate) {
                 switch message {
                 case .data(let data):
-                    FileHandle.standardOutput.write(data)
+                    cliWriteStdout(data)
                 case .string:
                     continue
                 @unknown default:
@@ -11646,7 +11654,7 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
+                cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeSource.cancel()
                 try handleSSHPTYBridgeEOF(
@@ -12291,12 +12299,13 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if launchPath.contains("/") {
-            execv(launchPath, &argv)
-        } else {
-            execvp(launchPath, &argv)
+        let code = cliExecFailureErrno {
+            if launchPath.contains("/") {
+                execv(launchPath, &argv)
+            } else {
+                execvp(launchPath, &argv)
+            }
         }
-        let code = errno
         throw CLIError(message: "Failed to launch \(launchPath): \(String(cString: strerror(code)))")
     }
 
@@ -19599,8 +19608,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
@@ -19942,7 +19952,7 @@ struct CMUXCLI {
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher connection failed: \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
                 }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
@@ -19965,7 +19975,7 @@ struct CMUXCLI {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped thread \(threadId): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
             }
         }
@@ -20000,7 +20010,7 @@ struct CMUXCLI {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                 }
             }
         }
@@ -20098,14 +20108,14 @@ struct CMUXCLI {
         ) throws -> Bool {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else {
-                fputs("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n")
                 return true
             }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
                 .flatMap { cachedApprovalItem(itemId: $0) }
             let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
             if approvalIsSuppressed(suppressionKey) {
-                fputs("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n")
                 return true
             }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
@@ -20115,18 +20125,18 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 relatedItem: relatedItem
             )
-            fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
+            cliWriteStderr("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n")
             let response: [String: Any]
             do {
                 response = try pushCodexApprovalToFeed(event: feedEvent)
             } catch {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n")
                 return true
             }
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n")
                 return true
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
@@ -20134,7 +20144,7 @@ struct CMUXCLI {
                 params: params,
                 mode: decision
             ) else {
-                fputs("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n")
                 return true
             }
             try connection.respond(requestId: requestId, result: result)
@@ -20294,7 +20304,7 @@ struct CMUXCLI {
                 do {
                     try self.openAttachableThread(threadId: threadId)
                 } catch {
-                    fputs("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n")
                 }
             }
         }
@@ -21094,7 +21104,7 @@ struct CMUXCLI {
             do {
                 try watcher.run()
             } catch {
-                fputs("cmux codex-teams watcher stopped: \(error)\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher stopped: \(error)\n")
             }
         }
     }
@@ -21286,7 +21296,7 @@ struct CMUXCLI {
         process.environment = environment
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         return process.terminationStatus
     }
@@ -21312,7 +21322,7 @@ struct CMUXCLI {
     }
 
     private func omoWriteStatus(_ message: String) {
-        FileHandle.standardError.write(Data((message + "\n").utf8))
+        cliWriteStderr(message + "\n")
     }
 
     private func omoRequestedPort(from commandArgs: [String]) -> String? {
@@ -21675,8 +21685,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
     }
 
@@ -21805,8 +21816,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch omx: \(String(cString: strerror(code)))\n\nIs oh-my-codex installed? Install with:\n  npm install -g oh-my-codex")
     }
 
@@ -21924,8 +21936,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claude-sisyphus installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
     }
 
@@ -22736,11 +22749,11 @@ struct CMUXCLI {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        try process.run()
+        try cliRunProcess(process)
         if let data = stdinText.data(using: .utf8) {
-            stdinPipe.fileHandleForWriting.write(data)
+            _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
         }
-        stdinPipe.fileHandleForWriting.closeFile()
+        try? stdinPipe.fileHandleForWriting.close()
         process.waitUntilExit()
 
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
@@ -24001,7 +24014,7 @@ struct CMUXCLI {
         surfaceId: String?
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
-            fputs("Warning: unsupported agent lifecycle key\n", stderr)
+            cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }
         do {
@@ -24010,7 +24023,7 @@ struct CMUXCLI {
                 client: client
             )
         } catch {
-            fputs("Warning: failed to set agent lifecycle\n", stderr)
+            cliWriteStderr("Warning: failed to set agent lifecycle\n")
         }
     }
 
@@ -25593,7 +25606,7 @@ struct CMUXCLI {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
-            try process.run()
+            try cliRunProcess(process)
             telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
@@ -26543,7 +26556,7 @@ struct CMUXCLI {
         process.standardError = FileHandle.nullDevice
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
@@ -31811,10 +31824,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         do {
             try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         } catch {
-            fputs(
-                "cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n",
-                stderr
-            )
+            cliWriteStderr("cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n")
             try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         }
     }
@@ -31851,12 +31861,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             throw CLIError(message: "Bun is required for the OpenTUI Feed")
         }
 
-        fputs("cmux feed tui: preparing OpenTUI Feed...\n", stderr)
-        fflush(stderr)
+        cliWriteStderr("cmux feed tui: preparing OpenTUI Feed...\n")
         let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
         let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
-        fputs("cmux feed tui: starting OpenTUI Feed.\n", stderr)
-        fflush(stderr)
+        cliWriteStderr("cmux feed tui: starting OpenTUI Feed.\n")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: bunPath)
         process.arguments = [sourceURL.path]
@@ -31879,7 +31887,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
         var didForegroundChild = false
-        try process.run()
+        try cliRunProcess(process)
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
             if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
@@ -31959,8 +31967,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             .appendingPathComponent("package.json", isDirectory: false)
         if !fileManager.fileExists(atPath: installedPackageURL.path)
             || installedOpenTUIVersion(at: installedPackageURL) != Self.openTUIFeedCoreVersion {
-            fputs("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n", stderr)
-            fflush(stderr)
+            cliWriteStderr("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n")
             try installOpenTUIFeedDependencies(bunPath: bunPath, appDirectory: appDirectory)
         }
         return appDirectory
@@ -32032,7 +32039,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             drainGroup.leave()
         }
 
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         drainGroup.wait()
         guard process.terminationStatus == 0 else {
@@ -33240,11 +33247,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return true
         }
         if mode == "deny" {
-            fputs("User denied permission via cmux Feed.\n", stderr)
+            cliWriteStderr("User denied permission via cmux Feed.\n")
         } else {
-            fputs("cmux Feed returned an unrecognized Kiro permission decision; denying for safety.\n", stderr)
+            cliWriteStderr("cmux Feed returned an unrecognized Kiro permission decision; denying for safety.\n")
         }
-        fflush(stderr)
         exit(2)
     }
 
@@ -33845,7 +33851,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.launchPath = "/bin/sh"
         process.arguments = ["-c", "command -v \(name) >/dev/null 2>&1"]
         do {
-            try process.run()
+            try cliRunProcess(process)
             process.waitUntilExit()
             return process.terminationStatus == 0
         } catch {
@@ -34075,7 +34081,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.standardError = Pipe()
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
@@ -34434,36 +34440,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
-        write(Data(message.utf8), to: STDERR_FILENO)
-    }
-
-    private static func write(_ data: Data, to fd: Int32) {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return
-            }
-
-            var offset = 0
-            while offset < data.count {
-                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
-                if bytesWritten > 0 {
-                    offset += bytesWritten
-                } else if bytesWritten == -1, errno == EINTR {
-                    continue
-                } else {
-                    return
-                }
-            }
-        }
+        cliWriteStderr(message)
     }
 }
 
 @main
 struct CMUXTermMain {
     static func main() {
-        // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
-        _ = signal(SIGPIPE, SIG_IGN)
-        let cli = CMUXCLI(args: CommandLine.arguments)
+        let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
+        _ = signal(SIGPIPE, SIG_DFL)
+        configureCLIStdioNoSIGPIPE()
+        let cli = CMUXCLI(
+            args: CommandLine.arguments,
+            initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
+        )
         do {
             try cli.run()
         } catch {
