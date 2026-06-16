@@ -205,6 +205,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Reload page", ja: "ページを再読み込み" },
         note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
       },
+      {
+        id: "browserHardReload",
+        combos: [["⌘", "⇧", "R"]],
+        description: { en: "Hard refresh page", ja: "ページを強制再読み込み" },
+        note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
+      },
       { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
       { id: "browserZoomReset", combos: [["⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },

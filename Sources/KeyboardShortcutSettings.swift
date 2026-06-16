@@ -155,6 +155,7 @@ enum KeyboardShortcutSettings {
         case browserBack
         case browserForward
         case browserReload
+        case browserHardReload
         case browserZoomIn
         case browserZoomOut
         case browserZoomReset
@@ -266,6 +267,7 @@ enum KeyboardShortcutSettings {
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
             case .browserForward: return String(localized: "menu.view.forward", defaultValue: "Forward")
             case .browserReload: return String(localized: "menu.view.reloadPage", defaultValue: "Reload Page")
+            case .browserHardReload: return String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")
             case .browserZoomIn: return String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
@@ -488,6 +490,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
             case .browserReload:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+            case .browserHardReload:
+                return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .browserZoomIn:
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
             case .browserZoomOut:

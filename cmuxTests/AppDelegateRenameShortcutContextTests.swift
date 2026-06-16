@@ -240,7 +240,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         wait(for: [renameTabExpectation, browserReloadExpectation], timeout: 1.0)
     }
 
-    func testFocusedBrowserCmdShiftRDoesNotRequestRenameWorkspaceDefault() {
+    func testFocusedBrowserCmdShiftRUsesHardReloadInsteadOfRenameWorkspaceDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -252,7 +252,8 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         guard let window = window(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
-              manager.openBrowser(inWorkspace: workspace.id) != nil else {
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
             XCTFail("Expected focused browser panel")
             return
         }
@@ -273,6 +274,16 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
+        let hardReloadExpectation = expectation(description: "Focused browser Cmd+Shift+R should invoke browser hard reload")
+        let hardReloadToken = NotificationCenter.default.addObserver(
+            forName: .debugBrowserHardReloadShortcutInvoked,
+            object: browserPanel,
+            queue: nil
+        ) { _ in
+            hardReloadExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
         guard let event = makeKeyDownEvent(
             key: "r",
             modifiers: [.command, .shift],
@@ -284,12 +295,12 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [renameWorkspaceExpectation], timeout: 1.0)
+        wait(for: [renameWorkspaceExpectation, hardReloadExpectation], timeout: 1.0)
     }
 
     func testReactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() {

@@ -931,6 +931,10 @@ struct cmuxApp: App {
                 activeTabManager.focusedBrowserPanel?.reload()
             }
 
+            splitCommandButton(title: String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh"), shortcut: menuShortcut(for: .browserHardReload)) {
+                activeTabManager.focusedBrowserPanel?.hardReload()
+            }
+
             splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
                 let manager = activeTabManager
                 if !manager.toggleDeveloperToolsFocusedBrowser() {

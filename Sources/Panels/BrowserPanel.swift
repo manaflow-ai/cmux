@@ -6507,13 +6507,12 @@ extension BrowserPanel {
         bypassesRemoteWorkspaceProxy
     }
 
-    /// Reload the current page
-    func reload() {
-        if recoverTerminatedWebContent(reason: "reload") {
-            return
+    private func prepareForReload(reason: String) -> Bool {
+        if recoverTerminatedWebContent(reason: reason) {
+            return true
         }
-        if restoreDiscardedWebViewIfNeeded(reason: "reload") {
-            return
+        if restoreDiscardedWebViewIfNeeded(reason: reason) {
+            return true
         }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
@@ -6527,10 +6526,26 @@ extension BrowserPanel {
                     recordTypedNavigation: false,
                     preserveRestoredSessionHistory: usesRestoredSessionHistory
                 )
-                return
+                return true
             }
         }
+        return false
+    }
+
+    /// Reload the current page
+    func reload() {
+        if prepareForReload(reason: "reload") {
+            return
+        }
         webView.reload()
+    }
+
+    /// Reload the current page, bypassing WebKit's cache.
+    func hardReload() {
+        if prepareForReload(reason: "hardReload") {
+            return
+        }
+        webView.reloadFromOrigin()
     }
 
     /// Stop loading

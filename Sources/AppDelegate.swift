@@ -13567,6 +13567,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .browserHardReload) {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+                return false
+            }
+            hardReloadBrowserPanelForShortcut(focusedBrowserPanel)
+            return true
+        }
+
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
