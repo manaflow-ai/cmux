@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFileOpen
+import CmuxSettings
 import SwiftUI
 
 #if DEBUG
@@ -538,6 +540,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
         }
 
+        @MainActor
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
             openNode(in: sender, at: row)
@@ -1432,10 +1435,18 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        coordinator.onOpenFilePreview(searchSnapshot.results[row].path)
+        let path = searchSnapshot.results[row].path
+        // Editor/preferred-editor actions operate on local file paths via
+        // NSWorkspace; for non-local providers fall back to the cmux preview.
+        guard coordinator.store.provider is LocalFileExplorerProvider else {
+            coordinator.onOpenFilePreview(path)
+            return
+        }
+        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {

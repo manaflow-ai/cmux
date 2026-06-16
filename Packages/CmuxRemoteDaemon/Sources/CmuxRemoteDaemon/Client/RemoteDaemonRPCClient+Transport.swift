@@ -207,6 +207,7 @@ extension RemoteDaemonRPCClient {
             self.webSocketTask = task
             self.webSocketDelegate = delegate
             self.markTransportOpenLocked()
+            self.startWebSocketKeepaliveLocked()
         }
 
         stateQueue.async {

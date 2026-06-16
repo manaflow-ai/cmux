@@ -11,7 +11,6 @@ public struct KeyboardShortcutsSection: View {
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
     private let hostActions: SettingsHostActions
-
     @State private var bindings: [String: StoredShortcut] = [:]
     /// Parsed `shortcuts.when` overrides keyed by action id. Conflict detection
     /// evaluates each action's effective clause (override, or its built-in
@@ -41,7 +40,6 @@ public struct KeyboardShortcutsSection: View {
     /// This state captures the conflicting action so the banner can
     /// render without persisting the bad binding.
     @State private var conflictRejections: [String: ShortcutAction] = [:]
-
     public init(
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
@@ -60,6 +58,8 @@ public struct KeyboardShortcutsSection: View {
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
                 chordsRow
+                SettingsCardDivider()
+                ModifierHoldHintsSettingsRow()
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
