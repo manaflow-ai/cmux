@@ -159,6 +159,16 @@ extension XCTestCase {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Returns true when the app-side socket sanity probe confirmed that the
+    /// configured listener path is bound by the app and answers `ping`.
+    func controlSocketDiagnosticsReportReady(_ diagnostics: [String: String]) -> Bool {
+        diagnostics["socketReady"] == "1" &&
+            diagnostics["socketPingResponse"] == "PONG" &&
+            diagnostics["socketPathExists"] == "1" &&
+            diagnostics["socketPathMatches"] == "1" &&
+            diagnostics["socketPathOwnedByListener"] == "1"
+    }
+
     private func controlSocketShellSingleQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
