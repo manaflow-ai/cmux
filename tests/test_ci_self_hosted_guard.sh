@@ -21,11 +21,11 @@ check_macos_runner() {
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw=1 }
-    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw=1 }
+    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
+    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (vars.MACOS_RUNNER_* or a Blacksmith/Warp label), not a GitHub-hosted runner"
+    echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (vars.MACOS_RUNNER_* or a Blacksmith/Warp/Depot label), not a GitHub-hosted runner"
     exit 1
   fi
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
@@ -233,6 +233,32 @@ check_app_detectors_include_root_entitlements() {
   echo "PASS: app/runtime change detectors include root entitlement files"
 }
 
+check_activation_benchmark_deflake() {
+  check_macos_runner "$PERF_ACTIVATION_FILE" "activation-session"
+
+  if ! grep -Fq "github.event_name == 'pull_request' && 'depot-macos-latest'" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must route PR activation benchmarks to the Depot GUI runner"
+    exit 1
+  fi
+
+  if ! grep -Fq "RUNNER_CONTEXT_NAME: \${{ runner.name }}" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must validate the actual Depot runner identity"
+    exit 1
+  fi
+
+  if ! grep -Fq "SCROLLBACK_TARGET_CHARS_INPUT" "$PERF_ACTIVATION_FILE" || ! grep -Fq -- "--scrollback-target-chars" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must pass the bounded scrollback target into the activation benchmark"
+    exit 1
+  fi
+
+  if ! grep -Fq "sudo -n true" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must fall back when passwordless sudo is unavailable"
+    exit 1
+  fi
+
+  echo "PASS: activation benchmark uses Depot, bounded scrollback, and sudo fallback"
+}
+
 check_swift_package_tests_select_xcode() {
   if ! awk '
     /^  swift-package-tests:/ { in_job=1; next }
@@ -314,4 +340,5 @@ check_app_detector_includes_ui_tests
 check_app_detectors_include_root_entitlements
 check_swift_package_tests_select_xcode
 check_daemon_detector_includes_release_asset_script
+check_activation_benchmark_deflake
 check_tmux_terminal_nightly_isolation

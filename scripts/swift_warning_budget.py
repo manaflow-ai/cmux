@@ -11,6 +11,7 @@ import sys
 
 
 OWNED_ROOTS = ("Sources", "CLI", "Packages", "cmuxTests", "cmuxUITests")
+TEST_ROOTS = ("cmuxTests", "cmuxUITests")
 IGNORED_PATH_PARTS = (
     "/vendor/",
     "/ghostty/",
@@ -35,13 +36,13 @@ def is_ignored_path(path: str) -> bool:
     return any(part in normalized for part in IGNORED_PATH_PARTS)
 
 
-def is_owned_relative_path(path: str) -> bool:
-    return any(path == root or path.startswith(f"{root}/") for root in OWNED_ROOTS)
+def is_owned_relative_path(path: str, owned_roots: tuple[str, ...] = OWNED_ROOTS) -> bool:
+    return any(path == root or path.startswith(f"{root}/") for root in owned_roots)
 
 
-def fallback_owned_path(path: str) -> str | None:
+def fallback_owned_path(path: str, owned_roots: tuple[str, ...] = OWNED_ROOTS) -> str | None:
     parts = pathlib.PurePosixPath(path).parts
-    candidates = ["/".join(parts[index:]) for index, part in enumerate(parts) if part in OWNED_ROOTS]
+    candidates = ["/".join(parts[index:]) for index, part in enumerate(parts) if part in owned_roots]
     packages_candidates = [candidate for candidate in candidates if candidate.startswith("Packages/")]
     if packages_candidates:
         return packages_candidates[-1]
@@ -50,7 +51,11 @@ def fallback_owned_path(path: str) -> str | None:
     return None
 
 
-def relative_owned_path(raw_path: str, repo_root: pathlib.Path | None = None) -> str | None:
+def relative_owned_path(
+    raw_path: str,
+    repo_root: pathlib.Path | None = None,
+    owned_roots: tuple[str, ...] = OWNED_ROOTS,
+) -> str | None:
     path = raw_path.strip()
     if is_ignored_path(path):
         return None
@@ -66,14 +71,14 @@ def relative_owned_path(raw_path: str, repo_root: pathlib.Path | None = None) ->
             rel_text = rel_path.as_posix()
             if is_ignored_path(rel_text):
                 return None
-            if is_owned_relative_path(rel_text):
+            if is_owned_relative_path(rel_text, owned_roots):
                 return rel_text
             return None
 
-    if is_owned_relative_path(path):
+    if is_owned_relative_path(path, owned_roots):
         return path
 
-    fallback = fallback_owned_path(path)
+    fallback = fallback_owned_path(path, owned_roots)
     if fallback is not None and not is_ignored_path(fallback):
         return fallback
     return None
@@ -92,7 +97,10 @@ def normalize_message(message: str) -> str:
     return normalized
 
 
-def collect_warnings(log_path: pathlib.Path) -> WarningBudget:
+def collect_warnings(
+    log_path: pathlib.Path,
+    owned_roots: tuple[str, ...] = OWNED_ROOTS,
+) -> WarningBudget:
     exact_seen: set[tuple[str, str, str, str]] = set()
     budget: WarningBudget = collections.Counter()
 
@@ -104,7 +112,7 @@ def collect_warnings(log_path: pathlib.Path) -> WarningBudget:
             if not match:
                 continue
 
-            rel_path = relative_owned_path(match.group("path"))
+            rel_path = relative_owned_path(match.group("path"), owned_roots=owned_roots)
             if rel_path is None:
                 continue
 
@@ -208,9 +216,18 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="write the current warnings as the budget instead of checking",
     )
+    parser.add_argument(
+        "--exclude-test-targets",
+        action="store_true",
+        help="ignore warnings under cmuxTests/ and cmuxUITests/",
+    )
     args = parser.parse_args(argv)
 
-    actual = collect_warnings(args.log)
+    owned_roots = OWNED_ROOTS
+    if args.exclude_test_targets:
+        owned_roots = tuple(root for root in OWNED_ROOTS if root not in TEST_ROOTS)
+
+    actual = collect_warnings(args.log, owned_roots=owned_roots)
     print_budget_summary("Actual cmux-owned Swift warnings", actual)
 
     if args.write_budget:

@@ -168,6 +168,12 @@ int main(int argc, const char *argv[]) {
         useconds_t intervalMicros = (useconds_t)(MAX(1, intervalMs) * 1000);
         NSString *startDelayArgument = argumentValue(arguments, @"--start-delay-ms");
         NSInteger startDelayMs = startDelayArgument.length > 0 ? startDelayArgument.integerValue : 0;
+        NSString *createAttemptsArgument = argumentValue(arguments, @"--create-attempts");
+        NSInteger createAttempts = createAttemptsArgument.length > 0 ? createAttemptsArgument.integerValue : 3;
+        createAttempts = MAX(1, createAttempts);
+        NSString *createRetryDelayArgument = argumentValue(arguments, @"--create-retry-delay-ms");
+        NSInteger createRetryDelayMs = createRetryDelayArgument.length > 0 ? createRetryDelayArgument.integerValue : 500;
+        useconds_t createRetryDelayMicros = (useconds_t)(MAX(0, createRetryDelayMs) * 1000);
 
         unsigned int width = 0;
         unsigned int height = 0;
@@ -205,10 +211,21 @@ int main(int argc, const char *argv[]) {
         descriptor.serialNum = 0x0001;
         descriptor.queue = dispatch_get_main_queue();
 
-        // Create virtual display
-        CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
+        // CI runners can reject the first request while WindowServer display
+        // state is still settling.
+        CGVirtualDisplay *display = nil;
+        for (NSInteger attempt = 1; attempt <= createAttempts; attempt += 1) {
+            display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
+            if (display) { break; }
+            if (attempt < createAttempts) {
+                fprintf(stderr, "WARN: Failed to create CGVirtualDisplay (attempt %ld/%ld), retrying\n", (long)attempt, (long)createAttempts);
+                if (createRetryDelayMicros > 0) {
+                    usleep(createRetryDelayMicros);
+                }
+            }
+        }
         if (!display) {
-            fprintf(stderr, "ERROR: Failed to create CGVirtualDisplay\n");
+            fprintf(stderr, "ERROR: Failed to create CGVirtualDisplay after %ld attempt(s)\n", (long)createAttempts);
             return 1;
         }
 

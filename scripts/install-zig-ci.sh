@@ -29,6 +29,10 @@ zig_has_required_version() {
 }
 
 use_existing_zig_if_available() {
+  if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
+    return 0
+  fi
+
   local candidate
   local seen=" "
   for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
@@ -117,6 +121,26 @@ verify_zig_sha256() {
   printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
 }
 
+install_zig_without_sudo() {
+  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/${ZIG_NAME}}"
+  echo "sudo unavailable; installing zig under ${install_root}"
+  rm -rf "$install_root"
+  mkdir -p "$(dirname "$install_root")"
+  mv "$ZIG_DIR" "$install_root"
+  publish_zig_for_later_steps "${install_root}/zig"
+  "${install_root}/zig" version
+}
+
+install_zig_with_sudo() {
+  sudo mkdir -p /usr/local/bin /usr/local/lib
+  sudo rm -rf /usr/local/lib/zig
+  sudo mkdir -p /usr/local/lib/zig
+  sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
+  sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
+  publish_zig_for_later_steps /usr/local/bin/zig
+  /usr/local/bin/zig version
+}
+
 echo "Installing verified zig ${ZIG_REQUIRED}"
 rm -f "$ZIG_TAR" "$ZIG_SIG"
 if ! download_file "$ZIG_MIRROR_URL" "$ZIG_TAR"; then
@@ -138,9 +162,8 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C /tmp
-sudo mkdir -p /usr/local/bin /usr/local/lib
-sudo rm -rf /usr/local/lib/zig
-sudo mkdir -p /usr/local/lib/zig
-sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
-sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-zig version
+if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  install_zig_with_sudo
+  exit 0
+fi
+install_zig_without_sudo
