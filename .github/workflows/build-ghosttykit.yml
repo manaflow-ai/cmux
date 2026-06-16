@@ -78,6 +78,9 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
+          CMUX_ZIG="$(cat "${RUNNER_TEMP:-/tmp}/cmux-zig-path")"
+          export CMUX_ZIG
+          export PATH="$(dirname "$CMUX_ZIG"):$PATH"
           cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework

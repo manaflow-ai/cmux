@@ -12,8 +12,12 @@ export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
 publish_zig_for_later_steps() {
   local zig_path="$1"
   local zig_dir
+  local zig_path_file
   zig_dir="$(cd "$(dirname "$zig_path")" && pwd)"
   zig_path="${zig_dir}/$(basename "$zig_path")"
+  zig_path_file="${CMUX_ZIG_PATH_FILE:-${RUNNER_TEMP:-/tmp}/cmux-zig-path}"
+  mkdir -p "$(dirname "$zig_path_file")"
+  printf '%s\n' "$zig_path" > "$zig_path_file"
   if [ -n "${GITHUB_PATH:-}" ]; then
     echo "$zig_dir" >> "$GITHUB_PATH"
   fi

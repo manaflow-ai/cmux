@@ -140,6 +140,9 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/install-zig-ci.sh
+          CMUX_ZIG="$(cat "${RUNNER_TEMP:-/tmp}/cmux-zig-path")"
+          export CMUX_ZIG
+          export PATH="$(dirname "$CMUX_ZIG"):$PATH"
           ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize App Store Connect API key
