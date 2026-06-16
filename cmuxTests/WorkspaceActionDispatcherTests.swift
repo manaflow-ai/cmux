@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,18 +8,19 @@ import XCTest
 #endif
 
 @MainActor
-final class WorkspaceActionDispatcherTests: XCTestCase {
-    func testSingleAndSidebarTargetsResolveTheSamePinState() throws {
+@Suite("Workspace action dispatcher")
+struct WorkspaceActionDispatcherTests {
+    @Test func singleAndSidebarTargetsResolveTheSamePinState() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.tabs.first)
+        let workspace = try #require(manager.tabs.first)
 
-        let singleState = try XCTUnwrap(
+        let singleState = try #require(
             WorkspaceActionDispatcher.pinState(
                 in: manager,
                 target: .single(workspace.id)
             )
         )
-        let sidebarState = try XCTUnwrap(
+        let sidebarState = try #require(
             WorkspaceActionDispatcher.pinState(
                 in: manager,
                 target: WorkspaceActionDispatcher.Target(
@@ -28,7 +30,7 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
             )
         )
         let workspacesById = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
-        let indexedState = try XCTUnwrap(
+        let indexedState = try #require(
             WorkspaceActionDispatcher.pinState(
                 workspacesById: workspacesById,
                 target: WorkspaceActionDispatcher.Target(
@@ -38,19 +40,19 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(singleState, sidebarState)
-        XCTAssertEqual(singleState, indexedState)
-        XCTAssertEqual(singleState.pinned, !workspace.isPinned)
+        #expect(singleState == sidebarState)
+        #expect(singleState == indexedState)
+        #expect(singleState.pinned == !workspace.isPinned)
     }
 
-    func testIndexedPinStateFiltersStaleAndDuplicateTargets() throws {
+    @Test func indexedPinStateFiltersStaleAndDuplicateTargets() throws {
         let manager = TabManager()
-        let first = try XCTUnwrap(manager.tabs.first)
+        let first = try #require(manager.tabs.first)
         let second = manager.addWorkspace()
         let stale = UUID()
         let workspacesById = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
 
-        let state = try XCTUnwrap(
+        let state = try #require(
             WorkspaceActionDispatcher.pinState(
                 workspacesById: workspacesById,
                 target: WorkspaceActionDispatcher.Target(
@@ -60,14 +62,14 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(state.targetWorkspaceIds, [second.id, first.id])
-        XCTAssertEqual(state.anchorWorkspaceId, second.id)
-        XCTAssertEqual(state.pinned, !second.isPinned)
+        #expect(state.targetWorkspaceIds == [second.id, first.id])
+        #expect(state.anchorWorkspaceId == second.id)
+        #expect(state.pinned == !second.isPinned)
     }
 
-    func testPinActionPinsMultipleTargetsFromAnchorState() throws {
+    @Test func pinActionPinsMultipleTargetsFromAnchorState() throws {
         let manager = TabManager()
-        let first = try XCTUnwrap(manager.tabs.first)
+        let first = try #require(manager.tabs.first)
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
         let target = WorkspaceActionDispatcher.Target(
@@ -75,21 +77,21 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
             anchorWorkspaceId: second.id
         )
 
-        let state = try XCTUnwrap(WorkspaceActionDispatcher.pinState(in: manager, target: target))
+        let state = try #require(WorkspaceActionDispatcher.pinState(in: manager, target: target))
         let result = WorkspaceActionDispatcher.performPinAction(state, in: manager)
 
-        XCTAssertTrue(state.pinned)
-        XCTAssertEqual(result.targetWorkspaceIds, [second.id, third.id])
-        XCTAssertEqual(result.changedWorkspaceIds, [second.id, third.id])
-        XCTAssertTrue(second.isPinned)
-        XCTAssertTrue(third.isPinned)
-        XCTAssertFalse(first.isPinned)
-        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id])
+        #expect(state.pinned)
+        #expect(result.targetWorkspaceIds == [second.id, third.id])
+        #expect(result.changedWorkspaceIds == [second.id, third.id])
+        #expect(second.isPinned)
+        #expect(third.isPinned)
+        #expect(!first.isPinned)
+        #expect(manager.tabs.map(\.id) == [second.id, third.id, first.id])
     }
 
-    func testPinActionUnpinsMultipleTargetsWithExistingOrdering() throws {
+    @Test func pinActionUnpinsMultipleTargetsWithExistingOrdering() throws {
         let manager = TabManager()
-        let first = try XCTUnwrap(manager.tabs.first)
+        let first = try #require(manager.tabs.first)
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
         manager.setPinned(first, pinned: true)
@@ -100,22 +102,22 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
             anchorWorkspaceId: second.id
         )
 
-        let state = try XCTUnwrap(WorkspaceActionDispatcher.pinState(in: manager, target: target))
+        let state = try #require(WorkspaceActionDispatcher.pinState(in: manager, target: target))
         let result = WorkspaceActionDispatcher.performPinAction(state, in: manager)
 
-        XCTAssertFalse(state.pinned)
-        XCTAssertEqual(result.targetWorkspaceIds, [second.id, third.id])
-        XCTAssertEqual(result.changedWorkspaceIds, [second.id, third.id])
-        XCTAssertTrue(first.isPinned)
-        XCTAssertFalse(second.isPinned)
-        XCTAssertFalse(third.isPinned)
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, second.id])
+        #expect(!state.pinned)
+        #expect(result.targetWorkspaceIds == [second.id, third.id])
+        #expect(result.changedWorkspaceIds == [second.id, third.id])
+        #expect(first.isPinned)
+        #expect(!second.isPinned)
+        #expect(!third.isPinned)
+        #expect(manager.tabs.map(\.id) == [first.id, third.id, second.id])
     }
 
-    func testCapturedPinStateKeepsLabelAndActionConsistent() throws {
+    @Test func capturedPinStateKeepsLabelAndActionConsistent() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.tabs.first)
-        let state = try XCTUnwrap(
+        let workspace = try #require(manager.tabs.first)
+        let state = try #require(
             WorkspaceActionDispatcher.pinState(
                 in: manager,
                 target: .single(workspace.id)
@@ -125,8 +127,8 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
         manager.setPinned(workspace, pinned: true)
         let result = WorkspaceActionDispatcher.performPinAction(state, in: manager)
 
-        XCTAssertTrue(state.pinned)
-        XCTAssertTrue(workspace.isPinned)
-        XCTAssertTrue(result.changedWorkspaceIds.isEmpty)
+        #expect(state.pinned)
+        #expect(workspace.isPinned)
+        #expect(result.changedWorkspaceIds.isEmpty)
     }
 }
