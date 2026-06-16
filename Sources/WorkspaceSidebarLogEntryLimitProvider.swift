@@ -8,8 +8,10 @@ import Foundation
 /// the legacy default of 50 and the `1...500` clamp.
 struct WorkspaceSidebarLogEntryLimitProvider: SidebarLogEntryLimitProviding {
     /// The `UserDefaults` instance read for the configured limit; defaults to
-    /// `.standard`, matching the legacy inline read.
-    let defaults: UserDefaults
+    /// `.standard`, matching the legacy inline read. `UserDefaults` is
+    /// documented thread-safe, so storing it in a `Sendable` conformer is safe
+    /// despite the type not being marked `Sendable`.
+    nonisolated(unsafe) let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
