@@ -151,6 +151,57 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
+    /// A filesystem event that arrives while an unchanged probe is already in
+    /// flight is covered by the in-flight read. It must not chain another
+    /// immediate rerun when the applied branch/dirty/badge state did not change.
+    @Test func unchangedInFlightFilesystemEventDoesNotChainProbeRerun() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: true
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "feature/x", isDirty: true),
+            gated: true
+        )
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        let events = host.projectionEvents()
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        while await reader.probedDirectories.isEmpty {
+            await Task.yield()
+        }
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        await reader.openGate()
+
+        for await event in events {
+            if case .gitBranch = event { break }
+        }
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
+        #expect(immediateProbeSleeps == 2)
+        #expect(await reader.probedDirectories.count == 1)
+    }
+
     /// With PR polling disabled, a branch probe does not touch the PR seam.
     @Test func pollingDisabledSuppressesPullRequestScheduling() async throws {
         let host = RecordingSidebarGitHost()
