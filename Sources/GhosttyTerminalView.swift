@@ -4999,7 +4999,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func keyboardCopyModeScreenRow(
         forViewportRow viewportRow: Int,
-        metrics: TerminalKeyboardCopyModeGridMetrics,
+        metrics: KeyboardCopyModeGridMetrics,
         scrollOffset overrideScrollOffset: UInt64? = nil
     ) -> UInt64 {
         let rowOffset = UInt64(max(0, min(viewportRow, metrics.rows - 1)))
@@ -5012,7 +5012,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func keyboardCopyModeVisibleScreenRows(
-        metrics: TerminalKeyboardCopyModeGridMetrics
+        metrics: KeyboardCopyModeGridMetrics
     ) -> ClosedRange<UInt64> {
         let scrollOffset = scrollbar?.offset ?? 0
         let rowCount = UInt64(max(metrics.rows, 1))
@@ -5082,7 +5082,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func selectKeyboardCopyModeVisibleVisualLineRange(
         surface: ghostty_surface_t,
-        metrics: TerminalKeyboardCopyModeGridMetrics
+        metrics: KeyboardCopyModeGridMetrics
     ) -> Bool {
         guard let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface) else { return false }
         let visibleRows = keyboardCopyModeVisibleScreenRows(metrics: metrics)
