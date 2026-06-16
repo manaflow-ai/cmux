@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxGit
+import CmuxProcess
 
 @Suite struct GitMetadataServiceTests {
     // MARK: Repository resolution
@@ -93,6 +94,28 @@ import Testing
         let meta = await service.workspaceMetadata(for: fixture.root.path)
         #expect(meta.isRepository)
         #expect(meta.branch == nil)
+    }
+
+    @Test func reftableWorkspaceMetadataFallsBackToGitCLI() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch(".invalid")
+        try fixture.writeConfig("""
+        [extensions]
+            refStorage = reftable
+        """)
+        let commit = String(repeating: "a", count: 40)
+        let service = GitMetadataService(commands: StubCommandRunner(outputs: [
+            StubCommandRunner.key(["symbolic-ref", "--quiet", "HEAD"]): .success("refs/heads/feature/reftable\n"),
+            StubCommandRunner.key(["rev-parse", "--verify", "HEAD"]): .success("\(commit)\n"),
+            StubCommandRunner.key(["status", "--porcelain", "--untracked-files=no"]): .success(" M tracked.txt\n"),
+        ]))
+
+        let meta = await service.workspaceMetadata(for: fixture.root.path)
+
+        #expect(meta.isRepository)
+        #expect(meta.branch == "feature/reftable")
+        #expect(meta.isDirty)
+        #expect(meta.headSignature == "ref: refs/heads/feature/reftable\n\(commit)")
     }
 
     // MARK: Dirty detection (index v2)
@@ -232,11 +255,15 @@ import Testing
 
     // MARK: Watched paths
 
-    @Test func watchedPathsIncludeHeadIndexRefsAndConfig() async throws {
+    @Test func watchedPathsIncludeHeadIndexRefsReftableAndConfig() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         try fixture.writeConfig("[core]\n\trepositoryformatversion = 0\n")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: []))
+        try FileManager.default.createDirectory(
+            at: fixture.gitDirectory.appendingPathComponent("reftable"),
+            withIntermediateDirectories: true
+        )
 
         let service = GitMetadataService()
         let paths = try #require(await service.watchedPaths(for: fixture.root.path))
@@ -244,6 +271,7 @@ import Testing
         #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("HEAD").standardizedFileURL.path))
         #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("index").standardizedFileURL.path))
         #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("config").standardizedFileURL.path))
+        #expect(paths.contains(fixture.gitDirectory.appendingPathComponent("reftable").standardizedFileURL.path))
         #expect(paths.contains(fixture.root.standardizedFileURL.path))
     }
 
@@ -330,5 +358,40 @@ import Testing
         #expect(pthread_main_np() != 0) // we start on the main actor's thread
         let hopped = await GitMetadataService().executionHopsOffCallersThread()
         #expect(hopped, "nonisolated async must hop off the caller's thread (SE-0338)")
+    }
+}
+
+private struct StubCommandRunner: CommandRunning {
+    let outputs: [String: CommandResult]
+
+    static func key(_ arguments: [String]) -> String {
+        arguments.joined(separator: "\u{0}")
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        outputs[Self.key(arguments)] ?? CommandResult(
+            stdout: nil,
+            stderr: nil,
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+}
+
+private extension CommandResult {
+    static func success(_ stdout: String) -> CommandResult {
+        CommandResult(
+            stdout: stdout,
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
     }
 }

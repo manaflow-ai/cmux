@@ -30,7 +30,7 @@ extension GitMetadataService {
         return watchedPaths.sorted()
     }
 
-    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
+    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`, every reachable
     /// `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository
@@ -39,8 +39,10 @@ extension GitMetadataService {
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("reftable").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("reftable").path,
         ] + gitConfigURLs(repository: repository).map(\.path)
     }
 

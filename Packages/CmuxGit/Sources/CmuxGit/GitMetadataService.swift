@@ -1,4 +1,5 @@
 import Foundation
+internal import CmuxProcess
 
 /// Reads a directory's git metadata directly from the on-disk repository,
 /// without spawning a `git` process.
@@ -34,8 +35,17 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
+    private let commands: any CommandRunning
+
     /// Creates a git-metadata service.
-    public init() {}
+    public init() {
+        self.commands = CommandRunner()
+    }
+
+    /// Creates a git-metadata service with an injected command runner.
+    init(commands: any CommandRunning) {
+        self.commands = commands
+    }
 
     /// Reads a point-in-time git snapshot for `directory`.
     ///
@@ -51,13 +61,26 @@ public struct GitMetadataService: Sendable {
             return .notARepository
         }
         let trackedChanges = Self.gitTrackedChangesSnapshot(repository: repository)
+        let directHeadSignature = Self.gitHeadSignature(repository: repository)
+        if Self.repositoryUsesReftable(repository: repository) {
+            let fallback = await Self.gitCLIReftableMetadata(repository: repository, commands: commands)
+            return GitWorkspaceMetadata(
+                isRepository: true,
+                branch: fallback.branch,
+                isDirty: fallback.isDirty ?? trackedChanges.isDirty,
+                indexSignature: trackedChanges.indexSignature,
+                indexContentSignature: trackedChanges.indexContentSignature,
+                headSignature: fallback.headSignature ?? directHeadSignature
+            )
+        }
+
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: Self.gitBranchName(repository: repository),
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: Self.gitHeadSignature(repository: repository)
+            headSignature: directHeadSignature
         )
     }
 

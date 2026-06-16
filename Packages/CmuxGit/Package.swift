@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxGitTests",
-            dependencies: ["CmuxGit"],
+            dependencies: [
+                "CmuxGit",
+                .product(name: "CmuxProcess", package: "CmuxProcess"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

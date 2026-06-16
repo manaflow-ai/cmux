@@ -479,7 +479,16 @@ _cmux_git_branch_for_path() {
     [[ -n "$head_path" && -r "$head_path" ]] || return 1
     IFS= read -r head_line < "$head_path" || return 1
     [[ "$head_line" == "$prefix"* ]] || return 1
-    printf '%s\n' "${head_line#$prefix}"
+    local branch="${head_line#$prefix}"
+    if [[ "$branch" == ".invalid" ]] && command -v git >/dev/null 2>&1; then
+        local git_branch=""
+        git_branch="$(git -C "$repo_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        if [[ -n "$git_branch" && "$git_branch" != ".invalid" ]]; then
+            printf '%s\n' "$git_branch"
+            return 0
+        fi
+    fi
+    printf '%s\n' "$branch"
 }
 
 _cmux_set_git_active_pwd() {
