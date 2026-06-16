@@ -158,6 +158,9 @@ enum TerminalCopyOnSelectSettings {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
 
+    /// Returns the Ghostty `copy-on-select` value for the cmux system-clipboard setting.
+    /// When `emitsFalse` is `false`, a disabled setting returns `nil` so user Ghostty config
+    /// and platform defaults can continue to control selection-clipboard behavior.
     static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
         guard let enabled = storedValue(defaults: defaults) else { return nil }
         return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
