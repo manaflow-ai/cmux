@@ -280,6 +280,25 @@ check_dmg_signing_uses_build_keychain() {
   echo "PASS: DMG signing uses build.keychain explicitly"
 }
 
+check_create_dmg_uses_run_local_npm_prefix() {
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! awk '
+      /- name: Install build deps/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /export npm_config_prefix="\$RUNNER_TEMP\/npm-global"/ { saw_prefix=1 }
+      in_step && /mkdir -p "\$npm_config_prefix"/ { saw_mkdir=1 }
+      in_step && /echo "\$npm_config_prefix\/bin" >> "\$GITHUB_PATH"/ { saw_path=1 }
+      in_step && /npm install --global "create-dmg@\$\{CREATE_DMG_VERSION\}"/ { saw_install=1 }
+      END { exit !(saw_prefix && saw_mkdir && saw_path && saw_install) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must install create-dmg into a run-local npm global prefix"
+      exit 1
+    fi
+  done
+
+  echo "PASS: create-dmg installs into run-local npm global prefix"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -374,6 +393,7 @@ check_release_helper_upload_retry
 check_signing_intermediate_imports
 check_sentry_cli_install_portability
 check_dmg_signing_uses_build_keychain
+check_create_dmg_uses_run_local_npm_prefix
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests

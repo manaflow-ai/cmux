@@ -177,6 +177,9 @@ jobs:
             rustup default stable
           fi
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          echo "$npm_config_prefix/bin" >> "$GITHUB_PATH"
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download pre-built GhosttyKit.xcframework

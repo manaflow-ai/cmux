@@ -158,6 +158,9 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          echo "$npm_config_prefix/bin" >> "$GITHUB_PATH"
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Build universal Ghostty CLI helper
