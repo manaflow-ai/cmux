@@ -131,14 +131,13 @@ copy_zig_tree() {
 }
 
 install_zig_without_sudo() {
-  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-zig-${ZIG_REQUIRED}}"
-  local bin_dir="${install_root}/bin"
-  local lib_dir="${install_root}/lib/zig"
+  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/${ZIG_NAME}}"
   echo "sudo unavailable; installing zig under ${install_root}"
   rm -rf "$install_root"
-  copy_zig_tree "$bin_dir" "$lib_dir"
-  publish_zig_for_later_steps "${bin_dir}/zig"
-  "${bin_dir}/zig" version
+  mkdir -p "$(dirname "$install_root")"
+  mv "$ZIG_DIR" "$install_root"
+  publish_zig_for_later_steps "${install_root}/zig"
+  "${install_root}/zig" version
 }
 
 install_zig_with_sudo() {

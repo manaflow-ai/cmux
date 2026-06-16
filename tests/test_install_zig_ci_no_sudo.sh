@@ -75,7 +75,7 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
   "$SCRIPT" > "$OUTPUT_FILE" 2>&1
 
-INSTALLED_ZIG="$RUNNER_TEMP_DIR/cmux-zig-$ZIG_REQUIRED/bin/zig"
+INSTALLED_ZIG="$RUNNER_TEMP_DIR/$ZIG_NAME/zig"
 if [ ! -x "$INSTALLED_ZIG" ]; then
   cat "$OUTPUT_FILE"
   echo "FAIL: zig was not installed under RUNNER_TEMP" >&2
