@@ -188,6 +188,18 @@ check_signing_intermediate_imports() {
     fi
   done
 
+  for curl_flag in "--connect-timeout 20" "--max-time 120"; do
+    if ! grep -Fq -- "$curl_flag" "$helper"; then
+      echo "FAIL: signing helper must pass curl $curl_flag to avoid hanging signing runners"
+      exit 1
+    fi
+  done
+
+  if ! grep -Fq 'IMPORTED_COUNT="$(' "$helper" || ! grep -Fq 'if [[ "$IMPORTED_COUNT" -lt 2 ]]; then' "$helper"; then
+    echo "FAIL: signing helper must verify both Developer ID intermediates were imported"
+    exit 1
+  fi
+
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
       /- name: Import signing cert/ { in_step=1; next }

@@ -17,7 +17,16 @@ download_and_add() {
   local url="$2"
   local cert_path="$TMP_DIR/$name.cer"
 
-  curl --fail --location --retry 3 --silent --show-error "$url" --output "$cert_path"
+  curl \
+    --fail \
+    --location \
+    --retry 3 \
+    --connect-timeout 20 \
+    --max-time 120 \
+    --silent \
+    --show-error \
+    "$url" \
+    --output "$cert_path"
   security add-certificates -k "$KEYCHAIN" "$cert_path"
 }
 
@@ -28,8 +37,13 @@ download_and_add \
   DeveloperIDG2CA \
   https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
 
-if ! security find-certificate -c "Developer ID Certification Authority" -a "$KEYCHAIN" >/dev/null; then
-  echo "Developer ID intermediate certificates were not imported into $KEYCHAIN" >&2
+IMPORTED_COUNT="$(
+  security find-certificate -c "Developer ID Certification Authority" -a -p "$KEYCHAIN" \
+    | awk '/END CERTIFICATE/ { count++ } END { print count + 0 }'
+)"
+
+if [[ "$IMPORTED_COUNT" -lt 2 ]]; then
+  echo "Expected both Developer ID intermediate certificates in $KEYCHAIN; found $IMPORTED_COUNT" >&2
   exit 1
 fi
 
