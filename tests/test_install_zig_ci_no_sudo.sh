@@ -12,6 +12,9 @@ cleanup() {
   if [ -n "$DEFAULT_INSTALL_ROOT" ]; then
     rm -rf "$DEFAULT_INSTALL_ROOT"
   fi
+  if [ -n "${SHARED_TMP_ZIG_DIR:-}" ]; then
+    rm -rf "$SHARED_TMP_ZIG_DIR"
+  fi
 }
 trap cleanup EXIT
 
@@ -35,6 +38,8 @@ FIXTURE_ROOT="$TMP_DIR/fixture"
 ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
 DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
+SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
+SHARED_TMP_MARKER="$SHARED_TMP_ZIG_DIR/keep.txt"
 BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 GITHUB_PATH_FILE="$TMP_DIR/github-path"
@@ -51,6 +56,9 @@ DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
 mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib" "$BIN_DIR" "$RUNNER_TEMP_DIR"
+rm -rf "$SHARED_TMP_ZIG_DIR"
+mkdir -p "$SHARED_TMP_ZIG_DIR"
+printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 echo "$ZIG_REQUIRED"
@@ -121,6 +129,12 @@ fi
 if ! grep -Fq "sudo unavailable; installing zig under" "$OUTPUT_FILE"; then
   cat "$OUTPUT_FILE"
   echo "FAIL: installer did not report local fallback" >&2
+  exit 1
+fi
+
+if [ ! -f "$SHARED_TMP_MARKER" ]; then
+  cat "$OUTPUT_FILE"
+  echo "FAIL: installer touched the shared /tmp Zig extraction directory" >&2
   exit 1
 fi
 
@@ -225,4 +239,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci falls back locally, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"

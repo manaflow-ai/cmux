@@ -5,6 +5,7 @@ ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
+ZIG_WORK_PARENT="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
 export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
@@ -63,9 +64,15 @@ case "$(uname -m)" in
 esac
 
 ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
-ZIG_TAR="/tmp/${ZIG_NAME}.tar.xz"
+mkdir -p "$ZIG_WORK_PARENT"
+ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
+cleanup_work_root() {
+  rm -rf "$ZIG_WORK_ROOT"
+}
+trap cleanup_work_root EXIT
+ZIG_TAR="${ZIG_WORK_ROOT}/${ZIG_NAME}.tar.xz"
 ZIG_SIG="${ZIG_TAR}.minisig"
-ZIG_DIR="/tmp/${ZIG_NAME}"
+ZIG_DIR="${ZIG_WORK_ROOT}/${ZIG_NAME}"
 ZIG_OFFICIAL_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz"
 ZIG_MIRROR_URL="${ZIG_MIRROR_URL:-https://zigmirror.hryx.net/zig/${ZIG_NAME}.tar.xz}"
 ZIG_INDEX_ARCH="${ZIG_ARCH}-macos"
@@ -93,7 +100,7 @@ resolve_zig_sha256() {
     return 0
   fi
 
-  local index_file="/tmp/zig-download-index-${ZIG_REQUIRED}-$$.json"
+  local index_file="${ZIG_WORK_ROOT}/zig-download-index-${ZIG_REQUIRED}.json"
   download_file "$ZIG_INDEX_URL" "$index_file"
   python3 - "$index_file" "$ZIG_REQUIRED" "$ZIG_INDEX_ARCH" <<'PY'
 import json
@@ -179,7 +186,7 @@ else
 fi
 
 rm -rf "$ZIG_DIR"
-tar xf "$ZIG_TAR" -C /tmp
+tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
 if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
