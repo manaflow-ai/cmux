@@ -29,7 +29,7 @@ final class PostHogAnalytics {
     private var didStart: Bool
     private var activeCheckTimer: Timer?
 
-    init(
+    private init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
         userDefaults: UserDefaults = .standard,
@@ -49,6 +49,26 @@ final class PostHogAnalytics {
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
     }
+
+#if DEBUG
+    static func makeForTesting(
+        workQueue: DispatchQueue,
+        didStart: Bool,
+        userDefaults: UserDefaults,
+        now: @escaping () -> Date,
+        capturePostHog: @escaping (String, [String: Any]) -> Void,
+        flushPostHog: @escaping () -> Void
+    ) -> PostHogAnalytics {
+        PostHogAnalytics(
+            workQueue: workQueue,
+            didStart: didStart,
+            userDefaults: userDefaults,
+            now: now,
+            capturePostHog: capturePostHog,
+            flushPostHog: flushPostHog
+        )
+    }
+#endif
 
     private var isEnabled: Bool {
         guard TelemetrySettings.enabledForCurrentLaunch else { return false }

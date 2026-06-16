@@ -3827,7 +3827,7 @@ struct PostHogAnalyticsPropertiesTests {
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.capture")
         var capturedEvents: [(event: String, properties: [String: Any])] = []
         let flushCalled = DispatchSemaphore(value: 0)
-        let analytics = PostHogAnalytics(
+        let analytics = PostHogAnalytics.makeForTesting(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
             userDefaults: defaults,
