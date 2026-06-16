@@ -779,22 +779,6 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 }
 
 final class TerminalCopyOnSelectSettingsTests: XCTestCase {
-    func testManagedSettingsDoNotDowngradeUserGhosttySelectionClipboardMode() throws {
-        let suiteName = "cmux-terminal-copy-on-select-layering-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(false, forKey: TerminalCopyOnSelectSettings.copyOnSelectKey)
-
-        let userGhosttyConfig = "copy-on-select = true"
-        let managedGhosttyConfig = TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults)
-        let effectiveValue = Self.effectiveCopyOnSelectValue(
-            afterLoading: [userGhosttyConfig, managedGhosttyConfig]
-        )
-
-        XCTAssertEqual(effectiveValue, "true")
-    }
-
     func testDefaultsNotificationAndGhosttyConfigMapping() throws {
         let suiteName = "cmux-terminal-copy-on-select-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -853,19 +837,5 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
         XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
         XCTAssertEqual(notificationCount, 2)
-    }
-
-    private static func effectiveCopyOnSelectValue(afterLoading configs: [String?]) -> String? {
-        var value: String?
-        for config in configs.compactMap({ $0 }) {
-            for line in config.components(separatedBy: .newlines) {
-                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let separatorRange = trimmedLine.range(of: "=") else { continue }
-                let key = trimmedLine[..<separatorRange.lowerBound].trimmingCharacters(in: .whitespaces)
-                guard key == "copy-on-select" else { continue }
-                value = trimmedLine[separatorRange.upperBound...].trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return value
     }
 }
