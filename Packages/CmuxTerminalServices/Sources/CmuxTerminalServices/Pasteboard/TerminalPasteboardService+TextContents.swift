@@ -10,6 +10,10 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func stringContents(from pasteboard: NSPasteboard) -> String? {
         let types = pasteboard.types ?? []
 
+        if let remoteClipboardText = remoteClipboardText(from: pasteboard, types: types) {
+            return remoteClipboardText
+        }
+
         if let sharedPasteboardText = sharedPasteboardRTFDText(from: pasteboard, types: types) {
             return sharedPasteboardText
         }
@@ -104,6 +108,19 @@ extension TerminalPasteboardService {
         return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
     }
 
+    private func remoteClipboardText(
+        from pasteboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> String? {
+        guard types.contains(Self.remoteClipboardType),
+              types.contains(.fileURL) || types.contains(.URL),
+              types.contains(where: isRemoteClipboardRichTextType) else {
+            return nil
+        }
+
+        return plainTextContents(from: pasteboard)
+    }
+
     private func sharedPasteboardRTFDText(
         from pasteboard: NSPasteboard,
         types: [NSPasteboard.PasteboardType]
@@ -195,6 +212,12 @@ extension TerminalPasteboardService {
 
     private func isRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
         type == .html || type == .rtf || type == .rtfd
+    }
+
+    private func isRemoteClipboardRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        isRichTextType(type)
+            || type == Self.flatRTFDType
+            || type == Self.uikitAttributedStringType
     }
 
     func hasImageData(in pasteboard: NSPasteboard) -> Bool {
