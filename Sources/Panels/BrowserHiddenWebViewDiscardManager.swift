@@ -137,6 +137,10 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer = nil
     }
 
+    func noteWebContentProcessRecovery(now: Date = Date()) {
+        _ = now
+    }
+
     /// Tracks system sleep/wake so discard countdowns armed before sleep do not
     /// fire shortly after wake. Injectable center for tests.
     func installSystemSleepObservers(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {

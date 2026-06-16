@@ -155,11 +155,8 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
             let manager = BrowserHiddenWebViewDiscardManager()
             let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
             manager.delegate = delegate
-
             #expect(manager.blockers(for: snapshot) == ["media_playback"])
-
             manager.scheduleIfNeeded(reason: "test.hidden")
-
             #expect(!manager.hasScheduledDiscard)
             #expect(delegate.discardRequestCount == 0)
         }
@@ -174,11 +171,8 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
             let manager = BrowserHiddenWebViewDiscardManager()
             let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
             manager.delegate = delegate
-
             #expect(manager.blockers(for: snapshot) == [])
-
             manager.scheduleIfNeeded(reason: "test.hidden")
-
             #expect(manager.hasScheduledDiscard)
             #expect(delegate.discardRequestCount == 0)
         }
@@ -211,11 +205,8 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         let manager = BrowserHiddenWebViewDiscardManager()
         let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
         manager.delegate = delegate
-
         XCTAssertEqual(manager.blockers(for: snapshot), ["media_capture"])
-
         manager.scheduleIfNeeded(reason: "test.hidden")
-
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
@@ -238,7 +229,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
     // a main-frame provisional navigation (e.g. a cross-origin process swap in
     // flight) must block a hidden-webview discard from replacing the WKWebView.
-    func testMainFrameProvisionalNavigationBlocksHiddenWebViewDiscardScheduling() {
+    func testWebKitRecoveryStatesBlockHiddenWebViewDiscardScheduling() {
         let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(
             hasActiveMainFrameProvisionalNavigation: true
         )
@@ -250,6 +241,14 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
         manager.scheduleIfNeeded(reason: "test.provisional")
 
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+
+        // Regression coverage for https://github.com/manaflow-ai/cmux/issues/4701.
+        delegate.snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        manager.noteWebContentProcessRecovery()
+        XCTAssertEqual(manager.blockers(for: delegate.snapshot), ["webcontent_recovery"])
+        manager.scheduleIfNeeded(reason: "test.webContentRecovery")
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
