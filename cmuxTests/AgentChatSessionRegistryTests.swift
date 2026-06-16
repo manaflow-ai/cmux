@@ -105,6 +105,37 @@ struct AgentChatSessionRegistryTests {
         #expect(!registry.hasLiveSession(workspaceID: "workspace-b", surfaceID: "terminal-b"))
     }
 
+    @Test("live surface record lookup is bounded to that surface")
+    func liveSurfaceRecordLookupIsBoundedToThatSurface() {
+        let registry = AgentChatSessionRegistry()
+        registry.adoptDetectedSession(
+            sessionID: "visible",
+            agentKind: .claude,
+            workspaceID: "workspace-visible",
+            surfaceID: "terminal-visible",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+        registry.adoptDetectedSession(
+            sessionID: "unrelated",
+            agentKind: .claude,
+            workspaceID: "workspace-hidden",
+            surfaceID: "terminal-hidden",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 200)
+        )
+        registry.update(sessionID: "unrelated") { record in
+            record.pid = Int(Int32.max)
+        }
+
+        let visible = registry.liveRecord(boundToSurfaceID: "terminal-visible")
+
+        #expect(visible?.sessionID == "visible")
+        #expect(registry.record(sessionID: "unrelated")?.state != .ended)
+    }
+
     @Test("title adoption sweeps stale surface bindings")
     func titleAdoptionSweepsStaleSurfaceBindings() {
         let registry = AgentChatSessionRegistry()

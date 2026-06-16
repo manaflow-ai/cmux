@@ -148,8 +148,7 @@ final class AgentChatTranscriptService {
         workingDirectory: String,
         titleHint: String? = nil
     ) -> Bool {
-        if let bound = registry.sessions(workspaceID: nil)
-            .first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+        if let bound = registry.liveRecord(boundToSurfaceID: surfaceID) {
             registry.update(sessionID: bound.sessionID) { record in
                 record.workspaceID = workspaceID
                 record.surfaceID = surfaceID

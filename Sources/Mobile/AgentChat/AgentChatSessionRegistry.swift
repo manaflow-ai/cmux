@@ -299,7 +299,11 @@ final class AgentChatSessionRegistry {
         return result
     }
 
-    private func liveRecord(boundToSurfaceID surfaceID: String) -> AgentChatSessionRecord? {
+    /// The newest live session already bound to `surfaceID`, without sweeping
+    /// or sorting the full registry. Title-detected adoption calls this from
+    /// workspace-list refreshes, so the lookup must stay bounded to the
+    /// visible terminal being adopted.
+    func liveRecord(boundToSurfaceID surfaceID: String) -> AgentChatSessionRecord? {
         guard let sessionIDs = sessionIDsBySurfaceID[surfaceID] else { return nil }
         sweepDeadProcesses(sessionIDs: sessionIDs)
         var newest: AgentChatSessionRecord?
