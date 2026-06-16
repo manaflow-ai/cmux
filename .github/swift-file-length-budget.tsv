@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-35100	CLI/cmux.swift
-18032	Sources/AppDelegate.swift
+35106	CLI/cmux.swift
+18033	Sources/AppDelegate.swift
 16906	Sources/ContentView.swift
-14851	Sources/TerminalController.swift
+14853	Sources/TerminalController.swift
 13821	Sources/Workspace.swift
 13358	Sources/Panels/BrowserPanel.swift
 12124	Sources/GhosttyTerminalView.swift
@@ -111,6 +111,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 843	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
+825	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 797	Sources/ClosedItemHistory.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
@@ -126,7 +127,6 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 749	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 746	Sources/App/MenuBarExtraController.swift
-744	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 743	Sources/Panels/MarkdownPanel.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
