@@ -75,12 +75,24 @@ import Testing
         #expect(result == nil)
     }
 
-    @Test("home directory adoption requires a fresh transcript cutoff")
-    func homeDirectoryRequiresFreshTranscript() throws {
+    @Test("freshness cutoff applies outside the home project directory")
+    func freshnessCutoffAppliesOutsideHome() throws {
+        let (resolver, _, cwd) = try Self.fixture(sessionsOldestFirst: ["older", "newer"])
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: cwd,
+            minimumModificationDate: Date(timeIntervalSince1970: 1_000_000.5)
+        )?.sessionID == "newer")
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: cwd,
+            minimumModificationDate: Date(timeIntervalSince1970: 1_000_001.5)
+        ) == nil)
+    }
+
+    @Test("home directory adoption requires freshness and a specific title")
+    func homeDirectoryRequiresFreshTranscriptAndSpecificTitle() throws {
         // A claude rooted directly at $HOME would match the home project dir,
         // which accumulates every home-rooted conversation. Without a cutoff,
-        // newest-by-mtime is too ambiguous. With a pending-session cutoff, a
-        // fresh transcript written after detection is the live session.
+        // and a specific title, newest-by-mtime is too ambiguous.
         let fm = FileManager.default
         let home = fm.temporaryDirectory
             .appendingPathComponent("agentchat-resolver-home-\(UUID().uuidString)", isDirectory: true)
@@ -104,9 +116,25 @@ import Testing
         #expect(resolver.newestClaudeTranscript(
             workingDirectory: home.path,
             minimumModificationDate: Date(timeIntervalSince1970: 199)
+        ) == nil)
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: home.path,
+            titleHint: "Claude Code",
+            minimumModificationDate: Date(timeIntervalSince1970: 199)
+        ) == nil)
+        try Data("{\"type\":\"ai-title\",\"aiTitle\":\"Fix Login\"}\n".utf8).write(to: transcript)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: transcript.path
+        )
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: home.path,
+            titleHint: "Fix Login",
+            minimumModificationDate: Date(timeIntervalSince1970: 199)
         )?.sessionID == "home-sess")
         #expect(resolver.newestClaudeTranscript(
             workingDirectory: home.path,
+            titleHint: "Fix Login",
             minimumModificationDate: Date(timeIntervalSince1970: 201)
         ) == nil)
     }

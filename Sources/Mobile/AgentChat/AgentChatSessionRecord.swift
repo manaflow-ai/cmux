@@ -60,6 +60,19 @@ struct AgentChatSessionRecord: Sendable {
         }
     }
 
+    /// Copies authoritative hook-derived state into a display alias while
+    /// preserving the alias session id clients already opened.
+    mutating func adoptHookRecord(_ record: AgentChatSessionRecord) {
+        workspaceID = record.workspaceID ?? workspaceID
+        surfaceID = record.surfaceID ?? surfaceID
+        workingDirectory = record.workingDirectory ?? workingDirectory
+        transcriptPath = record.transcriptPath ?? transcriptPath
+        state = record.state
+        lastActivityAt = record.lastActivityAt
+        title = record.title ?? title
+        pid = record.pid ?? pid
+    }
+
     /// The wire descriptor for this record.
     var descriptor: ChatSessionDescriptor {
         ChatSessionDescriptor(

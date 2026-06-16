@@ -240,7 +240,10 @@ final class AgentChatSessionRegistry {
     /// - Parameter event: The hook event as published by the agent CLI.
     /// - Returns: The up-to-date record.
     @discardableResult
-    func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
+    func noteHookEvent(
+        _ event: WorkstreamEvent,
+        canonicalSessionIDForHookRecord: (AgentChatSessionRecord) -> String? = { _ in nil }
+    ) -> AgentChatSessionRecord {
         let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
         let kind = ChatAgentKind(source: event.source)
         var record = records[sessionID] ?? AgentChatSessionRecord(
@@ -294,6 +297,21 @@ final class AgentChatSessionRegistry {
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
+        if let canonicalSessionID = canonicalSessionIDForHookRecord(record),
+           canonicalSessionID != sessionID,
+           var canonicalRecord = records[canonicalSessionID],
+           canonicalRecord.state != .ended {
+            let previousCanonical = canonicalRecord
+            canonicalRecord.adoptHookRecord(record)
+            if let previous {
+                var endedRecord = previous
+                endedRecord.state = .ended
+                setRecord(endedRecord, previous: previous)
+                removeRecord(sessionID: sessionID)
+            }
+            setRecord(canonicalRecord, previous: previousCanonical)
+            return canonicalRecord
+        }
         setRecord(record, previous: previous)
         return record
     }
@@ -340,6 +358,11 @@ final class AgentChatSessionRegistry {
         if notify {
             onRecordChanged?(record, previous)
         }
+    }
+
+    private func removeRecord(sessionID: String) {
+        guard let record = records.removeValue(forKey: sessionID) else { return }
+        removeIndexes(for: record)
     }
 
     private func addIndexes(for record: AgentChatSessionRecord) {

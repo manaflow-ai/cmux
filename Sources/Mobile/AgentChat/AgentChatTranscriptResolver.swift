@@ -68,7 +68,7 @@ struct AgentChatTranscriptResolver {
         let fileManager = FileManager.default
         // The home project dir is a junk drawer of home-rooted claude
         // conversations. Fuzzy matching from $HOME is allowed only when the
-        // caller can prove freshness with a modification-date cutoff.
+        // caller can prove freshness and a specific conversation title.
         let home = homeDirectory.resolvingSymlinksInPath().path
         // claude encodes the project dir from the cwd it sees, which is the
         // symlink-resolved path (getcwd → /private/tmp), while a panel's cwd
@@ -103,11 +103,17 @@ struct AgentChatTranscriptResolver {
                     )
                 }
                 .filter { candidate in
-                    guard isHomeCandidate, let minimumModificationDate else { return true }
+                    guard let minimumModificationDate else { return true }
                     return candidate.date >= minimumModificationDate
                 }
             let newest: URL?
-            if let normalizedTitleHint {
+            if isHomeCandidate {
+                guard let normalizedTitleHint else { continue }
+                newest = transcriptCandidates
+                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
+                    .max { $0.date < $1.date }?
+                    .url
+            } else if let normalizedTitleHint {
                 newest = transcriptCandidates
                     .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint || $0.title == nil }
                     .max { $0.date < $1.date }?

@@ -84,7 +84,10 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
-        let record = registry.noteHookEvent(event)
+        let record = registry.noteHookEvent(
+            event,
+            canonicalSessionIDForHookRecord: Self.provisionalClaudeSessionID(for:)
+        )
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -442,6 +445,15 @@ final class AgentChatTranscriptService {
 
     private static func provisionalClaudeSessionID(surfaceID: String) -> String {
         provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
+    }
+
+    private static func provisionalClaudeSessionID(for record: AgentChatSessionRecord) -> String? {
+        guard case .claude = record.agentKind,
+              !isProvisionalClaudeSessionID(record.sessionID),
+              let surfaceID = record.surfaceID else {
+            return nil
+        }
+        return provisionalClaudeSessionID(surfaceID: surfaceID)
     }
 
     private static func isProvisionalClaudeSessionID(_ sessionID: String) -> Bool {

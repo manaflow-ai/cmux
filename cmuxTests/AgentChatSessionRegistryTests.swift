@@ -1,3 +1,4 @@
+import CMUXWorkstream
 import Foundation
 import Testing
 
@@ -165,6 +166,68 @@ struct AgentChatSessionRegistryTests {
         #expect(adopted.sessionID == "fresh")
         #expect(registry.record(sessionID: "stale")?.state == .ended)
     }
+
+    @Test("hook events reconcile into a provisional surface session")
+    func hookEventsReconcileIntoProvisionalSurfaceSession() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("agentchat-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let cmuxDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: cmuxDir, withIntermediateDirectories: true)
+        let transcriptPath = home.appendingPathComponent("real-session.jsonl").path
+        let storeJSON = """
+        {
+          "sessions": {
+            "real-session": {
+              "workspaceId": "workspace-a",
+              "surfaceId": "terminal-one",
+              "cwd": "\(home.path)",
+              "transcriptPath": "\(transcriptPath)",
+              "updatedAt": 200
+            }
+          }
+        }
+        """
+        try Data(storeJSON.utf8).write(to: cmuxDir.appendingPathComponent("claude-hook-sessions.json"))
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(homeDirectory: home)
+        )
+        let provisionalID = "detected-claude-surface-terminal-one"
+        registry.adoptDetectedSession(
+            sessionID: provisionalID,
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-one",
+            workingDirectory: home.path,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        let reconciled = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: "real-session",
+                hookEventName: .userPromptSubmit,
+                source: "claude",
+                workspaceId: "workspace-a",
+                cwd: home.path,
+                receivedAt: Date(timeIntervalSince1970: 210)
+            )
+        ) { record in
+            guard record.agentKind == .claude,
+                  let surfaceID = record.surfaceID else {
+                return nil
+            }
+            return "detected-claude-surface-\(surfaceID.lowercased())"
+        }
+
+        #expect(reconciled.sessionID == provisionalID)
+        #expect(registry.record(sessionID: "real-session") == nil)
+        #expect(registry.record(sessionID: provisionalID)?.transcriptPath == transcriptPath)
+        let visible = registry.sessions(
+            workspaceAndSurfaceIDs: ["workspace-a": ["terminal-one"]]
+        )
+        #expect(visible.map(\.sessionID) == [provisionalID])
+    }
 }
 
 @MainActor
@@ -225,8 +288,8 @@ struct AgentChatTranscriptServiceTests {
         #expect(bounded.first?.transcriptAvailability == .available)
     }
 
-    @Test("pending home-rooted Claude session resolves a fresh transcript on history")
-    func pendingHomeClaudeResolvesFreshTranscriptOnHistory() async throws {
+    @Test("pending home-rooted Claude session stays pending without a specific title")
+    func pendingHomeClaudeStaysPendingWithoutSpecificTitle() async throws {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory
             .appendingPathComponent("agentchat-service-home-\(UUID().uuidString)", isDirectory: true)
@@ -266,10 +329,10 @@ struct AgentChatTranscriptServiceTests {
             limit: 100
         )
 
-        #expect(page?.transcriptAvailability == .available)
+        #expect(page?.transcriptAvailability == .pending)
         let adoptedPath = registry.record(sessionID: "detected-claude-surface-terminal-one")?.transcriptPath
-        #expect(adoptedPath.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } == transcript.resolvingSymlinksInPath().path)
-        #expect(service.sessionDescriptors(workspaceID: "workspace-a").first?.transcriptAvailability == .available)
+        #expect(adoptedPath == nil)
+        #expect(service.sessionDescriptors(workspaceID: "workspace-a").first?.transcriptAvailability == .pending)
     }
 
     @Test("hook-backed sessions remain advertised while their transcript fallback resolves")
