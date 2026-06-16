@@ -26,21 +26,42 @@ import Foundation
 /// prefix matches, then literal substring matches, then typo-tolerant
 /// and subsequence matches.
 public struct SettingsSearchIndex: Sendable {
+    /// A searchable sidebar result representing either a settings section or a specific setting row.
     public struct Entry: Sendable, Identifiable, Hashable {
+        /// The destination category for a search result.
         public enum Kind: Sendable, Hashable {
+            /// A top-level settings section result.
             case section
+            /// A setting row result that belongs to the associated parent section.
             case setting(parent: SettingsSectionID)
         }
 
+        /// Stable identifier used by SwiftUI list selection and search-result diffing.
         public let id: String
+        /// Whether the result selects a section or a setting row inside a section.
         public let kind: Kind
+        /// User-facing title shown in the search results list.
         public let title: String
+        /// SF Symbol name rendered next to the result title.
         public let symbolName: String
+        /// Case- and diacritic-folded text searched by ``match(_:)``.
         public let normalizedSearchText: String
+        /// Tokenized form of ``normalizedSearchText`` cached for per-query scoring.
         let normalizedSearchWords: [String]
+        /// Unique token set cached so exact token matches stay O(1) per query token.
         let normalizedSearchWordSet: Set<String>
+        /// Anchor id posted to the settings content scroll view when the result is selected.
         public let anchorID: String
 
+        /// Creates a search index entry and precomputes its searchable token caches.
+        ///
+        /// - Parameters:
+        ///   - id: Stable search-result identifier.
+        ///   - kind: Result destination category.
+        ///   - title: User-facing result title.
+        ///   - symbolName: SF Symbol rendered with the result.
+        ///   - normalizedSearchText: Already-normalized search text to score against.
+        ///   - anchorID: Scroll/highlight anchor selected when the result is activated.
         init(
             id: String,
             kind: Kind,
@@ -60,6 +81,7 @@ public struct SettingsSearchIndex: Sendable {
         }
     }
 
+    /// All indexed entries in their default display order.
     public let entries: [Entry]
 
     /// Maps a dotted cmux.json path (e.g. `sidebar.showBranchDirectory`)
@@ -164,6 +186,14 @@ public struct SettingsSearchIndex: Sendable {
         self.pathAnchorIDs = pathAnchors
     }
 
+    /// Returns entries whose indexed text matches every token in `query`, sorted by relevance.
+    ///
+    /// Empty queries return section entries only. Non-empty queries use exact, prefix,
+    /// word-boundary, substring, light-typo, and subsequence matching while preserving
+    /// declaration order as the final tie-breaker.
+    ///
+    /// - Parameter query: User-entered settings search text.
+    /// - Returns: Matching entries sorted from best to worst match.
     public func match(_ query: String) -> [Entry] {
         #if DEBUG
         // Debug-only escape hatch: typing the sentinel surfaces *every*
