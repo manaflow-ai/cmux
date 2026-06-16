@@ -97,7 +97,9 @@ extension AgentLaunchSanitizer {
             "-p",
             "--no-session-persistence"
         ],
-        promptBoundaryOptions: ["--tmux"], skipClaudeHookSettings: true
+        promptBoundaryOptions: ["--tmux"],
+        postPromptBoundaryOptions: ["--fallback-model", "--model", "--permission-mode"],
+        skipClaudeHookSettings: true
     )
 
     static let codexPolicy = Policy(

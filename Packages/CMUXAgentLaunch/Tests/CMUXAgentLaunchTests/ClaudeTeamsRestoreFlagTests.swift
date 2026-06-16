@@ -3,8 +3,8 @@ import Testing
 
 @Suite("Claude Teams restore flags")
 struct ClaudeTeamsRestoreFlagTests {
-    @Test("Preserves tmux mode and common session flags")
-    func preservesTmuxAndCommonSessionFlags() {
+    @Test("Preserves common session flags before tmux prompt boundary")
+    func preservesCommonSessionFlagsBeforeTmuxPromptBoundary() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -14,7 +14,6 @@ struct ClaudeTeamsRestoreFlagTests {
                     "auto",
                     "--worktree",
                     "feature",
-                    "--tmux",
                     "--chrome",
                     "--ide",
                     "--dangerously-skip-permissions",
@@ -28,6 +27,7 @@ struct ClaudeTeamsRestoreFlagTests {
                     "team",
                     "--model",
                     "sonnet",
+                    "--tmux",
                     "initial prompt should not replay",
                 ],
                 launcher: "claudeTeams",
@@ -39,7 +39,6 @@ struct ClaudeTeamsRestoreFlagTests {
                 "auto",
                 "--worktree",
                 "feature",
-                "--tmux",
                 "--chrome",
                 "--ide",
                 "--dangerously-skip-permissions",
@@ -104,8 +103,8 @@ struct ClaudeTeamsRestoreFlagTests {
         )
     }
 
-    @Test("Treats prompt tokens after tmux as terminal")
-    func treatsPromptTokensAfterTmuxAsTerminal() {
+    @Test("Drops restore-looking prompt text after tmux payload")
+    func dropsRestoreLookingPromptTextAfterTmuxPayload() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -121,8 +120,27 @@ struct ClaudeTeamsRestoreFlagTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
-                "--permission-mode",
-                "auto",
+            ]
+        )
+    }
+
+    @Test("Drops equals-style tmux prompt and later prompt text")
+    func dropsEqualsStyleTmuxPromptAndLaterPromptText() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux=fix-bug",
+                    "--model",
+                    "sonnet",
+                    "--dangerously-skip-permissions",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
             ]
         )
     }
@@ -144,21 +162,102 @@ struct ClaudeTeamsRestoreFlagTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
-                "--model",
-                "sonnet",
             ]
         )
     }
 
-    @Test("Preserves permission flags after tmux before a prompt")
-    func preservesPermissionFlagsAfterTmuxBeforePrompt() {
+    @Test("Drops option-looking prompt text after tmux")
+    func dropsOptionLookingPromptTextAfterTmux() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
                     "--tmux",
+                    "explain",
                     "--dangerously-skip-permissions",
+                    "and continue",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux",
+                    "explain",
+                    "why",
+                    "--model",
+                    "sonnet",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+            ]
+        )
+    }
+
+    @Test("Stops tmux recovery at end-of-options delimiter")
+    func stopsTmuxRecoveryAtEndOfOptionsDelimiter() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux",
+                    "fix",
+                    "--",
+                    "--permission-mode",
+                    "auto",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+            ]
+        )
+    }
+
+    @Test("Stops tmux recovery when safe value option is incomplete")
+    func stopsTmuxRecoveryWhenSafeValueOptionIsIncomplete() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux",
+                    "fix",
+                    "--model",
+                    "--permission-mode",
+                    "auto",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+            ]
+        )
+    }
+
+    @Test("Preserves permission flags before tmux prompt boundary")
+    func preservesPermissionFlagsBeforeTmuxPromptBoundary() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--dangerously-skip-permissions",
+                    "--tmux",
                     "fix bug",
                 ],
                 launcher: "claudeTeams",
@@ -166,7 +265,6 @@ struct ClaudeTeamsRestoreFlagTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
-                "--tmux",
                 "--dangerously-skip-permissions",
             ]
         )
@@ -175,9 +273,9 @@ struct ClaudeTeamsRestoreFlagTests {
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
-                    "--tmux",
                     "--permission-mode",
                     "auto",
+                    "--tmux",
                     "fix bug",
                 ],
                 launcher: "claudeTeams",
@@ -185,7 +283,6 @@ struct ClaudeTeamsRestoreFlagTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
-                "--tmux",
                 "--permission-mode",
                 "auto",
             ]
@@ -211,8 +308,6 @@ struct ClaudeTeamsRestoreFlagTests {
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
                 "--worktree",
-                "--permission-mode",
-                "auto",
             ]
         )
     }

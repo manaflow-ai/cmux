@@ -24,7 +24,7 @@ public enum AgentLaunchSanitizer {
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
-        var promptBoundaryOptions: Set<String> = []
+        var promptBoundaryOptions: Set<String> = []; var postPromptBoundaryOptions: Set<String> = []
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false
@@ -341,13 +341,10 @@ public enum AgentLaunchSanitizer {
                 index += width
                 continue
             }
-            if !(policy.promptBoundaryOptions.contains(arg) && index + width < args.count && !isOptionToken(args[index + width])) {
-                result.append(contentsOf: args[index..<min(args.count, index + width)])
-            }
+            guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
+            if consumedPromptBoundary { continue }
+            result.append(contentsOf: args[index..<min(args.count, index + width)])
             index += width
-            if policy.promptBoundaryOptions.contains(arg) {
-                while index < args.count, !isOptionToken(args[index]) { index += 1 }
-            }
         }
 
         return result
@@ -448,8 +445,10 @@ public enum AgentLaunchSanitizer {
             guard index + 1 < args.count else { return 1 }
             let value = args[index + 1]
             if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
-            if policy.greedyOptionalValueOptions.contains(arg), !value.hasPrefix("-"), value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil { return 2 }
-            guard looksLikeOptionalValue(value, following: index + 2 < args.count ? args[index + 2] : nil) else { return 1 }
+            let following = index + 2 < args.count ? args[index + 2] : nil
+            if policy.greedyOptionalValueOptions.contains(arg),
+               looksLikeGreedyOptionalValue(value, following: following) { return 2 }
+            guard looksLikeOptionalValue(value, following: following) else { return 1 }
             return 2
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
@@ -473,6 +472,7 @@ public enum AgentLaunchSanitizer {
         }
         return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
     }
+
     private static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
@@ -562,5 +562,3 @@ public enum AgentLaunchSanitizer {
             normalized.contains("/src/cli/cmd/tui/worker.js")
     }
 }
-
-private func isOptionToken(_ arg: String) -> Bool { arg.hasPrefix("-") && arg.rangeOfCharacter(from: .whitespacesAndNewlines) == nil }
