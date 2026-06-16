@@ -15,8 +15,8 @@ import Speech
 ///
 /// Text behavior: ``start(existingText:onText:)`` captures the composer's current
 /// text as the base and, for every partial result, calls `onText` with
-/// base + transcript (via ``String/appendingDictationTranscript(_:)``) so
-/// dictation appends to whatever the user already typed and never clobbers it.
+/// base + transcript (see ``ComposerDictationTextMerger``) so dictation appends to
+/// whatever the user already typed and never clobbers it.
 ///
 /// Concurrency: the type is `@MainActor`, so all published state and the `onText`
 /// callback mutate the store on the main actor. Speech / AVFoundation deliver
@@ -33,6 +33,9 @@ final class ComposerDictationController {
     /// The recognizer for the user's locale. `nil` when the locale is
     /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
     private let recognizer: SFSpeechRecognizer?
+
+    /// Pure merger that combines the captured base text with speech partials.
+    private let textMerger: ComposerDictationTextMerger
 
     /// The audio engine capturing microphone buffers. Built lazily on first
     /// start and reused; its input-node tap is installed on start and removed on
@@ -65,7 +68,8 @@ final class ComposerDictationController {
     /// `.stopping` if no final result ever arrives.
     private static let finalizeTimeoutSeconds: Double = 2.5
 
-    init() {
+    init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
+        self.textMerger = textMerger
         self.recognizer = SFSpeechRecognizer()
         // A nil recognizer (unsupported locale) is terminal: the mic is disabled.
         if recognizer == nil {
@@ -306,7 +310,10 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(self.baseText.appendingDictationTranscript(transcript))
+                    self.onText?(self.textMerger.merged(
+                        base: self.baseText,
+                        transcript: transcript
+                    ))
                 }
                 // A final result or an error (end-of-stream, recognition failure)
                 // settles the session so the mic does not stay hot. If a graceful

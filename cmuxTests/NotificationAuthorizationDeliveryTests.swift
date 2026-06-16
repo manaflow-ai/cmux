@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,17 +8,11 @@ import AppKit
 #endif
 
 @MainActor
-final class NotificationAuthorizationDeliveryTests: XCTestCase {
-    override func tearDown() {
-        TerminalNotificationStore.shared.replaceNotificationsForTesting([])
-        TerminalNotificationStore.shared.resetNotificationDeliveryHandlerForTesting()
-        TerminalNotificationStore.shared.resetSuppressedNotificationFeedbackHandlerForTesting()
-        super.tearDown()
-    }
-
-    func testDeniedAuthorizationSuppressesFocusedTerminalExternalFeedback() throws {
+@Suite
+final class NotificationAuthorizationDeliveryTests {
+    @Test func deniedAuthorizationSuppressesFocusedTerminalExternalFeedback() throws {
         guard let appDelegate = AppDelegate.shared else {
-            XCTFail("AppDelegate.shared must be set for this test")
+            Issue.record("AppDelegate.shared must be set for this test")
             return
         }
         let manager = TabManager()
@@ -43,6 +37,9 @@ final class NotificationAuthorizationDeliveryTests: XCTestCase {
         AppFocusState.overrideIsFocused = true
 
         defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
             store.setAuthorizationStateForTesting(originalAuthorizationState)
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
@@ -51,7 +48,7 @@ final class NotificationAuthorizationDeliveryTests: XCTestCase {
 
         guard let workspace = manager.selectedWorkspace,
               let terminalPanel = workspace.focusedTerminalPanel else {
-            XCTFail("Expected selected workspace with a focused terminal panel")
+            Issue.record("Expected selected workspace with a focused terminal panel")
             return
         }
 
@@ -63,8 +60,8 @@ final class NotificationAuthorizationDeliveryTests: XCTestCase {
             body: ""
         )
 
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertTrue(deliveredNotificationIDs.isEmpty)
-        XCTAssertTrue(localFeedbackNotificationIDs.isEmpty)
+        #expect(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        #expect(deliveredNotificationIDs.isEmpty)
+        #expect(localFeedbackNotificationIDs.isEmpty)
     }
 }

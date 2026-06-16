@@ -59,14 +59,18 @@ enum ComposerDictationState: Equatable {
     var isStopping: Bool { self == .stopping }
 }
 
-extension String {
+/// Pure text-merge for live dictation, factored out so it is host-testable
+/// without Speech / AVFoundation.
+///
+/// At start the controller captures the composer's existing text as the
+/// `base`. Every partial transcription then replaces the live tail, so the
+/// composer always reads `base` + the latest transcript and never accumulates
+/// stale partials. The base is preserved verbatim so text the user typed before
+/// starting is never clobbered.
+struct ComposerDictationTextMerger {
+    init() {}
+
     /// Combine the captured base text with the current transcript.
-    ///
-    /// Dictation captures the composer's existing text as the receiver. Every
-    /// partial transcription then replaces the live tail, so the composer always
-    /// reads captured text + the latest transcript and never accumulates stale
-    /// partials. The receiver is preserved verbatim so text the user typed
-    /// before starting is never clobbered.
     ///
     /// - A trailing run of whitespace on the base is preserved (the user may
     ///   have typed "hello " and the dictation continues the sentence).
@@ -78,19 +82,20 @@ extension String {
     ///   not doubled.
     ///
     /// - Parameters:
+    ///   - base: The composer text captured when dictation started.
     ///   - transcript: The latest (partial or final) recognized transcript.
     /// - Returns: The text to write back into the composer.
-    func appendingDictationTranscript(_ transcript: String) -> String {
+    func merged(base: String, transcript: String) -> String {
         let trimmedTranscript = transcript.drop(while: { $0.isWhitespace })
         if trimmedTranscript.isEmpty {
-            return self
+            return base
         }
-        if isEmpty {
+        if base.isEmpty {
             return String(trimmedTranscript)
         }
-        if let last, last.isWhitespace {
-            return self + trimmedTranscript
+        if let last = base.last, last.isWhitespace {
+            return base + trimmedTranscript
         }
-        return self + " " + trimmedTranscript
+        return base + " " + trimmedTranscript
     }
 }

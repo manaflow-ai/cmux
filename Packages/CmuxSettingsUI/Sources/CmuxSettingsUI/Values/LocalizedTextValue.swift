@@ -67,7 +67,7 @@ enum LocalizedTextValue: Equatable, Sendable {
         case .desktopNotificationStatusEphemeral:
             String(localized: "settings.notifications.desktop.status.ephemeral", defaultValue: "Temporary")
         case .desktopNotificationSubtitleChecking:
-            String(localized: "settings.notifications.desktop.subtitle.checking", defaultValue: "Checking macOS notification permission.")
+            String(localized: "settings.notifications.desktop.subtitle.checking", defaultValue: "Checking notification permission.")
         case .desktopNotificationSubtitleNotDetermined:
             String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
         case .desktopNotificationSubtitleAllowed:

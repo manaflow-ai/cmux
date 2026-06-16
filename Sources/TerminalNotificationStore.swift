@@ -621,7 +621,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         cmuxDebugLog("notification.auth \(message)")
 #endif
-        NSLog("notification.auth %@", message)
+        terminalNotificationLogger.debug("notification.auth \(message, privacy: .public)")
     }
 
     private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
@@ -719,7 +719,7 @@ final class TerminalNotificationStore: ObservableObject {
 
             self.center.add(request) { error in
                 if let error {
-                    NSLog("Failed to schedule test notification: \(error)")
+                    terminalNotificationLogger.error("Settings test notification scheduling failed: \(error.localizedDescription, privacy: .public)")
                     self.logAuthorization("settings test schedule failed error=\(error.localizedDescription)")
                 } else {
                     self.logAuthorization("settings test schedule succeeded")
