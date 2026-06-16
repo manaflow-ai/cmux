@@ -15,8 +15,8 @@ import Speech
 ///
 /// Text behavior: ``start(existingText:onText:)`` captures the composer's current
 /// text as the base and, for every partial result, calls `onText` with
-/// base + transcript (see ``ComposerDictationTextMerge``) so dictation appends to
-/// whatever the user already typed and never clobbers it.
+/// base + transcript (via ``String/appendingDictationTranscript(_:)``) so
+/// dictation appends to whatever the user already typed and never clobbers it.
 ///
 /// Concurrency: the type is `@MainActor`, so all published state and the `onText`
 /// callback mutate the store on the main actor. Speech / AVFoundation deliver
@@ -306,10 +306,7 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(ComposerDictationTextMerge.merged(
-                        base: self.baseText,
-                        transcript: transcript
-                    ))
+                    self.onText?(self.baseText.appendingDictationTranscript(transcript))
                 }
                 // A final result or an error (end-of-stream, recognition failure)
                 // settles the session so the mic does not stay hot. If a graceful

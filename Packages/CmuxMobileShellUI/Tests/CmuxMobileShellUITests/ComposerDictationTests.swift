@@ -8,45 +8,45 @@ import Testing
     // MARK: - Text merge
 
     @Test func mergeAppendsTranscriptToEmptyBase() {
-        #expect(ComposerDictationTextMerge.merged(base: "", transcript: "hello world") == "hello world")
+        #expect("".appendingDictationTranscript("hello world") == "hello world")
     }
 
     @Test func mergeInsertsSeparatingSpaceAfterNonWhitespaceBase() {
-        #expect(ComposerDictationTextMerge.merged(base: "hello", transcript: "world") == "hello world")
+        #expect("hello".appendingDictationTranscript("world") == "hello world")
     }
 
     @Test func mergePreservesTrailingWhitespaceWithoutDoubling() {
         // Base already ends in a space; do not add a second one.
-        #expect(ComposerDictationTextMerge.merged(base: "hello ", transcript: "world") == "hello world")
+        #expect("hello ".appendingDictationTranscript("world") == "hello world")
     }
 
     @Test func mergeTrimsLeadingTranscriptWhitespace() {
-        #expect(ComposerDictationTextMerge.merged(base: "hello", transcript: "   world") == "hello world")
+        #expect("hello".appendingDictationTranscript("   world") == "hello world")
     }
 
     @Test func mergeEmptyTranscriptKeepsBaseUnchanged() {
         // A partial may briefly be empty; the user's pre-typed text must survive.
-        #expect(ComposerDictationTextMerge.merged(base: "draft ", transcript: "") == "draft ")
-        #expect(ComposerDictationTextMerge.merged(base: "draft", transcript: "   ") == "draft")
+        #expect("draft ".appendingDictationTranscript("") == "draft ")
+        #expect("draft".appendingDictationTranscript("   ") == "draft")
     }
 
     @Test func mergePreservesBaseVerbatim() {
         // The base is appended to, never rewritten: punctuation and casing stay.
         let base = "TODO: ship it,"
-        #expect(ComposerDictationTextMerge.merged(base: base, transcript: "then rest") == "TODO: ship it, then rest")
+        #expect(base.appendingDictationTranscript("then rest") == "TODO: ship it, then rest")
     }
 
     @Test func mergeIsIdempotentAcrossGrowingPartials() {
         // Successive partials always replace the tail, so the base is never
         // duplicated as the transcript grows.
         let base = "note: "
-        #expect(ComposerDictationTextMerge.merged(base: base, transcript: "buy") == "note: buy")
-        #expect(ComposerDictationTextMerge.merged(base: base, transcript: "buy milk") == "note: buy milk")
-        #expect(ComposerDictationTextMerge.merged(base: base, transcript: "buy milk today") == "note: buy milk today")
+        #expect(base.appendingDictationTranscript("buy") == "note: buy")
+        #expect(base.appendingDictationTranscript("buy milk") == "note: buy milk")
+        #expect(base.appendingDictationTranscript("buy milk today") == "note: buy milk today")
     }
 
     @Test func mergeEmptyBaseEmptyTranscriptIsEmpty() {
-        #expect(ComposerDictationTextMerge.merged(base: "", transcript: "") == "")
+        #expect("".appendingDictationTranscript("") == "")
     }
 
     // MARK: - State machine
