@@ -10710,6 +10710,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testGroupSelectedWorkspacesShortcutDoesNotConsumeWhenTerminalOwnsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            window.firstResponder === terminalView || terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+
+        XCTAssertTrue(
+            window.firstResponder === terminalView || terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before grouping shortcut"
+        )
+
+        let workspaceGroupCountBefore = manager.workspaceGroups.count
+        let workspaceCountBefore = manager.tabs.count
+
+        XCTAssertFalse(
+            appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window),
+            "A stale sidebar multi-selection must not let the global grouping shortcut consume terminal focus"
+        )
+        XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore)
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
+    }
+
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
