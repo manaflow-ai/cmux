@@ -6,6 +6,9 @@ final class CanvasMinimapAutoHideScheduler {
     private let delay: Duration
     private var deadline: Duration?
     private var task: Task<Void, Never>?
+    var hasPendingHide: Bool {
+        deadline != nil || task != nil
+    }
 
     init<C: Clock & Sendable>(clock: C, delay: Duration = .seconds(3)) where C.Duration == Duration {
         self.clock = CanvasMinimapAutoHideClock(clock)
