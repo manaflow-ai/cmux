@@ -1,20 +1,9 @@
 import CmuxTerminal
 import Foundation
 
-nonisolated struct SurfaceReadTextReadinessWait: Sendable {
-    fileprivate let surfaceID: UUID
-    fileprivate let waiterID: UUID
-}
-
 actor SurfaceReadTextReadinessWaiter {
-    private enum WaiterState {
-        case pending
-        case waiting(CheckedContinuation<Bool, Never>, Task<Void, Never>)
-        case ready
-    }
-
     private let maxWaiters: Int
-    private var waiters: [UUID: [UUID: WaiterState]] = [:]
+    private var waiters: [UUID: [UUID: SurfaceReadTextReadinessWaiterState]] = [:]
     private var observers: [UUID: NSObjectProtocol] = [:]
     private var activeWaiterCount = 0
 
@@ -36,10 +25,10 @@ actor SurfaceReadTextReadinessWaiter {
         return SurfaceReadTextReadinessWait(surfaceID: surfaceID, waiterID: waiterID)
     }
 
-    func wait(_ wait: SurfaceReadTextReadinessWait, timeoutSeconds: TimeInterval) async -> Bool {
+    func wait(_ wait: SurfaceReadTextReadinessWait) async -> Bool {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                registerContinuation(continuation, for: wait, timeoutSeconds: timeoutSeconds)
+                registerContinuation(continuation, for: wait)
             }
         } onCancel: {
             Task {
@@ -68,8 +57,7 @@ actor SurfaceReadTextReadinessWaiter {
 
     private func registerContinuation(
         _ continuation: CheckedContinuation<Bool, Never>,
-        for wait: SurfaceReadTextReadinessWait,
-        timeoutSeconds: TimeInterval
+        for wait: SurfaceReadTextReadinessWait
     ) {
         guard var surfaceWaiters = waiters[wait.surfaceID],
               let state = surfaceWaiters[wait.waiterID] else {
@@ -79,12 +67,7 @@ actor SurfaceReadTextReadinessWaiter {
 
         switch state {
         case .pending:
-            let timeoutTask = Task {
-                try? await Task.sleep(nanoseconds: Self.timeoutNanoseconds(timeoutSeconds))
-                guard !Task.isCancelled else { return }
-                await self.timeout(wait)
-            }
-            surfaceWaiters[wait.waiterID] = .waiting(continuation, timeoutTask)
+            surfaceWaiters[wait.waiterID] = .waiting(continuation)
             waiters[wait.surfaceID] = surfaceWaiters
         case .ready:
             surfaceWaiters.removeValue(forKey: wait.waiterID)
@@ -103,13 +86,12 @@ actor SurfaceReadTextReadinessWaiter {
         }
 
         var continuations: [CheckedContinuation<Bool, Never>] = []
-        var remainingWaiters: [UUID: WaiterState] = [:]
+        var remainingWaiters: [UUID: SurfaceReadTextReadinessWaiterState] = [:]
         for (waiterID, state) in surfaceWaiters {
             switch state {
             case .pending, .ready:
                 remainingWaiters[waiterID] = .ready
-            case .waiting(let continuation, let timeoutTask):
-                timeoutTask.cancel()
+            case .waiting(let continuation):
                 continuations.append(continuation)
             }
         }
@@ -124,10 +106,6 @@ actor SurfaceReadTextReadinessWaiter {
         }
     }
 
-    private func timeout(_ wait: SurfaceReadTextReadinessWait) {
-        finish(wait, result: false)
-    }
-
     private func finish(_ wait: SurfaceReadTextReadinessWait, result: Bool) {
         guard var surfaceWaiters = waiters[wait.surfaceID],
               let state = surfaceWaiters.removeValue(forKey: wait.waiterID) else {
@@ -138,8 +116,7 @@ actor SurfaceReadTextReadinessWaiter {
         switch state {
         case .pending, .ready:
             continuation = nil
-        case .waiting(let waitingContinuation, let timeoutTask):
-            timeoutTask.cancel()
+        case .waiting(let waitingContinuation):
             continuation = waitingContinuation
         }
 
@@ -149,7 +126,7 @@ actor SurfaceReadTextReadinessWaiter {
     }
 
     private func updateSurfaceWaiters(
-        _ surfaceWaiters: [UUID: WaiterState],
+        _ surfaceWaiters: [UUID: SurfaceReadTextReadinessWaiterState],
         for surfaceID: UUID
     ) {
         if surfaceWaiters.isEmpty {
@@ -163,11 +140,5 @@ actor SurfaceReadTextReadinessWaiter {
     private func removeObserver(for surfaceID: UUID) {
         guard let observer = observers.removeValue(forKey: surfaceID) else { return }
         NotificationCenter.default.removeObserver(observer)
-    }
-
-    private nonisolated static func timeoutNanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        guard seconds.isFinite else { return 0 }
-        let boundedSeconds = min(max(0, seconds), 60)
-        return UInt64(boundedSeconds * 1_000_000_000)
     }
 }

@@ -51,7 +51,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             return true
         }
         return request.method == "surface.read_text"
-            && boolValue(request.params["start_if_needed"]) == true
+            && controlCommandExecutionPolicyBoolValue(request.params["start_if_needed"]) == true
     }
 
     /// True when a concrete worker request is safe to invoke synchronously from
@@ -169,25 +169,26 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.capabilities",
     ]
 
-    private static func boolValue(_ value: JSONValue?) -> Bool? {
-        switch value {
-        case .bool(let value):
-            return value
-        case .int(let value):
-            return value != 0
-        case .double(let value):
-            return value != 0
-        case .string(let value):
-            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            case "0", "false", "no", "off":
-                return false
-            default:
-                return nil
-            }
+}
+
+private func controlCommandExecutionPolicyBoolValue(_ value: JSONValue?) -> Bool? {
+    switch value {
+    case .bool(let value):
+        return value
+    case .int(let value):
+        return value != 0
+    case .double(let value):
+        return value != 0
+    case .string(let value):
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
         default:
             return nil
         }
+    default:
+        return nil
     }
 }

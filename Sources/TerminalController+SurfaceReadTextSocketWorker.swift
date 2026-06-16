@@ -24,7 +24,7 @@ extension TerminalController {
             return Self.v2CallResult(from: secondResult)
         }
 
-        guard await surfaceReadTextReadinessWaiter.wait(readinessWait, timeoutSeconds: 5) else {
+        guard await surfaceReadTextReadinessWaiter.wait(readinessWait) else {
             return Self.v2CallResult(from: secondResult)
         }
 
