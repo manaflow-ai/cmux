@@ -5,8 +5,8 @@
 17894	Sources/AppDelegate.swift
 16714	Sources/ContentView.swift
 14829	Sources/TerminalController.swift
-13358	Sources/Panels/BrowserPanel.swift
-13017	Sources/Workspace.swift
+13381	Sources/Panels/BrowserPanel.swift
+13048	Sources/Workspace.swift
 12124	Sources/GhosttyTerminalView.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -96,7 +96,7 @@
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-912	Sources/WorkspaceContentView.swift
+914	Sources/WorkspaceContentView.swift
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 878	Sources/Panels/TerminalPanel.swift

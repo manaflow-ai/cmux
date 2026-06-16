@@ -3132,6 +3132,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
     private var isPresentingPendingInteractiveBrowserPrompt = false
     private var isWebViewVisibleInUI: Bool = false
+    private var isProtectedByWorkspaceVisibilityForResourceCleanup: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
@@ -3451,6 +3452,23 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
         }
+    }
+
+    @discardableResult
+    func setWorkspaceVisibilityProtectsHiddenWebViewDiscard(
+        _ isProtected: Bool,
+        reason: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard isProtectedByWorkspaceVisibilityForResourceCleanup != isProtected else { return false }
+        isProtectedByWorkspaceVisibilityForResourceCleanup = isProtected
+        if !isProtected && !isWebViewVisibleInUI {
+            webViewLastHiddenAt = now
+            webViewLastVisibilityChangeAt = now
+            webViewLastVisibilityChangeReason = "workspace_visibility.\(reason)"
+        }
+        reevaluateHiddenWebViewDiscardScheduling(reason: "workspace_visibility.\(reason)")
+        return true
     }
 
     func webViewLifecycleTopPayload(now: Date = Date()) -> [String: Any] {
@@ -6105,6 +6123,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
     var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
         BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: isClosingWebViewLifecycle,
+            isProtectedByWorkspaceVisibility: isProtectedByWorkspaceVisibilityForResourceCleanup,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
             hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
@@ -8426,6 +8445,10 @@ private extension BrowserPanel {
 
 extension BrowserPanel {
     func hideBrowserPortalView(source: String) {
+        _ = setWorkspaceVisibilityProtectsHiddenWebViewDiscard(
+            false,
+            reason: "portal.\(source)"
+        )
         noteWebViewVisibility(
             false,
             reason: "portal.\(source)",
