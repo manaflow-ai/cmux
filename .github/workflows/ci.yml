@@ -305,15 +305,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: a restored
-              # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
-              # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              # Guard against a stale/poisoned Swift-package cache: restored
+              # SwiftPM metadata can keep absolute binary-artifact paths from
+              # another runner even after resolve reports success.
+              if python3 scripts/ci/validate_swift_package_cache.py "$SOURCE_PACKAGES_DIR"; then
                 exit 0
               fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              echo "Resolve succeeded but Swift package cache is stale or incomplete; clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -682,15 +682,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: a restored
-              # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
-              # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              # Guard against a stale/poisoned Swift-package cache: restored
+              # SwiftPM metadata can keep absolute binary-artifact paths from
+              # another runner even after resolve reports success.
+              if python3 scripts/ci/validate_swift_package_cache.py "$SOURCE_PACKAGES_DIR"; then
                 exit 0
               fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              echo "Resolve succeeded but Swift package cache is stale or incomplete; clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -916,9 +916,15 @@ jobs:
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.spm-cache"
+          if [ -d "$SOURCE_PACKAGES_DIR" ] && ! python3 scripts/ci/validate_swift_package_cache.py "$SOURCE_PACKAGES_DIR"; then
+            echo "Restored release Swift package cache is stale or incomplete; clearing package cache and DerivedData" >&2
+            rm -rf "$SOURCE_PACKAGES_DIR" build-universal
+          fi
+          mkdir -p "$SOURCE_PACKAGES_DIR"
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
-            -clonedSourcePackagesDirPath .spm-cache \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
@@ -1032,15 +1038,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: a restored
-              # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
-              # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              # Guard against a stale/poisoned Swift-package cache: restored
+              # SwiftPM metadata can keep absolute binary-artifact paths from
+              # another runner even after resolve reports success.
+              if python3 scripts/ci/validate_swift_package_cache.py "$SOURCE_PACKAGES_DIR"; then
                 exit 0
               fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              echo "Resolve succeeded but Swift package cache is stale or incomplete; clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
