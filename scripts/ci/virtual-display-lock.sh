@@ -73,6 +73,19 @@ lock_created_at() {
   fi
 }
 
+owner_is_alive() {
+  local owner_pid=""
+  if [ -f "$LOCK_DIR/owner_pid" ]; then
+    owner_pid="$(cat "$LOCK_DIR/owner_pid" 2>/dev/null || true)"
+  fi
+  case "$owner_pid" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  kill -0 "$owner_pid" 2>/dev/null
+}
+
 remove_stale_lock_if_needed() {
   local now created age
   now="$(now_seconds)"
@@ -82,6 +95,9 @@ remove_stale_lock_if_needed() {
   fi
   age=$((now - created))
   if [ "$age" -lt "$LOCK_STALE_SECONDS" ]; then
+    return 1
+  fi
+  if owner_is_alive; then
     return 1
   fi
   echo "Removing stale virtual display lock at $LOCK_DIR (age ${age}s)" >&2

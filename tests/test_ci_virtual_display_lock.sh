@@ -46,6 +46,23 @@ if [ "$(cat "$CMUX_VDISPLAY_LOCK_DIR/owner_pid")" != "$$" ]; then
   exit 1
 fi
 
+{
+  printf 'created_at=1\n'
+  printf 'token=%s\n' "$CMUX_VDISPLAY_LOCK_TOKEN"
+} > "$CMUX_VDISPLAY_LOCK_DIR/metadata"
+
+if RUNNER_TEMP="$TMP_DIR" \
+  CMUX_VDISPLAY_LOCK_DIR="$LOCK_DIR" \
+  CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=1 \
+  CMUX_VDISPLAY_LOCK_STALE_SECONDS=1 \
+  CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
+  "$SCRIPT" acquire >/tmp/cmux-vdisplay-live-owner-acquire.out 2>/tmp/cmux-vdisplay-live-owner-acquire.err; then
+  cat /tmp/cmux-vdisplay-live-owner-acquire.out
+  cat /tmp/cmux-vdisplay-live-owner-acquire.err >&2
+  echo "FAIL: stale cleanup removed a lock whose owner PID was alive" >&2
+  exit 1
+fi
+
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
 CMUX_VDISPLAY_LOCK_TOKEN="wrong-token" \

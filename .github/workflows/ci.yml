@@ -717,6 +717,7 @@ jobs:
           set -euo pipefail
           LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
           eval "$LOCK_ENV"
+          export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
           echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
           echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
 
@@ -1136,6 +1137,7 @@ jobs:
           acquire_display_lock() {
             LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
             eval "$LOCK_ENV"
+            export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
             DISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR"
             DISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN"
           }
@@ -1330,6 +1332,7 @@ jobs:
           set -euo pipefail
           LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
           eval "$LOCK_ENV"
+          export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
           echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
           echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
 
