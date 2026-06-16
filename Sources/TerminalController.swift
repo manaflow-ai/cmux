@@ -109,6 +109,7 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
+    @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -330,7 +331,6 @@ class TerminalController {
             }
         }
     }
-
     nonisolated func currentSocketPathForRemoteRestore() -> String? {
         socketServer.currentSocketPathForRemoteRestore()
     }
@@ -5313,7 +5313,7 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in AgentChatTranscriptService.shared.noteHookEvent(event) }
+        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
