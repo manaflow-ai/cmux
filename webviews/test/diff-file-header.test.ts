@@ -109,31 +109,29 @@ test("DiffFileHeader toggles collapse and opens a dedicated tab without also tog
     });
 
     const header = dom.window.document.querySelector<HTMLElement>(".cmux-fileheader");
-    expect(header?.getAttribute("role")).toBe("button");
-    expect(header?.getAttribute("aria-expanded")).toBe("true");
+    expect(header?.getAttribute("role")).toBeNull();
+    const toggleButton = dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-toggle");
+    expect(toggleButton?.tagName).toBe("BUTTON");
+    expect(toggleButton?.getAttribute("aria-expanded")).toBe("true");
 
     await act(async () => {
-      header?.click();
+      toggleButton?.click();
     });
     expect(toggleCount).toBe(1);
 
-    await act(async () => {
-      header?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
-    });
-    expect(toggleCount).toBe(2);
-
     const openButton = dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open");
+    expect(toggleButton?.contains(openButton)).toBe(false);
     await act(async () => {
       openButton?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     });
     expect(openCount).toBe(0);
-    expect(toggleCount).toBe(2);
+    expect(toggleCount).toBe(1);
 
     await act(async () => {
       openButton?.click();
     });
     expect(openCount).toBe(1);
-    expect(toggleCount).toBe(2);
+    expect(toggleCount).toBe(1);
   } finally {
     await act(async () => {
       root.unmount();

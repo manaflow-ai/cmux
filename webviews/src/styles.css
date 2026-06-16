@@ -770,7 +770,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
   height: 30px;
@@ -778,15 +778,35 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   border-radius: 7px;
   font-family: var(--cmux-diff-ui-font-family);
 }
-.cmux-fileheader[role="button"] {
+.cmux-fileheader-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
+  font: inherit;
+  padding: 0 4px 0 0;
+  text-align: left;
 }
-.cmux-fileheader[role="button"]:hover {
+.cmux-fileheader-toggle:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
 }
-.cmux-fileheader:focus-visible {
+.cmux-fileheader-toggle:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
   outline-offset: 1px;
+}
+.cmux-fileheader-toggle-static {
+  cursor: default;
+}
+.cmux-fileheader-toggle-static:hover {
+  background: transparent;
 }
 .cmux-fileheader-main {
   display: flex;

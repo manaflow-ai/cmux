@@ -1,5 +1,4 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import type { KeyboardEvent } from "react";
 import { fileName } from "./diff-stream";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
@@ -56,15 +55,6 @@ function renderPath(path: string) {
   );
 }
 
-function isInteractiveHeaderTarget(target: EventTarget | null, currentTarget: HTMLElement): boolean {
-  if (target === currentTarget) {
-    return false;
-  }
-  const element = target as Element | null;
-  return typeof element?.closest === "function" &&
-    Boolean(element.closest("a, button, input, select, textarea, [contenteditable='true'], [role='button']"));
-}
-
 /**
  * Graphite-style file header: a muted directory prefix with an emphasized
  * filename, a language badge, and +N/-N counts. Rendered by @pierre/diffs'
@@ -93,29 +83,8 @@ export function DiffFileHeader({
   const { additions, deletions } = diffFileLineTotals(fileDiff);
   const title = previousName ? `${previousName} → ${name}` : name;
   const toggleLabel = collapsed ? label?.("expandFileDiff") : label?.("collapseFileDiff");
-  const toggleProps = onToggleCollapsed
-    ? {
-      "aria-expanded": !collapsed,
-      "aria-label": toggleLabel,
-      onClick: onToggleCollapsed,
-      onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-        if (isInteractiveHeaderTarget(event.target, event.currentTarget)) {
-          return;
-        }
-        if (event.key !== "Enter" && event.key !== " ") {
-          return;
-        }
-        event.preventDefault();
-        onToggleCollapsed();
-      },
-      role: "button",
-      tabIndex: 0,
-      title: toggleLabel,
-    }
-    : {};
-
-  return (
-    <div className="cmux-fileheader" data-collapsed={collapsed ? "true" : "false"} {...toggleProps}>
+  const headerContent = (
+    <>
       <span className="cmux-fileheader-main">
         <span className="cmux-fileheader-caret" aria-hidden="true">
           <Icon name="chevronDown" />
@@ -146,21 +115,42 @@ export function DiffFileHeader({
             {`−${deletions}`}
           </span>
         ) : null}
-        {onOpenInTab ? (
-          <button
-            type="button"
-            className="cmux-fileheader-open"
-            title={label?.("openFileDiffInTab")}
-            aria-label={label?.("openFileDiffInTab")}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenInTab();
-            }}
-          >
-            <Icon name="openTab" />
-          </button>
-        ) : null}
       </span>
+    </>
+  );
+
+  return (
+    <div className="cmux-fileheader" data-collapsed={collapsed ? "true" : "false"}>
+      {onToggleCollapsed ? (
+        <button
+          type="button"
+          className="cmux-fileheader-toggle"
+          aria-expanded={!collapsed}
+          aria-label={toggleLabel}
+          title={toggleLabel}
+          onClick={onToggleCollapsed}
+        >
+          {headerContent}
+        </button>
+      ) : (
+        <span className="cmux-fileheader-toggle cmux-fileheader-toggle-static">
+          {headerContent}
+        </span>
+      )}
+      {onOpenInTab ? (
+        <button
+          type="button"
+          className="cmux-fileheader-open"
+          title={label?.("openFileDiffInTab")}
+          aria-label={label?.("openFileDiffInTab")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenInTab();
+          }}
+        >
+          <Icon name="openTab" />
+        </button>
+      ) : null}
     </div>
   );
 }
