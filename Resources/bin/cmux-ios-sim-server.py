@@ -137,7 +137,6 @@ const empty = document.getElementById("empty");
 const stage = document.getElementById("stage");
 const statusBox = document.getElementById("status");
 const statusText = document.getElementById("statusText");
-let seq = 0;
 let metadata = {};
 
 function withAuth(path) {
@@ -168,19 +167,14 @@ async function refreshMetadata() {
   }
 }
 
-function loadFrame() {
-  const image = new Image();
-  image.onload = () => {
-    screen.src = image.src;
-    screen.hidden = false;
-    empty.hidden = true;
-    window.setTimeout(loadFrame, 250);
-  };
-  image.onerror = () => {
-    window.setTimeout(loadFrame, 750);
-  };
-  image.src = withAuth(`/frame?seq=${seq++}`);
-}
+screen.onload = () => {
+  screen.hidden = false;
+  empty.hidden = true;
+};
+
+screen.onerror = () => {
+  setStatus(t.statusInputFailed, "error");
+};
 
 function pointForEvent(event) {
   const rect = screen.getBoundingClientRect();
@@ -248,8 +242,7 @@ stage.addEventListener("keydown", event => {
 
 stage.focus();
 refreshMetadata();
-window.setInterval(refreshMetadata, 5000);
-loadFrame();
+screen.src = withAuth("/stream");
 </script>
 </body>
 </html>
@@ -275,6 +268,16 @@ def timeout_output(value):
 
 def log(message):
     print(message, file=sys.stderr, flush=True)
+
+
+def detach_from_cli_session():
+    if not hasattr(os, "setsid"):
+        return
+    try:
+        os.setsid()
+        log("detached simulator server into its own session")
+    except OSError as error:
+        log(f"unable to detach simulator server session: {error}")
 
 
 def run(args, cwd=None, check=True, input_text=None, timeout=None):
@@ -586,15 +589,19 @@ class SimulatorState:
                     timeout=SCREENSHOT_TIMEOUT_SECONDS,
                 )
             except subprocess.TimeoutExpired as error:
-                self.last_frame_error = f"screenshot timed out after {SCREENSHOT_TIMEOUT_SECONDS} seconds"
+                self.last_frame_error = "frame_capture_timeout"
+                log(f"screenshot timed out after {SCREENSHOT_TIMEOUT_SECONDS} seconds")
                 if error.stderr:
-                    self.last_frame_error += ": " + timeout_output(error.stderr)
+                    log("screenshot stderr:\n" + timeout_output(error.stderr).rstrip())
                 return self.last_frame, True
             if raw.returncode == 0 and raw.stdout:
                 self.last_frame = raw.stdout
                 self.last_frame_error = None
                 return raw.stdout, False
-            self.last_frame_error = raw.stderr.decode("utf-8", errors="replace")
+            detail = raw.stderr.decode("utf-8", errors="replace")
+            self.last_frame_error = "frame_capture_failed"
+            if detail.strip():
+                log("screenshot failed:\n" + detail.rstrip())
             return self.last_frame, True
         finally:
             self.frame_lock.release()
@@ -716,6 +723,8 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
             self.write_html()
         elif parsed.path == "/frame":
             self.write_frame()
+        elif parsed.path == "/stream":
+            self.write_stream()
         elif parsed.path == "/metadata":
             self.write_json(self.state.metadata())
         elif parsed.path == "/health":
@@ -761,7 +770,7 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
     def write_frame(self):
         frame, stale = self.state.capture_frame()
         if not frame:
-            self.write_json({"ok": False, "code": "frame_unavailable", "detail": self.state.last_frame_error}, status=503)
+            self.write_json({"ok": False, "code": self.state.last_frame_error or "frame_unavailable"}, status=503)
             return
         self.send_response(200)
         self.send_header("content-type", "image/png")
@@ -771,6 +780,26 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
             self.send_header("x-cmux-frame-stale", "true")
         self.end_headers()
         self.wfile.write(frame)
+
+    def write_stream(self):
+        boundary = "cmux-ios-frame"
+        self.send_response(200)
+        self.send_header("content-type", f"multipart/x-mixed-replace; boundary={boundary}")
+        self.send_header("cache-control", "no-store")
+        self.end_headers()
+        while True:
+            frame, _stale = self.state.capture_frame()
+            if not frame:
+                return
+            try:
+                self.wfile.write(f"--{boundary}\r\n".encode("ascii"))
+                self.wfile.write(b"content-type: image/png\r\n")
+                self.wfile.write(f"content-length: {len(frame)}\r\n\r\n".encode("ascii"))
+                self.wfile.write(frame)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
     def write_json(self, payload, status=200):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -806,6 +835,7 @@ def parse_args(argv):
 
 
 def serve(args):
+    detach_from_cli_session()
     cwd = resolve_path(args.cwd, Path.cwd())
     device = select_device(args.device)
     log(f"selected simulator: {device.get('name')} ({device.get('udid')})")

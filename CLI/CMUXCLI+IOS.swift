@@ -218,14 +218,16 @@ extension CMUXCLI {
 
         guard let url = ready.payload["url"] as? String,
               !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            ready.process.terminate()
+            terminateIOSSimulatorServer(pid: ready.pid)
             throw CLIError(message: String(localized: "cli.ios.error.invalidReadyPayload", defaultValue: "ios simulator server returned an invalid ready payload"))
         }
 
         var outputPayload = ready.payload
-        outputPayload["pid"] = Int(ready.process.processIdentifier)
+        outputPayload["pid"] = Int(ready.pid)
         outputPayload["log_path"] = logURL.path
         outputPayload["opened_browser"] = false
+        // The helper calls setsid() before emitting ready JSON, so the CLI can return after opening the pane.
+        outputPayload["server_lifecycle"] = "session_detached"
 
         if !noOpen {
             do {
@@ -245,7 +247,7 @@ extension CMUXCLI {
                 outputPayload["opened_browser"] = true
                 outputPayload["browser"] = browserPayload
             } catch {
-                ready.process.terminate()
+                terminateIOSSimulatorServer(pid: ready.pid)
                 throw error
             }
         }
@@ -256,7 +258,7 @@ extension CMUXCLI {
         }
 
         let ok = String(localized: "common.ok", defaultValue: "OK")
-        var parts = ["\(ok) url=\(url)", "pid=\(ready.process.processIdentifier)", "log=\(logURL.path)"]
+        var parts = ["\(ok) url=\(url)", "pid=\(ready.pid)", "log=\(logURL.path)"]
         if let browserPayload = outputPayload["browser"] as? [String: Any] {
             if let surface = formatHandle(browserPayload, kind: "surface", idFormat: idFormat) {
                 parts.append("surface=\(surface)")
@@ -329,7 +331,7 @@ extension CMUXCLI {
         cwd: String?,
         inputCommand: String?,
         noBuild: Bool
-    ) throws -> (process: Process, payload: [String: Any]) {
+    ) throws -> (pid: Int32, payload: [String: Any]) {
         let pythonPath = "/usr/bin/python3"
         guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
             throw CLIError(message: String(localized: "cli.ios.error.pythonMissing", defaultValue: "/usr/bin/python3 is required to run the cmux iOS simulator server"))
@@ -371,6 +373,7 @@ extension CMUXCLI {
             throw CLIError(message: String(describing: error))
         }
         try? logHandle.close()
+        let pid = process.processIdentifier
 
         let readyTimeoutSeconds: TimeInterval = 30 * 60
         let readyRead = readLineData(from: stdoutPipe.fileHandleForReading, timeout: readyTimeoutSeconds)
@@ -407,59 +410,77 @@ extension CMUXCLI {
             process.terminate()
             throw CLIError(message: String(localized: "cli.ios.error.invalidReadyPayload", defaultValue: "ios simulator server returned an invalid ready payload"))
         }
-        return (process, payload)
+        return (pid, payload)
+    }
+
+    private func terminateIOSSimulatorServer(pid: Int32) {
+        guard pid > 0 else { return }
+        _ = Darwin.kill(pid, SIGTERM)
     }
 
     private func readLineData(from handle: FileHandle, timeout: TimeInterval) -> (data: Data, timedOut: Bool) {
         let maxReadyBytes = 1_048_576
-        let chunkSize = 4096
-        let deadline = Date().addingTimeInterval(timeout)
-        let fileDescriptor = handle.fileDescriptor
-        var buffer = [UInt8](repeating: 0, count: chunkSize)
+        let done = DispatchSemaphore(value: 0)
+        // Protects the one-shot readiness result shared by FileHandle's callback and the timeout path.
+        let lock = NSLock()
         var data = Data()
-        while data.count < maxReadyBytes {
-            let remaining = deadline.timeIntervalSinceNow
-            if remaining <= 0 {
-                return (data, true)
-            }
+        var result: (data: Data, timedOut: Bool)?
+        var didFinish = false
 
-            var pollInfo = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
-            let timeoutMilliseconds = Int32(min(remaining * 1000, Double(Int32.max)))
-            let pollResult = Darwin.poll(&pollInfo, 1, timeoutMilliseconds)
-            if pollResult == 0 {
-                return (data, true)
+        func finish(_ next: (data: Data, timedOut: Bool)) {
+            lock.lock()
+            guard !didFinish else {
+                lock.unlock()
+                return
             }
-            if pollResult < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                break
-            }
-
-            if (pollInfo.revents & Int16(POLLIN)) == 0 {
-                break
-            }
-
-            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
-                Darwin.read(fileDescriptor, rawBuffer.baseAddress, chunkSize)
-            }
-            if bytesRead == 0 {
-                break
-            }
-            if bytesRead < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                break
-            }
-
-            let readable = buffer.prefix(Int(bytesRead))
-            if let newlineIndex = readable.firstIndex(of: 10) {
-                data.append(contentsOf: readable[..<newlineIndex])
-                return (data, false)
-            }
-            data.append(contentsOf: readable)
+            didFinish = true
+            result = next
+            handle.readabilityHandler = nil
+            lock.unlock()
+            done.signal()
         }
-        return (data, false)
+
+        handle.readabilityHandler = { readableHandle in
+            let chunk = readableHandle.availableData
+            lock.lock()
+            guard !didFinish else {
+                lock.unlock()
+                return
+            }
+            if chunk.isEmpty {
+                let next = (data, false)
+                lock.unlock()
+                finish(next)
+                return
+            }
+            if let newlineIndex = chunk.firstIndex(of: 10) {
+                data.append(contentsOf: chunk[..<newlineIndex])
+                let next = (data, false)
+                lock.unlock()
+                finish(next)
+                return
+            }
+            data.append(chunk)
+            if data.count >= maxReadyBytes {
+                let next = (data, false)
+                lock.unlock()
+                finish(next)
+                return
+            }
+            lock.unlock()
+        }
+
+        let waitResult = done.wait(timeout: .now() + timeout)
+        if waitResult == .timedOut {
+            lock.lock()
+            let snapshot = data
+            lock.unlock()
+            finish((snapshot, true))
+        }
+
+        lock.lock()
+        let final = result ?? (Data(), false)
+        lock.unlock()
+        return final
     }
 }
