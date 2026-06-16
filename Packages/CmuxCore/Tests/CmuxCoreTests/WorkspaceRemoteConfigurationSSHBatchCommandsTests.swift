@@ -36,7 +36,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     private let expectedBatchArguments: [String] = [
         "-o", "ConnectTimeout=6",
         "-o", "ServerAliveInterval=20",
-        "-o", "ServerAliveCountMax=2",
+        "-o", "ServerAliveCountMax=6",
         "-o", "BatchMode=yes",
         "-o", "ControlMaster=no",
         "-p", "2222",
@@ -85,7 +85,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 "-T",
                 "-o", "ConnectTimeout=6",
                 "-o", "ServerAliveInterval=20",
-                "-o", "ServerAliveCountMax=2",
+                "-o", "ServerAliveCountMax=6",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "BatchMode=yes",
                 "-o", "ControlMaster=no",
@@ -159,5 +159,36 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 ) == nil
         )
         #expect(configuration().reverseRelayControlMasterCancelArguments(relayPort: 0) == nil)
+    }
+
+    @Test("supervision keepalive default tolerates longer outages (ServerAliveCountMax=6)")
+    func keepaliveDefaultCountMaxIsSix() {
+        let arguments = configuration().daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        #expect(arguments.contains("ServerAliveCountMax=6"))
+        #expect(!arguments.contains("ServerAliveCountMax=2"))
+    }
+
+    @Test("user-supplied keepalive options override the supervision defaults")
+    func userKeepaliveOptionsOverrideDefaults() {
+        let arguments = configuration(
+            sshOptions: [
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new",
+                "ServerAliveInterval=15",
+                "ServerAliveCountMax=12",
+                "ConnectTimeout=30",
+            ]
+        ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        // Defaults must yield to the user's values (OpenSSH is first-value-wins,
+        // so emitting both the default and the user option silently ignores the
+        // user). The default tokens must be absent entirely.
+        #expect(!arguments.contains("ServerAliveCountMax=6"))
+        #expect(!arguments.contains("ServerAliveCountMax=2"))
+        #expect(!arguments.contains("ServerAliveInterval=20"))
+        #expect(!arguments.contains("ConnectTimeout=6"))
+        // The user's values survive exactly once each.
+        #expect(arguments.filter { $0 == "ServerAliveCountMax=12" }.count == 1)
+        #expect(arguments.filter { $0 == "ServerAliveInterval=15" }.count == 1)
+        #expect(arguments.filter { $0 == "ConnectTimeout=30" }.count == 1)
     }
 }

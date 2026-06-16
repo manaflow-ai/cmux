@@ -13,11 +13,22 @@ extension RemoteSessionCoordinator {
             }
             return normalizedSSHOptions(configuration.sshOptions)
         }()
-        var args: [String] = [
-            "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
-        ]
+        var args: [String] = []
+        // Supervision keepalive defaults, emitted only when the configuration
+        // does not already set them: OpenSSH applies the first value seen and
+        // the user's options are appended after these, so an unconditional
+        // default would silently win over the user. ServerAliveCountMax
+        // defaults to 6 (≈120s with the 20s interval) so a brief network blip
+        // no longer tears the connection down.
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=6"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveInterval") {
+            args += ["-o", "ServerAliveInterval=20"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveCountMax") {
+            args += ["-o", "ServerAliveCountMax=6"]
+        }
         if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
