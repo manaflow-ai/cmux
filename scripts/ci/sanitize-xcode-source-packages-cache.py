@@ -18,13 +18,12 @@ def remove_workspace_state(source_packages_dir: Path) -> list[Path]:
     if not source_packages_dir.exists():
         return []
 
-    removed: list[Path] = []
-    for state_file in sorted(source_packages_dir.rglob("workspace-state.json")):
-        if not state_file.is_file():
-            continue
-        state_file.unlink()
-        removed.append(state_file)
-    return removed
+    state_file = source_packages_dir / "workspace-state.json"
+    if not state_file.is_file():
+        return []
+
+    state_file.unlink()
+    return [state_file]
 
 
 def main() -> int:

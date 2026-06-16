@@ -28,11 +28,13 @@ def test_removes_workspace_state_and_keeps_downloaded_cache() -> None:
         cache_dir = Path(temp_dir) / ".ci-source-packages"
         artifact = cache_dir / "artifacts" / "sparkle" / "Sparkle" / "Sparkle.xcframework"
         checkout = cache_dir / "checkouts" / "swift-crypto" / "Package.swift"
+        package_state = cache_dir / "checkouts" / "swift-crypto" / "workspace-state.json"
         state = cache_dir / "workspace-state.json"
 
         artifact.mkdir(parents=True)
         checkout.parent.mkdir(parents=True)
         checkout.write_text("// package fixture\n")
+        package_state.write_text('{"package":"owned"}\n')
         state.write_text(
             '{"artifacts":["/Users/ec2-user/actions-runner-cmux/_work/cmux/cmux/'
             '.ci-source-packages/artifacts/sparkle/Sparkle/Sparkle.xcframework"]}\n'
@@ -44,6 +46,7 @@ def test_removes_workspace_state_and_keeps_downloaded_cache() -> None:
         assert not state.exists()
         assert artifact.exists()
         assert checkout.exists()
+        assert package_state.exists()
         assert "removed stale Xcode SourcePackages state" in result.stdout
 
 
