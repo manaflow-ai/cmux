@@ -50,6 +50,12 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		FEA00006 /* AmpHookLaunchCommandRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA00005 /* AmpHookLaunchCommandRecord.swift */; };
+		FEA00008 /* AmpHookSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA00007 /* AmpHookSessionRecord.swift */; };
+		FEA0000A /* AmpHookSessionStoreFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA00009 /* AmpHookSessionStoreFile.swift */; };
+		FEA0000C /* AmpHookSessionStoreKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000B /* AmpHookSessionStoreKey.swift */; };
+		FEA00010 /* AmpHookTitlePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000F /* AmpHookTitlePersistenceTests.swift */; };
+		FEA0000E /* AmpIndexedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000D /* AmpIndexedSession.swift */; };
 		FEA00002 /* AmpSessionIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA00001 /* AmpSessionIndex.swift */; };
 		FEA00004 /* AmpSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA00003 /* AmpSessionIndexTests.swift */; };
 		F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
@@ -1072,6 +1078,12 @@
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		FEA00005 /* AmpHookLaunchCommandRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpHookLaunchCommandRecord.swift; sourceTree = "<group>"; };
+		FEA00007 /* AmpHookSessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpHookSessionRecord.swift; sourceTree = "<group>"; };
+		FEA00009 /* AmpHookSessionStoreFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpHookSessionStoreFile.swift; sourceTree = "<group>"; };
+		FEA0000B /* AmpHookSessionStoreKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpHookSessionStoreKey.swift; sourceTree = "<group>"; };
+		FEA0000F /* AmpHookTitlePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpHookTitlePersistenceTests.swift; sourceTree = "<group>"; };
+		FEA0000D /* AmpIndexedSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpIndexedSession.swift; sourceTree = "<group>"; };
 		FEA00001 /* AmpSessionIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpSessionIndex.swift; sourceTree = "<group>"; };
 		FEA00003 /* AmpSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpSessionIndexTests.swift; sourceTree = "<group>"; };
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
@@ -2645,6 +2657,11 @@
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
+				FEA00005 /* AmpHookLaunchCommandRecord.swift */,
+				FEA00007 /* AmpHookSessionRecord.swift */,
+				FEA00009 /* AmpHookSessionStoreFile.swift */,
+				FEA0000B /* AmpHookSessionStoreKey.swift */,
+				FEA0000D /* AmpIndexedSession.swift */,
 				FEA00001 /* AmpSessionIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
@@ -2780,6 +2797,7 @@
 				F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */,
 				F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */,
 				F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
+				FEA0000F /* AmpHookTitlePersistenceTests.swift */,
 				FEA00003 /* AmpSessionIndexTests.swift */,
 				3865B0043865B0043865B004 /* SearchIndexTests.swift */,
 				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
@@ -3479,6 +3497,11 @@
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				FEA00006 /* AmpHookLaunchCommandRecord.swift in Sources */,
+				FEA00008 /* AmpHookSessionRecord.swift in Sources */,
+				FEA0000A /* AmpHookSessionStoreFile.swift in Sources */,
+				FEA0000C /* AmpHookSessionStoreKey.swift in Sources */,
+				FEA0000E /* AmpIndexedSession.swift in Sources */,
 				FEA00002 /* AmpSessionIndex.swift in Sources */,
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
@@ -4094,6 +4117,7 @@
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				FEA00010 /* AmpHookTitlePersistenceTests.swift in Sources */,
 				FEA00004 /* AmpSessionIndexTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,

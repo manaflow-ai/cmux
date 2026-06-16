@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SQLite3
 import SwiftUI
-import XCTest
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
