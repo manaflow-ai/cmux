@@ -2,7 +2,8 @@ import Darwin
 import Foundation
 import Sentry
 
-@MainActor private var sentryMemoryContextTask: Task<Void, Never>?
+@MainActor private var sentryMemoryContextRefreshTask: Task<Void, Never>?
+@MainActor private var sentryMemoryContextTimer: Timer?
 
 /// Add a Sentry breadcrumb for user-action context in hang/crash reports.
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
@@ -51,25 +52,32 @@ func sentryCaptureError(
 @MainActor
 func sentryStartMemoryContextRefresh() {
     guard TelemetrySettings.enabledForCurrentLaunch else { return }
-    sentryMemoryContextTask?.cancel()
-    sentryMemoryContextTask = Task.detached(priority: .utility) {
-        await sentryRefreshMemoryContext(reason: "startup")
-        while !Task.isCancelled {
-            // Intended periodic telemetry refresh; cancellation is wired to app termination.
-            do {
-                try await Task.sleep(nanoseconds: 300 * 1_000_000_000)
-            } catch {
-                break
-            }
-            await sentryRefreshMemoryContext(reason: "periodic")
+    sentryStopMemoryContextRefresh()
+    sentryScheduleMemoryContextRefresh(reason: "startup")
+
+    let timer = Timer(timeInterval: 300, repeats: true) { _ in
+        Task { @MainActor in
+            sentryScheduleMemoryContextRefresh(reason: "periodic")
         }
     }
+    RunLoop.main.add(timer, forMode: .common)
+    sentryMemoryContextTimer = timer
 }
 
 @MainActor
 func sentryStopMemoryContextRefresh() {
-    sentryMemoryContextTask?.cancel()
-    sentryMemoryContextTask = nil
+    sentryMemoryContextTimer?.invalidate()
+    sentryMemoryContextTimer = nil
+    sentryMemoryContextRefreshTask?.cancel()
+    sentryMemoryContextRefreshTask = nil
+}
+
+@MainActor
+private func sentryScheduleMemoryContextRefresh(reason: String) {
+    sentryMemoryContextRefreshTask?.cancel()
+    sentryMemoryContextRefreshTask = Task.detached(priority: .utility) {
+        await sentryRefreshMemoryContext(reason: reason)
+    }
 }
 
 /// Refresh the memory/surface context attached to future Sentry events.

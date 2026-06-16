@@ -19,11 +19,21 @@ heavy="false"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pid)
-      pid="${2:-}"
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "capture-memory: --pid requires a value" >&2
+        usage
+        exit 2
+      fi
+      pid="$2"
       shift 2
       ;;
     --out)
-      out_dir="${2:-}"
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "capture-memory: --out requires a value" >&2
+        usage
+        exit 2
+      fi
+      out_dir="$2"
       shift 2
       ;;
     --heavy)
