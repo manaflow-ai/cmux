@@ -398,6 +398,7 @@ export default function (amp: PluginAPI) {
   // pane, so a single flag is sufficient — concurrent threads would need a
   // per-thread map.
   let turnActive = false;
+  let turnEpoch = 0;
   let sessionStartEpoch = 0;
 
   // Best-effort cleanup so the badge doesn't get stuck after the agent exits.
@@ -426,6 +427,7 @@ export default function (amp: PluginAPI) {
   // Amp versions whose API predates `thread.title`.
   // Cached per thread so we resolve at most once.
   const capturedTitles = new Map<string, string>();
+  const TITLE_LOOKUP_TIMEOUT_MS = 1000;
   async function resolveSessionTitle(
     threadID: string,
     ctx?: AmpThreadContext,
@@ -434,7 +436,10 @@ export default function (amp: PluginAPI) {
     // stored title once Amp assigns/refines it on a later turn).
     try {
       const threadTitle = (await ctx?.thread?.title?.get?.())?.trim();
-      if (threadTitle) return threadTitle;
+      if (threadTitle) {
+        capturedTitles.set(threadID, threadTitle);
+        return threadTitle;
+      }
     } catch (_) {}
     const cached = capturedTitles.get(threadID);
     if (cached) return cached;
@@ -481,6 +486,19 @@ export default function (amp: PluginAPI) {
     return null;
   }
 
+  function resolveSessionTitleBestEffort(
+    threadID: string,
+    ctx?: AmpThreadContext,
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), TITLE_LOOKUP_TIMEOUT_MS);
+      resolveSessionTitle(threadID, ctx)
+        .then((title) => resolve(title))
+        .catch(() => resolve(null))
+        .finally(() => clearTimeout(timer));
+    });
+  }
+
   function titleExtra(title: string | null): Record<string, unknown> {
     return title ? { title } : {};
   }
@@ -525,10 +543,10 @@ export default function (amp: PluginAPI) {
     watchThreadTitle(sessionId, ctx);
     // Backfills a title for reopened threads; null for brand-new threads until
     // the first prompt arrives (agent.start).
-    const title = await resolveSessionTitle(sessionId, ctx);
-    // resolveSessionTitle can await a server roundtrip. If the turn/session
-    // ended while it was pending, do not send a delayed session-start that would
-    // mark the Vault row running again after the stop hook.
+    const title = await resolveSessionTitleBestEffort(sessionId, ctx);
+    // Title lookup is best-effort and bounded. If the turn/session ended while
+    // it was pending, do not send a delayed session-start that would mark the
+    // Vault row running again after the stop hook.
     if (epoch !== sessionStartEpoch) return;
     sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(title));
   });
@@ -536,17 +554,17 @@ export default function (amp: PluginAPI) {
   amp.on("agent.start", async (event: AgentStartEvent, ctx) => {
     inFlightTools = 0;
     turnActive = true;
+    const epoch = ++turnEpoch;
     setStatus("thinking", "brain", COLOR.thinking);
     wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     watchThreadTitle(sessionId, ctx);
-    const title = await resolveSessionTitle(sessionId, ctx);
-    // resolveSessionTitle can await the slow path; if the turn already ended
-    // (agent.end fired during that await) skip prompt-submit so a finished
-    // session isn't revived as running. Same guard as the title subscription.
-    if (!turnActive) return;
-    sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(title));
+    sendHook("prompt-submit", sessionId, cwdFromEnv(), titleExtra(capturedTitles.get(sessionId) ?? null));
+    void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
+      if (!turnActive || epoch !== turnEpoch || !title) return;
+      sendHook("session-start", sessionId, cwdFromEnv(), { title });
+    });
   });
 
   amp.on("tool.call", async (event: ToolCallEvent) => {
@@ -573,6 +591,7 @@ export default function (amp: PluginAPI) {
   amp.on("agent.end", async (event: AgentEndEvent, ctx) => {
     inFlightTools = 0;
     turnActive = false;
+    turnEpoch++;
     sessionStartEpoch++;
     switch (event.status) {
       case "done":

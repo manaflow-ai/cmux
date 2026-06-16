@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 // Amp (Sourcegraph Amp CLI) no longer keeps a stable local thread store: thread
@@ -123,14 +124,15 @@ extension SessionIndexStore {
             let sessionId = (record.sessionId ?? key).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sessionId.isEmpty else { continue }
 
-            let cwd = Self.ampNormalizedCwd(record.cwd ?? record.launchCommand?.workingDirectory)
+            let launchCommand = Self.trustedAmpLaunchCommand(record.launchCommand?.snapshot)
+            let cwd = Self.ampNormalizedCwd(record.cwd ?? launchCommand?.workingDirectory)
             // Prefer updatedAt, then startedAt; epoch seconds.
             let modified = Date(timeIntervalSince1970: record.updatedAt ?? record.startedAt ?? 0)
             indexed.append(AmpIndexedSession(
                 sessionId: sessionId,
                 title: Self.ampDisplayTitle(recordTitle: record.title, cwd: cwd),
                 cwd: cwd,
-                launchCommand: record.launchCommand?.snapshot,
+                launchCommand: launchCommand,
                 modified: modified
             ))
         }
@@ -208,6 +210,17 @@ extension SessionIndexStore {
             normalized.removeLast()
         }
         return normalized
+    }
+
+    private nonisolated static func trustedAmpLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?
+    ) -> AgentLaunchCommandSnapshot? {
+        guard let launchCommand else { return nil }
+        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: RestorableAgentKind.amp.rawValue),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
     }
 
     #if DEBUG

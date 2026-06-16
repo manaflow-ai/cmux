@@ -86,6 +86,40 @@ struct AmpSessionIndexTests {
         #expect(entry.resumeCommand == "amp threads continue 'T nocwd'")
     }
 
+    @Test func dropsUntrustedLaunchCapturesBeforeResumeDerivation() throws {
+        let storeURL = try writeStore([
+            "T-foreign": [
+                "sessionId": "T-foreign",
+                "updatedAt": 20.0,
+                "launchCommand": [
+                    "launcher": "claude",
+                    "executablePath": "/usr/local/bin/claude",
+                    "arguments": ["/usr/local/bin/claude", "--resume", "claude-session"],
+                    "workingDirectory": "/tmp/foreign-claude-cwd",
+                ],
+            ],
+            "T-shell": [
+                "sessionId": "T-shell",
+                "updatedAt": 10.0,
+                "launchCommand": [
+                    "launcher": "amp",
+                    "executablePath": "/bin/zsh",
+                    "arguments": ["/bin/zsh", "-lc", "amp threads continue T-shell"],
+                    "workingDirectory": "/tmp/hook-shell-cwd",
+                ],
+            ],
+        ])
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        let entries = SessionIndexStore.loadAmpEntriesForTesting(storeURL: storeURL).entries
+        #expect(entries.map(\.sessionId) == ["T-foreign", "T-shell"])
+        #expect(entries.map(\.cwd) == [nil, nil])
+        #expect(entries.map(\.resumeCommand) == [
+            "amp threads continue T-foreign",
+            "amp threads continue T-shell",
+        ])
+    }
+
     @Test func prefersRecordTitleWhenPresent() throws {
         let storeURL = try writeStore([
             "T-titled": [
