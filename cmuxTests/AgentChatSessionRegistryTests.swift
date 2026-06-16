@@ -170,8 +170,8 @@ struct AgentChatSessionRegistryTests {
 @MainActor
 @Suite("Agent chat transcript service")
 struct AgentChatTranscriptServiceTests {
-    @Test("provisional Claude sessions without transcripts are not advertised as openable")
-    func provisionalClaudeWithoutTranscriptIsNotOpenable() {
+    @Test("provisional Claude sessions without transcripts are advertised as pending")
+    func provisionalClaudeWithoutTranscriptIsPending() {
         let registry = AgentChatSessionRegistry()
         let service = AgentChatTranscriptService(
             registry: registry,
@@ -187,15 +187,18 @@ struct AgentChatTranscriptServiceTests {
             at: Date(timeIntervalSince1970: 100)
         )
 
-        #expect(service.openableSessionRecords(workspaceID: "workspace-a").isEmpty)
-        #expect(service.sessionDescriptors(workspaceID: "workspace-a").isEmpty)
-        #expect(service.sessionDescriptors(workspaceAndTerminalIDs: [
+        let descriptors = service.sessionDescriptors(workspaceID: "workspace-a")
+        #expect(descriptors.map(\.id) == ["detected-claude-surface-terminal-one"])
+        #expect(descriptors.first?.transcriptAvailability == .pending)
+        let bounded = service.sessionDescriptors(workspaceAndTerminalIDs: [
             "workspace-a": ["terminal-one"],
-        ]).isEmpty)
+        ])
+        #expect(bounded.map(\.id) == ["detected-claude-surface-terminal-one"])
+        #expect(bounded.first?.transcriptAvailability == .pending)
     }
 
-    @Test("provisional Claude sessions become openable after transcript resolution")
-    func provisionalClaudeWithTranscriptIsOpenable() {
+    @Test("provisional Claude sessions become available after transcript resolution")
+    func provisionalClaudeWithTranscriptIsAvailable() {
         let registry = AgentChatSessionRegistry()
         let service = AgentChatTranscriptService(
             registry: registry,
@@ -211,16 +214,15 @@ struct AgentChatTranscriptServiceTests {
             at: Date(timeIntervalSince1970: 100)
         )
 
-        #expect(service.openableSessionRecords(workspaceID: "workspace-a").map(\.sessionID) == [
-            "detected-claude-surface-terminal-one",
-        ])
-        #expect(service.sessionDescriptors(workspaceAndTerminalIDs: [
+        let bounded = service.sessionDescriptors(workspaceAndTerminalIDs: [
             "workspace-a": ["terminal-one"],
-        ]).map(\.id) == ["detected-claude-surface-terminal-one"])
+        ])
+        #expect(bounded.map(\.id) == ["detected-claude-surface-terminal-one"])
+        #expect(bounded.first?.transcriptAvailability == .available)
     }
 
-    @Test("hook-backed sessions remain openable while their transcript fallback resolves")
-    func hookBackedSessionWithoutRecordedTranscriptRemainsOpenable() {
+    @Test("hook-backed sessions remain advertised while their transcript fallback resolves")
+    func hookBackedSessionWithoutRecordedTranscriptRemainsAdvertised() {
         let registry = AgentChatSessionRegistry()
         let service = AgentChatTranscriptService(
             registry: registry,
@@ -236,8 +238,8 @@ struct AgentChatTranscriptServiceTests {
             at: Date(timeIntervalSince1970: 100)
         )
 
-        #expect(service.openableSessionRecords(workspaceID: "workspace-a").map(\.sessionID) == [
-            "hook-backed-session",
-        ])
+        let descriptors = service.sessionDescriptors(workspaceID: "workspace-a")
+        #expect(descriptors.map(\.id) == ["hook-backed-session"])
+        #expect(descriptors.first?.transcriptAvailability == .pending)
     }
 }

@@ -22,9 +22,9 @@ final class AgentChatTranscriptService {
     private let resolver: AgentChatTranscriptResolver
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
-    /// Sessions whose transcript could not be resolved; skipped until an
-    /// explicit history request retries, so per-hook-event resolution
-    /// failures don't rescan the filesystem during tool storms.
+    /// Sessions whose recorded transcript path could not be read; skipped
+    /// until an explicit history request retries, so per-hook-event failures
+    /// don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
     /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
     /// surface that had no session yet, keyed by surface id. Bounds the
@@ -108,7 +108,6 @@ final class AgentChatTranscriptService {
     /// - Returns: Wire descriptors, most recent first.
     func sessionDescriptors(workspaceID: String?) -> [ChatSessionDescriptor] {
         registry.sessions(workspaceID: workspaceID)
-            .filter(Self.isOpenableConversation)
             .map(\.descriptor)
     }
 
@@ -120,7 +119,6 @@ final class AgentChatTranscriptService {
         workspaceAndTerminalIDs: [String: Set<String>]
     ) -> [ChatSessionDescriptor] {
         registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs)
-            .filter(Self.isOpenableConversation)
             .map(\.descriptor)
     }
 
@@ -131,18 +129,6 @@ final class AgentChatTranscriptService {
     /// - Returns: Matching records, most recent first.
     func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
         registry.sessions(workspaceID: workspaceID)
-    }
-
-    /// Lists records that are ready to open in the phone chat UI.
-    ///
-    /// Provisional title-detected Claude records are useful internally because
-    /// they keep a stable surface binding while Claude's transcript file is not
-    /// known yet. They are not openable conversations, though: returning one to
-    /// iOS creates a chat pane with a valid session id but no readable history,
-    /// which renders as a misleading empty conversation.
-    func openableSessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
-        registry.sessions(workspaceID: workspaceID)
-            .filter(Self.isOpenableConversation)
     }
 
     /// Adopts a Claude session cmux detected by terminal title but that
@@ -267,11 +253,14 @@ final class AgentChatTranscriptService {
             registry.update(sessionID: sessionID) { $0.transcriptPath = resolved.path }
         }
         guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
-        if currentRecord.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID) {
-            return ChatHistoryPage(messages: [], hasMore: false)
+        guard let tailer = ensureTailer(for: currentRecord) else {
+            guard registry.record(sessionID: sessionID)?.transcriptPath == nil else { return nil }
+            return ChatHistoryPage(
+                messages: [],
+                hasMore: false,
+                transcriptAvailability: .pending
+            )
         }
-        guard let tailer = ensureTailer(for: currentRecord) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
         if currentRecord.title == nil, let title = await tailer.title {
@@ -290,6 +279,7 @@ final class AgentChatTranscriptService {
                 "last_activity": record.lastActivityAt.timeIntervalSince1970,
                 "tailer_active": tailers[record.sessionID] != nil,
                 "resolution_failed": failedResolutions.contains(record.sessionID),
+                "transcript_availability": record.descriptor.transcriptAvailability.rawValue,
             ]
             entry["workspace_id"] = record.workspaceID
             entry["surface_id"] = record.surfaceID
@@ -391,10 +381,9 @@ final class AgentChatTranscriptService {
         }
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
-        // descriptor changed beyond the activity timestamp. A transcript
-        // becoming available also matters even though the descriptor payload
-        // does not carry transcriptPath: provisional no-transcript sessions are
-        // hidden from iOS until this transition.
+        // descriptor changed beyond the activity timestamp. Transcript
+        // availability is part of the descriptor, so pending->available
+        // pushes an explicit source-state update to clients.
         if transcriptBecameAvailable || Self.descriptorChangedMeaningfully(previous: previous, current: record) {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
@@ -445,10 +434,6 @@ final class AgentChatTranscriptService {
 
     private static func isProvisionalClaudeSessionID(_ sessionID: String) -> Bool {
         sessionID.hasPrefix(provisionalClaudeSessionIDPrefix)
-    }
-
-    static func isOpenableConversation(_ record: AgentChatSessionRecord) -> Bool {
-        !(isProvisionalClaudeSessionID(record.sessionID) && record.transcriptPath == nil)
     }
 
     private static func isSpecificClaudeTitle(_ title: String?) -> Bool {

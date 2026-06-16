@@ -58,7 +58,7 @@ extension TerminalController {
         if let workspaceID {
             adoptDetectedAgentSessions(workspaceID: workspaceID)
         }
-        let descriptors = service.openableSessionRecords(workspaceID: workspaceID)
+        let descriptors = service.sessionRecords(workspaceID: workspaceID)
             .filter { mobileChatBindingIsCurrentAgent($0) }
             .map(\.descriptor)
         let encoded = descriptors.compactMap { service.wirePayload($0) }

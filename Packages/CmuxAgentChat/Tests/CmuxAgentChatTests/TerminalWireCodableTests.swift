@@ -53,23 +53,43 @@ struct TerminalWireCodableTests {
         let decoded = try decoder.decode(ChatHistoryPage.self, from: agentJSON)
         #expect(decoded.terminalBlocks == nil)
         #expect(decoded.hasMore == true)
+        #expect(decoded.transcriptAvailability == .available)
     }
 
-    @Test("ChatSessionDescriptor.kind travels on the wire and defaults to agent when absent")
-    func descriptorKindRoundTrip() throws {
+    @Test("ChatSessionDescriptor additive fields travel on the wire and default when absent")
+    func descriptorAdditiveFieldsRoundTrip() throws {
         let terminal = ChatSessionDescriptor(
             id: "surface-1", agentKind: .other("terminal"), kind: .terminal,
-            workspaceID: "ws-1", terminalID: "surface-1"
+            workspaceID: "ws-1", terminalID: "surface-1",
+            transcriptAvailability: .pending
         )
         let data = try encoder.encode(terminal)
         #expect(String(decoding: data, as: UTF8.self).contains("\"kind\""))
-        #expect(try decoder.decode(ChatSessionDescriptor.self, from: data).kind == .terminal)
-        // A payload missing "kind" (older producer) decodes as .agent. Derive
-        // it by stripping the key from a real encoding (avoids hardcoding the
-        // nested state shape).
+        #expect(String(decoding: data, as: UTF8.self).contains("\"transcript_availability\""))
+        let decoded = try decoder.decode(ChatSessionDescriptor.self, from: data)
+        #expect(decoded.kind == .terminal)
+        #expect(decoded.transcriptAvailability == .pending)
+        // A payload missing additive keys (older producer) decodes with
+        // defaults. Derive it by stripping keys from a real encoding
+        // (avoids hardcoding the nested state shape).
         var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         object.removeValue(forKey: "kind")
+        object.removeValue(forKey: "transcript_availability")
         let legacy = try JSONSerialization.data(withJSONObject: object)
-        #expect(try decoder.decode(ChatSessionDescriptor.self, from: legacy).kind == .agent)
+        let legacyDescriptor = try decoder.decode(ChatSessionDescriptor.self, from: legacy)
+        #expect(legacyDescriptor.kind == .agent)
+        #expect(legacyDescriptor.transcriptAvailability == .available)
+    }
+
+    @Test("ChatHistoryPage transcript availability travels on the wire")
+    func historyPageTranscriptAvailabilityRoundTrip() throws {
+        let page = ChatHistoryPage(
+            messages: [],
+            hasMore: false,
+            transcriptAvailability: .pending
+        )
+        let data = try encoder.encode(page)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"transcript_availability\""))
+        #expect(try decoder.decode(ChatHistoryPage.self, from: data).transcriptAvailability == .pending)
     }
 }

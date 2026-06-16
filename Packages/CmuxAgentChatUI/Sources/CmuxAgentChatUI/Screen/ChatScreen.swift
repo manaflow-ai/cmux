@@ -77,6 +77,7 @@ public struct ChatScreen: View {
                 rows: store.rows,
                 expandedIDs: expandedIDs,
                 agentState: store.agentState,
+                transcriptAvailability: store.transcriptAvailability,
                 hasMoreHistory: store.hasMoreHistory,
                 hasLoadedInitialHistory: store.hasLoadedInitialHistory,
                 initialLoadFailed: store.initialLoadFailed,

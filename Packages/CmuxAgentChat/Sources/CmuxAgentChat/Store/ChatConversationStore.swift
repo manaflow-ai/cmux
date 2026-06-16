@@ -30,6 +30,7 @@ public final class ChatConversationStore {
 
     /// Live agent presence (drives the typing indicator and header dot).
     public private(set) var agentState: ChatAgentState
+    public private(set) var transcriptAvailability: ChatTranscriptAvailability
 
     /// Whether older history exists beyond the current window.
     public private(set) var hasMoreHistory = false
@@ -104,6 +105,7 @@ public final class ChatConversationStore {
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
+        self.transcriptAvailability = descriptor.transcriptAvailability
         self.source = source
         self.projector = projector
         self.pageSize = pageSize
@@ -179,6 +181,8 @@ public final class ChatConversationStore {
                 beforeSeq: oldestSeq,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            guard page.transcriptAvailability == .available else { applyPendingTranscriptHistory(); return }
             // Re-check the anchor: an append may have raced the fetch.
             guard messages.first?.seq == oldestSeq else { return }
             if page.messages.isEmpty {
@@ -317,6 +321,11 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            if page.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory(markLoaded: true)
+                return
+            }
             if descriptor.kind == .terminal {
                 seedTerminalBlocks(page.terminalBlocks ?? [])
                 // Block paging isn't implemented yet, so never advertise more
@@ -369,6 +378,11 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            if page.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory()
+                return
+            }
             if descriptor.kind == .terminal {
                 // Blocks are whole-value and keyed by id, so re-seeding from
                 // the authoritative page is idempotent.
@@ -465,8 +479,15 @@ public final class ChatConversationStore {
             agentState = state
             if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
+            let wasPending = transcriptAvailability == .pending
             self.descriptor = descriptor
             agentState = descriptor.state
+            transcriptAvailability = descriptor.transcriptAvailability
+            if wasPending, descriptor.transcriptAvailability == .available {
+                hasLoadedInitialHistory = false
+                initialLoadFailed = false
+                historyTruncatedAtHead = false
+            }
             if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
@@ -501,6 +522,12 @@ public final class ChatConversationStore {
 
     private var knownWindowIDs: Set<String> {
         Set(messages.map(\.id))
+    }
+
+    private func applyPendingTranscriptHistory(markLoaded: Bool = false) {
+        messages = []; terminalBlocks = [:]; terminalBlockOrder = []; hasMoreHistory = false; historyTruncatedAtHead = false; lastErrorDescription = nil
+        if markLoaded { hasLoadedInitialHistory = true; initialLoadFailed = false }
+        reproject()
     }
 
     private func appendToWindow(_ newMessages: [ChatMessage]) {
@@ -609,33 +636,6 @@ public final class ChatConversationStore {
                       counter < maxReconciledCounter else { return false }
                 return true
             }
-        }
-    }
-
-    /// Parses the monotonic counter from a pending row id (`local-<n>`), used
-    /// to order sends for stale-delivered eviction.
-    static func pendingCounter(_ id: String) -> Int? {
-        guard let dash = id.lastIndex(of: "-") else { return nil }
-        return Int(id[id.index(after: dash)...])
-    }
-
-    /// Whether an echoed user line is Claude Code's bracketed-paste
-    /// placeholder ("[Pasted text #1 +12 lines]").
-    static func isPastePlaceholder(_ text: String) -> Bool {
-        text.wholeMatch(of: /\[Pasted text #\d+( \+\d+ lines)?\]/) != nil
-    }
-
-    /// Matches the prompt when Claude echoes it with a short, non-spaced
-    /// prefix left behind in the terminal line editor.
-    static func echoedTextHasShortStalePrefix(_ echoed: String, pendingText: String) -> Bool {
-        let pending = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pending.isEmpty,
-              echoed != pending,
-              echoed.hasSuffix(pending) else { return false }
-        let prefix = echoed.dropLast(pending.count)
-        guard !prefix.isEmpty, prefix.count <= 8 else { return false }
-        return !prefix.contains { character in
-            character.isWhitespace || character.isNewline
         }
     }
 

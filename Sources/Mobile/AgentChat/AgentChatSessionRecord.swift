@@ -70,7 +70,8 @@ struct AgentChatSessionRecord: Sendable {
             terminalID: surfaceID,
             workingDirectory: workingDirectory,
             state: state,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            transcriptAvailability: transcriptPath == nil ? .pending : .available
         )
     }
 }

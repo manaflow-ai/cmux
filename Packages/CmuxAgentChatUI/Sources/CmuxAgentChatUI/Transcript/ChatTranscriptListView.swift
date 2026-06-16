@@ -15,6 +15,7 @@ public struct ChatTranscriptListView: View {
     private let rows: [ChatTranscriptRow]
     private let expandedIDs: Set<String>
     private let agentState: ChatAgentState
+    private let transcriptAvailability: ChatTranscriptAvailability
     private let hasMoreHistory: Bool
     private let hasLoadedInitialHistory: Bool
     private let initialLoadFailed: Bool
@@ -48,6 +49,7 @@ public struct ChatTranscriptListView: View {
         rows: [ChatTranscriptRow],
         expandedIDs: Set<String>,
         agentState: ChatAgentState,
+        transcriptAvailability: ChatTranscriptAvailability = .available,
         hasMoreHistory: Bool,
         hasLoadedInitialHistory: Bool = true,
         initialLoadFailed: Bool = false,
@@ -59,6 +61,7 @@ public struct ChatTranscriptListView: View {
         self.rows = rows
         self.expandedIDs = expandedIDs
         self.agentState = agentState
+        self.transcriptAvailability = transcriptAvailability
         self.hasMoreHistory = hasMoreHistory
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
         self.initialLoadFailed = initialLoadFailed
@@ -74,6 +77,7 @@ public struct ChatTranscriptListView: View {
             rows: rows,
             expandedIDs: expandedIDs,
             agentState: agentState,
+            transcriptAvailability: transcriptAvailability,
             hasMoreHistory: hasMoreHistory,
             hasLoadedInitialHistory: hasLoadedInitialHistory,
             initialLoadFailed: initialLoadFailed,
@@ -181,26 +185,9 @@ public struct ChatTranscriptListView: View {
     @ViewBuilder
     private var emptyPlaceholder: some View {
         if initialLoadFailed {
-            VStack(spacing: 12) {
-                Text(
-                    String(
-                        localized: "chat.transcript.load_failed",
-                        defaultValue: "Couldn't load this conversation",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                Button(action: onRetryInitialLoad) {
-                    Text(
-                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
-                    )
-                    .font(.subheadline.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("ChatTranscriptRetry")
-            }
-            .padding(.vertical, 48)
+            ChatTranscriptLoadFailedPlaceholderView(onRetry: onRetryInitialLoad)
+        } else if transcriptAvailability == .pending {
+            ChatTranscriptPendingPlaceholderView()
         } else if hasLoadedInitialHistory {
             Text(
                 String(
