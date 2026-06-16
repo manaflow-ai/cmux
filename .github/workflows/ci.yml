@@ -320,7 +320,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -589,7 +597,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: depot-macos-latest
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -597,21 +605,28 @@ jobs:
     # CA and lag regressions beyond 35 min before the cache could repopulate.
     timeout-minutes: 55
     steps:
-      - name: Validate Depot runner identity
+      - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: depot-macos-latest
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
           echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
+          case "$REQUESTED_RUNNER" in
             depot-*)
-              echo "Resolved runner matches depot-*? yes"
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
               ;;
             *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
-              exit 1
+              echo "Display runner is not Depot; skipping Depot identity guard"
               ;;
           esac
 
@@ -710,7 +725,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -1044,26 +1067,33 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
-    runs-on: depot-macos-latest
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
-      - name: Validate Depot runner identity
+      - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: depot-macos-latest
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
           echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
+          case "$REQUESTED_RUNNER" in
             depot-*)
-              echo "Resolved runner matches depot-*? yes"
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
               ;;
             *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
-              exit 1
+              echo "Display runner is not Depot; skipping Depot identity guard"
               ;;
           esac
 
@@ -1143,7 +1173,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
