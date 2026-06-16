@@ -12271,34 +12271,53 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         minHeight: CGFloat
     ) -> some View {
-        // Rows take their natural height; the empty drop/tap area stretches to
-        // fill the remaining viewport. SidebarRowsFillLayout sizes that
-        // remainder from the explicit viewport height (`minHeight`, the floored
-        // content height from the scroll geometry) rather than from a layout
-        // proposal, which a vertical ScrollView leaves unspecified in the
-        // scroll axis. So we never measure the LazyVStack's whole-content height
-        // into @State. That measurement (a .background GeometryReader writing a
-        // PreferenceKey) fed a non-converging relayout loop (#2586 / #5764 /
-        // #5845). The empty area fills exactly to the viewport when rows fit and
-        // collapses to 0 when they overflow, so the overlay scroller stays
-        // hidden (#3241) and the blank area below the last row stays a
-        // drop/tap target.
-        SidebarRowsFillLayout(viewportHeight: minHeight) {
-            workspaceRows(renderContext: renderContext)
-
-            SidebarEmptyArea(
-                rowSpacing: tabRowSpacing,
-                selection: $selection,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                dragAutoScrollController: dragAutoScrollController,
-                topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
-                tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                bonsplitDropIndicator: dropIndicatorBinding,
-                expandsVertically: false
-            )
-        }
-        .frame(minHeight: minHeight, alignment: .top)
+        // Rows stay lazy + pinned top; `.frame(minHeight:)` fills the viewport
+        // (#3241) or scrolls without measuring the LazyVStack. The prior
+        // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
+        // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
+        // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
+        workspaceRows(renderContext: renderContext)
+            .overlay(alignment: .bottom) {
+                if emptyAreaTopDropIndicatorVisible() {
+                    Rectangle()
+                        .fill(cmuxAccentColor())
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .offset(y: tabRowSpacing / 2)
+                }
+            }
+            // Neutralize ALL end-of-list empty-area interactions over the rows
+            // block (2pt gaps, row padding, and the entire list when it
+            // overflows) so none fall through to SidebarEmptyArea behind:
+            // workspace-reorder drops, Bonsplit new-workspace drops, and the
+            // double-tap-to-create gesture. Sized to the rows, so only the
+            // genuine blank area below the last row stays interactive. This is
+            // the measurement-free equivalent of physically placing the empty
+            // area below the rows; doing that requires asking the LazyVStack for
+            // its height, which realizes every row each layout pass and is the
+            // livelock this change removes. Per-row delegates render in front
+            // and still win over their own rows.
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {}
+                    .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
+                    .onDrop(of: BonsplitTabDragPayload.dropContentTypes, isTargeted: nil) { _ in false }
+            }
+            .frame(minHeight: minHeight, alignment: .top)
+            .background(alignment: .top) {
+                SidebarEmptyArea(
+                    rowSpacing: tabRowSpacing,
+                    selection: $selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dragAutoScrollController: dragAutoScrollController,
+                    topDropIndicatorVisible: false,
+                    tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
+                    bonsplitDropIndicator: dropIndicatorBinding,
+                    expandsVertically: true
+                )
+            }
     }
 
     @ViewBuilder
@@ -12333,11 +12352,10 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // No whole-content height measurement here. Reading the LazyVStack's
-        // total height via a .background GeometryReader (to size the empty area)
-        // fed a non-converging relayout loop (#2586 / #5764 / #5845). The
-        // empty-area fill is now handled geometrically by SidebarRowsFillLayout
-        // in workspaceScrollContent without measuring these rows.
+        // No whole-content height measurement here: reading the LazyVStack's
+        // total height (GeometryReader, or a custom Layout's sizeThatFits) fed a
+        // non-converging relayout loop (#2586 / #5764 / #5845). Fill is handled
+        // by `.frame(minHeight:)` in workspaceScrollContent.
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture

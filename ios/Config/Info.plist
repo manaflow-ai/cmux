@@ -31,7 +31,12 @@
 			<string>dev.cmux.ios.attach</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>cmux-ios</string>
+				<!-- Channel-specific pairing scheme (CMUX_IOS_URL_SCHEME in
+				     Config/Shared.xcconfig + Config/Release.xcconfig): dev builds
+				     register cmux-ios-dev, Release (beta/prod) registers cmux-ios,
+				     so a beta/prod QR scanned with the Camera app can never open a
+				     dev build. Keep the values in sync with CmxPairingURLScheme. -->
+				<string>$(CMUX_IOS_URL_SCHEME)</string>
 			</array>
 		</dict>
 		<dict>
