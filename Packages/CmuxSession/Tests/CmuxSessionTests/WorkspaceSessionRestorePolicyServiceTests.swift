@@ -97,7 +97,6 @@ struct WorkspaceSessionRestorePolicyServiceTests {
                 applyingDefaultCodexBaseURL: applyingDefaultCodexBaseURL,
                 resolvingDefaultCodexModel: resolvingDefaultCodexModel
             ),
-            fileManager: .default,
             temporaryDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true)
         )
     }

@@ -867,7 +867,6 @@ extension Workspace {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> SurfaceResumeStartupLaunch? {
         makeSessionRestorePolicyService(
-            fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
         ).surfaceResumeStartupLaunch(
             resumeBinding,
@@ -875,7 +874,8 @@ extension Workspace {
             allowLauncherScript: allowLauncherScript,
             promptForApproval: promptForApproval,
             approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret
+            approvalSigningSecret: approvalSigningSecret,
+            fileManager: fileManager
         )
     }
 
@@ -2486,7 +2486,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     nonisolated private static func makeSessionRestorePolicyService(
-        fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
@@ -2517,7 +2516,6 @@ final class Workspace: Identifiable, ObservableObject {
                     HermesAgentCodexEnvironment.defaultCodexModel(environment: environment)
                 }
             ),
-            fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
         )
     }
