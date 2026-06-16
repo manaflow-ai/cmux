@@ -23271,12 +23271,13 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            let launchCommand = agentLaunchCommandFromEnvironment(
+            let launchCapture = agentLaunchCommandCaptureFromEnvironment(
                 ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid,
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
+            let launchCommand = launchCapture.command
             // `claude --resume <parent> --fork-session` fires SessionStart with the
             // PARENT session id — the forked session id is only minted at the first
             // UserPromptSubmit. Upserting here would steal the parent record's
@@ -23323,7 +23324,13 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        allowDefaultResumeCommand: !launchCapture.sanitizerRejected
+                            && hasPositiveAgentResumeRestorabilitySignal(
+                                nil,
+                                launchCommand: launchCommand,
+                                transcriptPath: parsedInput.transcriptPath
+                            )
                     )
                 }
             }
