@@ -5,14 +5,14 @@ import Testing
     /// The kind strings are persisted in session snapshots and compared
     /// against bonsplit tab kinds; the values are a frozen wire format.
     @Test func kindStringsAreFrozenWireValues() {
-        #expect(SurfaceKind.terminal == "terminal")
-        #expect(SurfaceKind.browser == "browser")
-        #expect(SurfaceKind.markdown == "markdown")
-        #expect(SurfaceKind.filePreview == "filePreview")
-        #expect(SurfaceKind.rightSidebarTool == "rightSidebarTool")
-        #expect(SurfaceKind.agentSession == "agentSession")
-        #expect(SurfaceKind.project == "project")
-        #expect(SurfaceKind.extensionBrowser == "extensionBrowser")
+        #expect(SurfaceKind.terminal.rawValue == "terminal")
+        #expect(SurfaceKind.browser.rawValue == "browser")
+        #expect(SurfaceKind.markdown.rawValue == "markdown")
+        #expect(SurfaceKind.filePreview.rawValue == "filePreview")
+        #expect(SurfaceKind.rightSidebarTool.rawValue == "rightSidebarTool")
+        #expect(SurfaceKind.agentSession.rawValue == "agentSession")
+        #expect(SurfaceKind.project.rawValue == "project")
+        #expect(SurfaceKind.extensionBrowser.rawValue == "extensionBrowser")
     }
 }
 

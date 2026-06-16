@@ -5,8 +5,7 @@ public import Foundation
 /// `Notification.Name` raw values are the in-process wire contract and are kept
 /// byte-identical. (A future modernization phase replaces this with an
 /// `AsyncStream` on the sidebar model.)
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarDragLifecycleNotification {
+public struct SidebarDragLifecycleNotification {
     /// Posted when the sidebar drag state changes.
     public static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
     /// Posted to request that any in-flight sidebar drag state be cleared.
@@ -16,35 +15,37 @@ public enum SidebarDragLifecycleNotification {
     /// userInfo key carrying the human-readable reason string.
     public static let reasonKey = "reason"
 
+    public init() {}
+
     /// Posts a state-change notification with the given tab id and reason.
-    public static func postStateDidChange(tabId: UUID?, reason: String) {
-        var userInfo: [AnyHashable: Any] = [reasonKey: reason]
+    public func postStateDidChange(tabId: UUID?, reason: String) {
+        var userInfo: [AnyHashable: Any] = [Self.reasonKey: reason]
         if let tabId {
-            userInfo[tabIdKey] = tabId
+            userInfo[Self.tabIdKey] = tabId
         }
         NotificationCenter.default.post(
-            name: stateDidChange,
+            name: Self.stateDidChange,
             object: nil,
             userInfo: userInfo
         )
     }
 
     /// Posts a clear-request notification with the given reason.
-    public static func postClearRequest(reason: String) {
+    public func postClearRequest(reason: String) {
         NotificationCenter.default.post(
-            name: requestClear,
+            name: Self.requestClear,
             object: nil,
-            userInfo: [reasonKey: reason]
+            userInfo: [Self.reasonKey: reason]
         )
     }
 
     /// Extracts the tab id from a lifecycle notification, if present.
-    public static func tabId(from notification: Notification) -> UUID? {
-        notification.userInfo?[tabIdKey] as? UUID
+    public func tabId(from notification: Notification) -> UUID? {
+        notification.userInfo?[Self.tabIdKey] as? UUID
     }
 
     /// Extracts the reason string from a lifecycle notification.
-    public static func reason(from notification: Notification) -> String {
-        notification.userInfo?[reasonKey] as? String ?? "unknown"
+    public func reason(from notification: Notification) -> String {
+        notification.userInfo?[Self.reasonKey] as? String ?? "unknown"
     }
 }

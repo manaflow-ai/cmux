@@ -22,13 +22,25 @@ public struct CmxAttachTicketInput {
         guard let url = URL(string: rawValue) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        if url.scheme == "cmux-ios", url.host == "pair" {
+        // Accept any channel's pairing scheme (cmux-ios for release builds,
+        // cmux-ios-dev for development); cross-channel pairing still works when
+        // the user scans from inside the app. The emitter picks the matching
+        // scheme so the *system camera* routes each channel's QR to its build.
+        if CmxPairingURLScheme.isPairingScheme(url.scheme), url.host == "pair" {
             return try ticket(from: MobileSyncPairingPayload.decodeURL(url))
         }
-        guard url.scheme == "cmux-ios",
+        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw MobileSyncPairingPayloadError.invalidURL
+        }
+        // A QR minted by a newer cmux whose grammar version this build does not
+        // understand. Distinguished from a malformed code so the user is told
+        // to update the app instead of seeing the generic "not valid" copy (the
+        // real field report: beta 1.0.2 predated the v2 QR a newer Mac emitted).
+        if let version = CmxPairingQRCode.attachURLVersion(components),
+           version > CmxPairingQRCode.version {
+            throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
         // The minimal v2 pairing-code grammar (bare Tailscale routes, loopback
         // rejected). v1 URLs carry a base64 JSON `payload` item instead.

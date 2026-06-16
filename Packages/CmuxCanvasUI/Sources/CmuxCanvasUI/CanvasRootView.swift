@@ -1,7 +1,6 @@
 public import AppKit
 import SwiftUI
 import CmuxCanvas
-
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
@@ -15,21 +14,23 @@ public final class CanvasRootView: NSView {
     let model: CanvasModel
     let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
+    let minimapAutoHideScheduler: CanvasMinimapAutoHideScheduler
     /// Pre-localized text for the Command+scroll discovery hint.
     let commandScrollHintText: String
     let scrollView: CanvasScrollView
     let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
-
+    let minimapView = CanvasMinimapView()
+    var isMinimapInteractionActive = false
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
     /// The panel currently mounted in each pane.
     private var mountedPanelByPane: [CanvasPaneID: UUID] = [:]
     /// The latest descriptors, by panel id, for mount/chrome lookups.
-    private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
+    var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
-    private var isWorkspaceVisible = true
+    var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?
@@ -68,16 +69,19 @@ public final class CanvasRootView: NSView {
         var lastPoint: CGPoint = .zero
     }
 
-    public init(
+    init<C: Clock & Sendable>(
         model: CanvasModel,
         commandScrollHintText: String,
+        minimapAccessibilityLabel: String,
+        minimapAccessibilityHelp: String,
         callbacks: CanvasHostCallbacks,
-        themeProvider: @escaping () -> CanvasTheme
-    ) {
+        themeProvider: @escaping () -> CanvasTheme, minimapClock: C
+    ) where C.Duration == Duration {
         self.model = model
         self.callbacks = callbacks
         self.commandScrollHintText = commandScrollHintText
         self.themeProvider = themeProvider
+        self.minimapAutoHideScheduler = CanvasMinimapAutoHideScheduler(clock: minimapClock)
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
         applyTheme()
@@ -92,6 +96,8 @@ public final class CanvasRootView: NSView {
         ])
         guidesView.autoresizingMask = [.width, .height]
         documentView.addSubview(guidesView)
+        configureMinimap(accessibilityLabel: minimapAccessibilityLabel, accessibilityHelp: minimapAccessibilityHelp)
+        resetMinimapVisibility()
 
         // Platform seam: clip-view bounds changes are how AppKit reports
         // scrolling; this drives the explicit pane lifecycle.
@@ -150,9 +156,9 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            removeCommandScrollMonitor()
+            removeCommandScrollMonitor(); detachMinimapOverlay()
         } else {
-            installCommandScrollMonitor()
+            installCommandScrollMonitor(); syncMinimapOverlayHost()
         }
     }
 
@@ -179,10 +185,16 @@ public final class CanvasRootView: NSView {
         scrollSettleObservers = []
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
+        resetMinimapVisibility()
         zoomSettleTask?.cancel()
         zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
+        minimapView.onCenterChanged = nil
+        minimapView.onCenterSettled = nil
+        minimapView.onScrollWheel = nil
+        minimapView.onInteractionBegan = nil
+        minimapView.onInteractionEnded = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
@@ -215,6 +227,7 @@ public final class CanvasRootView: NSView {
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
+        updateMinimap()
 
         if !hasPlacedInitialViewport, !model.layout.isEmpty {
             hasPlacedInitialViewport = true
@@ -378,6 +391,7 @@ public final class CanvasRootView: NSView {
 
     private func viewportDidScroll() {
         updateLifecycle()
+        updateMinimap(reveal: hasPlacedInitialViewport && !isApplyingSavedViewport)
         saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
     }
@@ -428,6 +442,7 @@ public final class CanvasRootView: NSView {
         // layout has given the scroll view real bounds.
         applyPendingViewportRestoreIfPossible()
         updateLifecycle()
+        updateMinimap()
         callbacks.onViewportGeometryChanged(window)
     }
 
@@ -476,4 +491,5 @@ public final class CanvasRootView: NSView {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
+
 }

@@ -18,33 +18,54 @@ public struct SidebarAutoScrollPlan: Equatable {
     }
 }
 
-/// Pure planner that maps a drag location's distance to the viewport edges into
-/// an auto-scroll plan, ramping the per-tick step between `minStep` and
-/// `maxStep` as the pointer approaches the edge.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum SidebarDragAutoScrollPlanner {
-    public static let edgeInset: CGFloat = 44
-    public static let minStep: CGFloat = 2
-    public static let maxStep: CGFloat = 12
+/// Pure planner value that maps a drag location's distance to the viewport edges
+/// into an auto-scroll plan, ramping the per-tick step between `minStep` and
+/// `maxStep` as the pointer approaches the edge. Construct it with the drag
+/// distances; read the result from ``plan``.
+public struct SidebarDragAutoScrollPlanner: Equatable {
+    /// Default distance (in points) from a viewport edge at which auto-scroll
+    /// engages.
+    public static let defaultEdgeInset: CGFloat = 44
+    /// Default minimum per-tick scroll step (in points).
+    public static let defaultMinStep: CGFloat = 2
+    /// Default maximum per-tick scroll step (in points).
+    public static let defaultMaxStep: CGFloat = 12
 
-    public static func plan(
+    /// The auto-scroll plan for the configured drag location, or `nil` when the
+    /// pointer is outside both edge zones (or the configuration is degenerate).
+    public let plan: SidebarAutoScrollPlan?
+
+    /// Computes the auto-scroll plan for a drag location.
+    ///
+    /// - Parameters:
+    ///   - distanceToTop: Pointer distance to the top edge, in points.
+    ///   - distanceToBottom: Pointer distance to the bottom edge, in points.
+    ///   - edgeInset: Distance from an edge at which auto-scroll engages.
+    ///   - minStep: Minimum per-tick scroll step.
+    ///   - maxStep: Maximum per-tick scroll step.
+    public init(
         distanceToTop: CGFloat,
         distanceToBottom: CGFloat,
-        edgeInset: CGFloat = SidebarDragAutoScrollPlanner.edgeInset,
-        minStep: CGFloat = SidebarDragAutoScrollPlanner.minStep,
-        maxStep: CGFloat = SidebarDragAutoScrollPlanner.maxStep
-    ) -> SidebarAutoScrollPlan? {
-        guard edgeInset > 0, maxStep >= minStep else { return nil }
+        edgeInset: CGFloat = SidebarDragAutoScrollPlanner.defaultEdgeInset,
+        minStep: CGFloat = SidebarDragAutoScrollPlanner.defaultMinStep,
+        maxStep: CGFloat = SidebarDragAutoScrollPlanner.defaultMaxStep
+    ) {
+        guard edgeInset > 0, maxStep >= minStep else {
+            self.plan = nil
+            return
+        }
         if distanceToTop <= edgeInset {
             let normalized = max(0, min(1, (edgeInset - distanceToTop) / edgeInset))
             let step = minStep + ((maxStep - minStep) * normalized)
-            return SidebarAutoScrollPlan(direction: .up, pointsPerTick: step)
+            self.plan = SidebarAutoScrollPlan(direction: .up, pointsPerTick: step)
+            return
         }
         if distanceToBottom <= edgeInset {
             let normalized = max(0, min(1, (edgeInset - distanceToBottom) / edgeInset))
             let step = minStep + ((maxStep - minStep) * normalized)
-            return SidebarAutoScrollPlan(direction: .down, pointsPerTick: step)
+            self.plan = SidebarAutoScrollPlan(direction: .down, pointsPerTick: step)
+            return
         }
-        return nil
+        self.plan = nil
     }
 }
