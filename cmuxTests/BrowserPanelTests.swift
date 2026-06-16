@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
