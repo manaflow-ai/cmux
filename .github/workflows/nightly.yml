@@ -425,7 +425,12 @@ jobs:
           security set-keychain-settings -lut 21600 build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          # Import Apple's public "Developer ID Certification Authority" (G2) intermediate so the
+          # leaf -> intermediate -> Apple Root CA chain is self-contained in build.keychain. Bare
+          # self-hosted fleet runners do not ship this intermediate (WarpBuild images do), which made
+          # codesign fail with errSecInternalComponent ("unable to build chain to self-signed root").
+          security import .github/certs/DeveloperIDG2CA.pem -k build.keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
       - name: Embed nightly provisioning profile
