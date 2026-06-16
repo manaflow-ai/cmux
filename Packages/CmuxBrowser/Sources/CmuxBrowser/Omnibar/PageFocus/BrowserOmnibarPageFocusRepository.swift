@@ -20,7 +20,7 @@ import Foundation
 @MainActor
 public final class BrowserOmnibarPageFocusRepository {
     private let evaluator: any BrowserOmnibarScriptEvaluating
-    private let logSink: (@MainActor (String) -> Void)?
+    private let logSink: (@MainActor @Sendable (String) -> Void)?
     private var restoreGeneration: UInt64 = 0
 
     /// The fixed retry delay schedule (seconds) for restore attempts.
@@ -39,7 +39,7 @@ public final class BrowserOmnibarPageFocusRepository {
     ///     same messages the panel previously emitted. Pass `nil` in release.
     public init(
         evaluator: any BrowserOmnibarScriptEvaluating,
-        logSink: (@MainActor (String) -> Void)? = nil
+        logSink: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
         self.evaluator = evaluator
         self.logSink = logSink
@@ -96,7 +96,7 @@ public final class BrowserOmnibarPageFocusRepository {
     ///   - completion: Invoked once on the main actor with the restore outcome.
     public func restoreIfNeeded(
         panelDebugID: String,
-        completion: @escaping @MainActor (Bool) -> Void
+        completion: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
         restoreGeneration &+= 1
         let generation = restoreGeneration
@@ -112,7 +112,7 @@ public final class BrowserOmnibarPageFocusRepository {
         attempt: Int,
         generation: UInt64,
         panelDebugID: String,
-        completion: @escaping @MainActor (Bool) -> Void
+        completion: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
         guard generation == restoreGeneration else {
             completion(false)

@@ -7355,7 +7355,7 @@ extension BrowserPanel {
         omnibarPageFocusRepository.invalidateRestoreAttempts(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
-    func restoreAddressBarPageFocusIfNeeded(completion: @escaping (Bool) -> Void) {
+    func restoreAddressBarPageFocusIfNeeded(completion: @escaping @MainActor @Sendable (Bool) -> Void) {
         omnibarPageFocusRepository.restoreIfNeeded(
             panelDebugID: String(id.uuidString.prefix(5)),
             completion: completion
@@ -12577,7 +12577,7 @@ extension BrowserPanel {
     ///
     /// In release builds this is `nil`, so the repository emits no logging and
     /// the former `#if DEBUG`-guarded `cmuxDebugLog` calls stay compiled out.
-    static var omnibarPageFocusLogSink: (@MainActor (String) -> Void)? {
+    static var omnibarPageFocusLogSink: (@MainActor @Sendable (String) -> Void)? {
 #if DEBUG
         return { message in cmuxDebugLog(message) }
 #else
