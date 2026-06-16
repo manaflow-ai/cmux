@@ -20,6 +20,29 @@ struct AmpSessionIndexTests {
                 "sessionId": "T-newer",
                 "cwd": "/tmp/amp repo",
                 "updatedAt": 200.0,
+                "launchCommand": [
+                    "launcher": "amp",
+                    "executablePath": "/opt/amp/bin/amp",
+                    "arguments": [
+                        "/opt/amp/bin/amp",
+                        "threads",
+                        "continue",
+                        "T-old",
+                        "-l",
+                        "scratch",
+                        "--mode",
+                        "smart",
+                        "--effort",
+                        "high",
+                    ],
+                    "workingDirectory": "/tmp/amp repo",
+                    "environment": [
+                        "AMP_SETTINGS_FILE": "/tmp/amp-settings.json",
+                        "OPENAI_API_KEY": "secret",
+                    ],
+                    "capturedAt": 123.0,
+                    "source": "process",
+                ],
             ],
         ])
         defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
@@ -44,10 +67,9 @@ struct AmpSessionIndexTests {
         #expect(entry.title == "Amp session in amp repo")
         let resume = try #require(entry.resumeCommand)
         #expect(
-            resume.hasSuffix("amp threads continue T-newer"),
+            resume == "cd '/tmp/amp repo' && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/opt/amp/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-newer'",
             "unexpected resume command: \(resume)"
         )
-        #expect(resume.contains("/tmp/amp repo"), "resume should cd into the cwd: \(resume)")
     }
 
     @Test func resumeCommandWithoutCwd() throws {

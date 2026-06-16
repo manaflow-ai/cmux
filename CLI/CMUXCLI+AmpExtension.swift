@@ -398,6 +398,7 @@ export default function (amp: PluginAPI) {
   // pane, so a single flag is sufficient — concurrent threads would need a
   // per-thread map.
   let turnActive = false;
+  let sessionStartEpoch = 0;
 
   // Best-effort cleanup so the badge doesn't get stuck after the agent exits.
   // We intentionally only hook the `exit` event and do NOT register custom
@@ -520,10 +521,15 @@ export default function (amp: PluginAPI) {
     setStatus("idle", "circle", COLOR.idle);
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
+    const epoch = ++sessionStartEpoch;
     watchThreadTitle(sessionId, ctx);
     // Backfills a title for reopened threads; null for brand-new threads until
     // the first prompt arrives (agent.start).
     const title = await resolveSessionTitle(sessionId, ctx);
+    // resolveSessionTitle can await a server roundtrip. If the turn/session
+    // ended while it was pending, do not send a delayed session-start that would
+    // mark the Vault row running again after the stop hook.
+    if (epoch !== sessionStartEpoch) return;
     sendHook("session-start", sessionId, cwdFromEnv(), titleExtra(title));
   });
 
@@ -567,6 +573,7 @@ export default function (amp: PluginAPI) {
   amp.on("agent.end", async (event: AgentEndEvent, ctx) => {
     inFlightTools = 0;
     turnActive = false;
+    sessionStartEpoch++;
     switch (event.status) {
       case "done":
         setStatus("done", "checkmark.circle", COLOR.done);

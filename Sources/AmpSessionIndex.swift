@@ -19,7 +19,28 @@ private struct AmpHookSessionRecord: Decodable {
     var launchCommand: LaunchCommand?
 
     struct LaunchCommand: Decodable {
+        var launcher: String?
+        var executablePath: String?
+        var arguments: [String]?
         var workingDirectory: String?
+        var environment: [String: String]?
+        var capturedAt: TimeInterval?
+        var source: String?
+
+        var snapshot: AgentLaunchCommandSnapshot? {
+            guard launcher != nil || executablePath != nil || !(arguments?.isEmpty ?? true) || !(environment?.isEmpty ?? true) else {
+                return nil
+            }
+            AgentLaunchCommandSnapshot(
+                launcher: launcher,
+                executablePath: executablePath,
+                arguments: arguments ?? [],
+                workingDirectory: workingDirectory,
+                environment: environment,
+                capturedAt: capturedAt,
+                source: source
+            )
+        }
     }
 }
 
@@ -64,6 +85,7 @@ private struct AmpIndexedSession {
     let sessionId: String
     let title: String
     let cwd: String?
+    let launchCommand: AgentLaunchCommandSnapshot?
     let modified: Date
 }
 
@@ -108,6 +130,7 @@ extension SessionIndexStore {
                 sessionId: sessionId,
                 title: Self.ampDisplayTitle(recordTitle: record.title, cwd: cwd),
                 cwd: cwd,
+                launchCommand: record.launchCommand?.snapshot,
                 modified: modified
             ))
         }
@@ -144,7 +167,7 @@ extension SessionIndexStore {
                     pullRequest: nil,
                     modified: session.modified,
                     fileURL: nil,
-                    specifics: .amp
+                    specifics: .amp(launchCommand: session.launchCommand)
                 ))
             }
             matchedCount += 1

@@ -204,7 +204,7 @@ enum AgentSpecifics: Hashable {
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
-    case amp
+    case amp(launchCommand: AgentLaunchCommandSnapshot?)
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
     case registered(CmuxVaultAgentRegistration)
 }
@@ -380,7 +380,17 @@ struct SessionEntry: Identifiable, Hashable {
             return parts.joined(separator: " ")
         case .rovodev:
             return "acli rovodev run --restore \(Self.shellQuote(sessionId))"
-        case .amp:
+        case .amp(let launchCommand):
+            if let launchCommand,
+               let command = AgentResumeCommandBuilder.resumeShellCommand(
+                   kind: .amp,
+                   sessionId: sessionId,
+                   launchCommand: launchCommand,
+                   workingDirectory: resumeWorkingDirectory,
+                   includeWorkingDirectoryPrefix: false
+               ) {
+                return command
+            }
             return "amp threads continue \(Self.shellQuote(sessionId))"
         case let .hermesAgent(source, model, hermesHome):
             return Self.hermesResumeCommand(
