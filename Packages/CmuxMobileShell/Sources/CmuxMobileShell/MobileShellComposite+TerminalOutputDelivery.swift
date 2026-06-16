@@ -32,7 +32,8 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
                     streamToken: streamToken,
-                    activeScreen: immediate.activeScreen
+                    activeScreen: immediate.activeScreen,
+                    scrollbackRows: immediate.scrollbackRows
                 )
             )
         }
@@ -52,7 +53,8 @@ extension MobileShellComposite {
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,
-            activeScreen: next.activeScreen
+            activeScreen: next.activeScreen,
+            scrollbackRows: next.scrollbackRows
         ))
     }
 }

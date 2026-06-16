@@ -8,16 +8,14 @@ extension GhosttySurfaceView {
     /// so a drag/deceleration feels native without waiting for the Mac.
     func applyLocalScrollbackScroll(pixelDeltaY: Double, col: Int, row: Int) {
         guard pixelDeltaY != 0, let surface else { return }
-        let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
-        let scale = max(Double(displayScale), 1)
         let size = ghostty_surface_size(surface)
-        let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
-        let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
-        let posX = (Double(max(0, col)) + 0.5) * cellWidthPt
-        let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
-        ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        let precisionScrollMods: Int32 = 0b0000_0001
-        ghostty_surface_mouse_scroll(surface, 0, pixelDeltaY, precisionScrollMods)
+        let cellHeightPx = max(Double(size.cell_height_px), 1)
+        let rowDelta = pixelDeltaY / cellHeightPx
+        localScrollRowOffset = min(
+            max(localScrollRowOffset - rowDelta, 0),
+            localScrollbackMaxRowOffset
+        )
+        ghostty_surface_scroll_to_offset(surface, localScrollRowOffset)
         drawForWakeup()
     }
 }

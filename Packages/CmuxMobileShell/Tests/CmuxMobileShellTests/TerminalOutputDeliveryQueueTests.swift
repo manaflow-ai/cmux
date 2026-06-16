@@ -90,20 +90,36 @@ import Testing
     #expect(!vt.contains("old"))
 }
 
-@Test func terminalOutputDeliveryCarriesRenderGridActiveScreen() throws {
+@Test func terminalOutputDeliveryCarriesRenderGridMetadata() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal",
         stateSeq: 1,
         columns: 12,
         rows: 2,
+        full: true,
         rowSpans: [],
-        activeScreen: .alternate
+        activeScreen: .alternate,
+        scrollbackRows: 42
+    )
+    let deltaFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 2,
+        full: false,
+        rowSpans: [],
+        activeScreen: .primary,
+        scrollbackRows: 42
     )
     let delivery = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
+    let deltaDelivery = TerminalOutputDelivery(renderGrid: deltaFrame, replaceable: false)
     let rawDelivery = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
 
-    #expect(delivery.activeScreen == .alternate)
+    #expect(delivery.activeScreen == MobileTerminalRenderGridFrame.Screen.alternate)
+    #expect(delivery.scrollbackRows == 42)
+    #expect(deltaDelivery.scrollbackRows == nil)
     #expect(rawDelivery.activeScreen == nil)
+    #expect(rawDelivery.scrollbackRows == nil)
 }
 
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {

@@ -14262,7 +14262,12 @@ class TerminalController {
             scrollbackLines: requestedScrollbackRows
         )
         #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
+        cmuxDebugLog(
+            "mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) "
+            + "rows=\(renderGrid?.rows ?? -1) scrollbackRows=\(renderGrid?.scrollbackRows ?? -1) "
+            + "spans=\(renderGrid?.rowSpans.count ?? -1) scrollbackSpans=\(renderGrid?.scrollbackSpans.count ?? -1) "
+            + "seq=\(seq) hasState=\(state != nil)"
+        )
         #endif
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,

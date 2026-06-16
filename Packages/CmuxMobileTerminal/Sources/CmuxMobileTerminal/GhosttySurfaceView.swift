@@ -603,6 +603,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
     private var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    var localScrollRowOffset: Double = 0
+    var localScrollbackMaxRowOffset: Double = 0
+    private var localScrollbackBoundsInitialized = false
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -619,10 +622,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    private var scrollPanLastTranslationY: CGFloat?
+    private var scrollInertiaVelocityY: CGFloat = 0
+    private var scrollInertiaLastTimestamp: CFTimeInterval?
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
+        view.isScrollEnabled = false
         view.showsVerticalScrollIndicator = false
         view.showsHorizontalScrollIndicator = false
         view.alwaysBounceVertical = true
@@ -637,9 +644,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.delegate = self
         return view
     }()
+    private lazy var scrollPanGesture: UIPanGestureRecognizer = {
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan(_:)))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
+    private var lastScrollDecisionLogTime: CFTimeInterval = 0
     var onOutputProcessedForTesting: (() -> Void)?
     /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
     ///
@@ -967,6 +981,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         addSubview(snapshotFallbackView)
         addSubview(scrollMechanicsView)
+        scrollMechanicsView.addGestureRecognizer(scrollPanGesture)
         addSubview(inputProxy)
         #if DEBUG
         addSubview(debugAccessibilityProxy)
@@ -1802,9 +1817,68 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollMechanicsIsRecentering = false
     }
 
+    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        let translationY = gesture.translation(in: self).y
+        switch gesture.state {
+        case .began:
+            scrollInertiaVelocityY = 0
+            scrollInertiaLastTimestamp = nil
+            scrollPanLastTranslationY = translationY
+            let point = gesture.location(in: self)
+            if bounds.contains(point) {
+                lastScrollMechanicsTouchPoint = point
+            }
+        case .changed:
+            let previous = scrollPanLastTranslationY ?? translationY
+            scrollPanLastTranslationY = translationY
+            let fingerDeltaY = translationY - previous
+            let point = gesture.location(in: self)
+            if bounds.contains(point) {
+                lastScrollMechanicsTouchPoint = point
+            }
+            enqueueScrollMechanicsDelta(-fingerDeltaY, touchPoint: point)
+        case .ended, .cancelled, .failed:
+            scrollPanLastTranslationY = nil
+            let velocityY = gesture.velocity(in: self).y
+            if abs(velocityY) >= 20 {
+                scrollInertiaVelocityY = velocityY
+                scrollInertiaLastTimestamp = CACurrentMediaTime()
+            } else {
+                scrollInertiaVelocityY = 0
+                scrollInertiaLastTimestamp = nil
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyScrollInertia(now: CFTimeInterval) {
+        guard scrollInertiaVelocityY != 0 else { return }
+        let previous = scrollInertiaLastTimestamp ?? now
+        let dt = max(0, min(now - previous, 1.0 / 20.0))
+        scrollInertiaLastTimestamp = now
+        guard dt > 0 else { return }
+
+        let fingerDeltaY = scrollInertiaVelocityY * CGFloat(dt)
+        let fallbackPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+        let touchPoint = bounds.contains(lastScrollMechanicsTouchPoint)
+            ? lastScrollMechanicsTouchPoint
+            : fallbackPoint
+        enqueueScrollMechanicsDelta(-fingerDeltaY, touchPoint: touchPoint)
+
+        // Matches UIScrollView.DecelerationRate.normal: approximately 0.998
+        // velocity retention per millisecond, integrated on the display link.
+        let retention = pow(0.998, dt * 1000)
+        scrollInertiaVelocityY *= CGFloat(retention)
+        if abs(scrollInertiaVelocityY) < 8 {
+            scrollInertiaVelocityY = 0
+            scrollInertiaLastTimestamp = nil
+        }
+    }
+
     private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
-        // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. Primary scrollback can be consumed by the
+        // The transparent gesture layer supplies unbounded pan deltas plus
+        // display-link deceleration. Primary scrollback can be consumed by the
         // local Ghostty mirror; alt-screen mouse-wheel delivery still belongs
         // to the Mac.
         guard deltaY != 0 else { return }
@@ -1839,16 +1913,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         pendingLocalScrollPixels = 0
-        if scrollForwardingPolicy.shouldApplyLocally(
+        let appliesLocally = scrollForwardingPolicy.shouldApplyLocally(
             activeScreen: activeScreen,
             decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
-        ) {
+        )
+        let forwardsToHost = scrollForwardingPolicy.shouldForwardToHost(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+        )
+        #if DEBUG
+        let now = CACurrentMediaTime()
+        if now - lastScrollDecisionLogTime >= 0.12 {
+            lastScrollDecisionLogTime = now
+            MobileDebugLog.anchormux(
+                "mobile.scroll.decision screen=\(activeScreen.rawValue) decouple=\(decouplePrimaryScreenScroll) "
+                + "local=\(appliesLocally) host=\(forwardsToHost) "
+                + "px=\(String(format: "%.1f", pixelDeltaY)) lines=\(String(format: "%.2f", lines)) "
+                + "cell=\(cell.col),\(cell.row)"
+            )
+        }
+        #endif
+        if appliesLocally {
             applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
         }
-        guard scrollForwardingPolicy.shouldForwardToHost(
-            activeScreen: activeScreen,
-            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
-        ) else {
+        guard forwardsToHost else {
             return
         }
         guard lines != 0 else { return }
@@ -2158,10 +2246,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Parameter activeScreen: The active screen from the render-grid frame,
     ///   or `nil` for raw byte fallback chunks.
     public func applyTerminalOutputMetadata(
-        activeScreen: MobileTerminalRenderGridFrame.Screen?
+        activeScreen: MobileTerminalRenderGridFrame.Screen?,
+        scrollbackRows: Int? = nil
     ) {
-        guard let activeScreen else { return }
-        self.activeScreen = activeScreen
+        if let activeScreen {
+            self.activeScreen = activeScreen
+        }
+        guard let scrollbackRows else { return }
+        let previousMax = localScrollbackMaxRowOffset
+        let wasAtBottom = !localScrollbackBoundsInitialized
+            || abs(localScrollRowOffset - previousMax) < 0.5
+        localScrollbackMaxRowOffset = Double(max(0, scrollbackRows))
+        localScrollbackBoundsInitialized = true
+        if wasAtBottom || localScrollRowOffset > localScrollbackMaxRowOffset {
+            localScrollRowOffset = localScrollbackMaxRowOffset
+        }
     }
 
     /// Process terminal output and return after the output has been applied.
@@ -2672,7 +2771,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
 
-        // Flush coalesced scroll to the Mac at most once per frame.
+        // Flush coalesced scroll at most once per frame.
+        applyScrollInertia(now: now)
         flushPendingScrollIfNeeded()
 
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
@@ -3509,9 +3609,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 }
 
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
-    /// Keep a tap that lands on the visible zoom HUD from also focusing the
-    /// terminal (which would pop the keyboard). Only the focus tap carries this
-    /// delegate, so scroll/pinch are unaffected.
+    /// Keep gestures that land on surface-owned controls from also focusing or
+    /// scrolling the terminal.
     public func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
@@ -3529,6 +3628,13 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
             return false
         }
         return true
+    }
+
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 

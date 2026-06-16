@@ -38,6 +38,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.activeScreen
         }
     }
+
+    var scrollbackRows: Int? {
+        switch payload {
+        case .bytes:
+            nil
+        case .renderGrid(let frame):
+            frame.full ? frame.scrollbackRows : nil
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

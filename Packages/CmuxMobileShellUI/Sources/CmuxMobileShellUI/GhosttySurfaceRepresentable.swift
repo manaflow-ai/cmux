@@ -143,7 +143,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
-                    surfaceView.applyTerminalOutputMetadata(activeScreen: chunk.activeScreen)
+                    surfaceView.applyTerminalOutputMetadata(
+                        activeScreen: chunk.activeScreen,
+                        scrollbackRows: chunk.scrollbackRows
+                    )
                     await surfaceView.processOutputAndWait(chunk.data)
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,

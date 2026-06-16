@@ -5109,7 +5109,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let deliverBytes: Data?
                 if let renderGrid {
                     deliverBytes = nil
-                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY render_grid surface=\(surfaceID) rows=\(renderGrid.rows) "
+                        + "scrollbackRows=\(renderGrid.scrollbackRows) spans=\(renderGrid.rowSpans.count) "
+                        + "scrollbackSpans=\(renderGrid.scrollbackSpans.count) seq=\(renderGrid.stateSeq)"
+                    )
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
                     MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")

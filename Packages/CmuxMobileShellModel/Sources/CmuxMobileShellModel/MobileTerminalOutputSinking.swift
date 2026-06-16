@@ -18,15 +18,21 @@ public struct MobileTerminalOutputChunk: Sendable {
     /// The active terminal screen captured by the render-grid frame that
     /// produced ``data``. Raw byte fallback chunks carry `nil`.
     public let activeScreen: MobileTerminalRenderGridFrame.Screen?
+    /// Number of scrollback rows included in a full render-grid snapshot.
+    /// Delta frames and raw byte fallback chunks carry `nil` because they do not
+    /// describe the local mirror's scrollback extent.
+    public let scrollbackRows: Int?
     public let data: Data
     public let streamToken: UUID
 
     public init(
         data: Data,
         streamToken: UUID,
-        activeScreen: MobileTerminalRenderGridFrame.Screen? = nil
+        activeScreen: MobileTerminalRenderGridFrame.Screen? = nil,
+        scrollbackRows: Int? = nil
     ) {
         self.activeScreen = activeScreen
+        self.scrollbackRows = scrollbackRows
         self.data = data
         self.streamToken = streamToken
     }
