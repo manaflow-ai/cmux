@@ -208,6 +208,11 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
 fi
 
 exec_real_claude_passthrough() {
+    if [[ "${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT:-}" == "1" ]]; then
+        export NODE_OPTIONS="${CMUX_ORIGINAL_NODE_OPTIONS:-}"
+    elif [[ "${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT:-}" == "0" ]]; then
+        unset NODE_OPTIONS
+    fi
     if [[ "$IN_CMUX" == "1" ]]; then
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
