@@ -4,7 +4,7 @@ import Foundation
 import Sentry
 
 @MainActor private var sentryMemoryContextRefreshTask: Task<Void, Never>?
-@MainActor private var sentryMemoryContextTimer: Timer?
+@MainActor private var sentryLastMemoryContextRefresh: Date?
 
 /// Add a Sentry breadcrumb for user-action context in hang/crash reports.
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
@@ -13,6 +13,7 @@ func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String:
     crumb.message = message
     crumb.data = data
     SentrySDK.addBreadcrumb(crumb)
+    sentryRequestMemoryContextRefresh(reason: "breadcrumb.\(category)")
 }
 
 private func sentryCaptureMessage(
@@ -30,6 +31,7 @@ private func sentryCaptureMessage(
             scope.setContext(value: data, key: contextKey ?? category)
         }
     }
+    sentryRequestMemoryContextRefresh(reason: "capture.\(category)")
 }
 
 func sentryCaptureWarning(
@@ -53,28 +55,34 @@ func sentryCaptureError(
 @MainActor
 func sentryStartMemoryContextRefresh() {
     guard TelemetrySettings.enabledForCurrentLaunch else { return }
-    sentryStopMemoryContextRefresh()
-    sentryScheduleMemoryContextRefresh(reason: "startup")
-
-    let timer = Timer(timeInterval: 300, repeats: true) { _ in
-        Task { @MainActor in
-            sentryScheduleMemoryContextRefresh(reason: "periodic")
-        }
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    sentryMemoryContextTimer = timer
+    sentryScheduleMemoryContextRefresh(reason: "startup", minimumInterval: 0)
 }
 
 @MainActor
 func sentryStopMemoryContextRefresh() {
-    sentryMemoryContextTimer?.invalidate()
-    sentryMemoryContextTimer = nil
     sentryMemoryContextRefreshTask?.cancel()
     sentryMemoryContextRefreshTask = nil
+    sentryLastMemoryContextRefresh = nil
+}
+
+private func sentryRequestMemoryContextRefresh(reason: String) {
+    guard TelemetrySettings.enabledForCurrentLaunch else { return }
+    Task { @MainActor in
+        sentryScheduleMemoryContextRefresh(reason: reason)
+    }
 }
 
 @MainActor
-private func sentryScheduleMemoryContextRefresh(reason: String) {
+private func sentryScheduleMemoryContextRefresh(
+    reason: String,
+    minimumInterval: TimeInterval = 300
+) {
+    let now = Date()
+    if let sentryLastMemoryContextRefresh,
+       now.timeIntervalSince(sentryLastMemoryContextRefresh) < minimumInterval {
+        return
+    }
+    sentryLastMemoryContextRefresh = now
     sentryMemoryContextRefreshTask?.cancel()
     sentryMemoryContextRefreshTask = Task.detached(priority: .utility) {
         await sentryRefreshMemoryContext(reason: reason)
@@ -99,6 +107,7 @@ func sentryRefreshMemoryContext(reason: String) async {
     let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
+    guard !Task.isCancelled else { return }
 
     await MainActor.run {
         SentrySDK.configureScope { scope in
