@@ -123,12 +123,19 @@ verify_zig_sha256() {
 
 install_zig_without_sudo() {
   local install_parent="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
-  local install_root="${ZIG_INSTALL_ROOT:-${install_parent}/${ZIG_NAME}}"
+  local install_root="${ZIG_INSTALL_ROOT:-${install_parent}}"
   local source_root
   local target_root
+  if [ "$(basename "$install_root")" != "$ZIG_NAME" ]; then
+    install_root="${install_root%/}/${ZIG_NAME}"
+  fi
   source_root="$(cd "$ZIG_DIR" && pwd -P)"
   mkdir -p "$(dirname "$install_root")"
   target_root="$(cd "$(dirname "$install_root")" && pwd -P)/$(basename "$install_root")"
+  if [ "$(basename "$target_root")" != "$ZIG_NAME" ]; then
+    echo "Refusing unsafe Zig install root: ${target_root}" >&2
+    exit 1
+  fi
   if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
     echo "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under ${target_root}"
   else

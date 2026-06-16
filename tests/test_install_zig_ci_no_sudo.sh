@@ -43,7 +43,8 @@ OUTPUT_FILE="$TMP_DIR/output"
 FORCE_LOCAL_OUTPUT_FILE="$TMP_DIR/force-local-output"
 FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
-FORCE_LOCAL_INSTALL_ROOT="$TMP_DIR/force-local-install"
+FORCE_LOCAL_INSTALL_PARENT="$TMP_DIR/force-local-install"
+FORCE_LOCAL_MARKER="$FORCE_LOCAL_INSTALL_PARENT/keep.txt"
 DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
 DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
@@ -130,6 +131,8 @@ exit 0
 EOF
 chmod +x "$BIN_DIR/sudo"
 rm -f "$SUDO_LOG"
+mkdir -p "$FORCE_LOCAL_INSTALL_PARENT"
+printf 'keep\n' > "$FORCE_LOCAL_MARKER"
 
 PATH="$BIN_DIR:/usr/bin:/bin" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
@@ -138,14 +141,21 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   ZIG_REQUIRED="$ZIG_REQUIRED" \
   ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
   ZIG_FORCE_LOCAL_INSTALL=1 \
-  ZIG_INSTALL_ROOT="$FORCE_LOCAL_INSTALL_ROOT" \
+  ZIG_INSTALL_ROOT="$FORCE_LOCAL_INSTALL_PARENT" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
   "$SCRIPT" > "$FORCE_LOCAL_OUTPUT_FILE" 2>&1
 
+FORCE_LOCAL_INSTALL_ROOT="$FORCE_LOCAL_INSTALL_PARENT/$ZIG_NAME"
 EXPECTED_FORCE_LOCAL_INSTALL_ROOT="$(canonical_install_root "$FORCE_LOCAL_INSTALL_ROOT")"
 if [ ! -x "$FORCE_LOCAL_INSTALL_ROOT/zig" ]; then
   cat "$FORCE_LOCAL_OUTPUT_FILE"
   echo "FAIL: force-local install did not install zig under ZIG_INSTALL_ROOT" >&2
+  exit 1
+fi
+
+if [ ! -f "$FORCE_LOCAL_MARKER" ]; then
+  cat "$FORCE_LOCAL_OUTPUT_FILE"
+  echo "FAIL: force-local install deleted unrelated parent directory contents" >&2
   exit 1
 fi
 
