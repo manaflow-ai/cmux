@@ -22,18 +22,6 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         self.topChromeHeight = topChromeHeight
     }
 
-    /// Whether a resolved pane rect is expressed in window-content coordinates
-    /// (container x-offset preserved) or workspace-local coordinates (container
-    /// origin removed on both axes).
-    public enum TrimMode: Sendable, Equatable {
-        /// Workspace-local coordinates: the container origin is subtracted on both
-        /// axes.
-        case workspaceLocal
-        /// Window-content coordinates: only the container y-offset is removed; the
-        /// x-offset is preserved so the rect aligns with the window's content view.
-        case windowContent
-    }
-
     /// Trims the titlebar chrome inset off the top of `rect`.
     /// - Parameter rect: the full pane rectangle.
     /// - Returns: the pane rectangle with the top chrome removed, clamped so the
@@ -48,21 +36,20 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         )
     }
 
-    /// Resolves the content rectangle for a single pane in a layout snapshot.
+    /// Resolves the trimmed content rectangle for a single pane in a layout
+    /// snapshot.
     /// - Parameters:
     ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
     ///   - paneId: the pane to resolve, if any.
     ///   - includeContainerOffset: when `true` only the container y-offset is
     ///     removed (window-content space); when `false` both axes are offset by the
     ///     container origin (workspace-local space).
-    ///   - trimMode: which coordinate space the result is expressed in.
     /// - Returns: the trimmed pane content rect, or `nil` when the snapshot or pane
     ///   is missing.
-    public func paneRect(
+    private func paneRect(
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?,
-        includeContainerOffset: Bool,
-        trimMode: TrimMode
+        includeContainerOffset: Bool
     ) -> CGRect? {
         guard let layoutSnapshot,
               let paneId,
@@ -85,11 +72,11 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
                 dy: -CGFloat(layoutSnapshot.containerFrame.y)
             )
         }
-        _ = trimMode
         return contentRect(rect)
     }
 
-    /// Resolves a pane's overlay rect in workspace-local coordinates.
+    /// Resolves a pane's overlay rect in workspace-local coordinates (the
+    /// container origin is subtracted on both axes).
     /// - Parameters:
     ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
     ///   - paneId: the pane to resolve, if any.
@@ -101,12 +88,13 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         paneRect(
             layoutSnapshot: layoutSnapshot,
             paneId: paneId,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            includeContainerOffset: false
         )
     }
 
-    /// Resolves a pane's overlay rect in window-content coordinates.
+    /// Resolves a pane's overlay rect in window-content coordinates (only the
+    /// container y-offset is removed; the x-offset is preserved so the rect aligns
+    /// with the window's content view).
     /// - Parameters:
     ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
     ///   - paneId: the pane to resolve, if any.
@@ -118,8 +106,7 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         paneRect(
             layoutSnapshot: layoutSnapshot,
             paneId: paneId,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            includeContainerOffset: true
         )
     }
 
