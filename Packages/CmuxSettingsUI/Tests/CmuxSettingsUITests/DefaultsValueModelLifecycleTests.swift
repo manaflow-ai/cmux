@@ -71,6 +71,26 @@ import Testing
         #expect(flag.didTerminate)
     }
 
+    @Test func initializationDoesNotStartObservationStream() {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-lazy-observation")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        var streamCreations = 0
+
+        _ = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: {
+                streamCreations += 1
+                return stream
+            }
+        )
+
+        #expect(streamCreations == 0)
+    }
+
     @Test func setUpdatesCurrentBeforeObservationRoundTrip() {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-optimistic-set")!

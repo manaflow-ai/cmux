@@ -56,4 +56,28 @@ import Testing
         }
         #expect(flag.didTerminate)
     }
+
+    @Test func initializationDoesNotStartObservationStream() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-lazy-observation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = JSONConfigStore(fileURL: tempDir.appendingPathComponent("cmux.json"))
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        let errorLog = SettingsErrorLog()
+        let (stream, _) = AsyncStream<String>.makeStream()
+        var streamCreations = 0
+
+        _ = JSONValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog,
+            makeStream: {
+                streamCreations += 1
+                return stream
+            }
+        )
+
+        #expect(streamCreations == 0)
+    }
 }

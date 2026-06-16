@@ -56,4 +56,28 @@ import Testing
         }
         #expect(flag.didTerminate)
     }
+
+    @Test func initializationDoesNotStartObservationStream() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("secret-value-model-lazy-observation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = SecretFileStore(baseDirectory: tempDir)
+        let key = SecretFileKey(id: "automation.socketPassword", fileName: "socket-control-password")
+        let errorLog = SettingsErrorLog()
+        let (stream, _) = AsyncStream<String>.makeStream()
+        var streamCreations = 0
+
+        _ = SecretValueModel(
+            store: store,
+            key: key,
+            errorLog: errorLog,
+            makeStream: {
+                streamCreations += 1
+                return stream
+            }
+        )
+
+        #expect(streamCreations == 0)
+    }
 }
