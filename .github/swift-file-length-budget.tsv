@@ -6,7 +6,7 @@
 16714	Sources/ContentView.swift
 14829	Sources/TerminalController.swift
 13358	Sources/Panels/BrowserPanel.swift
-13025	Sources/Workspace.swift
+13047	Sources/Workspace.swift
 12124	Sources/GhosttyTerminalView.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -85,13 +85,13 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1038	Sources/RemoteTmuxController.swift
+1023	Sources/DockSplitStore.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
-940	Sources/DockSplitStore.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
@@ -123,10 +123,10 @@
 746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
+727	Sources/TerminalController+ControlPaneContext.swift
 726	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 722	Packages/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
-722	Sources/TerminalController+ControlPaneContext.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
@@ -172,9 +172,9 @@
 585	Sources/Cloud/VMClient.swift
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
-578	cmuxUITests/FeedSidebarUITests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
+574	cmuxUITests/FeedSidebarUITests.swift
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 566	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	Packages/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift

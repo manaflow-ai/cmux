@@ -2572,13 +2572,32 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// Backing store for `dockSplit`, created on first access. Kept optional so
+    /// workspace teardown can tear down the Dock only when it was actually used
+    /// (and so reading it during teardown does not lazily create one).
+    private var _dockSplit: DockSplitStore?
+
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
-    /// Lazily created so workspaces that never open the Dock pay nothing.
-    lazy var dockSplit: DockSplitStore = DockSplitStore(
-        workspaceId: id,
-        baseDirectoryProvider: { [weak self] in self?.currentDirectory }
-    )
+    /// Created on first access so workspaces that never open the Dock pay nothing.
+    var dockSplit: DockSplitStore {
+        if let existing = _dockSplit { return existing }
+        let store = DockSplitStore(
+            workspaceId: id,
+            baseDirectoryProvider: { [weak self] in self?.currentDirectory },
+            remoteBrowserSettingsProvider: { [weak self] in
+                guard let self else { return .local }
+                return DockRemoteBrowserSettings(
+                    proxyEndpoint: self.remoteProxyEndpoint,
+                    bypassRemoteProxy: false,
+                    isRemoteWorkspace: self.isRemoteWorkspace,
+                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil
+                )
+            }
+        )
+        _dockSplit = store
+        return store
+    }
 
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
@@ -8646,6 +8665,9 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
+        // but only if the Dock was ever opened for this workspace.
+        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.

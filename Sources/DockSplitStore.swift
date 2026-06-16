@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxCore
 import CmuxTerminal
 import CmuxTerminalEngine
 import SwiftUI
@@ -11,6 +12,24 @@ import SwiftUI
 enum DockSurfaceKind: String, Codable, Equatable, Sendable {
     case terminal
     case browser
+}
+
+/// Remote-workspace browser settings the Dock forwards to `BrowserPanel`, so
+/// Dock browsers route through the same remote proxy / website-data store as
+/// main-area browser panes instead of navigating locally on a remote/cloud
+/// workspace.
+struct DockRemoteBrowserSettings {
+    let proxyEndpoint: BrowserProxyEndpoint?
+    let bypassRemoteProxy: Bool
+    let isRemoteWorkspace: Bool
+    let remoteWebsiteDataStoreIdentifier: UUID?
+
+    static let local = DockRemoteBrowserSettings(
+        proxyEndpoint: nil,
+        bypassRemoteProxy: false,
+        isRemoteWorkspace: false,
+        remoteWebsiteDataStoreIdentifier: nil
+    )
 }
 
 /// A single Dock control loaded from `dock.json`.
@@ -186,6 +205,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
     @Published private(set) var isVisibleInUI: Bool = false
 
     private let baseDirectoryProvider: () -> String?
+    private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private var panels: [UUID: any Panel] = [:]
     private var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -193,9 +213,14 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
     private var activeConfigURL: URL?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
 
-    init(workspaceId: UUID, baseDirectoryProvider: @escaping () -> String?) {
+    init(
+        workspaceId: UUID,
+        baseDirectoryProvider: @escaping () -> String?,
+        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local }
+    ) {
         self.workspaceId = workspaceId
         self.baseDirectoryProvider = baseDirectoryProvider
+        self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -263,6 +288,13 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
         applyVisibilityToAllPanels()
+    }
+
+    /// Tears down every Dock panel (closing terminals/browsers and their
+    /// portals). Called from `Workspace.teardownAllPanels()` on workspace close.
+    func closeAllPanels() {
+        setVisibleInUI(false)
+        removeAllPanels()
     }
 
     private func ensureLoaded() {
@@ -377,16 +409,24 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         return panel.id
     }
 
-    /// Resolves a Dock pane for `surface.create --placement dock`: the requested
-    /// pane if it exists in the Dock tree, else the focused/first Dock pane.
-    /// Ensures config is loaded so the Dock always has at least its root pane.
+    /// Resolves a Dock pane for `surface.create --placement dock`. An explicit
+    /// `requestedPaneID` must match a Dock pane (else `nil` → the caller reports
+    /// not-found, like the workspace path); with no explicit id, returns the
+    /// focused/first Dock pane. Ensures config is loaded so the Dock always has
+    /// at least its root pane.
     func resolvePane(requestedPaneID: UUID?) -> PaneID? {
         ensureLoaded()
-        if let requestedPaneID,
-           let pane = bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID }) {
-            return pane
+        if let requestedPaneID {
+            return bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID })
         }
         return bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+    }
+
+    /// Whether a panel id is present in the Dock tree (for validating an
+    /// explicit `surface_id` source before a Dock split).
+    func containsPanel(_ panelId: UUID) -> Bool {
+        ensureLoaded()
+        return panels[panelId] != nil
     }
 
     /// Creates a new surface in the currently focused Dock pane (Dock toolbar "+" menu).
@@ -433,7 +473,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
                 if let url { _ = NSWorkspace.shared.open(url) }
                 return nil
             }
-            return BrowserPanel(workspaceId: workspaceId, initialURL: url)
+            return makeBrowserPanel(url: url)
         }
     }
 
@@ -451,9 +491,23 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
             )
         case .browser:
             guard BrowserAvailabilitySettings.isEnabled() else { return nil }
-            let url = def.url.flatMap { URL(string: $0) }
-            return BrowserPanel(workspaceId: workspaceId, initialURL: url)
+            return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
         }
+    }
+
+    /// Builds a Dock browser panel, forwarding the workspace's remote-browser
+    /// settings so Dock browsers share the same proxy / data store as main-area
+    /// browser panes (correct for remote/cloud workspaces).
+    private func makeBrowserPanel(url: URL?) -> BrowserPanel {
+        let settings = remoteBrowserSettingsProvider()
+        return BrowserPanel(
+            workspaceId: workspaceId,
+            initialURL: url,
+            proxyEndpoint: settings.proxyEndpoint,
+            bypassRemoteProxy: settings.bypassRemoteProxy,
+            isRemoteWorkspace: settings.isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+        )
     }
 
     private func makeTerminalPanel(
@@ -660,20 +714,43 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         }
     }
 
+    /// Default per-control height (points) used for divider math when a config
+    /// entry omits `height`. Matches the legacy Dock's minimum terminal height.
+    private static let defaultSeedHeight: Double = 200
+
     /// Seeds the Dock tree from config. The legacy config is a flat list, so it
     /// seeds a vertical stack (each entry split below the previous) to mirror the
     /// Dock's prior top-to-bottom layout; users can then re-tile in-app.
+    ///
+    /// Legacy `height` values are honored as relative sizing: each split's
+    /// initial divider is set from the requested-height ratios (a fractional
+    /// Bonsplit tree cannot pin absolute point heights, but the proportions are
+    /// preserved and remain user-resizable).
     private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
-        guard !definitions.isEmpty else { return }
+        // Build panels first so divider math runs over the entries actually
+        // created (e.g. browser entries are skipped when the browser is disabled).
+        let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
+            makePanel(for: definition, baseDirectory: baseDirectory).map { (definition, $0) }
+        }
+        guard !created.isEmpty else { return }
+
+        let heights = created.map { max($0.definition.height ?? Self.defaultSeedHeight, 1) }
         let rootPaneId = bonsplitController.allPaneIds.first
         var previousPanelId: UUID?
-        for definition in definitions {
-            guard let panel = makePanel(for: definition, baseDirectory: baseDirectory) else { continue }
+
+        for (index, entry) in created.enumerated() {
+            let definition = entry.definition
+            let panel = entry.panel
             // Config terminals carry a user-supplied title; keep it static
             // (don't track the live process title) to match Dock's prior look.
             let tracksTitle = definition.kind == .browser
 
             if let previousPanelId, let sourcePaneId = paneId(forPanelId: previousPanelId) {
+                // Divider = the height share of everything already placed above
+                // this split (the source/top child) within the space remaining
+                // from this entry downward.
+                let remainingTotal = heights[(index - 1)...].reduce(0, +)
+                let divider = CGFloat(min(max(heights[index - 1] / remainingTotal, 0.1), 0.9))
                 panels[panel.id] = panel
                 let newTab = Bonsplit.Tab(
                     title: definition.title,
@@ -683,7 +760,13 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
                     isPinned: false
                 )
                 surfaceIdToPanelId[newTab.id] = panel.id
-                guard bonsplitController.splitPane(sourcePaneId, orientation: .vertical, withTab: newTab, insertFirst: false) != nil else {
+                guard bonsplitController.splitPane(
+                    sourcePaneId,
+                    orientation: .vertical,
+                    withTab: newTab,
+                    insertFirst: false,
+                    initialDividerPosition: divider
+                ) != nil else {
                     surfaceIdToPanelId.removeValue(forKey: newTab.id)
                     panels.removeValue(forKey: panel.id)
                     panel.close()

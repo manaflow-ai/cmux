@@ -353,6 +353,11 @@ extension TerminalController: ControlPaneContext {
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
         let dock = ws.dockSplit
+        // An explicit source surface must live in the Dock tree; do not silently
+        // fall back to another Dock pane (mirrors the workspace `.noSourceSurface`).
+        if let requestedSource = inputs.requestedSourceSurfaceID, !dock.containsPanel(requestedSource) {
+            return .noSourceSurface
+        }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         let newPanelId = dock.newSplit(
