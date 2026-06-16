@@ -499,9 +499,8 @@ struct RightSidebarPanelView: View {
         let previousMode = fileExplorerState.mode
         fileExplorerState.refreshModeAvailability()
         let mode = fileExplorerState.mode
-        if previousMode == mode {
-            synchronizeDockLifecycle(mode: mode)
-        }
+        // The Dock manages its own lifecycle from DockPanelView, so no dock sync
+        // is needed here when the mode is unchanged.
         guard previousMode != mode,
               fileExplorerState.isVisible,
               let window = NSApp.keyWindow ?? NSApp.mainWindow
