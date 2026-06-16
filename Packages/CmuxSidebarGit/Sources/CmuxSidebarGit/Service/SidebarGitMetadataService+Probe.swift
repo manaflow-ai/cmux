@@ -331,6 +331,10 @@ extension SidebarGitMetadataService {
         }
         updateWorkspaceGitMetadataFallbackTimer()
 
+        let previousBranch = host.panelGitBranch(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )?.branch
         let nextBranch = snapshot.branch
         if let nextBranch {
             if let headSignature = snapshot.headSignature {
@@ -419,7 +423,7 @@ extension SidebarGitMetadataService {
             }
         }
 
-        if snapshot.branch != nil, shouldTrackPullRequests {
+        if let nextBranch, shouldTrackPullRequests, previousBranch != nextBranch {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
