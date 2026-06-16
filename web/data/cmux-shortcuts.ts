@@ -1,8 +1,9 @@
+import type { Locale } from "../i18n/routing";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-  [locale: string]: string;
-};
+} & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
 
 export type Shortcut = {
   id: string;
