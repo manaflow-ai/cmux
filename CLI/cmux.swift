@@ -26784,6 +26784,10 @@ struct CMUXCLI {
         if record?.isRestorable == true {
             return true
         }
+        if record?.launchCommand?.arguments.isEmpty == true,
+           record?.launchCommand?.environment?.isEmpty == false {
+            return true
+        }
         if normalizedHookValue(transcriptPath) != nil {
             return true
         }
