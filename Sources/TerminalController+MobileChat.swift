@@ -18,6 +18,15 @@ extension TerminalController {
         )
     }
 
+    /// Error shown when the Mac-side chat service is not wired into this
+    /// process. Surfaces in mobile RPC error banners and debug responses.
+    static var chatServiceUnavailableErrorMessage: String {
+        String(
+            localized: "mobile.chat.error.serviceUnavailable",
+            defaultValue: "Agent chat transcript service is not configured"
+        )
+    }
+
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
     func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
@@ -44,7 +53,7 @@ extension TerminalController {
     /// phone-side states.
     func v2ChatSessionsDump() -> V2CallResult {
         guard let service = agentChatTranscriptService else {
-            return .err(code: "unavailable", message: "Agent chat transcript service is not configured", data: nil)
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
         return .ok(["sessions": service.debugSessionDump()])
     }
@@ -54,7 +63,7 @@ extension TerminalController {
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
-            return .err(code: "unavailable", message: "Agent chat transcript service is not configured", data: nil)
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
         // Register coding agents cmux detects by terminal title but that never
         // ran a hook (e.g. launched through a shell wrapper that bypasses
@@ -127,7 +136,7 @@ extension TerminalController {
         let limit = min(max(v2Int(params, "limit") ?? 100, 1), 200)
         let beforeSeq = v2Int(params, "before_seq")
         guard let service = agentChatTranscriptService else {
-            return .err(code: "unavailable", message: "Agent chat transcript service is not configured", data: nil)
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
         var page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
         if page == nil, let staleRecord = service.sessionRecord(sessionID: sessionID) {
