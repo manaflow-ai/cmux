@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Foundation
+import CmuxTerminal
 
 enum FileDropResolvedBehavior: Equatable {
     case text
@@ -328,8 +329,8 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
+        guard WindowInputRoutingContext.allowsFileDropOverlayHitTesting(eventType: eventType) else { return false }
         guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
-        guard isDragMouseEvent(eventType) else { return false }
         return true
     }
 
@@ -355,36 +356,30 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return hasBonsplitTabTransfer(pasteboardTypes)
-            || hasFilePreviewTransfer(pasteboardTypes)
-            || hasSidebarTabReorder(pasteboardTypes)
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsBrowserPortalDragRouting else { return false }
+        let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
+        let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
+        switch routingContext.eventKind {
+        case .pointerDrag:
+            return hasTabTransfer
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarReorder
+        case .pointerHover:
+            return hasTabTransfer || hasSidebarReorder
+        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+            return false
+        }
     }
 
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
+        guard WindowInputRoutingContext.allowsTerminalPortalDragRouting(eventType: eventType) else { return false }
         return shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
         ) || hasFileURL(pasteboardTypes)
-    }
-
-    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-    }
-
-    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        guard let eventType else { return false }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
     }
 }

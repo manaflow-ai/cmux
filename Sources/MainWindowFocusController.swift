@@ -1,4 +1,7 @@
 import AppKit
+import CmuxFoundation
+import CmuxTerminalEngine
+import CmuxTerminal
 
 @MainActor
 final class MainWindowFocusController {
@@ -55,7 +58,6 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
-    private weak var historyHost: RightSidebarHistoryFocusAnchorView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -65,6 +67,11 @@ final class MainWindowFocusController {
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
     private var rightSidebarFocusState: RightSidebarFocusState = .inactive
+    /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
+    /// private focus state for the `sidebarMode` keyboard-shortcut context key.
+    var activeRightSidebarMode: RightSidebarMode? {
+        rightSidebarFocusState.mode
+    }
     private var feedSelectedItemId: UUID?
     private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
@@ -79,6 +86,7 @@ final class MainWindowFocusController {
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
         self.rememberedRightSidebarMode = fileExplorerState?.mode
+        syncBonsplitTabShortcutHintEligibility()
     }
 
     func update(
@@ -110,7 +118,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .history:
+        case .sessions, .feed, .dock:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -125,11 +133,6 @@ final class MainWindowFocusController {
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
-    }
-
-    func registerHistoryHost(_ host: RightSidebarHistoryFocusAnchorView) {
-        historyHost = host
-        focusRegisteredRightSidebarEndpointIfNeeded(mode: .history)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -161,7 +164,7 @@ final class MainWindowFocusController {
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return true
         }
         switch intent {
@@ -173,6 +176,7 @@ final class MainWindowFocusController {
     }
 
     func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+        guard ShortcutHintDebugSettings().modifierHoldHintsEnabled else { return false }
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:
@@ -199,9 +203,6 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
-            return true
-        }
-        if historyHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -656,8 +657,6 @@ final class MainWindowFocusController {
             return focusFirstItem ? .firstItem : .host
         case .dock:
             return focusFirstItem ? .firstItem : .host
-        case .history:
-            return focusFirstItem ? .searchField : .host
         }
     }
 
@@ -682,11 +681,6 @@ final class MainWindowFocusController {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
-        case .history:
-            if target == .searchField {
-                return historyHost?.focusSearchFromCoordinator() == true
-            }
-            return historyHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -757,9 +751,6 @@ final class MainWindowFocusController {
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
         }
-        if historyHost?.ownsKeyboardFocus(responder) == true {
-            return .history
-        }
         return nil
     }
 
@@ -774,7 +765,7 @@ final class MainWindowFocusController {
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)

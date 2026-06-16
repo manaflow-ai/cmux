@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:cmux.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:ios/cmux-ios.xcodeproj">
+   </FileRef>
+   <Group
+      location = "container:Packages"
+      name = "Packages (Shared)">
+      <FileRef
+         location = "group:CMUXAuthCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXMobileCore">
+      </FileRef>
+   </Group>
+   <Group
+      location = "container:Packages"
+      name = "Packages (iOS)">
+      <FileRef
+         location = "container:ios/cmuxPackage">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileDiagnostics">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobilePairedMac">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileRPC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShell">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShellModel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShellUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTerminal">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTerminalKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileWorkspace">
+      </FileRef>
+   </Group>
+   <Group
+      location = "container:Packages"
+      name = "Packages (macOS)">
+      <FileRef
+         location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXAgentVault">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXDebugLog">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXExtensionHostSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFoundation">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXPasteboardFidelity">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettings">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettingsUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSocketControl">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXWorkstream">
+      </FileRef>
+   </Group>
+   <Group
+      location = "container:Examples"
+      name = "Examples">
+      <FileRef
+         location = "group:TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionSidebarExamples">
+      </FileRef>
+   </Group>
+</Workspace>

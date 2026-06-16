@@ -1,7 +1,9 @@
 import Foundation
+import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTerminal
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -47,6 +49,16 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// The workspace-env key/value pairs this panel inherited from its workspace's
+    /// `workspaceEnvironment` at creation. The same panel travels when a surface is
+    /// moved between workspaces, so a respawn uses these to drop the (possibly
+    /// previous) workspace's variables and re-apply the current workspace's. The
+    /// value (not just the key) is tracked so an explicit per-surface override that
+    /// happens to share a workspace key (e.g. a layout `env` AWS_PROFILE=staging in
+    /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
+    /// stripped and replaced by the workspace value (issue #5995).
+    var seededWorkspaceEnvironment: [String: String] = [:]
+
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
 
@@ -65,6 +77,7 @@ final class TerminalPanel: Panel, ObservableObject {
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
+    private var didDiscardTextBoxContentForClose = false
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -154,6 +167,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// Create a new terminal panel with a fresh surface
     convenience init(
+        id: UUID = UUID(),
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
@@ -164,9 +178,11 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
+            id: id,
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
@@ -177,7 +193,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         self.init(workspaceId: workspaceId, surface: surface)
     }
@@ -206,18 +223,32 @@ final class TerminalPanel: Panel, ObservableObject {
         tmuxLayoutReport = report
     }
 
+    func preferTextBoxInputWhenActivated() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .textBox
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
+    func showTextBoxInputWhenAvailable() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .terminal
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
+        // Registration runs from NSViewRepresentable.makeNSView; restoring drafts here must not
+        // write SwiftUI/Combine bindings while SwiftUI is constructing the subtree.
         if let restoredTextBoxDraft {
             self.restoredTextBoxDraft = nil
-            view.installSessionDraft(restoredTextBoxDraft)
-            textBoxContent = view.plainText()
-            textBoxAttachments = view.inlineAttachments()
+            view.installSessionDraft(restoredTextBoxDraft, notifyingTextChange: false)
         } else if let preservedTextBoxAttributedContent {
             self.preservedTextBoxAttributedContent = nil
-            view.installPreservedContent(preservedTextBoxAttributedContent)
-            textBoxContent = view.plainText()
-            textBoxAttachments = view.inlineAttachments()
+            view.installPreservedContent(preservedTextBoxAttributedContent, notifyingTextChange: false)
         }
         focusTextBoxIfNeeded()
 #if DEBUG
@@ -232,6 +263,7 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
+
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
@@ -329,8 +361,14 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preserveTextBoxContentForUnmount(from textBoxInputView: TextBoxInputTextView) {
-        guard !isClosingPanel else {
-            discardTextBoxContentForClose(from: textBoxInputView)
+        // Dismantle can run while AttributeGraph is destroying this subtree. Cache only
+        // non-published draft state here; normal editing keeps the published bindings current.
+        if isClosingPanel {
+            assert(
+                didDiscardTextBoxContentForClose,
+                "close() must discard TextBox content before SwiftUI dismantles the TextBox view"
+            )
+            recordTextBoxViewUnmounted(textBoxInputView)
             return
         }
         let preservedContent = textBoxInputView.attributedContentForPreservation()
@@ -338,11 +376,16 @@ final class TerminalPanel: Panel, ObservableObject {
         preservedTextBoxAttributedContent = NSAttributedString(
             attributedString: preservedContent
         )
-        textBoxContent = textBoxInputView.plainText()
-        textBoxAttachments = textBoxInputView.inlineAttachments()
+        recordTextBoxViewUnmounted(textBoxInputView)
+    }
+
+    private func recordTextBoxViewUnmounted(_ textBoxInputView: TextBoxInputTextView) {
+        guard self.textBoxInputView === textBoxInputView else { return }
+        self.textBoxInputView = nil
     }
 
     private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
+        didDiscardTextBoxContentForClose = true
         let currentTextView = textBoxInputView ?? self.textBoxInputView
         let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
         if let currentTextView {
@@ -635,9 +678,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     // MARK: - Terminal-specific methods
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         resumeForExplicitInputIfNeeded()
-        surface.sendText(text)
+        return surface.sendText(text)
     }
 
     func sendInput(_ text: String) {

@@ -1,7 +1,9 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxFoundation
 import Bonsplit
+import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -108,8 +110,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var flashStartedAt: Date?
     @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
 
-    private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -119,20 +121,21 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = state.flashRect
         flashReason = state.flashReason
 
-        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
-        if didChangeWorkspace {
-            lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
-            flashStartedAt = nil
-            return
-        }
-
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
         }
-        self.lastFlashToken = state.flashToken
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
@@ -140,8 +143,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
-        lastWorkspaceId = nil
-        lastFlashToken = nil
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
     }
 }
 
@@ -236,50 +239,70 @@ struct WorkspaceContentView: View {
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
-                PanelContentView(
-                    panel: panel,
-                    workspaceId: workspace.id,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isSelectedInPane: isSelectedInPane,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: workspacePortalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
-                    onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
-                        // active workspace. This prevents divergence between the blue focused-tab
-                        // indicator and where keyboard input/flash-focus actually lands.
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                    },
-                    onRequestPanelFocus: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
-                            workspaceId: workspace.id,
-                            panelId: panel.id,
-                            in: NSApp.keyWindow ?? NSApp.mainWindow
-                        )
-                        workspace.focusPanel(panel.id)
-                    },
-                    onResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
-                    },
-                    onAutoResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
-                    },
-                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-                )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                    // Multi-pane tmux window: render its pane layout as splits
+                    // inside this single tab. Single-pane windows keep the
+                    // standard PanelContentView path below.
+                    RemoteTmuxWindowMirrorView(
+                        mirror: windowMirror,
+                        appearance: appearance,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        onClosePane: { tmuxPaneId in
+                            workspace.requestRemoteTmuxPaneClose(
+                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
+                            )
+                        }
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
+                } else {
+                    PanelContentView(
+                        panel: panel,
+                        workspaceId: workspace.id,
+                        paneId: paneId,
+                        isFocused: isFocused,
+                        isSelectedInPane: isSelectedInPane,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        isSplit: isSplit,
+                        appearance: appearance,
+                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
+                        onFocus: {
+                            // Keep bonsplit focus in sync with the AppKit first responder for the
+                            // active workspace. This prevents divergence between the blue focused-tab
+                            // indicator and where keyboard input/flash-focus actually lands.
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                        },
+                        onRequestPanelFocus: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                                workspaceId: workspace.id,
+                                panelId: panel.id,
+                                in: NSApp.keyWindow ?? NSApp.mainWindow
+                            )
+                            workspace.focusPanel(panel.id)
+                        },
+                        onResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                        },
+                        onAutoResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                        },
+                        onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
@@ -355,8 +378,20 @@ struct WorkspaceContentView: View {
             )
         }
 
-        bonsplitView
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        Group {
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance
+                )
+            } else {
+                bonsplitView
+            }
+        }
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -781,7 +816,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
     }
 
     private func createBrowser() {
