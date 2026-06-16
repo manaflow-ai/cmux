@@ -15,7 +15,7 @@ import Speech
 ///
 /// Text behavior: ``start(existingText:onText:)`` captures the composer's current
 /// text as the base and, for every partial result, calls `onText` with
-/// base + transcript (see ``ComposerDictationTextMerge``) so dictation appends to
+/// base + transcript (see ``Swift/String/mergingDictation(transcript:)``) so dictation appends to
 /// whatever the user already typed and never clobbers it.
 ///
 /// Concurrency: the type is `@MainActor`, so all published state and the `onText`
@@ -306,10 +306,7 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(ComposerDictationTextMerge.merged(
-                        base: self.baseText,
-                        transcript: transcript
-                    ))
+                    self.onText?(self.baseText.mergingDictation(transcript: transcript))
                 }
                 // A final result or an error (end-of-stream, recognition failure)
                 // settles the session so the mic does not stay hot. If a graceful
