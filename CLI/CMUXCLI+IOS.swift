@@ -368,7 +368,7 @@ extension CMUXCLI {
             try process.run()
         } catch {
             try? logHandle.close()
-            throw CLIError(message: error.localizedDescription)
+            throw CLIError(message: String(describing: error))
         }
         try? logHandle.close()
 

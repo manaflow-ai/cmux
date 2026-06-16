@@ -39,6 +39,14 @@ MESSAGES = {
     },
 }
 
+SIMCTL_TIMEOUT_SECONDS = 60
+SIMCTL_BOOT_TIMEOUT_SECONDS = 300
+XCODEBUILD_DISCOVERY_TIMEOUT_SECONDS = 300
+XCODEBUILD_BUILD_TIMEOUT_SECONDS = 1800
+SCREENSHOT_TIMEOUT_SECONDS = 10
+INPUT_TIMEOUT_SECONDS = 30
+MAX_INPUT_BYTES = 65536
+
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -257,20 +265,37 @@ class CommandError(RuntimeError):
         self.stderr = stderr
 
 
+def timeout_output(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def run(args, cwd=None, check=True, input_text=None):
+def run(args, cwd=None, check=True, input_text=None, timeout=None):
     log("$ " + " ".join(shlex.quote(str(part)) for part in args))
-    completed = subprocess.run(
-        [str(part) for part in args],
-        cwd=str(cwd) if cwd else None,
-        input=input_text,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        completed = subprocess.run(
+            [str(part) for part in args],
+            cwd=str(cwd) if cwd else None,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise CommandError(
+            f"command timed out after {timeout} seconds",
+            args=args,
+            stdout=timeout_output(error.stdout),
+            stderr=timeout_output(error.stderr),
+        ) from error
     if completed.stdout.strip():
         log(completed.stdout.rstrip())
     if completed.stderr.strip():
@@ -286,15 +311,25 @@ def run(args, cwd=None, check=True, input_text=None):
     return completed
 
 
-def run_streaming(args, cwd=None, check=True):
+def run_streaming(args, cwd=None, check=True, timeout=None):
     log("$ " + " ".join(shlex.quote(str(part)) for part in args))
-    completed = subprocess.run(
-        [str(part) for part in args],
-        cwd=str(cwd) if cwd else None,
-        stdout=sys.stderr,
-        stderr=sys.stderr,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            [str(part) for part in args],
+            cwd=str(cwd) if cwd else None,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise CommandError(
+            f"command timed out after {timeout} seconds",
+            args=args,
+            returncode=None,
+            stdout=timeout_output(error.stdout),
+            stderr=timeout_output(error.stderr),
+        ) from error
     if check and completed.returncode != 0:
         raise CommandError(
             f"command failed with status {completed.returncode}",
@@ -312,7 +347,7 @@ def resolve_path(raw, cwd):
 
 
 def simctl_json(*args):
-    completed = run(["/usr/bin/xcrun", "simctl", *args], check=True)
+    completed = run(["/usr/bin/xcrun", "simctl", *args], check=True, timeout=SIMCTL_TIMEOUT_SECONDS)
     return json.loads(completed.stdout)
 
 
@@ -361,7 +396,7 @@ def select_device(requested):
 
 
 def boot_device(udid):
-    completed = run(["/usr/bin/xcrun", "simctl", "boot", udid], check=False)
+    completed = run(["/usr/bin/xcrun", "simctl", "boot", udid], check=False, timeout=SIMCTL_BOOT_TIMEOUT_SECONDS)
     if completed.returncode != 0:
         combined = f"{completed.stdout}\n{completed.stderr}".lower()
         if "booted" not in combined and "current state" not in combined:
@@ -372,7 +407,7 @@ def boot_device(udid):
                 stdout=completed.stdout,
                 stderr=completed.stderr,
             )
-    run(["/usr/bin/xcrun", "simctl", "bootstatus", udid, "-b"], check=True)
+    run(["/usr/bin/xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=SIMCTL_BOOT_TIMEOUT_SECONDS)
 
 
 def discover_xcode_container(cwd, workspace, project):
@@ -411,6 +446,7 @@ def discover_scheme(kind, path, cwd):
         ["/usr/bin/xcrun", "xcodebuild", "-list", "-json", *xcode_container_args(kind, path)],
         cwd=cwd,
         check=True,
+        timeout=XCODEBUILD_DISCOVERY_TIMEOUT_SECONDS,
     )
     payload = json.loads(completed.stdout)
     container = payload.get(kind, {}) if kind in payload else payload.get("project", {})
@@ -451,8 +487,13 @@ def build_app(args, cwd, udid):
         "-derivedDataPath",
         str(derived_data),
     ]
-    run_streaming([*base, "build"], cwd=cwd, check=True)
-    settings = run([*base, "-showBuildSettings", "-json"], cwd=cwd, check=True)
+    run_streaming([*base, "build"], cwd=cwd, check=True, timeout=XCODEBUILD_BUILD_TIMEOUT_SECONDS)
+    settings = run(
+        [*base, "-showBuildSettings", "-json"],
+        cwd=cwd,
+        check=True,
+        timeout=XCODEBUILD_DISCOVERY_TIMEOUT_SECONDS,
+    )
     app_path = app_path_from_build_settings(settings.stdout)
     if app_path is None:
         app_path = newest_built_app(derived_data)
@@ -503,8 +544,8 @@ def bundle_id_for_app(app_path):
 
 
 def install_and_launch(udid, app_path, bundle_id):
-    run(["/usr/bin/xcrun", "simctl", "install", udid, str(app_path)], check=True)
-    run(["/usr/bin/xcrun", "simctl", "launch", udid, bundle_id], check=True)
+    run(["/usr/bin/xcrun", "simctl", "install", udid, str(app_path)], check=True, timeout=SIMCTL_BOOT_TIMEOUT_SECONDS)
+    run(["/usr/bin/xcrun", "simctl", "launch", udid, bundle_id], check=True, timeout=SIMCTL_TIMEOUT_SECONDS)
 
 
 class SimulatorState:
@@ -537,11 +578,18 @@ class SimulatorState:
                 return self.last_frame, True
             return None, False
         try:
-            raw = subprocess.run(
-                ["/usr/bin/xcrun", "simctl", "io", self.device["udid"], "screenshot", "--type=png", "-"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            try:
+                raw = subprocess.run(
+                    ["/usr/bin/xcrun", "simctl", "io", self.device["udid"], "screenshot", "--type=png", "-"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=SCREENSHOT_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as error:
+                self.last_frame_error = f"screenshot timed out after {SCREENSHOT_TIMEOUT_SECONDS} seconds"
+                if error.stderr:
+                    self.last_frame_error += ": " + timeout_output(error.stderr)
+                return self.last_frame, True
             if raw.returncode == 0 and raw.stdout:
                 self.last_frame = raw.stdout
                 self.last_frame_error = None
@@ -573,14 +621,23 @@ class SimulatorState:
         for key in ("x", "y", "width", "height", "deltaX", "deltaY", "text", "key"):
             if key in event:
                 env[f"CMUX_IOS_{key.upper()}"] = str(event[key])
-        completed = subprocess.run(
-            command,
-            input=json.dumps(event),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                input=json.dumps(event),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=INPUT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            log(f"input command timed out after {INPUT_TIMEOUT_SECONDS} seconds")
+            if error.stdout:
+                log("input command stdout:\n" + timeout_output(error.stdout).rstrip())
+            if error.stderr:
+                log("input command stderr:\n" + timeout_output(error.stderr).rstrip())
+            return {"ok": False, "code": "input_command_timeout"}
         if completed.returncode == 0:
             return {"ok": True}
         log(f"input command failed with status {completed.returncode}")
@@ -611,12 +668,21 @@ class SimulatorState:
         else:
             return {"ok": False, "code": "unsupported_input_type", "input_type": event_type}
 
-        completed = subprocess.run(
-            [self.idb_path, "--udid", udid, *args],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        try:
+            completed = subprocess.run(
+                [self.idb_path, "--udid", udid, *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=INPUT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            log(f"idb input timed out after {INPUT_TIMEOUT_SECONDS} seconds")
+            if error.stdout:
+                log("idb stdout:\n" + timeout_output(error.stdout).rstrip())
+            if error.stderr:
+                log("idb stderr:\n" + timeout_output(error.stderr).rstrip())
+            return {"ok": False, "code": "input_bridge_timeout"}
         if completed.returncode == 0:
             return {"ok": True}
         log(f"idb input failed with status {completed.returncode}")
@@ -670,8 +736,7 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self.write_json({"ok": False, "code": "invalid_content_length"}, status=400)
             return
-        max_input_bytes = 65536
-        if length < 0 or length > max_input_bytes:
+        if length < 0 or length > MAX_INPUT_BYTES:
             self.write_json({"ok": False, "code": "input_too_large"}, status=413)
             return
         raw = self.rfile.read(length)
