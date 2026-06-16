@@ -6,6 +6,7 @@ Regression test: the generated Amp plugin is importable and emits cmux hook call
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -200,6 +201,23 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
                 return 1
         if '"session_id":"T-amp-session-test"' not in stdin_log:
             print(f"FAIL: plugin did not pass session id, got {stdin_log!r}")
+            return 1
+        title_updates = []
+        for chunk in stdin_log.split("\n---\n"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                payload = json.loads(chunk)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("hook_event_name") == "TitleUpdate":
+                title_updates.append(payload.get("title"))
+        if title_updates[-1:] != ["Updated Amp title"]:
+            print(f"FAIL: final Amp title update should stay on subscribed title, got {title_updates!r}")
+            return 1
+        if "Initial Amp title" in title_updates[title_updates.index("Updated Amp title") + 1:]:
+            print(f"FAIL: stale title lookup overwrote subscribed title, got {title_updates!r}")
             return 1
         if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")

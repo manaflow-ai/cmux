@@ -44,18 +44,29 @@ function resolveExecutable(name: string): string {
   return name;
 }
 
-// Prefer the CLI bundled with the cmux app that launched this terminal
-// (CMUX_BUNDLED_CLI_PATH) over whatever `cmux` is on PATH, so the plugin always
-// talks to the matching app/CLI version — PATH may point at a different build
-// (e.g. an installed release while running a dev/tagged app).
+function executablePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim();
+  if (!candidate) return null;
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return candidate;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Prefer the executable CLI bundled with the cmux app that launched this
+// terminal (CMUX_BUNDLED_CLI_PATH) over whatever `cmux` is on PATH, so the
+// plugin talks to the matching app/CLI version when that path is still valid.
 // CMUX_AMP_CMUX_BIN takes highest precedence but is test-only plumbing (the
-// install test injects a fake cmux binary through it); it isn't set in production.
+// install test injects a fake cmux binary through it). A stale bundled CLI path
+// falls back to PATH so app reloads or removed tagged builds do not silently
+// disable Amp hooks.
 function cmuxBin(): string {
-  return (
-    process.env.CMUX_AMP_CMUX_BIN ||
-    process.env.CMUX_BUNDLED_CLI_PATH ||
-    "cmux"
-  );
+  return firstString(process.env.CMUX_AMP_CMUX_BIN)
+    || executablePath(process.env.CMUX_BUNDLED_CLI_PATH)
+    || resolveExecutable("cmux");
 }
 
 function looksLikeAmpExecutable(value: string): boolean {
@@ -429,6 +440,7 @@ export default function (amp: PluginAPI) {
   // Amp versions whose API predates `thread.title`.
   // Cached per thread so we resolve at most once.
   const capturedTitles = new Map<string, string>();
+  const titleVersions = new Map<string, number>();
   const TITLE_MAX_LENGTH = 200;
   const TITLE_UPDATE_DEBOUNCE_MS = 250;
   const TITLE_LOOKUP_TIMEOUT_MS = 1000;
@@ -463,17 +475,33 @@ export default function (amp: PluginAPI) {
     return normalizedTitle(text);
   }
 
+  function rememberTitle(threadID: string, title: string): string {
+    capturedTitles.set(threadID, title);
+    titleVersions.set(threadID, (titleVersions.get(threadID) ?? 0) + 1);
+    return title;
+  }
+
+  function currentTitleVersion(threadID: string): number {
+    return titleVersions.get(threadID) ?? 0;
+  }
+
+  function titleIfUnchanged(threadID: string, startVersion: number, title: string): string {
+    const cached = capturedTitles.get(threadID);
+    if (cached && currentTitleVersion(threadID) !== startVersion) return cached;
+    return rememberTitle(threadID, title);
+  }
+
   async function resolveSessionTitle(
     threadID: string,
     ctx?: AmpThreadContext,
   ): Promise<string | null> {
+    const startVersion = currentTitleVersion(threadID);
     // Always try the real thread title first (cheap, and lets cmux upgrade the
     // stored title once Amp assigns/refines it on a later turn).
     try {
       const threadTitle = normalizedTitle(await ctx?.thread?.title?.get?.());
       if (threadTitle) {
-        capturedTitles.set(threadID, threadTitle);
-        return threadTitle;
+        return titleIfUnchanged(threadID, startVersion, threadTitle);
       }
     } catch (_) {}
     const cached = capturedTitles.get(threadID);
@@ -503,8 +531,7 @@ export default function (amp: PluginAPI) {
         if (m.role !== "user" || !Array.isArray(m.content)) continue;
         const title = titleFromContentBlocks(m.content);
         if (title) {
-          capturedTitles.set(threadID, title);
-          return title;
+          return titleIfUnchanged(threadID, startVersion, title);
         }
       }
     } catch (_) {}
@@ -558,6 +585,7 @@ export default function (amp: PluginAPI) {
       titleSubs.delete(threadID);
     }
     capturedTitles.delete(threadID);
+    titleVersions.delete(threadID);
   }
 
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
@@ -572,7 +600,7 @@ export default function (amp: PluginAPI) {
       pendingTitle = null;
       if (!title || title === lastSent) return;
       lastSent = title;
-      capturedTitles.set(threadID, title);
+      rememberTitle(threadID, title);
       sendHook("title-update", threadID, cwdFromEnv(), { title });
     };
     const clearTimer = () => {
@@ -585,7 +613,7 @@ export default function (amp: PluginAPI) {
         const title = normalizedTitle(value);
         if (!title || title === lastSent) return;
         pendingTitle = title;
-        capturedTitles.set(threadID, title);
+        rememberTitle(threadID, title);
         if (flushTimer !== null) clearTimeout(flushTimer);
         flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
       });
