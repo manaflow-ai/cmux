@@ -524,7 +524,6 @@ jobs:
 
             dmg_tmp_dir="$(mktemp -d)"
             create-dmg \
-              --identity="$APPLE_SIGNING_IDENTITY" \
               "$app_path" \
               "$dmg_tmp_dir"
             created_dmg="$(find "$dmg_tmp_dir" -maxdepth 1 -name '*.dmg' | head -n 1)"
@@ -534,6 +533,10 @@ jobs:
             fi
             mv "$created_dmg" "$dmg_release"
             rm -rf "$dmg_tmp_dir"
+            /usr/bin/codesign --force --timestamp --keychain build.keychain \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              "$dmg_release"
+            /usr/bin/codesign --verify --verbose=2 "$dmg_release"
 
             DMG_SUBMIT_JSON="$(xcrun notarytool submit "$dmg_release" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
             DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"

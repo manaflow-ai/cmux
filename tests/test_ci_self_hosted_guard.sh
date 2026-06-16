@@ -256,6 +256,29 @@ check_sentry_cli_install_portability() {
   echo "PASS: dSYM upload installs sentry-cli without requiring Homebrew"
 }
 
+check_dmg_signing_uses_build_keychain() {
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
+      echo "FAIL: $(basename "$file") must not let create-dmg codesign outside build.keychain"
+      exit 1
+    fi
+
+    if ! awk '
+      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+      in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
+      in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
+      in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
+      in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
+      END { exit !(saw_keychain && saw_identity && saw_verify && saw_notary) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must sign DMGs explicitly with build.keychain before notarization"
+      exit 1
+    fi
+  done
+
+  echo "PASS: DMG signing uses build.keychain explicitly"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -349,6 +372,7 @@ check_release_build_signal
 check_release_helper_upload_retry
 check_signing_intermediate_imports
 check_sentry_cli_install_portability
+check_dmg_signing_uses_build_keychain
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
