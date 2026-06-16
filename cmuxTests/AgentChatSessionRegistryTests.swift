@@ -221,6 +221,53 @@ struct AgentChatTranscriptServiceTests {
         #expect(bounded.first?.transcriptAvailability == .available)
     }
 
+    @Test("pending home-rooted Claude session resolves a fresh transcript on history")
+    func pendingHomeClaudeResolvesFreshTranscriptOnHistory() async throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("agentchat-service-home-\(UUID().uuidString)", isDirectory: true)
+        let projectDir = home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(home.path),
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let transcript = projectDir.appendingPathComponent("fresh-session.jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        try fileManager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 110)],
+            ofItemAtPath: transcript.path
+        )
+
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home)
+        )
+        registry.adoptDetectedSession(
+            sessionID: "detected-claude-surface-terminal-one",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-one",
+            workingDirectory: home.path,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        let page = await service.history(
+            sessionID: "detected-claude-surface-terminal-one",
+            beforeSeq: nil,
+            limit: 100
+        )
+
+        #expect(page?.transcriptAvailability == .available)
+        let adoptedPath = registry.record(sessionID: "detected-claude-surface-terminal-one")?.transcriptPath
+        #expect(adoptedPath.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } == transcript.resolvingSymlinksInPath().path)
+        #expect(service.sessionDescriptors(workspaceID: "workspace-a").first?.transcriptAvailability == .available)
+    }
+
     @Test("hook-backed sessions remain advertised while their transcript fallback resolves")
     func hookBackedSessionWithoutRecordedTranscriptRemainsAdvertised() {
         let registry = AgentChatSessionRegistry()

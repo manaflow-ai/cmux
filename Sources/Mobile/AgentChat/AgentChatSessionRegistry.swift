@@ -95,12 +95,23 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
-    /// Every session id the registry already tracks. Title-detected adoption
-    /// passes this to the transcript resolver so a second hook-bypassed claude
-    /// in the same directory resolves to a *different* (unclaimed) transcript
-    /// instead of colliding on the newest file.
+    /// Every session id the registry already tracks, including transcript
+    /// filename stems already attached to provisional records. Title-detected
+    /// adoption passes this to the transcript resolver so a second
+    /// hook-bypassed claude in the same directory resolves to a different
+    /// transcript instead of colliding on the newest file.
     func claimedSessionIDs() -> Set<String> {
-        Set(records.keys)
+        var claimed = Set(records.keys)
+        for record in records.values {
+            guard let transcriptPath = record.transcriptPath else { continue }
+            let transcriptSessionID = URL(fileURLWithPath: transcriptPath)
+                .deletingPathExtension()
+                .lastPathComponent
+            if !transcriptSessionID.isEmpty {
+                claimed.insert(transcriptSessionID)
+            }
+        }
+        return claimed
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,

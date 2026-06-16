@@ -53,28 +53,33 @@ struct AgentChatTranscriptResolver {
     ///     their transcripts are skipped so two hook-bypassed claudes in the
     ///     same directory each adopt a distinct conversation instead of both
     ///     resolving to the single newest file (and the second getting nothing).
+    ///   - minimumModificationDate: Required for fuzzy `$HOME` adoption, where
+    ///     the project dir is otherwise too ambiguous. Only fresh home-rooted
+    ///     transcripts written after the pending session was detected are
+    ///     eligible.
     /// - Returns: The session id and absolute transcript path of the newest
     ///   unclaimed transcript, or `nil` when none is found.
     func newestClaudeTranscript(
         workingDirectory: String,
         excludingSessionIDs: Set<String> = [],
-        titleHint: String? = nil
+        titleHint: String? = nil,
+        minimumModificationDate: Date? = nil
     ) -> (sessionID: String, path: String)? {
         let fileManager = FileManager.default
-        // The home project dir is a junk drawer of every home-rooted claude
-        // conversation, so newest-by-mtime there is almost never *this*
-        // terminal's session. Refuse title-detected adoption from $HOME; a
-        // hooked claude in ~ still resolves by its exact session id via
-        // `claudeFallbackPath`, so only the fuzzy path is blocked.
+        // The home project dir is a junk drawer of home-rooted claude
+        // conversations. Fuzzy matching from $HOME is allowed only when the
+        // caller can prove freshness with a modification-date cutoff.
         let home = homeDirectory.resolvingSymlinksInPath().path
         // claude encodes the project dir from the cwd it sees, which is the
         // symlink-resolved path (getcwd → /private/tmp), while a panel's cwd
         // is often the unresolved form (/tmp). Try every form so a /tmp-rooted
         // terminal still finds its /private/tmp transcript dir.
-        let candidates = Self.cwdCandidates(workingDirectory)
-            .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
         let normalizedTitleHint = Self.normalizedClaudeTitle(titleHint)
-        for cwd in candidates {
+        for cwd in Self.cwdCandidates(workingDirectory) {
+            let isHomeCandidate = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path == home
+            if isHomeCandidate, minimumModificationDate == nil {
+                continue
+            }
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
                 .appendingPathComponent(".claude", isDirectory: true)
@@ -97,10 +102,21 @@ struct AgentChatTranscriptResolver {
                         title: Self.claudeTranscriptTitle(at: url)
                     )
                 }
+                .filter { candidate in
+                    guard isHomeCandidate, let minimumModificationDate else { return true }
+                    return candidate.date >= minimumModificationDate
+                }
             let newest: URL?
             if let normalizedTitleHint {
                 newest = transcriptCandidates
                     .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint || $0.title == nil }
+                    .max { $0.date < $1.date }?
+                    .url
+            } else if minimumModificationDate != nil {
+                // Freshness is the disambiguator for a pending title-detected
+                // session. Do not wait for a later ai-title write before the
+                // chat can leave "Waiting for transcript".
+                newest = transcriptCandidates
                     .max { $0.date < $1.date }?
                     .url
             } else {

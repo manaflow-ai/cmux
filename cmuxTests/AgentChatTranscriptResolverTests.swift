@@ -75,11 +75,12 @@ import Testing
         #expect(result == nil)
     }
 
-    @Test("refuses to adopt from the home directory junk drawer")
-    func homeDirectoryIsGuarded() throws {
+    @Test("home directory adoption requires a fresh transcript cutoff")
+    func homeDirectoryRequiresFreshTranscript() throws {
         // A claude rooted directly at $HOME would match the home project dir,
-        // which accumulates every home-rooted conversation; newest-by-mtime is
-        // almost never this terminal's session, so the resolver returns nil.
+        // which accumulates every home-rooted conversation. Without a cutoff,
+        // newest-by-mtime is too ambiguous. With a pending-session cutoff, a
+        // fresh transcript written after detection is the live session.
         let fm = FileManager.default
         let home = fm.temporaryDirectory
             .appendingPathComponent("agentchat-resolver-home-\(UUID().uuidString)", isDirectory: true)
@@ -91,10 +92,23 @@ import Testing
                 isDirectory: true
             )
         try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
-        try Data("{}\n".utf8).write(to: projectDir.appendingPathComponent("home-sess.jsonl"))
+        let transcript = projectDir.appendingPathComponent("home-sess.jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: transcript.path
+        )
 
         let resolver = AgentChatTranscriptResolver(homeDirectory: home)
         #expect(resolver.newestClaudeTranscript(workingDirectory: home.path) == nil)
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: home.path,
+            minimumModificationDate: Date(timeIntervalSince1970: 199)
+        )?.sessionID == "home-sess")
+        #expect(resolver.newestClaudeTranscript(
+            workingDirectory: home.path,
+            minimumModificationDate: Date(timeIntervalSince1970: 201)
+        ) == nil)
     }
 
     @Test("/private-toggled cwd resolves a /private-encoded project dir")

@@ -162,7 +162,8 @@ final class AgentChatTranscriptService {
                 surfaceID: surfaceID,
                 excludingSessionID: bound.sessionID,
                 titleHint: titleHint,
-                forceScan: Self.isSpecificClaudeTitle(titleHint)
+                forceScan: Self.isSpecificClaudeTitle(titleHint),
+                minimumModificationDate: bound.lastActivityAt.addingTimeInterval(-5)
             ) {
                 detectionScanAt.removeValue(forKey: surfaceID)
                 registry.update(sessionID: bound.sessionID) { record in
@@ -248,7 +249,8 @@ final class AgentChatTranscriptService {
                surfaceID: surfaceID,
                excludingSessionID: sessionID,
                titleHint: record.title,
-               forceScan: true
+               forceScan: true,
+               minimumModificationDate: record.lastActivityAt.addingTimeInterval(-5)
            ) {
             registry.update(sessionID: sessionID) { $0.transcriptPath = resolved.path }
         }
@@ -408,7 +410,8 @@ final class AgentChatTranscriptService {
         surfaceID: String,
         excludingSessionID: String?,
         titleHint: String?,
-        forceScan: Bool
+        forceScan: Bool,
+        minimumModificationDate: Date? = nil
     ) -> (sessionID: String, path: String)? {
         let now = Date()
         if !forceScan,
@@ -424,7 +427,8 @@ final class AgentChatTranscriptService {
         return resolver.newestClaudeTranscript(
             workingDirectory: workingDirectory,
             excludingSessionIDs: claimed,
-            titleHint: titleHint
+            titleHint: titleHint,
+            minimumModificationDate: minimumModificationDate
         )
     }
 
