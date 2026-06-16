@@ -4,6 +4,7 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
+import UIKit
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -27,6 +28,9 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    /// Live OS authorization, so the section can route to iOS Settings when the
+    /// in-app toggle cannot grant notifications the system has denied.
+    @State private var notificationAuthorization: MobilePushCoordinator.NotificationAuthorizationStatus = .notDetermined
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -171,16 +175,9 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                Section {
                     Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
+                        Task { await toggleNotifications() }
                     } label: {
                         Label(
                             notificationsEnabled
@@ -190,6 +187,28 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
+
+                    // The in-app opt-in cannot override an iOS Settings denial;
+                    // surface that explicitly with a one-tap route to Settings
+                    // instead of a tap that silently does nothing.
+                    if notificationAuthorization == .denied {
+                        Button {
+                            openSystemNotificationSettings()
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.notifications.openSettings",
+                                    defaultValue: "Open iOS Settings"
+                                ),
+                                systemImage: "gear"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsNotificationsOpenSettings")
+                    }
+                } header: {
+                    Text(L10n.string("mobile.settings.notifications", defaultValue: "Notifications"))
+                } footer: {
+                    Text(notificationsFooter)
                 }
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
@@ -207,6 +226,7 @@ struct MobileSettingsView: View {
                 }
             }
             .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .task { notificationAuthorization = await pushCoordinator.authorizationStatus() }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -252,6 +272,50 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Drive the opt-in/opt-out and reconcile both the in-app flag and the live
+    /// OS authorization, so a denied prompt flips the section into its
+    /// "Open iOS Settings" state instead of silently staying off.
+    private func toggleNotifications() async {
+        if notificationsEnabled {
+            await pushCoordinator.disable()
+            notificationsEnabled = false
+        } else {
+            switch await pushCoordinator.enable() {
+            case .granted:
+                notificationsEnabled = true
+            case .declined, .blockedBySystemSettings:
+                notificationsEnabled = false
+            }
+        }
+        notificationAuthorization = await pushCoordinator.authorizationStatus()
+    }
+
+    /// Open this app's iOS Settings page so the user can re-enable notifications
+    /// the system has denied (the in-app toggle cannot).
+    private func openSystemNotificationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// Footer copy that names the two requirements a phone-only opt-in does not
+    /// satisfy: the OS permission, and the paired Mac's forwarding toggle. The
+    /// most common "notifications don't work" cause is a fully opted-in phone
+    /// whose Mac never enabled forwarding, which the phone alone cannot reveal.
+    private var notificationsFooter: String {
+        switch notificationAuthorization {
+        case .denied:
+            return L10n.string(
+                "mobile.notifications.footer.denied",
+                defaultValue: "Notifications are turned off for cmux in iOS Settings. Open Settings to allow them, then turn on \"Forward notifications to my iPhone\" on your Mac in cmux Settings > Notifications."
+            )
+        case .notDetermined, .authorized:
+            return L10n.string(
+                "mobile.notifications.footer.setup",
+                defaultValue: "Also turn on \"Forward notifications to my iPhone\" on your Mac in cmux Settings > Notifications. Agent notifications are sent only while you are away from the Mac unless you choose Always."
+            )
+        }
     }
 
     /// Which setup gate to mark as the user's current blocker. Settings is reached

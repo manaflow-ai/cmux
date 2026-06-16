@@ -66,6 +66,25 @@ public final class MobilePushCoordinator {
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
 
+    /// Reads the current OS notification authorization. Injected so the settings
+    /// UI (and its tests) can reflect whether the OS would actually deliver a
+    /// banner without depending on ``UNUserNotificationCenter`` directly.
+    @ObservationIgnored private let authorizationStatusProvider:
+        @Sendable () async -> NotificationAuthorizationStatus
+
+    /// The OS-level notification authorization, decoupled from
+    /// ``UNAuthorizationStatus`` so the value can cross actor and test
+    /// boundaries and drive the settings UI.
+    public enum NotificationAuthorizationStatus: Sendable, Equatable {
+        /// The user has never been asked; opting in will show the OS prompt.
+        case notDetermined
+        /// The user (or MDM) turned cmux notifications off in iOS Settings.
+        /// Re-enabling requires a trip to Settings; the in-app toggle cannot.
+        case denied
+        /// The OS will deliver banners (authorized, provisional, or ephemeral).
+        case authorized
+    }
+
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
@@ -81,13 +100,25 @@ public final class MobilePushCoordinator {
     ///     any store exists. Defaults to the standard-defaults-backed queue.
     ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
     ///     `Date.init`.
+    ///   - authorizationStatusProvider: Reads the live OS authorization status.
+    ///     Defaults to ``UNUserNotificationCenter``; injectable for tests.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         defaults: UserDefaults = .standard,
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        authorizationStatusProvider: @escaping @Sendable () async -> NotificationAuthorizationStatus = {
+            switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+            case .denied:
+                return .denied
+            case .authorized, .provisional, .ephemeral:
+                return .authorized
+            default:
+                return .notDetermined
+            }
+        }
     ) {
         self.registration = registration
         self.analytics = analytics
@@ -95,10 +126,18 @@ public final class MobilePushCoordinator {
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.now = now
+        self.authorizationStatusProvider = authorizationStatusProvider
     }
 
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+
+    /// The live OS notification authorization. The in-app opt-in cannot grant
+    /// notifications the OS has denied; the settings UI uses this to send the
+    /// user to iOS Settings instead of silently no-op'ing a tap.
+    public func authorizationStatus() async -> NotificationAuthorizationStatus {
+        await authorizationStatusProvider()
+    }
 
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
@@ -135,10 +174,27 @@ public final class MobilePushCoordinator {
         }
     }
 
+    /// The result of an opt-in attempt, so the settings UI can show the right
+    /// next step instead of leaving a denied tap silently doing nothing.
+    public enum EnableOutcome: Sendable, Equatable {
+        /// The OS will deliver banners; the phone side is fully opted in.
+        case granted
+        /// The user just declined the OS prompt this run. The toggle stays off.
+        case declined
+        /// Notifications are off in iOS Settings, so the in-app toggle cannot
+        /// grant them. The UI must route the user to iOS Settings.
+        case blockedBySystemSettings
+    }
+
     /// Opt in: request system authorization, register for remote notifications,
-    /// and persist the flag. Returns whether authorization was granted.
+    /// and persist the flag.
+    ///
+    /// When notifications were already denied in iOS Settings, the OS does not
+    /// re-prompt and `requestAuthorization` returns `false`; that case returns
+    /// ``EnableOutcome/blockedBySystemSettings`` so the UI can send the user to
+    /// Settings rather than silently failing.
     @discardableResult
-    public func enable() async -> Bool {
+    public func enable() async -> EnableOutcome {
         let priorStatus = await UNUserNotificationCenter.current()
             .notificationSettings().authorizationStatus
         // Only an undetermined status produces a real OS prompt; gate the
@@ -157,12 +213,12 @@ public final class MobilePushCoordinator {
                 "trigger": .string("settings_toggle"),
                 "was_os_level_predenied": .bool(priorStatus == .denied),
             ])
-            return false
+            return priorStatus == .notDetermined ? .declined : .blockedBySystemSettings
         }
         analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
         await registration.setEnabled(true)
         UIApplication.shared.registerForRemoteNotifications()
-        return true
+        return .granted
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.

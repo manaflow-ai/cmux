@@ -4353,6 +4353,74 @@
         }
       }
     },
+    "mobile.notifications.footer.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are turned off for cmux in iOS Settings. Open Settings to allow them, then turn on \"Forward notifications to my iPhone\" on your Mac in cmux Settings > Notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの設定でcmuxの通知がオフになっています。設定を開いて通知を許可し、Macのcmuxの設定＞通知で「iPhoneに通知を転送」をオンにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.footer.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also turn on \"Forward notifications to my iPhone\" on your Mac in cmux Settings > Notifications. Agent notifications are sent only while you are away from the Mac unless you choose Always."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxの設定＞通知で「iPhoneに通知を転送」もオンにしてください。エージェント通知は、「常に」を選択しない限り、Macから離れている間のみ送信されます。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open iOS Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.settings.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
     "mobile.notifications.disable": {
       "extractionState": "manual",
       "localizations": {

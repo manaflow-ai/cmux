@@ -4034,3 +4034,28 @@ private struct InertPushRegistration: PushRegistering {
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
 }
+
+// MARK: - Push notification authorization surfacing
+
+/// The settings UI needs to know when the OS has *denied* notifications so it
+/// can route the user to iOS Settings instead of leaving the in-app toggle
+/// silently doing nothing — the most common "notifications don't work" cause.
+/// `authorizationStatus()` must report the injected provider's value verbatim.
+@Test @MainActor func pushCoordinatorReportsDeniedSystemAuthorization() async {
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        authorizationStatusProvider: { .denied }
+    )
+    #expect(await coordinator.authorizationStatus() == .denied)
+}
+
+/// A granted (or provisional/ephemeral) OS authorization surfaces as
+/// `.authorized`, so the settings section shows the plain setup footer rather
+/// than the "Open iOS Settings" route.
+@Test @MainActor func pushCoordinatorReportsAuthorizedSystemAuthorization() async {
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        authorizationStatusProvider: { .authorized }
+    )
+    #expect(await coordinator.authorizationStatus() == .authorized)
+}
