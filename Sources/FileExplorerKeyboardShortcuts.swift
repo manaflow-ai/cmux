@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileOpen
 import CmuxSettings
 
 /// Perform the configured action for opening a local file from the file explorer.
@@ -19,6 +20,7 @@ func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Vo
     }
 }
 
+@MainActor
 extension FileExplorerPanelView.Coordinator {
     func openSelectedNode(in outlineView: NSOutlineView) {
         guard let row = resolvedSelectionRow(in: outlineView) else { return }
