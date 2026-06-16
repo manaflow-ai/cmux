@@ -27,8 +27,9 @@ extension TerminalController {
             NotificationCenter.default.removeObserver(observer)
         }
 
-        let secondResult = socketWorkerCoordinatorResult(for: request)
-        guard Self.retryableReadDemandSurfaceID(from: secondResult, request: request) == surfaceID else {
+        let retryRequest = Self.readTextRequest(request, pinnedToSurfaceID: surfaceID)
+        let secondResult = socketWorkerCoordinatorResult(for: retryRequest)
+        guard Self.retryableReadDemandSurfaceID(from: secondResult, request: retryRequest) == surfaceID else {
             return surfaceReadTextSocketWorkerEncoder.response(id: request.id, secondResult)
         }
 
@@ -36,7 +37,7 @@ extension TerminalController {
             return surfaceReadTextSocketWorkerEncoder.response(id: request.id, secondResult)
         }
 
-        let readyResult = socketWorkerCoordinatorResult(for: request)
+        let readyResult = socketWorkerCoordinatorResult(for: retryRequest)
         return surfaceReadTextSocketWorkerEncoder.response(id: request.id, readyResult)
     }
 
@@ -64,6 +65,15 @@ extension TerminalController {
             return nil
         }
         return UUID(uuidString: rawSurfaceID)
+    }
+
+    private nonisolated static func readTextRequest(
+        _ request: ControlRequest,
+        pinnedToSurfaceID surfaceID: UUID
+    ) -> ControlRequest {
+        var params = request.params
+        params["surface_id"] = .string(surfaceID.uuidString)
+        return ControlRequest(id: request.id, method: request.method, params: params)
     }
 
     private nonisolated static func v2BoolValue(_ value: JSONValue?) -> Bool? {
