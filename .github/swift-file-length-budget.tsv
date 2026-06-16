@@ -109,8 +109,8 @@
 830	Sources/TaskManagerTypes.swift
 825	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
-807	Sources/MainWindowFocusController.swift
 797	Sources/ClosedItemHistory.swift
+797	Sources/MainWindowFocusController.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift

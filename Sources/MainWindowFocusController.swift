@@ -105,9 +105,7 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
-    func registerWorkspaceSidebarHost(_ host: WorkspaceSidebarKeyboardFocusView) {
-        workspaceSidebarHost = host
-    }
+    func registerWorkspaceSidebarHost(_ host: WorkspaceSidebarKeyboardFocusView) { workspaceSidebarHost = host }
 
     func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
         rightSidebarHost = host
@@ -213,20 +211,12 @@ final class MainWindowFocusController {
         return false
     }
 
-    func ownsWorkspaceSidebarFocus(_ responder: NSResponder) -> Bool {
-        workspaceSidebarHost?.ownsKeyboardFocus(responder) == true
-    }
+    func ownsWorkspaceSidebarFocus(_ responder: NSResponder) -> Bool { workspaceSidebarHost?.ownsKeyboardFocus(responder) == true }
 
     @discardableResult
     func focusWorkspaceSidebar() -> Bool {
-        guard let host = workspaceSidebarHost,
-              let hostWindow = window,
-              host.window === hostWindow else {
-            return false
-        }
-        guard hostWindow.makeFirstResponder(host) else {
-            return false
-        }
+        guard let host = workspaceSidebarHost, let hostWindow = window, host.window === hostWindow else { return false }
+        guard hostWindow.makeFirstResponder(host) else { return false }
         syncAfterResponderChange(responder: hostWindow.firstResponder)
         return true
     }
