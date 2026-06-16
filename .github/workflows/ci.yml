@@ -55,6 +55,9 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Validate virtual display lock
+        run: ./tests/test_ci_virtual_display_lock.sh
+
       - name: Validate nightly tag push auth
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 

@@ -66,7 +66,7 @@ fi
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
 CMUX_VDISPLAY_LOCK_TOKEN="wrong-token" \
-  "$SCRIPT" release
+  "$SCRIPT" release 2>/tmp/cmux-vdisplay-wrong-token-release.err
 
 if [ ! -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   echo "FAIL: release removed a lock with the wrong token" >&2
@@ -83,4 +83,4 @@ if [ -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   exit 1
 fi
 
-echo "PASS: virtual display lock serializes acquisition and releases only matching tokens"
+echo "PASS: virtual display lock serializes acquisition, preserves live-owner locks, and releases only matching tokens"

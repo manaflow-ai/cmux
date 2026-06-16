@@ -176,6 +176,7 @@ jobs:
           validate_non_negative_integer other_scrollback_lines "$OTHER_SCROLLBACK_LINES_INPUT"
           validate_non_negative_integer scrollback_target_chars "$SCROLLBACK_TARGET_CHARS_INPUT"
           mkdir -p perf-results
+          chmod 0777 perf-results
 
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
           BENCHMARK_CMD=(
