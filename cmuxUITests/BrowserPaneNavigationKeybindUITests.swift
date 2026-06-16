@@ -1357,7 +1357,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            self.socketCommand("ping") == "PONG"
+            self.socketCommand("ping") == "PONG" || self.controlSocketDiagnosticsReportReady(self.loadJSON(atPath: self.diagnosticsPath) ?? [:])
         }
     }
 
@@ -1405,7 +1405,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) ?? controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -1414,7 +1414,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ?? controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {
