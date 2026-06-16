@@ -3,6 +3,7 @@ import CmuxTerminal
 import Foundation
 
 private let surfaceReadTextSocketWorkerEncoder = ControlResponseEncoder()
+private let surfaceReadTextReadinessWaiter = SurfaceReadTextReadinessWaiter(maxWaiters: 16)
 
 extension TerminalController {
     nonisolated func socketWorkerSurfaceReadTextResponse(_ request: ControlRequest) -> String {
@@ -14,17 +15,11 @@ extension TerminalController {
             return surfaceReadTextSocketWorkerEncoder.response(id: request.id, firstResult)
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let observer = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: nil,
-            queue: nil
-        ) { notification in
-            guard notification.userInfo?["surfaceId"] as? UUID == surfaceID else { return }
-            semaphore.signal()
+        guard let readinessWait = surfaceReadTextReadinessWaiter.prepareWait(for: surfaceID) else {
+            return surfaceReadTextSocketWorkerEncoder.response(id: request.id, firstResult)
         }
         defer {
-            NotificationCenter.default.removeObserver(observer)
+            surfaceReadTextReadinessWaiter.cancel(readinessWait)
         }
 
         let retryRequest = Self.readTextRequest(request, pinnedToSurfaceID: surfaceID)
@@ -33,7 +28,7 @@ extension TerminalController {
             return surfaceReadTextSocketWorkerEncoder.response(id: request.id, secondResult)
         }
 
-        guard semaphore.wait(timeout: .now() + 5) == .success else {
+        guard surfaceReadTextReadinessWaiter.wait(readinessWait, timeout: 5) else {
             return surfaceReadTextSocketWorkerEncoder.response(id: request.id, secondResult)
         }
 
@@ -95,6 +90,128 @@ extension TerminalController {
             }
         default:
             return nil
+        }
+    }
+}
+
+private final class SurfaceReadTextReadinessWait: @unchecked Sendable {
+    let surfaceID: UUID
+    let waiterID: UUID
+    let semaphore = DispatchSemaphore(value: 0)
+
+    init(surfaceID: UUID, waiterID: UUID) {
+        self.surfaceID = surfaceID
+        self.waiterID = waiterID
+    }
+}
+
+private final class SurfaceReadTextReadinessWaiter: @unchecked Sendable {
+    private final class Entry {
+        var observer: NSObjectProtocol?
+        var waiters: [UUID: SurfaceReadTextReadinessWait] = [:]
+    }
+
+    private let lock = NSLock()
+    private let maxWaiters: Int
+    private var entries: [UUID: Entry] = [:]
+    private var activeWaiterCount = 0
+
+    init(maxWaiters: Int) {
+        self.maxWaiters = maxWaiters
+    }
+
+    func prepareWait(for surfaceID: UUID) -> SurfaceReadTextReadinessWait? {
+        let wait = SurfaceReadTextReadinessWait(surfaceID: surfaceID, waiterID: UUID())
+        var observerToRemove: NSObjectProtocol?
+        var shouldInstallObserver = false
+
+        lock.lock()
+        if activeWaiterCount >= maxWaiters {
+            lock.unlock()
+            return nil
+        }
+
+        let entry = entries[surfaceID] ?? Entry()
+        if entry.observer == nil {
+            shouldInstallObserver = true
+        }
+        entry.waiters[wait.waiterID] = wait
+        entries[surfaceID] = entry
+        activeWaiterCount += 1
+        lock.unlock()
+
+        if shouldInstallObserver {
+            let observer = NotificationCenter.default.addObserver(
+                forName: .terminalSurfaceDidBecomeReady,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                self?.signalReady(surfaceID: surfaceID, notification: notification)
+            }
+
+            lock.lock()
+            if let currentEntry = entries[surfaceID], currentEntry.observer == nil {
+                currentEntry.observer = observer
+            } else {
+                observerToRemove = observer
+            }
+            lock.unlock()
+        }
+
+        if let observerToRemove {
+            NotificationCenter.default.removeObserver(observerToRemove)
+        }
+        return wait
+    }
+
+    func wait(_ wait: SurfaceReadTextReadinessWait, timeout: TimeInterval) -> Bool {
+        let result = wait.semaphore.wait(timeout: .now() + timeout) == .success
+        if !result {
+            cancel(wait)
+        }
+        return result
+    }
+
+    func cancel(_ wait: SurfaceReadTextReadinessWait) {
+        var observerToRemove: NSObjectProtocol?
+
+        lock.lock()
+        if let entry = entries[wait.surfaceID],
+           entry.waiters.removeValue(forKey: wait.waiterID) != nil {
+            activeWaiterCount = max(0, activeWaiterCount - 1)
+            if entry.waiters.isEmpty {
+                entries.removeValue(forKey: wait.surfaceID)
+                observerToRemove = entry.observer
+            }
+        }
+        lock.unlock()
+
+        if let observerToRemove {
+            NotificationCenter.default.removeObserver(observerToRemove)
+        }
+    }
+
+    private func signalReady(surfaceID: UUID, notification: Notification) {
+        guard notification.userInfo?["surfaceId"] as? UUID == surfaceID else { return }
+
+        var observerToRemove: NSObjectProtocol?
+        let waits: [SurfaceReadTextReadinessWait]
+
+        lock.lock()
+        if let entry = entries.removeValue(forKey: surfaceID) {
+            waits = Array(entry.waiters.values)
+            activeWaiterCount = max(0, activeWaiterCount - waits.count)
+            observerToRemove = entry.observer
+        } else {
+            waits = []
+        }
+        lock.unlock()
+
+        if let observerToRemove {
+            NotificationCenter.default.removeObserver(observerToRemove)
+        }
+        for wait in waits {
+            wait.semaphore.signal()
         }
     }
 }
