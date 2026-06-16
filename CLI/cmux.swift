@@ -23538,14 +23538,15 @@ struct CMUXCLI {
                 // normal launches. Only on first sighting, so an established
                 // record's richer capture is never overwritten.
                 // https://github.com/manaflow-ai/cmux/issues/5908
-                let firstSightingLaunchCommand = mappedSession == nil
-                    ? agentLaunchCommandFromEnvironment(
+                let firstSightingLaunchCapture = mappedSession == nil
+                    ? agentLaunchCommandCaptureFromEnvironment(
                         ProcessInfo.processInfo.environment,
                         fallbackPID: claudePid,
                         fallbackKind: "claude",
                         cwd: parsedInput.cwd
                     )
                     : nil
+                let firstSightingLaunchCommand = firstSightingLaunchCapture?.command
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -23570,7 +23571,8 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
                     allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
                         mappedSession,
-                        transcriptPath: parsedInput.transcriptPath
+                        transcriptPath: parsedInput.transcriptPath,
+                        allowIncomingTranscriptPath: !(firstSightingLaunchCapture?.sanitizerRejected ?? false)
                     )
                 )
             }
@@ -26681,6 +26683,20 @@ struct CMUXCLI {
         fallbackKind: String,
         cwd: String?
     ) -> AgentHookLaunchCommandRecord? {
+        agentLaunchCommandCaptureFromEnvironment(
+            env,
+            fallbackPID: fallbackPID,
+            fallbackKind: fallbackKind,
+            cwd: cwd
+        ).command
+    }
+
+    private func agentLaunchCommandCaptureFromEnvironment(
+        _ env: [String: String],
+        fallbackPID: Int?,
+        fallbackKind: String,
+        cwd: String?
+    ) -> (command: AgentHookLaunchCommandRecord?, sanitizerRejected: Bool) {
         // `CMUX_AGENT_LAUNCH_*` leaks to every descendant of an agent process, so an
         // agent started from inside another agent's session inherits the ANCESTOR's
         // launch capture (codex under claude carries claude's argv). Trust the env
@@ -26732,7 +26748,7 @@ struct CMUXCLI {
         }
 
         guard let arguments, !arguments.isEmpty else {
-            return environmentOnlyRecord()
+            return (environmentOnlyRecord(), false)
         }
 
         let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)
@@ -26746,11 +26762,11 @@ struct CMUXCLI {
             // suppresses non-restorable invocations (`codex exec`, `codex review`, `claude config`, …).
             // Those must never get a resume/fork binding, so stay nil even when a safe env var (e.g.
             // CODEX_HOME) is present; do NOT fall through to the env-only record here.
-            return nil
+            return (nil, true)
         }
         let source = envArguments == nil ? "process" : "environment"
 
-        return AgentHookLaunchCommandRecord(
+        return (AgentHookLaunchCommandRecord(
             launcher: launcher,
             executablePath: executablePath,
             arguments: sanitizedArguments,
@@ -26758,17 +26774,18 @@ struct CMUXCLI {
             environment: environment.isEmpty ? nil : environment,
             capturedAt: Date().timeIntervalSince1970,
             source: source
-        )
+        ), false)
     }
 
     private func hasPositiveAgentResumeRestorabilitySignal(
         _ record: ClaudeHookSessionRecord?,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil,
+        allowIncomingTranscriptPath: Bool = true
     ) -> Bool {
         if record?.isRestorable == true {
             return true
         }
-        if normalizedHookValue(transcriptPath) != nil {
+        if allowIncomingTranscriptPath, normalizedHookValue(transcriptPath) != nil {
             return true
         }
         return normalizedHookValue(record?.transcriptPath) != nil
@@ -29878,12 +29895,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
-            let launchCommand = agentLaunchCommandFromEnvironment(
+            let launchCapture = agentLaunchCommandCaptureFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let launchCommand = launchCapture.command
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
@@ -30006,12 +30024,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = mapped?.pid ?? inferredPID
-            let launchCommand = agentLaunchCommandFromEnvironment(
+            let launchCapture = agentLaunchCommandCaptureFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let launchCommand = launchCapture.command
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -30243,7 +30262,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand ?? mapped?.launchCommand,
                     allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
                         mapped,
-                        transcriptPath: input.transcriptPath
+                        transcriptPath: input.transcriptPath,
+                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
                     )
                 )
                 if codexPromptTurnWentTerminal() {
@@ -30434,12 +30454,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            let launchCommand = agentLaunchCommandFromEnvironment(
+            let launchCapture = agentLaunchCommandCaptureFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let launchCommand = launchCapture.command
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
@@ -30521,7 +30542,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand ?? mapped?.launchCommand,
                     allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
                         mapped,
-                        transcriptPath: input.transcriptPath
+                        transcriptPath: input.transcriptPath,
+                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
                     )
                 )
             }
@@ -30676,12 +30698,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
-            let launchCommand = agentLaunchCommandFromEnvironment(
+            let launchCapture = agentLaunchCommandCaptureFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let launchCommand = launchCapture.command
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.markNotificationResolved(
@@ -30706,7 +30729,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand ?? mapped?.launchCommand,
                     allowDefaultResumeCommand: hasPositiveAgentResumeRestorabilitySignal(
                         mapped,
-                        transcriptPath: input.transcriptPath
+                        transcriptPath: input.transcriptPath,
+                        allowIncomingTranscriptPath: !launchCapture.sanitizerRejected
                     )
                 )
             }

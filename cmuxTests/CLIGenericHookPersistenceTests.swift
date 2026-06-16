@@ -3726,6 +3726,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-exec-session"
         let ttyName = "ttys304"
+        let transcriptPath = root.appendingPathComponent("codex-exec.jsonl").path
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -3778,13 +3779,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","transcript_path":"\#(transcriptPath)","prompt":"continue"}"#,
             timeout: 5
         )
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+            },
+            "transcript_path must not bypass sanitizer rejection for non-restorable codex exec; saw \(state.snapshot())"
+        )
 
         // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
