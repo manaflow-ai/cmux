@@ -29854,12 +29854,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 sendAgentFeedTelemetry()
             }
         }
+        func normalizedTitleUpdate(_ value: String?) -> String? {
+            guard let title = normalizedHookValue(value)?
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) else {
+                return nil
+            }
+            guard title.count > 200 else { return title }
+            let index = title.index(title.startIndex, offsetBy: 199)
+            return String(title[..<index]) + "…"
+        }
 
         switch action {
         case .titleUpdate:
             didSendFeedTelemetry = true
             guard !sessionId.isEmpty,
-                  let title = normalizedHookValue(input.title),
+                  let title = normalizedTitleUpdate(input.title),
                   let mapped = try? store.lookup(sessionId: sessionId) else {
                 break
             }

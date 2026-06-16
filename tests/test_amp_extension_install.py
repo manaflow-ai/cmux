@@ -150,6 +150,7 @@ const ctx = { thread };
 await handlers.get("session.start")({ thread }, ctx);
 await handlers.get("agent.start")({ thread, message: "hello amp", id: "msg-user-1" }, ctx);
 if (typeof titleSubscriber === "function") titleSubscriber("Updated Amp title");
+await new Promise((resolve) => setTimeout(resolve, 350));
 await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
 """
         check_script = root / "check.mjs"

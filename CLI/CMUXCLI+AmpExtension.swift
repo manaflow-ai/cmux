@@ -429,7 +429,18 @@ export default function (amp: PluginAPI) {
   // Amp versions whose API predates `thread.title`.
   // Cached per thread so we resolve at most once.
   const capturedTitles = new Map<string, string>();
+  const TITLE_MAX_LENGTH = 200;
+  const TITLE_UPDATE_DEBOUNCE_MS = 250;
   const TITLE_LOOKUP_TIMEOUT_MS = 1000;
+  function normalizedTitle(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const title = value.replace(/\s+/g, " ").trim();
+    if (!title) return null;
+    return title.length > TITLE_MAX_LENGTH
+      ? title.slice(0, TITLE_MAX_LENGTH - 1) + "…"
+      : title;
+  }
+
   async function resolveSessionTitle(
     threadID: string,
     ctx?: AmpThreadContext,
@@ -437,7 +448,7 @@ export default function (amp: PluginAPI) {
     // Always try the real thread title first (cheap, and lets cmux upgrade the
     // stored title once Amp assigns/refines it on a later turn).
     try {
-      const threadTitle = (await ctx?.thread?.title?.get?.())?.trim();
+      const threadTitle = normalizedTitle(await ctx?.thread?.title?.get?.());
       if (threadTitle) {
         capturedTitles.set(threadID, threadTitle);
         return threadTitle;
@@ -478,8 +489,8 @@ export default function (amp: PluginAPI) {
           .join(" ")
           .replace(/\s+/g, " ")
           .trim();
-        if (text) {
-          const title = text.length > 200 ? text.slice(0, 199) + "…" : text;
+        const title = normalizedTitle(text);
+        if (title) {
           capturedTitles.set(threadID, title);
           return title;
         }
@@ -502,7 +513,8 @@ export default function (amp: PluginAPI) {
   }
 
   function titleExtra(title: string | null): Record<string, unknown> {
-    return title ? { title } : {};
+    const normalized = normalizedTitle(title);
+    return normalized ? { title: normalized } : {};
   }
 
   // Amp usually generates the title mid-turn, so reading it on
@@ -514,13 +526,23 @@ export default function (amp: PluginAPI) {
     const observable = ctx?.thread?.title;
     if (!observable?.subscribe || titleSubs.has(threadID)) return;
     let lastSent: string | null = null;
+    let pendingTitle: string | null = null;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushTitle = () => {
+      flushTimer = null;
+      const title = pendingTitle;
+      pendingTitle = null;
+      if (!turnActive || !title || title === lastSent) return;
+      lastSent = title;
+      sendHook("title-update", threadID, cwdFromEnv(), { title });
+    };
     try {
       const sub = observable.subscribe((value) => {
-        if (!turnActive) return;
-        const title = value?.trim();
+        const title = normalizedTitle(value);
         if (!title || title === lastSent) return;
-        lastSent = title;
-        sendHook("title-update", threadID, cwdFromEnv(), { title });
+        pendingTitle = title;
+        if (flushTimer !== null) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
       });
       titleSubs.set(threadID, sub);
     } catch (_) {}
