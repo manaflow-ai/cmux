@@ -155,6 +155,52 @@ check_release_helper_upload_retry() {
   echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
 }
 
+check_release_helper_selects_xcode() {
+  if ! awk '
+    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Select Xcode/ { saw_select=1 }
+    in_job && /echo "DEVELOPER_DIR=\$XCODE_DIR" >> "\$GITHUB_ENV"/ { saw_developer_dir=1 }
+    in_job && /xcrun --sdk macosx --show-sdk-path/ { saw_sdk=1 }
+    in_job && /- name: Install zig/ {
+      saw_install=1
+      if (!(saw_select && saw_developer_dir && saw_sdk)) {
+        exit 1
+      }
+    }
+    END { exit !(saw_select && saw_developer_dir && saw_sdk && saw_install) }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-ghostty-cli-helper must select Xcode before installing Zig and building the helper"
+    exit 1
+  fi
+
+  echo "PASS: release-ghostty-cli-helper selects Xcode before building the helper"
+}
+
+check_shared_test_products_use_xctestrun() {
+  if ! grep -Fq "name 'cmux-unit_*.xctestrun'" "$CI_FILE"; then
+    echo "FAIL: unit test jobs must locate the shared cmux-unit .xctestrun before test-without-building"
+    exit 1
+  fi
+
+  if ! grep -Fq "xcodebuild -xctestrun \"\$CMUX_UNIT_XCTESTRUN\"" "$CI_FILE"; then
+    echo "FAIL: unit test jobs must run test-without-building through the shared cmux-unit .xctestrun"
+    exit 1
+  fi
+
+  if ! grep -Fq "name 'cmux_*.xctestrun'" "$CI_FILE"; then
+    echo "FAIL: UI regression jobs must locate the shared cmux .xctestrun before test-without-building"
+    exit 1
+  fi
+
+  if ! grep -Fq "xcodebuild -xctestrun \"\$CMUX_UI_XCTESTRUN\"" "$CI_FILE"; then
+    echo "FAIL: UI regression jobs must run test-without-building through the shared cmux .xctestrun"
+    exit 1
+  fi
+
+  echo "PASS: shared test product jobs use extracted .xctestrun files"
+}
+
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
     echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
@@ -332,6 +378,8 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
+check_release_helper_selects_xcode
+check_shared_test_products_use_xctestrun
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
