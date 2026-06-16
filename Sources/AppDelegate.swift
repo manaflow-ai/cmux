@@ -17579,10 +17579,8 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-/// Conforms the composition root to the updater package's inversion seams: the host actions the
-/// updater triggers (``UpdateActionsHost``) and the retry/relaunch hooks it calls back into
-/// (``UpdateActionDelegate``). `checkForUpdatesInCustomUI()` is satisfied by the method on the
-/// main `AppDelegate` declaration.
+/// Conforms the composition root to updater host actions, retry, and relaunch seams.
+/// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
         checkForUpdates(nil)
