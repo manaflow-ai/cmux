@@ -4863,6 +4863,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return -Int(clamping: previousOffset - currentOffset)
     }
 
+    private func scrollKeyboardCopyModeViewportByLines(_ lineDelta: Int) -> Int {
+        guard lineDelta != 0 else { return 0 }
+
+        let previousOffset = scrollbar?.offset
+        _ = performBindingAction("scroll_page_lines:\(lineDelta)")
+        _ = flushPendingScrollbarIfAvailable()
+        guard let previousOffset,
+              let currentOffset = scrollbar?.offset else {
+            return lineDelta
+        }
+        return keyboardCopyModeViewportLineDelta(from: previousOffset, to: currentOffset)
+    }
+
     private func updateKeyboardCopyModeCursorModel(
         _ direction: TerminalKeyboardCopyModeSelectionMove,
         count: Int,
@@ -5047,11 +5060,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let scrollDelta = cursor.move(direction, count: count, rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
         if scrollDelta != 0 {
-            _ = performBindingAction("scroll_page_lines:\(scrollDelta)")
+            let actualScrollDelta = scrollKeyboardCopyModeViewportByLines(scrollDelta)
             if var anchorRow = keyboardCopyModeVisualLineAnchorRow {
                 var anchorCursor = TerminalKeyboardCopyModeCursor(row: anchorRow, column: 0)
                 anchorCursor.shiftForViewportScroll(
-                    lineDelta: scrollDelta,
+                    lineDelta: actualScrollDelta,
                     rows: metrics.rows,
                     columns: metrics.columns
                 )
