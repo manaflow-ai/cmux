@@ -212,6 +212,15 @@ check_agent_session_resources_gate() {
   echo "PASS: agent-session web resources run for app and webview dependency changes"
 }
 
+check_app_detector_includes_ui_tests() {
+  if ! grep -Fq "cmuxUITests/" "$CI_FILE"; then
+    echo "FAIL: app-domain change detector must include cmuxUITests/"
+    exit 1
+  fi
+
+  echo "PASS: app-domain change detector includes cmuxUITests/"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -259,4 +268,5 @@ check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_agent_session_resources_gate
+check_app_detector_includes_ui_tests
 check_tmux_terminal_nightly_isolation

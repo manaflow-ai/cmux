@@ -11,36 +11,34 @@ import sys
 from pathlib import Path
 
 
-CLASS_RE = re.compile(r"\b(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b")
 ATTRIBUTE_ARGS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
 SWIFT_ATTRIBUTE = rf"@[A-Za-z_][A-Za-z0-9_]*{ATTRIBUTE_ARGS}"
 TYPE_MODIFIER = r"(?:public|private|internal|fileprivate|open|final)"
+CLASS_RE = re.compile(
+    rf"^[ \t]*(?:(?:{SWIFT_ATTRIBUTE}|{TYPE_MODIFIER})[ \t]+)*class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b",
+    re.MULTILINE,
+)
 TYPE_DECL_RE = re.compile(
     rf"""
-    (?:
-        (?:{SWIFT_ATTRIBUTE}|{TYPE_MODIFIER})
-        \s+
-    )*
+    ^[ \t]*
+    (?:(?:{SWIFT_ATTRIBUTE}|{TYPE_MODIFIER})[ \t]+)*
     (?:struct|class|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b
     """,
-    re.VERBOSE,
+    re.VERBOSE | re.MULTILINE,
 )
-EXTENSION_RE = re.compile(r"\bextension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+EXTENSION_RE = re.compile(r"^[ \t]*extension\s+([A-Za-z_][A-Za-z0-9_]*)\b", re.MULTILINE)
 SUITE_RE = re.compile(
     rf"""
-    @Suite{ATTRIBUTE_ARGS}
+    ^[ \t]*@Suite{ATTRIBUTE_ARGS}
     (?:
-        \s+
-        (?:
-            {SWIFT_ATTRIBUTE}
-            |
-            {TYPE_MODIFIER}
-        )
+        [ \t]*(?:\n[ \t]*)+
+        {SWIFT_ATTRIBUTE}
     )*
-    \s+
+    [ \t]*(?:\n[ \t]*)*
+    (?:{TYPE_MODIFIER}[ \t]+)*
     (?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\b
     """,
-    re.VERBOSE,
+    re.VERBOSE | re.MULTILINE,
 )
 TEST_METHOD_RE = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]+)\s*\(")
 SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"@Test\b")

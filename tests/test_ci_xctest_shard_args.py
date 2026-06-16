@@ -175,6 +175,34 @@ def test_discovers_tests_added_by_extensions() -> None:
     assert "-only-testing:cmuxTests/SwiftTestingBase" in output
 
 
+def test_ignores_comment_and_string_declaration_words() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tests_dir = Path(tmp)
+        (tests_dir / "CommentTests.swift").write_text(
+            textwrap.dedent(
+                '''
+                import Testing
+
+                // This comment mentions class of bug, actor as owner, enum to parse, and struct kit.
+                struct CommentTests {
+                    let text = "class Fake { @Test func bogus() {} }"
+
+                    @Test func coversBehavior() {}
+                }
+                '''
+            ),
+            encoding="utf-8",
+        )
+
+        output = run_helper(tests_dir)
+
+    assert "-only-testing:cmuxTests/CommentTests" in output
+    assert "cmuxTests/of" not in output
+    assert "cmuxTests/as" not in output
+    assert "cmuxTests/to" not in output
+    assert "cmuxTests/kit" not in output
+
+
 def main() -> int:
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
