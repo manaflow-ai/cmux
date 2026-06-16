@@ -693,7 +693,7 @@ jobs:
 
   agent-session-web-resources:
     needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.app == 'true' }}
+    if: ${{ needs.detect-changes.outputs.app == 'true' || needs.detect-changes.outputs.webviews == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

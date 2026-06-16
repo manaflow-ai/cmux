@@ -15,6 +15,17 @@ CLASS_RE = re.compile(r"\b(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XC
 ATTRIBUTE_ARGS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
 SWIFT_ATTRIBUTE = rf"@[A-Za-z_][A-Za-z0-9_]*{ATTRIBUTE_ARGS}"
 TYPE_MODIFIER = r"(?:public|private|internal|fileprivate|open|final)"
+TYPE_DECL_RE = re.compile(
+    rf"""
+    (?:
+        (?:{SWIFT_ATTRIBUTE}|{TYPE_MODIFIER})
+        \s+
+    )*
+    (?:struct|class|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b
+    """,
+    re.VERBOSE,
+)
+EXTENSION_RE = re.compile(r"\bextension\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 SUITE_RE = re.compile(
     rf"""
     @Suite{ATTRIBUTE_ARGS}
@@ -32,6 +43,7 @@ SUITE_RE = re.compile(
     re.VERBOSE,
 )
 TEST_METHOD_RE = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]+)\s*\(")
+SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"@Test\b")
 
 
 def find_matching_brace(source: str, open_index: int) -> int:
@@ -55,6 +67,26 @@ def discover_xctest_identifiers(tests_dir: Path, module: str) -> list[str]:
         source = path.read_text(encoding="utf-8")
         for match in SUITE_RE.finditer(source):
             identifiers.append(f"{module}/{match.group(1)}")
+        for match in TYPE_DECL_RE.finditer(source):
+            type_name = match.group(1)
+            open_index = source.find("{", match.end())
+            if open_index == -1:
+                continue
+            close_index = find_matching_brace(source, open_index)
+            body = source[open_index:close_index]
+            if SWIFT_TEST_ATTRIBUTE_RE.search(body):
+                identifiers.append(f"{module}/{type_name}")
+        for match in EXTENSION_RE.finditer(source):
+            type_name = match.group(1)
+            open_index = source.find("{", match.end())
+            if open_index == -1:
+                continue
+            close_index = find_matching_brace(source, open_index)
+            body = source[open_index:close_index]
+            if SWIFT_TEST_ATTRIBUTE_RE.search(body):
+                identifiers.append(f"{module}/{type_name}")
+            methods = sorted({method.group(1) for method in TEST_METHOD_RE.finditer(body)})
+            identifiers.extend(f"{module}/{type_name}/{method}" for method in methods)
         for match in CLASS_RE.finditer(source):
             class_name = match.group(1)
             open_index = source.find("{", match.end())

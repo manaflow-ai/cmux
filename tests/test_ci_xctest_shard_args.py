@@ -123,6 +123,58 @@ def test_discovers_swift_testing_suite_types_with_intervening_attributes() -> No
     assert "-only-testing:cmuxTests/AttributedSuiteTests" in output
 
 
+def test_discovers_implicit_swift_testing_suite_types() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tests_dir = Path(tmp)
+        (tests_dir / "ImplicitSuiteTests.swift").write_text(
+            textwrap.dedent(
+                """
+                import Testing
+
+                struct ImplicitSuiteTests {
+                    @Test func coversBehavior() {}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        output = run_helper(tests_dir)
+
+    assert "-only-testing:cmuxTests/ImplicitSuiteTests" in output
+
+
+def test_discovers_tests_added_by_extensions() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tests_dir = Path(tmp)
+        (tests_dir / "ExtensionTests.swift").write_text(
+            textwrap.dedent(
+                """
+                import Testing
+                import XCTest
+
+                final class LegacyTests: XCTestCase {}
+
+                extension LegacyTests {
+                    func testExtensionRegression() {}
+                }
+
+                struct SwiftTestingBase {}
+
+                extension SwiftTestingBase {
+                    @Test func coversBehavior() {}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        output = run_helper(tests_dir)
+
+    assert "-only-testing:cmuxTests/LegacyTests/testExtensionRegression" in output
+    assert "-only-testing:cmuxTests/SwiftTestingBase" in output
+
+
 def main() -> int:
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):

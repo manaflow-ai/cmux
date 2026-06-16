@@ -203,6 +203,15 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_agent_session_resources_gate() {
+  if ! grep -Fq "needs.detect-changes.outputs.app == 'true' || needs.detect-changes.outputs.webviews == 'true'" "$CI_FILE"; then
+    echo "FAIL: agent-session web resources must run for app changes and webview dependency changes"
+    exit 1
+  fi
+
+  echo "PASS: agent-session web resources run for app and webview dependency changes"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -249,4 +258,5 @@ check_release_helper_upload_retry
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_agent_session_resources_gate
 check_tmux_terminal_nightly_isolation
