@@ -18,6 +18,15 @@ extension TerminalController {
         )
     }
 
+    /// Error shown when the Mac-side chat service is not wired into this
+    /// process. Surfaces in mobile RPC error banners and debug responses.
+    static var chatServiceUnavailableErrorMessage: String {
+        String(
+            localized: "mobile.chat.error.serviceUnavailable",
+            defaultValue: "Agent chat transcript service is not configured"
+        )
+    }
+
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
     func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
@@ -43,14 +52,19 @@ extension TerminalController {
     /// full chat-session registry state, for diagnosing inconsistent
     /// phone-side states.
     func v2ChatSessionsDump() -> V2CallResult {
-        .ok(["sessions": AgentChatTranscriptService.shared.debugSessionDump()])
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        return .ok(["sessions": service.debugSessionDump()])
     }
 
     /// `mobile.chat.sessions`: list chat-capable coding-agent sessions,
     /// optionally scoped to one workspace.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
-        let service = AgentChatTranscriptService.shared
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
         // Register coding agents cmux detects by terminal title but that never
         // ran a hook (e.g. launched through a shell wrapper that bypasses
         // cmux's hook injection), so they get a chat session and toggle like
@@ -89,7 +103,7 @@ extension TerminalController {
     /// workspace touches no filesystem.
     func adoptDetectedAgentSessions(workspace: Workspace) {
         let workspaceID = workspace.id.uuidString
-        let service = AgentChatTranscriptService.shared
+        guard let service = agentChatTranscriptService else { return }
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
             let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
             let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
@@ -121,7 +135,9 @@ extension TerminalController {
         }
         let limit = min(max(v2Int(params, "limit") ?? 100, 1), 200)
         let beforeSeq = v2Int(params, "before_seq")
-        let service = AgentChatTranscriptService.shared
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
         var page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
         if page == nil, let staleRecord = service.sessionRecord(sessionID: sessionID) {
             // The record exists but its transcript didn't resolve — the
@@ -132,7 +148,7 @@ extension TerminalController {
             #if DEBUG
             cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
             #endif
-            let refreshed = AgentChatTranscriptService.shared.refreshSessionBindings(sessionID: sessionID)
+            let refreshed = service.refreshSessionBindings(sessionID: sessionID)
             if refreshed?.transcriptPath != staleRecord.transcriptPath
                 || refreshed?.workingDirectory != staleRecord.workingDirectory {
                 page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
@@ -294,7 +310,7 @@ extension TerminalController {
     /// retried. If it still doesn't resolve we fail with an actionable error
     /// rather than redirect the prompt to some other terminal.
     private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
-        let service = AgentChatTranscriptService.shared
+        guard let service = agentChatTranscriptService else { return nil }
         guard let record = service.sessionRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID else {
             return nil
