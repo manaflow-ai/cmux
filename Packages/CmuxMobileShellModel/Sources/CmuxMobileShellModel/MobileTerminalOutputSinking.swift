@@ -22,6 +22,10 @@ public struct MobileTerminalOutputChunk: Sendable {
     /// Delta frames and raw byte fallback chunks carry `nil` because they do not
     /// describe the local mirror's scrollback extent.
     public let scrollbackRows: Int?
+    /// Viewport grid captured by a full render-grid snapshot. Used by the local
+    /// iOS Ghostty mirror to apply final geometry before replaying scrollback.
+    public let replayColumns: Int?
+    public let replayRows: Int?
     public let data: Data
     public let streamToken: UUID
 
@@ -29,10 +33,14 @@ public struct MobileTerminalOutputChunk: Sendable {
         data: Data,
         streamToken: UUID,
         activeScreen: MobileTerminalRenderGridFrame.Screen? = nil,
-        scrollbackRows: Int? = nil
+        scrollbackRows: Int? = nil,
+        replayColumns: Int? = nil,
+        replayRows: Int? = nil
     ) {
         self.activeScreen = activeScreen
         self.scrollbackRows = scrollbackRows
+        self.replayColumns = replayColumns
+        self.replayRows = replayRows
         self.data = data
         self.streamToken = streamToken
     }

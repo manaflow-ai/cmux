@@ -781,6 +781,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// so a transient drop self-heals; a confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
+    private var geometryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -2263,6 +2264,41 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Ensure the local Ghostty mirror is sized to the replay grid before a full
+    /// render-grid snapshot is fed into it. Full replay constructs scrollback by
+    /// flowing lines through Ghostty; applying it before the final effective grid
+    /// lets the later resize collapse the mirror back to a viewport-only screen.
+    public func prepareForReplayViewport(columns: Int?, rows: Int?) async {
+        guard let columns, let rows, columns > 0, rows > 0 else { return }
+        if replayViewportReady(columns: columns, rows: rows) { return }
+        applyViewSize(cols: columns, rows: rows)
+        if replayViewportReady(columns: columns, rows: rows) { return }
+        guard window != nil else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                geometryWaiters[waiterID] = continuation
+                setNeedsGeometrySync(reassertNaturalSize: false)
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.cancelGeometryWaiter(id: waiterID)
+            }
+        }
+    }
+
+    private func replayViewportReady(columns: Int, rows: Int) -> Bool {
+        effectiveGrid?.cols == columns &&
+            effectiveGrid?.rows == rows &&
+            cellPixelSize.width > 0 &&
+            cellPixelSize.height > 0 &&
+            !lastRenderRect.isEmpty
+    }
+
+    private func cancelGeometryWaiter(id: UUID) {
+        geometryWaiters.removeValue(forKey: id)?.resume()
+    }
+
     /// Process terminal output and return after the output has been applied.
     ///
     /// The call still performs libghostty output processing on the serial
@@ -3205,6 +3241,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // behind (see display link).
         pendingRenderFrames = 6
         syncSnapshotFallback()
+        let waiters = Array(geometryWaiters.values)
+        geometryWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
 
         let naturalSize = result.naturalSize
         let effectiveMatchesNatural = effectiveGrid.map { grid in

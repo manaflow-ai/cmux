@@ -147,6 +147,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         activeScreen: chunk.activeScreen,
                         scrollbackRows: chunk.scrollbackRows
                     )
+                    await surfaceView.prepareForReplayViewport(
+                        columns: chunk.replayColumns,
+                        rows: chunk.replayRows
+                    )
                     await surfaceView.processOutputAndWait(chunk.data)
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,

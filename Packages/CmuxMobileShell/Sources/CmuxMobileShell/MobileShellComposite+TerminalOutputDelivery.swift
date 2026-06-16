@@ -33,7 +33,9 @@ extension MobileShellComposite {
                     data: immediate.bytes,
                     streamToken: streamToken,
                     activeScreen: immediate.activeScreen,
-                    scrollbackRows: immediate.scrollbackRows
+                    scrollbackRows: immediate.scrollbackRows,
+                    replayColumns: immediate.replayColumns,
+                    replayRows: immediate.replayRows
                 )
             )
         }
@@ -54,7 +56,9 @@ extension MobileShellComposite {
             data: next.bytes,
             streamToken: streamToken,
             activeScreen: next.activeScreen,
-            scrollbackRows: next.scrollbackRows
+            scrollbackRows: next.scrollbackRows,
+            replayColumns: next.replayColumns,
+            replayRows: next.replayRows
         ))
     }
 }

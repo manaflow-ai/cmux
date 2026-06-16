@@ -117,9 +117,15 @@ import Testing
 
     #expect(delivery.activeScreen == MobileTerminalRenderGridFrame.Screen.alternate)
     #expect(delivery.scrollbackRows == 42)
+    #expect(delivery.replayColumns == 12)
+    #expect(delivery.replayRows == 2)
     #expect(deltaDelivery.scrollbackRows == nil)
+    #expect(deltaDelivery.replayColumns == nil)
+    #expect(deltaDelivery.replayRows == nil)
     #expect(rawDelivery.activeScreen == nil)
     #expect(rawDelivery.scrollbackRows == nil)
+    #expect(rawDelivery.replayColumns == nil)
+    #expect(rawDelivery.replayRows == nil)
 }
 
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {
