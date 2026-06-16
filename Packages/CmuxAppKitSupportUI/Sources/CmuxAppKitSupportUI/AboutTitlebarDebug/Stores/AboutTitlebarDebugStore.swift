@@ -77,11 +77,12 @@ public final class AboutTitlebarDebugStore {
         apply(options(for: kind), to: window, for: kind)
     }
 
-    /// Copies a human-readable snapshot of the current About options to the
-    /// general pasteboard.
-    public func copyConfigToPasteboard() {
+    /// Builds the human-readable snapshot of the current About options. Pure (no
+    /// pasteboard side effect) so it is unit-testable without mutating the
+    /// process clipboard; `copyConfigToPasteboard()` is the side-effecting wrapper.
+    public func configSnapshot() -> String {
         let about = options(for: .about)
-        let payload = """
+        return """
         # About Titlebar Debug
         about.overridesEnabled=\(about.overridesEnabled)
         about.title=\(about.windowTitle)
@@ -96,9 +97,14 @@ public final class AboutTitlebarDebugStore {
         about.showToolbar=\(about.showToolbar)
         about.toolbarStyle=\(about.toolbarStyle.rawValue)
         """
+    }
+
+    /// Copies a human-readable snapshot of the current About options to the
+    /// general pasteboard.
+    public func copyConfigToPasteboard() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        pasteboard.setString(configSnapshot(), forType: .string)
     }
 
     private func apply(_ options: AboutTitlebarDebugOptions, to window: NSWindow, for kind: AboutWindowKind) {

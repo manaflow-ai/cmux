@@ -125,8 +125,8 @@ private func makeAboutWindow() -> NSWindow {
         options.toolbarStyle = .unifiedCompact
         store.update(options, for: .about)
 
-        store.copyConfigToPasteboard()
-        let payload = NSPasteboard.general.string(forType: .string) ?? ""
+        // Assert the pure snapshot so the test never clears the process clipboard.
+        let payload = store.configSnapshot()
 
         #expect(payload.contains("about.overridesEnabled=true"))
         #expect(payload.contains("about.title=Snapshot Title"))
