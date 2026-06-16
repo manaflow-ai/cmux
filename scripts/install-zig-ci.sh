@@ -122,11 +122,13 @@ verify_zig_sha256() {
 }
 
 install_zig_without_sudo() {
-  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/${ZIG_NAME}}"
+  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp/cmux-zig-ci}/${ZIG_NAME}}"
   echo "sudo unavailable; installing zig under ${install_root}"
-  rm -rf "$install_root"
-  mkdir -p "$(dirname "$install_root")"
-  mv "$ZIG_DIR" "$install_root"
+  if [ "$install_root" != "$ZIG_DIR" ]; then
+    rm -rf "$install_root"
+    mkdir -p "$(dirname "$install_root")"
+    mv "$ZIG_DIR" "$install_root"
+  fi
   publish_zig_for_later_steps "${install_root}/zig"
   "${install_root}/zig" version
 }

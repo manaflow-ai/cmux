@@ -5,7 +5,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/install-zig-ci.sh"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+
+cleanup() {
+  rm -rf "$TMP_DIR"
+  if [ -n "${ZIG_NAME:-}" ]; then
+    rm -rf "/tmp/cmux-zig-ci/$ZIG_NAME" "/tmp/$ZIG_NAME"
+    rm -f "/tmp/${ZIG_NAME}.tar.xz" "/tmp/${ZIG_NAME}.tar.xz.minisig"
+  fi
+}
+trap cleanup EXIT
 
 ZIG_REQUIRED="99.99.99"
 case "$(uname -m)" in
@@ -25,6 +33,9 @@ RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 GITHUB_PATH_FILE="$TMP_DIR/github-path"
 GITHUB_ENV_FILE="$TMP_DIR/github-env"
 OUTPUT_FILE="$TMP_DIR/output"
+GITHUB_PATH_NO_RUNNER_FILE="$TMP_DIR/github-path-no-runner"
+GITHUB_ENV_NO_RUNNER_FILE="$TMP_DIR/github-env-no-runner"
+OUTPUT_NO_RUNNER_FILE="$TMP_DIR/output-no-runner"
 
 mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib" "$BIN_DIR" "$RUNNER_TEMP_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
@@ -100,4 +111,34 @@ if ! grep -Fq "sudo unavailable; installing zig under" "$OUTPUT_FILE"; then
   exit 1
 fi
 
-echo "PASS: install-zig-ci falls back to RUNNER_TEMP without sudo"
+rm -rf "/tmp/cmux-zig-ci/$ZIG_NAME" "/tmp/$ZIG_NAME"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP= \
+  GITHUB_PATH="$GITHUB_PATH_NO_RUNNER_FILE" \
+  GITHUB_ENV="$GITHUB_ENV_NO_RUNNER_FILE" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_FORCE_LOCAL_INSTALL=1 \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$OUTPUT_NO_RUNNER_FILE" 2>&1
+
+INSTALLED_ZIG_NO_RUNNER="/tmp/cmux-zig-ci/$ZIG_NAME/zig"
+if [ ! -x "$INSTALLED_ZIG_NO_RUNNER" ]; then
+  cat "$OUTPUT_NO_RUNNER_FILE"
+  echo "FAIL: zig was not installed under /tmp/cmux-zig-ci when RUNNER_TEMP was unset" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$(dirname "$INSTALLED_ZIG_NO_RUNNER")" "$GITHUB_PATH_NO_RUNNER_FILE"; then
+  cat "$OUTPUT_NO_RUNNER_FILE"
+  echo "FAIL: installer did not publish fallback zig bin dir without RUNNER_TEMP" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "CMUX_ZIG=$INSTALLED_ZIG_NO_RUNNER" "$GITHUB_ENV_NO_RUNNER_FILE"; then
+  cat "$OUTPUT_NO_RUNNER_FILE"
+  echo "FAIL: installer did not publish fallback CMUX_ZIG without RUNNER_TEMP" >&2
+  exit 1
+fi
+
+echo "PASS: install-zig-ci falls back without sudo"
