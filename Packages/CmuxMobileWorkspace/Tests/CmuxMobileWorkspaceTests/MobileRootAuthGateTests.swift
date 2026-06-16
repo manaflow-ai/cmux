@@ -46,6 +46,21 @@ import Testing
         ))
     }
 
+    @Test func attachTicketAuthenticationRequiresLiveUnexpiredTicket() {
+        #expect(!MobileRootAuthGate.hasAttachTicketAuthentication(
+            didAuthenticateWithAttachTicket: false,
+            hasActiveUnexpiredTicket: true
+        ))
+        #expect(!MobileRootAuthGate.hasAttachTicketAuthentication(
+            didAuthenticateWithAttachTicket: true,
+            hasActiveUnexpiredTicket: false
+        ))
+        #expect(MobileRootAuthGate.hasAttachTicketAuthentication(
+            didAuthenticateWithAttachTicket: true,
+            hasActiveUnexpiredTicket: true
+        ))
+    }
+
     @Test func clearsOnlyStaleTemporaryAttachAuthentication() {
         #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: .failed,

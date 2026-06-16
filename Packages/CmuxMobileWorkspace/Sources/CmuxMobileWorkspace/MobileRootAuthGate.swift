@@ -22,6 +22,18 @@ public struct MobileRootAuthGate {
         stackAuthenticated || attachTicketAuthenticated
     }
 
+    /// Whether a prior attach URL is still backed by a live attach ticket.
+    ///
+    /// The attach URL may need to show pairing UI before a ticket is active (for
+    /// example, a version-warning approval sheet), but only an active,
+    /// unexpired ticket should authenticate the root scene.
+    public static func hasAttachTicketAuthentication(
+        didAuthenticateWithAttachTicket: Bool,
+        hasActiveUnexpiredTicket: Bool
+    ) -> Bool {
+        didAuthenticateWithAttachTicket && hasActiveUnexpiredTicket
+    }
+
     /// Whether the restoring-session UI should be shown.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.

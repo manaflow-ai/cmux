@@ -40,10 +40,11 @@ extension WorkspaceDetailView {
 
     var pinnedChatSessionCandidates: [ChatSessionDescriptor] {
         let currentChatSessions = chatSessionsWorkspaceID == workspace.id ? chatSessions : []
-        let seeded = store.seededChatSessions(workspaceID: workspace.id.rawValue)
-        guard !seeded.isEmpty else { return currentChatSessions }
-        var seen = Set(currentChatSessions.map(\.id))
-        return currentChatSessions + seeded.filter { seen.insert($0.id).inserted }
+        return Self.pinnedChatSessionCandidates(
+            current: currentChatSessions,
+            liveSessionsAreCurrent: hasLoadedLiveChatSessions && chatSessionsWorkspaceID == workspace.id,
+            seeded: store.seededChatSessions(workspaceID: workspace.id.rawValue)
+        )
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
@@ -201,6 +202,16 @@ extension WorkspaceDetailView {
     ) -> [ChatSessionDescriptor] {
         hasLoadedLiveSessions
             ? current
+            : mergedChatSessions(primary: current, fallback: seeded)
+    }
+
+    static func pinnedChatSessionCandidates(
+        current: [ChatSessionDescriptor],
+        liveSessionsAreCurrent: Bool,
+        seeded: [ChatSessionDescriptor]
+    ) -> [ChatSessionDescriptor] {
+        liveSessionsAreCurrent
+            ? ChatSessionDescriptor.openableByTerminal(current)
             : mergedChatSessions(primary: current, fallback: seeded)
     }
 

@@ -58,6 +58,7 @@ let package = Package(
         .testTarget(
             name: "CmuxMobileShellUITests",
             dependencies: [
+                "CmuxAgentChat",
                 "CmuxMobileShellUI",
                 "CmuxMobileShell",
                 "CmuxMobileWorkspace",

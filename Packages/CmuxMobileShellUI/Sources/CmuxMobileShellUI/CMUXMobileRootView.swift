@@ -29,7 +29,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
-    @State private var didAuthenticateWithAttachTicket = false
+    @State var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
@@ -151,6 +151,9 @@ struct CMUXMobileRootView: View {
             if !hasActiveUnexpiredAttachTicket {
                 clearAttachTicketAuthenticationIfNeeded()
             }
+        }
+        .task(id: attachTicketAuthenticationExpiry) {
+            await clearAttachTicketAuthenticationAtExpiry()
         }
     }
 
@@ -311,10 +314,6 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    private var hasAttachTicketAuthentication: Bool {
-        didAuthenticateWithAttachTicket
-    }
-
     private func syncShellAuthentication(
         _ isAuthenticated: Bool,
         isRestoringSession: Bool? = nil
@@ -411,7 +410,7 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(authManager.isAuthenticated)
     }
 
-    private func clearAttachTicketAuthenticationIfNeeded() {
+    func clearAttachTicketAuthenticationIfNeeded() {
         guard didAuthenticateWithAttachTicket,
               store.connectionState != .connected || !store.hasActiveUnexpiredAttachTicket else {
             return
