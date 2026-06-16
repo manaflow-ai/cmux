@@ -492,7 +492,7 @@ extension Workspace {
             let allowDebugFallbackScrollback = false
 #endif
             let capturedScrollback = includeScrollback && shouldPersistScrollback && hibernationState == nil
-                ? TerminalController.shared.readTerminalTextForSnapshot(
+                ? TerminalController.shared.readTerminalTextForSessionSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
                     lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
