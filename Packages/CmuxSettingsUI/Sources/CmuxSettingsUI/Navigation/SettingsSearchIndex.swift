@@ -205,7 +205,7 @@ public struct SettingsSearchIndex: Sendable {
             return entries
         }
         #endif
-        let tokens = Self.tokens(in: query)
+        let tokens = Self.queryTokens(in: query)
         if tokens.isEmpty {
             return entries.filter { if case .section = $0.kind { return true } else { return false } }
         }
@@ -260,6 +260,19 @@ public struct SettingsSearchIndex: Sendable {
                 }
             }
             .map(String.init)
+    }
+
+    private static func queryTokens(in query: String) -> [String] {
+        tokens(in: query).filter { !isSearchStopWord($0) }
+    }
+
+    private static func isSearchStopWord(_ token: String) -> Bool {
+        switch token {
+        case "setting", "settings", "preference", "preferences", "option", "options":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func matchScore(entry: Entry, query: String, tokens: [String]) -> Int? {

@@ -568,7 +568,7 @@ enum SettingsSearchIndex {
     ]
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {
-        let tokens = normalizedTokens(for: query)
+        let tokens = normalizedQueryTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
         let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
         return allEntries.enumerated()

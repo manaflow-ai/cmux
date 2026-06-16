@@ -207,6 +207,19 @@ extension SettingsSearchIndex {
             .map(String.init)
     }
 
+    static func normalizedQueryTokens(for query: String) -> [String] {
+        normalizedTokens(for: query).filter { !isSearchStopWord($0) }
+    }
+
+    private static func isSearchStopWord(_ token: String) -> Bool {
+        switch token {
+        case "setting", "settings", "preference", "preferences", "option", "options":
+            return true
+        default:
+            return false
+        }
+    }
+
     static func matchScore(entry: SettingsSearchEntry, query: String, tokens: [String]) -> Int? {
         var score = 0
         for token in tokens {
