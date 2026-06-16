@@ -103,6 +103,22 @@ signed_entitlement_value() {
   /usr/libexec/PlistBuddy -c "Print :$key" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true
 }
 
+binary_entitlement_value() {
+  local binary_path="$1"
+  local key="$2"
+  local entitlements_path
+  local value
+
+  entitlements_path="$(mktemp /tmp/cmux-binary-entitlements.XXXXXX.plist)"
+  if /usr/bin/codesign -d --entitlements :- "$binary_path" >"$entitlements_path" 2>/dev/null; then
+    value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$entitlements_path" 2>/dev/null || true)"
+  else
+    value=""
+  fi
+  rm -f "$entitlements_path"
+  printf '%s\n' "$value"
+}
+
 if [[ -n "$APP_ID" ]]; then
   SIGNED_APP_ID="$(signed_entitlement_value "com.apple.application-identifier")"
   if [[ "$SIGNED_APP_ID" != "$APP_ID" ]]; then
@@ -124,8 +140,8 @@ fi
 # Helpers must NOT carry the main app's application-identifier.
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
-  if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
-       | grep -q "application-identifier"; then
+  HELPER_APP_ID="$(binary_entitlement_value "$helper" "com.apple.application-identifier")"
+  if [[ -n "$HELPER_APP_ID" ]]; then
     echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
     exit 1
   fi

@@ -355,6 +355,7 @@ jobs:
             echo "Release provisioning profile missing full web-browser entitlement" >&2
             exit 1
           fi
+
           WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
           if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
             echo "Release provisioning profile missing WebAuthn browser entitlement" >&2
