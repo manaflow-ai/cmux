@@ -51,6 +51,22 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testContentViewMaximumSidebarWidthAllowsPersistedMaximumOnWideWindows() {
+        XCTAssertEqual(
+            ContentView.maximumSidebarWidth(availableWidth: 1_400),
+            CGFloat(SessionPersistencePolicy.maximumSidebarWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testContentViewMaximumSidebarWidthLeavesContentWidthOnNarrowWindows() {
+        XCTAssertEqual(
+            ContentView.maximumSidebarWidth(availableWidth: 700),
+            400,
+            accuracy: 0.001
+        )
+    }
+
     func testSessionPersistenceReadsConfiguredMinimumSidebarWidth() {
         let suiteName = "SidebarWidthPolicyTests.minimumSidebarWidth.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
