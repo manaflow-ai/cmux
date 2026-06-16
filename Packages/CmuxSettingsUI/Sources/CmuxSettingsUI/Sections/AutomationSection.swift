@@ -122,29 +122,7 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startObservingSettings() }
-    }
-
-    private func startObservingSettings() {
-        let models: [any SettingObservationStarting] = [
-            socketPasswordModel,
-            modeModel,
-            claudeCodeModel,
-            claudePathModel,
-            autoNamingModel,
-            autoNamingAgentModel,
-            autoNamingStatusModel,
-            ripgrepPathModel,
-            suppressSubagentModel,
-            ampModel,
-            cursorModel,
-            geminiModel,
-            kiroModel,
-            kiroLevelModel,
-            portBaseModel,
-            portRangeModel,
-        ]
-        models.forEach { $0.startObserving() }
+        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
     }
 
     @ViewBuilder

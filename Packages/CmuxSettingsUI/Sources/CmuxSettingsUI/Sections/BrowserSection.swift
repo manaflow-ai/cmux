@@ -82,28 +82,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startObservingSettings() }
-    }
-
-    private func startObservingSettings() {
-        let models: [any SettingObservationStarting] = [
-            disabled,
-            engine,
-            customName,
-            customURL,
-            suggestions,
-            theme,
-            discardEnabled,
-            discardDelay,
-            openTermLinks,
-            interceptOpen,
-            hosts,
-            external,
-            httpAllowlist,
-            importHint,
-            reactGrab,
-        ]
-        models.forEach { $0.startObserving() }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder

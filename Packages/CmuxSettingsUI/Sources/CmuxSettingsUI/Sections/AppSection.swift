@@ -125,54 +125,10 @@ public struct AppSection: View {
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
         }
-        .task { startSettingsTask() }
-    }
-
-    private func startSettingsTask() {
-        startObservingSettings()
-        if languageAtAppear == nil { languageAtAppear = language.current }
-        if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
-    }
-
-    private func startObservingSettings() {
-        let models: [any SettingObservationStarting] = [
-            language,
-            appearance,
-            appIcon,
-            placement,
-            inheritDir,
-            minimalMode,
-            keepWorkspaceOpen,
-            firstClick,
-            fileDrop,
-            preferredEditor,
-            openSupported,
-            openMarkdown,
-            markdownFontSize,
-            markdownFontFamily,
-            markdownMaxWidth,
-            canvasPaneGap,
-            canvasSnapping,
-            fileEditorWordWrap,
-            iMessage,
-            reorder,
-            dockBadge,
-            menuBarOnly,
-            showInMenuBar,
-            paneRing,
-            paneFlash,
-            soundName,
-            soundCommand,
-            customSoundFile,
-            telemetry,
-            confirmQuit,
-            warnCloseTab,
-            warnCloseX,
-            hideCloseButton,
-            renameSelects,
-            paletteAllSurfaces,
-        ]
-        models.forEach { $0.startObserving() }
+        .task {
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
     }
 
     @ViewBuilder
