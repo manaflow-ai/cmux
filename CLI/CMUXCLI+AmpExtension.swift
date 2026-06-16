@@ -441,6 +441,7 @@ export default function (amp: PluginAPI) {
   // Cached per thread so we resolve at most once.
   const capturedTitles = new Map<string, string>();
   const titleVersions = new Map<string, number>();
+  const observedTitleThreads = new Set<string>();
   const TITLE_MAX_LENGTH = 200;
   const TITLE_UPDATE_DEBOUNCE_MS = 250;
   const TITLE_LOOKUP_TIMEOUT_MS = 1000;
@@ -479,6 +480,11 @@ export default function (amp: PluginAPI) {
     capturedTitles.set(threadID, title);
     titleVersions.set(threadID, (titleVersions.get(threadID) ?? 0) + 1);
     return title;
+  }
+
+  function rememberObservedTitle(threadID: string, title: string): string {
+    observedTitleThreads.add(threadID);
+    return rememberTitle(threadID, title);
   }
 
   function currentTitleVersion(threadID: string): number {
@@ -586,6 +592,7 @@ export default function (amp: PluginAPI) {
     }
     capturedTitles.delete(threadID);
     titleVersions.delete(threadID);
+    observedTitleThreads.delete(threadID);
   }
 
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
@@ -600,7 +607,7 @@ export default function (amp: PluginAPI) {
       pendingTitle = null;
       if (!title || title === lastSent) return;
       lastSent = title;
-      rememberTitle(threadID, title);
+      rememberObservedTitle(threadID, title);
       sendHook("title-update", threadID, cwdFromEnv(), { title });
     };
     const clearTimer = () => {
@@ -613,7 +620,7 @@ export default function (amp: PluginAPI) {
         const title = normalizedTitle(value);
         if (!title || title === lastSent) return;
         pendingTitle = title;
-        rememberTitle(threadID, title);
+        rememberObservedTitle(threadID, title);
         if (flushTimer !== null) clearTimeout(flushTimer);
         flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
       });
@@ -708,6 +715,10 @@ export default function (amp: PluginAPI) {
     if (!sessionId) return;
     sendHook("stop", sessionId, cwdFromEnv());
     flushThreadTitle(sessionId);
+    if (observedTitleThreads.has(sessionId)) {
+      cleanupThreadTitle(sessionId);
+      return;
+    }
     void resolveSessionTitleBestEffort(sessionId, ctx).then((title) => {
       if (title) sendHook("title-update", sessionId, cwdFromEnv(), { title });
     }).finally(() => {

@@ -110,8 +110,8 @@
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
+786	CLI/CMUXCLI+AmpExtension.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
-775	CLI/CMUXCLI+AmpExtension.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 773	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
