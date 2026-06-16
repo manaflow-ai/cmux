@@ -43,6 +43,9 @@ struct RemoteDaemonUploadTests {
                 (request.arguments.last?.contains("cat >") ?? false)
         })
         #expect(uploadRequest.stdin == binaryData)
+        // `-T` disables pty allocation so a `RequestTTY force` config can't put
+        // the raw binary on a pty and corrupt it via CR/LF translation.
+        #expect(uploadRequest.arguments.contains("-T"))
         #expect(uploadRequest.arguments.contains("prod/web"))
         #expect(!uploadRequest.arguments.contains(where: { $0.hasPrefix("prod/web:") }))
         #expect(uploadRequest.arguments.last?.contains(

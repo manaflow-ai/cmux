@@ -327,11 +327,18 @@ extension RemoteSessionCoordinator {
         // whole operand as a local path, so the daemon never reaches the
         // remote and bootstrap loops forever. ssh takes the destination as a
         // plain argument, so slash aliases install correctly.
-        let localBinaryData = try Data(contentsOf: localBinary)
+        // `.alwaysMapped` keeps the (15–40 MB) binary memory-mapped so it pages
+        // in during the pipe write instead of being fully resident up front.
+        let localBinaryData = try Data(contentsOf: localBinary, options: .alwaysMapped)
         let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
         let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
+        // `-T` disables remote pty allocation. Without it, `RequestTTY force` in
+        // the user's ssh config would put this upload on a pty, whose line
+        // discipline rewrites CR/LF bytes and corrupts the binary (scp never used
+        // a pty). The other bootstrap commands transfer text, but this one is raw
+        // bytes, so the explicit `-T` matters here.
         let uploadResult = try sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, uploadCommand],
+            arguments: sshCommonArguments(batchMode: true) + ["-T", configuration.destination, uploadCommand],
             stdin: localBinaryData,
             timeout: 45
         )
