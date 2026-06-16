@@ -39,6 +39,17 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
     }
 
+    func testExactSectionNameRanksSectionFirst() {
+        let results = SettingsSearchIndex.entries(matching: "automation")
+        guard let first = results.first else {
+            return XCTFail("expected results for 'automation'")
+        }
+        guard case .section = first.kind else {
+            return XCTFail("expected the Automation section first, got setting \(first.id)")
+        }
+        XCTAssertEqual(first.title, "Automation")
+    }
+
     func testSettingsPathAnchorIncludesBrowserEnabled() {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled"),

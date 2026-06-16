@@ -615,6 +615,12 @@ enum SettingsSearchIndex {
 
     private static func matchScore(_ entry: SettingsSearchEntry, tokens queryTokens: [String], normalizedQuery: String) -> Int? {
         var total = 0
+        // Mirror the package SettingsSearchIndex: an exact title match is the
+        // strongest signal and must outrank synonym-only hits, so an exact
+        // section-name query (e.g. "automation") lands on the section instead
+        // of its child settings (whose dotted-path synonyms also match and
+        // carry the +20 bonus below).
+        if normalized(entry.title) == normalizedQuery { total += 1_000 }
         if case .setting = entry.kind { total += 20 }
         if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
         for token in queryTokens {
