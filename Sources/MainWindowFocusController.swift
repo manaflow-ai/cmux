@@ -1,4 +1,7 @@
 import AppKit
+import CmuxFoundation
+import CmuxTerminalEngine
+import CmuxTerminal
 
 @MainActor
 final class MainWindowFocusController {
@@ -64,6 +67,11 @@ final class MainWindowFocusController {
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
     private var rightSidebarFocusState: RightSidebarFocusState = .inactive
+    /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
+    /// private focus state for the `sidebarMode` keyboard-shortcut context key.
+    var activeRightSidebarMode: RightSidebarMode? {
+        rightSidebarFocusState.mode
+    }
     private var feedSelectedItemId: UUID?
     private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
@@ -78,6 +86,7 @@ final class MainWindowFocusController {
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
         self.rememberedRightSidebarMode = fileExplorerState?.mode
+        syncBonsplitTabShortcutHintEligibility()
     }
 
     func update(
@@ -155,7 +164,7 @@ final class MainWindowFocusController {
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return true
         }
         switch intent {
@@ -167,6 +176,7 @@ final class MainWindowFocusController {
     }
 
     func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+        guard ShortcutHintDebugSettings().modifierHoldHintsEnabled else { return false }
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:
@@ -755,7 +765,7 @@ final class MainWindowFocusController {
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)

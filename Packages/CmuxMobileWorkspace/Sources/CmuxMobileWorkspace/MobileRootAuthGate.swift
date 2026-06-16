@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobileShellModel
 public import Foundation
 
@@ -39,11 +40,12 @@ public struct MobileRootAuthGate {
         )
     }
 
-    /// Whether a URL is a cmux attach deep link (`cmux-ios://attach`).
+    /// Whether a URL is a cmux attach deep link (a `<scheme>://attach` URL in
+    /// any channel's pairing scheme; see ``CmxPairingURLScheme``).
     /// - Parameter url: The URL to classify.
     /// - Returns: `true` when the URL is an attach deep link.
     public static func isAttachURL(_ url: URL) -> Bool {
-        guard url.scheme?.caseInsensitiveCompare("cmux-ios") == .orderedSame else {
+        guard CmxPairingURLScheme.isPairingScheme(url.scheme) else {
             return false
         }
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
@@ -65,6 +67,8 @@ public struct MobileRootAuthGate {
             return connectionState != .connected || !hasActiveUnexpiredTicket
         case .failed:
             return true
+        case .needsUserApproval:
+            return false
         case .superseded:
             return connectionState != .connected || !hasActiveUnexpiredTicket
         }
@@ -82,5 +86,43 @@ public struct MobileRootAuthGate {
         connectionState: MobileConnectionState
     ) -> Bool {
         stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+    }
+
+    /// Whether the restoring-session UI should be shown while reconnecting a known
+    /// paired Mac.
+    ///
+    /// A returning user (already authenticated, previously paired) should see the
+    /// existing "Restoring session…" state during the reconnect window instead of
+    /// the empty add-device sheet. A genuinely never-paired user still falls
+    /// through to add-device immediately. The persisted ``hasKnownPairedMac`` hint
+    /// covers the very first rendered frame before the async paired-Mac read runs.
+    /// ``pairedMacHintUndetermined`` covers installs that predate the hint (the key
+    /// was never written but a Mac may already exist in the paired-Mac store): they
+    /// are treated as "may have a paired Mac" until the first reconnect attempt
+    /// resolves and writes the hint, so they do not flash add-device on the first
+    /// launch after updating. ``didFinishStoredMacReconnectAttempt`` lets a failed or
+    /// offline attempt fall through to the disconnected view instead of spinning.
+    /// - Parameters:
+    ///   - authenticated: Whether the user is authenticated (Stack or attach ticket).
+    ///   - connectionState: The current connection state.
+    ///   - isReconnectingStoredMac: Whether a found stored Mac is actively mid-reconnect.
+    ///   - hasKnownPairedMac: The persisted hint that this device has paired a Mac before.
+    ///   - pairedMacHintUndetermined: Whether the hint has never been written on this install (key absent).
+    ///   - didFinishStoredMacReconnectAttempt: Whether the first launch reconnect attempt has resolved.
+    /// - Returns: `true` while authenticated, not yet connected, and either actively
+    ///   reconnecting a stored Mac or — before the first attempt resolves — holding
+    ///   the paired-Mac hint or an undetermined hint.
+    public static func shouldShowRestoringStoredMac(
+        authenticated: Bool,
+        connectionState: MobileConnectionState,
+        isReconnectingStoredMac: Bool,
+        hasKnownPairedMac: Bool,
+        pairedMacHintUndetermined: Bool,
+        didFinishStoredMacReconnectAttempt: Bool
+    ) -> Bool {
+        guard authenticated, connectionState != .connected else { return false }
+        if isReconnectingStoredMac { return true }
+        guard !didFinishStoredMacReconnectAttempt else { return false }
+        return hasKnownPairedMac || pairedMacHintUndetermined
     }
 }

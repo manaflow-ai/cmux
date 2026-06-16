@@ -1,15 +1,21 @@
 import AppKit
+import CmuxFoundation
+import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxFileOpen
+import CmuxTestSupport
+import CmuxUpdater
 import CmuxUpdaterUI
 import SwiftUI
 import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -39,6 +45,11 @@ struct cmuxApp: App {
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+
+    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
+    /// hosted-browser sign-in flow). Constructed once at app launch and
+    /// injected into AppDelegate and the auth-consuming services.
+    private let authComposition: MacAuthComposition
 
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -109,6 +120,8 @@ struct cmuxApp: App {
             saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
+        let authComposition = MacAuthComposition()
+        self.authComposition = authComposition
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -118,7 +131,10 @@ struct cmuxApp: App {
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
-            accountFlow: HostAccountFlow(authManager: .shared),
+            accountFlow: HostAccountFlow(
+                coordinator: authComposition.coordinator,
+                browserSignIn: authComposition.browserSignIn
+            ),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
 
@@ -159,7 +175,8 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
         // Apply saved language preference before any UI loads
-        LanguageSettings.apply(LanguageSettings.languageAtLaunch)
+        let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
+        languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
         StartupBreadcrumbLog.append("app.init.language.applied")
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -202,7 +219,13 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState, settingsRuntime: settingsRuntime)
+        appDelegate.configure(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            settingsRuntime: settingsRuntime,
+            auth: authComposition
+        )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
@@ -430,6 +453,13 @@ struct cmuxApp: App {
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
+                Menu("Show Update Error…") {
+                    ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
+                        Button(scenario.menuTitle) {
+                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                        }
+                    }
+                }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
                 }
@@ -492,6 +522,11 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                AgentSessionDebugMenuButtons(
+                    openReact: { appDelegate.openDebugAgentSessionReact(nil) },
+                    openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
+                )
+
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
@@ -531,6 +566,14 @@ struct cmuxApp: App {
                     }
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
+                    }
+                    Button(
+                        String(
+                            localized: "debug.menu.devWindowDisplay",
+                            defaultValue: "Dev Window Display…"
+                        )
+                    ) {
+                        DevWindowDisplayDebugWindowController.shared.show()
                     }
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
@@ -675,6 +718,20 @@ struct cmuxApp: App {
                         )
                     } else {
                         activeTabManager.addWorkspace()
+                    }
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.performNewBrowserWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newBrowserWorkspace"
+                        )
+                    } else if BrowserAvailabilitySettings.isEnabled() {
+                        // Last-resort fallback for a missing AppDelegate; keep
+                        // the browser-availability gate identical to the
+                        // shared action path.
+                        activeTabManager.addWorkspace(initialSurface: .browser)
                     }
                 }
 
@@ -967,8 +1024,29 @@ struct cmuxApp: App {
             equalizeSplitsCommandButton()
             Divider()
 
+            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasTidy", defaultValue: "Tidy Canvas"), shortcut: menuShortcut(for: .canvasTidy)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.alignment(.tidy))
+            }
+
+            Divider()
+
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
+                // `menuShortcut(for:)` already returns `.unbound` when the action
+                // carries a configured `shortcuts.when` clause, so a context-gated
+                // workspace shortcut takes the no-key-equivalent branch and the
+                // gated keyDown handler owns dispatch (issue #5189).
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
@@ -1397,6 +1475,8 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
+    "cmux.devWindowDisplay",
+    "cmux.mobilePairingWindow",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1832,10 +1912,10 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
-        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
-        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarBranchDirectoryStackedSettings.key, fallback: SidebarBranchDirectoryStackedSettings.defaultStacked))
-        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
-        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
+        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
@@ -1925,8 +2005,8 @@ private final class DebugWindowControlsWindowController: NSWindowController, NSW
 }
 
 private struct DebugWindowControlsView: View {
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1938,8 +2018,9 @@ private struct DebugWindowControlsView: View {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarActiveTabIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -2056,14 +2137,14 @@ private struct DebugWindowControlsView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
 
                         Button("Reset Indicator Style") {
-                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                            sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -2712,7 +2793,6 @@ private struct FileExplorerStyleDebugView: View {
 
 extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
-    static let titlebarShortcutHintsVisibilityChanged = Notification.Name("titlebarShortcutHintsVisibilityChanged")
 }
 
 private final class FileExplorerStyleDebugWindowController: NSWindowController, NSWindowDelegate {
@@ -2884,17 +2964,21 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
-    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
+    @AppStorage(SidebarCatalogSection().branchVerticalLayout.userDefaultsKey)
+    private var sidebarBranchVerticalLayout = SidebarCatalogSection().branchVerticalLayout.defaultValue
+    @AppStorage(SidebarCatalogSection().stackBranchDirectory.userDefaultsKey)
+    private var sidebarBranchDirectoryStacked = SidebarCatalogSection().stackBranchDirectory.defaultValue
+    @AppStorage(SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey)
+    private var sidebarPathLastSegmentOnly = SidebarCatalogSection().pathLastSegmentOnly.defaultValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
-    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -2999,7 +3083,7 @@ private struct SidebarDebugView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
@@ -3043,7 +3127,7 @@ private struct SidebarDebugView: View {
                         sidebarCornerRadius = 0.0
                     }
                     Button("Reset Active Indicator") {
-                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         sidebarSelectionColorHex = nil
                     }
                 }
@@ -4508,73 +4592,6 @@ private struct AboutVisualEffectBackground: NSViewRepresentable {
     }
 }
 
-enum AppLanguage: String, CaseIterable, Identifiable {
-    case system
-    case en
-    case ar
-    case bs
-    case zhHans = "zh-Hans"
-    case zhHant = "zh-Hant"
-    case da
-    case de
-    case es
-    case fr
-    case it
-    case ja
-    case ko
-    case nb
-    case pl
-    case ptBR = "pt-BR"
-    case ru
-    case th
-    case tr
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .system: return String(localized: "language.system", defaultValue: "System")
-        case .en: return "English"
-        case .ar: return "\u{200E}العربية (Arabic)"
-        case .bs: return "Bosanski (Bosnian)"
-        case .zhHans: return "简体中文 (Chinese Simplified)"
-        case .zhHant: return "繁體中文 (Chinese Traditional)"
-        case .da: return "Dansk (Danish)"
-        case .de: return "Deutsch (German)"
-        case .es: return "Español (Spanish)"
-        case .fr: return "Français (French)"
-        case .it: return "Italiano (Italian)"
-        case .ja: return "日本語 (Japanese)"
-        case .ko: return "한국어 (Korean)"
-        case .nb: return "Norsk (Norwegian)"
-        case .pl: return "Polski (Polish)"
-        case .ptBR: return "Português (Brasil)"
-        case .ru: return "Русский (Russian)"
-        case .th: return "ไทย (Thai)"
-        case .tr: return "Türkçe (Turkish)"
-        }
-    }
-}
-
-enum LanguageSettings {
-    static let languageKey = "appLanguage"
-    static let defaultLanguage: AppLanguage = .system
-
-    static func apply(_ language: AppLanguage) {
-        if language == .system {
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        } else {
-            UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
-        }
-    }
-
-    static var languageAtLaunch: AppLanguage = {
-        let stored = UserDefaults.standard.string(forKey: languageKey)
-        guard let stored, let lang = AppLanguage(rawValue: stored) else { return .system }
-        return lang
-    }()
-}
-
 enum AppIconMode: String, CaseIterable, Identifiable {
     case automatic
     case light
@@ -4829,85 +4846,6 @@ final class AppIconAppearanceObserver: NSObject {
     }
 }
 
-enum QuitWarningSettings {
-    static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
-    static let confirmQuitKey = "confirmQuit"
-    static let defaultWarnBeforeQuit = true
-    static let defaultConfirmQuitMode = QuitConfirmationMode.always
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        confirmQuitMode(defaults: defaults) != .never
-    }
-
-    static func shouldShowConfirmation(
-        isQuitWarningConfirmed: Bool,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        shouldShowConfirmation(
-            isQuitWarningConfirmed: isQuitWarningConfirmed,
-            hasDirtyWorkspaces: true,
-            buildFlavor: .current,
-            defaults: defaults
-        )
-    }
-
-    static func shouldShowConfirmation(
-        isQuitWarningConfirmed: Bool,
-        hasDirtyWorkspaces: Bool,
-        buildFlavor: BuildFlavor,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        guard !isQuitWarningConfirmed else { return false }
-        guard buildFlavor != .dev else { return false }
-
-        switch confirmQuitMode(defaults: defaults) {
-        case .always:
-            return true
-        case .dirtyOnly:
-            return hasDirtyWorkspaces
-        case .never:
-            return false
-        }
-    }
-
-    static func confirmQuitMode(defaults: UserDefaults = .standard) -> QuitConfirmationMode {
-        if let rawValue = defaults.string(forKey: confirmQuitKey),
-           let mode = QuitConfirmationMode(rawValue: rawValue) {
-            return mode
-        }
-        if defaults.object(forKey: warnBeforeQuitKey) == nil {
-            return defaultConfirmQuitMode
-        }
-        return defaults.bool(forKey: warnBeforeQuitKey) ? .always : .never
-    }
-
-    static func setMode(_ mode: QuitConfirmationMode, defaults: UserDefaults = .standard) {
-        defaults.set(mode.rawValue, forKey: confirmQuitKey)
-        defaults.set(mode != .never, forKey: warnBeforeQuitKey)
-    }
-
-    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        setMode(isEnabled ? .always : .never, defaults: defaults)
-    }
-}
-
-nonisolated enum QuitConfirmationMode: String, CaseIterable, Sendable {
-    case always
-    case dirtyOnly = "dirty-only"
-    case never
-
-    var localizedSettingsTitle: String {
-        switch self {
-        case .always:
-            return String(localized: "settings.app.confirmQuit.always", defaultValue: "Always")
-        case .dirtyOnly:
-            return String(localized: "settings.app.confirmQuit.dirtyOnly", defaultValue: "Dirty Only")
-        case .never:
-            return String(localized: "settings.app.confirmQuit.never", defaultValue: "Never")
-        }
-    }
-}
-
 nonisolated enum BuildFlavor: String, Sendable {
     case dev
     case nightly
@@ -4967,512 +4905,17 @@ nonisolated enum BuildFlavor: String, Sendable {
     }
 }
 
-enum CloseTabWarningSettings {
-    static let warnBeforeClosingTabKey = "warnBeforeClosingTabShortcut"
-    static let defaultWarnBeforeClosingTab = true
-    static let warnBeforeClosingTabXButtonKey = "warnBeforeClosingTabXButton"
-    static let defaultWarnBeforeClosingTabXButton = false
-    static let hideTabCloseButtonKey = "hideTabCloseButton"
-    static let defaultHideTabCloseButton = false
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: warnBeforeClosingTabKey) == nil {
-            return defaultWarnBeforeClosingTab
-        }
-        return defaults.bool(forKey: warnBeforeClosingTabKey)
-    }
-
-    static func warnsBeforeClosingTabXButton(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: warnBeforeClosingTabXButtonKey) == nil {
-            return defaultWarnBeforeClosingTabXButton
-        }
-        return defaults.bool(forKey: warnBeforeClosingTabXButtonKey)
-    }
-
-    static func hidesTabCloseButton(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hideTabCloseButtonKey) == nil {
-            return defaultHideTabCloseButton
-        }
-        return defaults.bool(forKey: hideTabCloseButtonKey)
-    }
-
-    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(isEnabled, forKey: warnBeforeClosingTabKey)
-    }
-}
-
-enum CloseTabConfirmationPolicy {
-    enum Source: Equatable {
-        case shortcut
-        case tabCloseButton
-    }
-
-    enum Decision: Equatable {
-        case closeImmediately
-        case confirmBeforeClosing
-    }
-
-    static func decision(
-        requiresConfirmation: Bool,
-        source: Source,
-        defaults: UserDefaults = .standard
-    ) -> Decision {
-        let shouldConfirm: Bool
-        switch source {
-        case .shortcut:
-            shouldConfirm = requiresConfirmation && CloseTabWarningSettings.isEnabled(defaults: defaults)
-        case .tabCloseButton:
-            shouldConfirm = CloseTabWarningSettings.warnsBeforeClosingTabXButton(defaults: defaults)
-                || (requiresConfirmation && CloseTabWarningSettings.isEnabled(defaults: defaults))
-        }
-
-        guard shouldConfirm else {
-            return .closeImmediately
-        }
-        return .confirmBeforeClosing
-    }
-
-    static func shouldConfirm(
-        requiresConfirmation: Bool,
-        source: Source,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        decision(
-            requiresConfirmation: requiresConfirmation,
-            source: source,
-            defaults: defaults
-        ) == .confirmBeforeClosing
-    }
-}
-
-enum CommandPaletteRenameSelectionSettings {
-    static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
-    static let defaultSelectAllOnFocus = true
-
-    static func selectAllOnFocusEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: selectAllOnFocusKey) == nil {
-            return defaultSelectAllOnFocus
-        }
-        return defaults.bool(forKey: selectAllOnFocusKey)
-    }
-}
-
-enum CommandPaletteSwitcherSearchSettings {
-    static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
-    static let defaultSearchAllSurfaces = false
-
-    static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: searchAllSurfacesKey) == nil {
-            return defaultSearchAllSurfaces
-        }
-        return defaults.bool(forKey: searchAllSurfacesKey)
-    }
-}
-
-enum ClaudeCodeIntegrationSettings {
-    static let hooksEnabledKey = "claudeCodeHooksEnabled"
-    static let defaultHooksEnabled = true
-    static let customClaudePathKey = "claudeCodeCustomClaudePath"
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
-        let value = defaults.string(forKey: customClaudePathKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? nil : value
-    }
-}
-
-enum AgentSubagentNotificationSettings {
-    static let suppressNotificationsKey = "suppressSubagentNotifications"
-    static let defaultSuppressNotifications = true
-    static let environmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
-
-    static func suppressNotifications(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: suppressNotificationsKey) == nil {
-            return defaultSuppressNotifications
-        }
-        return defaults.bool(forKey: suppressNotificationsKey)
-    }
-}
-
-enum CursorIntegrationSettings {
-    static let hooksEnabledKey = "cursorHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum GeminiIntegrationSettings {
-    static let hooksEnabledKey = "geminiHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum KiroIntegrationSettings {
-    enum NotificationLevel: String, CaseIterable, Identifiable {
-        case minimal
-        case standard
-        case verbose
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .minimal:
-                return String(localized: "settings.automation.kiro.notificationLevel.minimal", defaultValue: "Minimal")
-            case .standard:
-                return String(localized: "settings.automation.kiro.notificationLevel.standard", defaultValue: "Standard")
-            case .verbose:
-                return String(localized: "settings.automation.kiro.notificationLevel.verbose", defaultValue: "Verbose")
-            }
-        }
-    }
-
-    static let hooksEnabledKey = "kiroHooksEnabled"
-    static let defaultHooksEnabled = true
-    static let notificationLevelKey = "kiroNotificationLevel"
-    static let defaultNotificationLevel = NotificationLevel.standard
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func notificationLevel(defaults: UserDefaults = .standard) -> NotificationLevel {
-        guard let raw = defaults.string(forKey: notificationLevelKey),
-              let level = NotificationLevel(rawValue: raw) else {
-            return defaultNotificationLevel
-        }
-        return level
-    }
-}
-
-enum AmpIntegrationSettings {
-    static let hooksEnabledKey = "ampHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum WelcomeSettings {
-    static let shownKey = "cmuxWelcomeShown"
-}
-
 enum TelemetrySettings {
-    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
-    static let defaultSendAnonymousTelemetry = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
-            return defaultSendAnonymousTelemetry
-        }
-        return defaults.bool(forKey: sendAnonymousTelemetryKey)
-    }
-
-    // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
-    static let enabledForCurrentLaunch = isEnabled()
+    // Launch-frozen telemetry enablement: read once at process start so settings
+    // changes apply on next restart. The persisted key, default, and read logic
+    // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
+    // single source of truth; this anchor only freezes that read for the lifetime
+    // of the launch.
+    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
 }
 
-enum CmdClickMarkdownRouteSettings {
-    static let key = "openMarkdownInCmuxViewer"
-    static let didChangeNotification = Notification.Name("cmux.cmdClickMarkdownRouteDidChange")
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
-    }
-
-    static func setEnabled(
-        _ enabled: Bool,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        defaults.set(enabled, forKey: key)
-        notifyDidChange(notificationCenter: notificationCenter)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-
-    /// Cheap extension check. Safe to call off the main thread before any
-    /// filesystem probe so remote/non-markdown paths can be filtered early.
-    static func isMarkdownPath(_ path: String) -> Bool {
-        let ext = (path as NSString).pathExtension.lowercased()
-        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
-    }
-
-    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(defaults: defaults),
-              isMarkdownPath(path) else { return false }
-        // Match the `markdown.open` socket path: only route real, readable
-        // files. Rejects FIFOs, device nodes, sockets, symlinks to non-regular
-        // targets, and permission-denied paths so the viewer never opens into
-        // an unavailable state.
-        return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path)
-    }
-}
-
-enum CmdClickSupportedFileRouteSettings {
-    static let key = "openSupportedFilesInCmux"
-    static let didChangeNotification = Notification.Name("cmux.cmdClickSupportedFileRouteDidChange")
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        return defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
-    }
-
-    static func setEnabled(
-        _ enabled: Bool,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        defaults.set(enabled, forKey: key)
-        notifyDidChange(notificationCenter: notificationCenter)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-
-    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(defaults: defaults) else { return false }
-        return isReadableRegularFile(path: path)
-    }
-
-    static func isReadableRegularFile(path: String) -> Bool {
-        let resolved = (path as NSString).resolvingSymlinksInPath
-        guard FileManager.default.isReadableFile(atPath: resolved),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: resolved),
-              (attrs[.type] as? FileAttributeType) == .typeRegular else {
-            return false
-        }
-        return true
-    }
-}
-
-enum PreferredEditorSettings {
-    static let key = "preferredEditorCommand"
-
-    /// Returns the configured editor command, or nil to use system default.
-    static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
-        guard let stored = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !stored.isEmpty else {
-            return nil
-        }
-        return stored
-    }
-
-    /// Open a file path with the user's preferred editor, falling back to system default.
-    static func open(_ url: URL) {
-        if CmuxUITestCapture.appendLineIfConfigured(
-            envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
-        ) {
-            return
-        }
-
-        guard let command = resolvedCommand() else {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let path = url.path
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            // Check exit status on a background thread; fall back on failure
-            // (e.g. command not found exits 127 but /bin/sh itself succeeds)
-            DispatchQueue.global(qos: .userInitiated).async {
-                process.waitUntilExit()
-                if process.terminationStatus != 0 {
-                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
-                }
-            }
-        } catch {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-}
-
-enum CmuxUITestCapture {
-    static func appendLineIfConfigured(envKey: String, line: String) -> Bool {
-        guard let url = configuredURL(for: envKey) else { return false }
-        appendLine(line, to: url)
-        return true
-    }
-
-    static func mutateJSONObjectIfConfigured(
-        envKey: String,
-        _ update: (inout [String: Any]) -> Void
-    ) -> Bool {
-        guard let url = configuredURL(for: envKey) else { return false }
-        mutateJSONObject(at: url, update)
-        return true
-    }
-
-    private static func configuredURL(for envKey: String) -> URL? {
-        let env = ProcessInfo.processInfo.environment
-        guard let rawPath = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawPath.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: rawPath)
-    }
-
-    private static func appendLine(_ line: String, to url: URL) {
-        ensureParentDirectory(for: url)
-        let payload = (line + "\n").data(using: .utf8) ?? Data()
-
-        if FileManager.default.fileExists(atPath: url.path) {
-            do {
-                let handle = try FileHandle(forWritingTo: url)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: payload)
-            } catch {
-                if let existing = try? Data(contentsOf: url) {
-                    var combined = existing
-                    combined.append(payload)
-                    try? combined.write(to: url, options: .atomic)
-                } else {
-                    try? payload.write(to: url, options: .atomic)
-                }
-            }
-            return
-        }
-
-        try? payload.write(to: url, options: .atomic)
-    }
-
-    private static func mutateJSONObject(
-        at url: URL,
-        _ update: (inout [String: Any]) -> Void
-    ) {
-        ensureParentDirectory(for: url)
-        var payload: [String: Any] = [:]
-        if let data = try? Data(contentsOf: url),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            payload = object
-        }
-        update(&payload)
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return
-        }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    private static func ensureParentDirectory(for url: URL) {
-        let directory = url.deletingLastPathComponent()
-        guard !directory.path.isEmpty else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-}
-
-enum CmuxRuntimeDebugCapture {
-    private struct Configuration {
-        let baseURL: URL
-        let token: String
-        let sessionID: String
-    }
-
-    private static let configuration: Configuration? = {
-        let env = ProcessInfo.processInfo.environment
-        guard let baseURLString = env["CMUX_RUNTIME_DEBUG_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let baseURL = URL(string: baseURLString),
-              let token = env["CMUX_RUNTIME_DEBUG_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty,
-              let sessionID = env["CMUX_RUNTIME_DEBUG_SESSION_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionID.isEmpty else {
-            return nil
-        }
-        return Configuration(baseURL: baseURL, token: token, sessionID: sessionID)
-    }()
-
-    private static let lock = NSLock()
-    private static var sequence: Int = 0
-
-    static func logIfConfigured(
-        hypothesisID: String,
-        source: String,
-        name: String,
-        expected: String? = nil,
-        actual: String? = nil,
-        data: [String: Any] = [:]
-    ) {
-        guard let configuration else { return }
-
-        var payload: [String: Any] = [
-            "session_id": configuration.sessionID,
-            "hypothesis_id": hypothesisID,
-            "service": "cmux-macos",
-            "source": source,
-            "name": name,
-            "ts": ISO8601DateFormatter().string(from: Date()),
-            "mono_ms": ProcessInfo.processInfo.systemUptime * 1000,
-            "seq": nextSequence(),
-            "data": data
-        ]
-        if let expected {
-            payload["expected"] = expected
-        }
-        if let actual {
-            payload["actual"] = actual
-        }
-
-        guard JSONSerialization.isValidJSONObject(payload),
-              let requestBody = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
-            return
-        }
-
-        var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
-        request.httpBody = requestBody
-
-        URLSession.shared.dataTask(with: request).resume()
-    }
-
-    private static func nextSequence() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        sequence += 1
-        return sequence
-    }
-}
+@MainActor
 func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
-    PreferredEditorSettings.open(url)
+    PreferredEditorService(defaults: .standard).open(url)
 }

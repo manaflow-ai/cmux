@@ -14,16 +14,25 @@ import AppKit
 struct PairingView: View {
     @Binding var pairingCode: String
     let connectionError: String?
+    /// A shorter, actionable next-step line shown beneath ``connectionError``
+    /// (for example "Check that both devices are on the same Tailscale"). `nil`
+    /// when the headline is already the full instruction.
+    let connectionErrorGuidance: String?
+    let versionWarning: String?
     let connectPairingCode: () async -> Void
+    let acceptVersionWarning: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
+
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analytics) private var analytics
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
@@ -33,6 +42,14 @@ struct PairingView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Warn before the user burns a pair attempt: without an active
+                // tailnet, the Mac's QR/tailnet route is normally unreachable.
+                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
+                    Section {
+                        TailscaleInactiveCallout(context: .pairing)
+                    }
+                }
+
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
@@ -127,12 +144,47 @@ struct PairingView: View {
                     }
                 }
 
+                if let versionWarning {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+
+                            Text(versionWarning)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("MobilePairingVersionWarning")
+
+                            Button(role: .destructive) {
+                                startPairingTask {
+                                    await acceptVersionWarning()
+                                }
+                            } label: {
+                                Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
+                            }
+                            .disabled(isPairing)
+                            .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
+                        }
+                    }
+                }
+
                 if let errorText {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(errorText)
                                 .foregroundStyle(.red)
                                 .accessibilityIdentifier("MobilePairingError")
+                            if let guidanceText = errorGuidanceText {
+                                Text(guidanceText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("MobilePairingErrorGuidance")
+                            }
                             Text(signedInAccountText)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -193,6 +245,9 @@ struct PairingView: View {
                 }
             }
         }
+        .onAppear {
+            analytics.capture("ios_pairing_screen_viewed", ["entry": .string("post_sign_in")])
+        }
         #endif
     }
 
@@ -213,10 +268,18 @@ struct PairingView: View {
         validationError ?? connectionError
     }
 
+    /// The guidance line only belongs to a connection error. A local validation
+    /// error (bad host/port) is self-explanatory and has no store-side guidance,
+    /// so suppress the connection guidance while a validation error is showing.
+    private var errorGuidanceText: String? {
+        guard validationError == nil else { return nil }
+        return connectionErrorGuidance
+    }
+
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !trimmedHost.hasPrefix("cmux-ios://"),
+              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
@@ -254,7 +317,7 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if trimmedHost.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
             pairingCode = trimmedHost
             startPairingTask {
                 await connectPairingCode()

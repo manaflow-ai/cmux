@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 
+import CmuxFoundation
+import CmuxSettings
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -111,7 +114,7 @@ struct WorkspaceGroupTests {
             forDraggedWorkspaceId: originalIds[0],
             targetWorkspaceId: group.anchorWorkspaceId
         )
-        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
             draggedTabId: originalIds[0],
             targetTabId: group.anchorWorkspaceId,
             indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom),
@@ -177,7 +180,9 @@ struct WorkspaceGroupTests {
 
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []
+        var visibleRowIds: [UUID] = []
         for item in items {
+            visibleRowIds.append(item.rowWorkspaceId)
             switch item {
             case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
                 groupMemberIds = memberWorkspaceIds
@@ -195,6 +200,11 @@ struct WorkspaceGroupTests {
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+        #expect(visibleRowIds == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[3],
+        ])
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
@@ -226,18 +236,71 @@ struct WorkspaceGroupTests {
             originalIds[3],
         ])
         #expect(forcedTopLevelIds == headerTargetIds)
-        #expect(!SidebarTabDropIndicatorPredicate.topVisible(
+        #expect(!SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: originalIds[3],
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
             tabIds: fullRowIds
         ))
-        #expect(SidebarTabDropIndicatorPredicate.topVisible(
+        #expect(SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: originalIds[3],
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
             tabIds: forcedTopLevelIds
         ))
+    }
+
+    @Test func draggingGroupedChildAboveItsGroupPromotesToTopLevel() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let draggedId = originalIds[1]
+        let targetId = originalIds[0]
+        let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
+            draggedTabId: draggedId,
+            targetTabId: targetId,
+            indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds
+        ))
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            draggedId,
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[3],
+        ])
     }
 
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
@@ -351,6 +414,108 @@ struct WorkspaceGroupTests {
             originalIds[2],
             originalIds[0],
         ])
+    }
+
+    @Test func pinningGroupedWorkspaceKeepsItAtTopOfGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(pinnedChild.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[1],
+            originalIds[2],
+        ])
+    }
+
+    @Test func pinnedGroupedWorkspaceDoesNotPromoteUnpinnedGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let globallyPinned = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(globallyPinned, pinned: true)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[3] })
+
+        manager.setPinned(pinnedChild, pinned: true)
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            originalIds[1],
+            group.anchorWorkspaceId,
+            originalIds[3],
+            originalIds[2],
+        ])
+        #expect(!group.isPinned)
+        #expect(pinnedChild.groupId == groupId)
+    }
+
+    @Test func draggingUnpinnedGroupedWorkspaceAbovePinnedGroupedWorkspaceShowsNoIndicator() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let pinnedChild = try #require(manager.tabs.first { $0.id == originalIds[2] })
+        manager.setPinned(pinnedChild, pinned: true)
+
+        let draggedUnpinnedId = originalIds[3]
+        let tabIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+        let legalInsertionRange = manager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: draggedUnpinnedId,
+            targetWorkspaceId: pinnedChild.id
+        )
+
+        #expect(manager.tabs.first { $0.id == draggedUnpinnedId }?.groupId == groupId)
+        let indicator = SidebarDropPlanner().indicator(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange,
+            pointerY: 2,
+            targetHeight: 40
+        )
+        #expect(indicator == nil)
+        #expect(SidebarDropPlanner().targetIndex(
+            draggedTabId: draggedUnpinnedId,
+            targetTabId: pinnedChild.id,
+            indicator: SidebarDropIndicator(tabId: pinnedChild.id, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
+        ) == tabIds.firstIndex(of: draggedUnpinnedId))
     }
 
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
@@ -543,8 +708,10 @@ struct WorkspaceGroupTests {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
-        WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
-        defer { WorkspaceGroupAnchorCloseSettings.setSuppressed(false) }
+        let anchorCloseKey = SettingCatalog().workspaceGroups.anchorCloseSuppressed
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        settings.set(true, for: anchorCloseKey)
+        defer { settings.reset(anchorCloseKey) }
         let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
         let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
 

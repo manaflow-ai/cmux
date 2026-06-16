@@ -38,13 +38,26 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
 
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
     /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
-    /// sidebar button's provider picker. Defaults off; while off, no custom
+    /// sidebar button's provider picker. Defaults on; while off, no custom
     /// sidebar appears in the picker and a persisted custom selection falls
     /// back to the default workspaces sidebar.
     public let customSidebars = DefaultsKey<Bool>(
         id: "customSidebars.beta.enabled",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "customSidebars.beta.enabled"
+    )
+
+    /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
+    /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
+    /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
+    /// create/close propagate to the remote, while quitting cmux leaves the
+    /// remote tmux server running for resume. Defaults off; while off, every
+    /// remote-tmux entry point and socket command is gated out so the local
+    /// terminal path is unaffected.
+    public let remoteTmux = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
     public init() {}

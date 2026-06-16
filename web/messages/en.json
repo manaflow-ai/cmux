@@ -634,6 +634,59 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "title": "Remote tmux",
+      "metaTitle": "Remote tmux (beta)",
+      "metaDescription": "Drive a remote tmux session from cmux over SSH using tmux control mode. Sessions become workspaces, windows become tabs, and a window's panes become a native cmux split.",
+      "intro": "Remote tmux mirrors a tmux session running on a remote machine into cmux over SSH, using tmux control mode (tmux -CC). Instead of a plain SSH terminal, the remote session is reprojected into cmux's native UI — workspaces, tabs, splits, scrollback, and copy — and cmux drives the real tmux server behind it. It is a Beta Features flag and does not change local terminals.",
+      "betaNote": "Beta. This feature is opt-in and still stabilizing — see the limitations below.",
+      "mappingTitle": "How tmux maps to cmux",
+      "mappingIntro": "cmux and tmux nest their layouts in opposite directions. In cmux, a pane holds a row of tabs (each tab is one terminal). In tmux, a window holds a split of panes. Remote tmux bridges the two by projecting tmux's structure onto cmux's:",
+      "mapTmux": "tmux",
+      "mapCmux": "cmux",
+      "rowSession": "A dedicated workspace in the sidebar.",
+      "rowWindow": "A tab in that workspace.",
+      "rowPane": "A pane in a native split inside that tab.",
+      "mappingPanes": "The new capability is panes inside a tab: a cmux tab used to hold a single terminal, but a tmux window with several panes is now rendered as a real cmux split layout within one tab — each remote pane is a native cmux terminal pane with the usual chrome. The bridge is two-way: splitting or closing a pane in that tab runs tmux split-window, and reordering the tabs reorders the tmux windows with swap-window.",
+      "requirementsTitle": "Requirements",
+      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; a current tmux is recommended for the full feature set. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
+      "enableTitle": "Enable it",
+      "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
+      "attachTitle": "Attaching",
+      "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux opens a new window that mirrors that host's tmux sessions: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
+      "attachSockets": "The remote.tmux.* socket commands (below) give finer control — for example, remote.tmux.mirror mirrors a host's sessions into the current window's sidebar instead of opening a dedicated window.",
+      "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then opens the mirror window. Accepts --port and --identity.",
+      "troubleshootTitle": "If you get \"Permission denied\"",
+      "troubleshootDesc": "The destination is handed to ssh as-is, so an alias must carry everything ssh needs to log in — most commonly User (without it, ssh tries your local username) and IdentityFile:",
+      "troubleshootFallback": "Or pass the user explicitly: cmux ssh-tmux dev@my-ssh-alias. If plain ssh <destination> doesn't log you in, cmux ssh-tmux <destination> won't either.",
+      "howTitle": "How it works",
+      "howDesc": "cmux spawns ssh … tmux -CC attach and parses the control-mode stream itself rather than relying on a built-in tmux viewer, so the protocol and %begin/%end command correlation are fully owned by cmux. Each remote pane renders into a dedicated terminal surface fed by tmux %output, and your input — keystrokes and mouse — is forwarded with tmux send-keys. The remote tmux server owns pane sizing and reflow; cmux keeps its surfaces in lock-step with it and never reflows locally.",
+      "behaviorTitle": "What it supports",
+      "behaviorSize": "Sizing: the remote client is resized to the rendered grid (refresh-client -C), so TUIs aren't stuck at tmux's default 80×24.",
+      "behaviorSplit": "Splits: splitting or closing a pane in a mirrored window is propagated to tmux with split-window, so the cmux layout and the tmux layout stay in sync. Programmatic splits (cmux new-split or surface.split over the socket) report accepted with no surface id — the new pane arrives asynchronously once tmux confirms the layout change. Requests carrying options the routed split cannot honor (startup command, working directory, divider position, left/up placement) are rejected up front, before the remote session is mutated.",
+      "behaviorReorder": "Reordering: drag-reordering the mirrored tabs reorders the tmux windows with swap-window.",
+      "behaviorCwd": "Working directory: the remote pane's current folder is tracked and shown on the tab.",
+      "behaviorPaste": "Paste & drop: pasted text and dropped images/files go through tmux paste-buffer -p, so a remote app (e.g. a coding agent) receives a real bracketed paste — an image arrives as [Image #N], not a local path.",
+      "behaviorMouse": "Mouse: clicks, scroll, and drag reach the remote app when it has mouse mode on. Hold Shift while dragging for a native cmux text selection/copy (the same as any terminal running a mouse-mode app).",
+      "behaviorUnicode": "Unicode-correct output: multi-byte characters are preserved even when tmux splits them across updates, so box-drawing and other wide content render cleanly.",
+      "socketTitle": "Socket commands",
+      "socketDesc": "The feature is also driven by socket commands (gated on the Beta Features flag). host is an SSH destination or ~/.ssh/config alias; session is a tmux session name.",
+      "socketMethod": "Method",
+      "socketParams": "Params",
+      "socketMeaning": "Description",
+      "methodSessions": "List the tmux sessions on a host.",
+      "methodAttach": "Attach a control client to a session (create attaches-or-creates).",
+      "methodMirror": "Mirror every session on a host, each as its own workspace (windows become tabs).",
+      "methodWindow": "Open a dedicated window mirroring every session on a host (the cmux ssh-tmux entry point); returns the ssh command to run for interactive auth when the host needs it.",
+      "methodDetach": "Detach the control client; the remote session keeps running.",
+      "methodState": "Report the control client's observed state (diagnostics).",
+      "socketSafetyDesc": "A dash-prefixed host or identity file is rejected at the trust boundary as a defense against SSH option injection.",
+      "limitationsTitle": "Limitations",
+      "limitReconnect": "Transient SSH drops reconnect automatically: if the connection blips mid-session the mirror freezes and cmux retries with capped exponential backoff, re-seeding the panes when it resumes. The mirror only closes for good when the remote session itself ends, or when you close the mirror window or quit cmux — and it isn't restored on relaunch (re-attach with cmux ssh-tmux).",
+      "limitPaste": "Only single-line paste/drop (such as a file or image path) is delivered as a real bracketed paste via paste-buffer -p; multi-line text is sent as plain keystrokes, so a remote app won't treat it as one paste.",
+      "limitCwd": "Live working-directory updates use control-mode subscriptions (tmux 3.2+); on older tmux the tab shows the initial folder but doesn't update on cd.",
+      "limitReflow": "Primary-screen scrollback isn't re-wrapped on resize — cmux leaves reflow to tmux, so older lines can stay at the previous width until the app repaints. Full-screen TUIs, which redraw on resize, are unaffected."
+    },
     "layoutTitle": "cmux docs",
     "search": {
       "placeholder": "Search docs...",
@@ -770,7 +823,57 @@
       "terminalOrBrowser": "Terminal or browser",
       "automatic": "Automatic",
       "paneIdSocket": "Pane ID (socket API)",
-      "panelIdInternal": "Panel ID (internal)"
+      "panelIdInternal": "Panel ID (internal)",
+      "workspaceGroups": "Workspace Groups",
+      "workspaceGroupsDesc": "Group related workspaces into collapsible named sections in the sidebar. Each group is owned by an anchor workspace and can be pinned, renamed, and given its own icon and color. New workspaces can be spawned directly inside a group from its header.",
+      "workspaceGroupsLink": "Read the full Workspace Groups guide"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Workspace Groups",
+      "metaDescription": "Nest workspaces into collapsible named sections in the cmux sidebar. The anchor model, how to create and manage a group, and the workspace-group CLI.",
+      "title": "Workspace Groups",
+      "intro": "Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit anchor workspace, a customizable + button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.",
+      "concepts": "Concepts",
+      "anchorTitle": "Anchor workspace",
+      "anchorDesc": "Every group is owned by exactly one workspace called the anchor. The group header in the sidebar is the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels; clicking the chevron toggles collapse.",
+      "anchorNew": "Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace when grouping a selection, or from the active workspace when creating via the CLI without --cwd.",
+      "anchorClose": "Closing the anchor workspace dissolves the group: every other member becomes an ungrouped workspace and stays in the tabs list. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a \"Don't ask again\" toggle before this happens.",
+      "identityTitle": "Group identity",
+      "identityDesc": "A group has a name, an icon (an SF Symbol, default folder.fill), and an optional custom color. These are independent of the anchor workspace's own customizations. The anchor's color and icon are seeded from the group on creation, but they can diverge afterwards.",
+      "pinningTitle": "Pinning",
+      "pinningDesc": "Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.",
+      "layoutIntro": "The sidebar lays out top-level rows top to bottom:",
+      "layoutItem1": "Pinned top-level rows (workspaces and groups).",
+      "layoutItem2": "Unpinned top-level rows (workspaces and groups).",
+      "creatingTitle": "Creating a group",
+      "creatingIntro": "A group is created in one of two ways: a keyboard shortcut or a workspace context menu. Both insert a fresh anchor workspace above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
+      "keyboardTitle": "From the keyboard ({shortcut})",
+      "keyboardDesc": "Select two or more workspaces in the sidebar, then press {shortcut}. A fresh anchor workspace is inserted above the selection and all selected workspaces become children. The group is auto-named Group 1, Group 2, and so on — rename it anytime via the header context menu.",
+      "keyboardNote": "{shortcut} collides with React Grab's default. The group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and in browser or terminal contexts. Rebind it in Settings → Keyboard if you would rather the two not share a key.",
+      "keyboardSingle": "Single-tab groups are not created from the shortcut. Use the workspace context menu New Group from Workspace entry for that.",
+      "contextMenuTitle": "From a workspace context menu",
+      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Group from Workspace, or New Group from Selection when multiple workspaces are selected. This uses the same auto-naming behavior as the shortcut.",
+      "managingTitle": "Managing a group",
+      "managingIntro": "Once a group exists, its header context menu and the + button on the header let you manage the group and add workspaces to it. Neither creates a new group.",
+      "headerMenuTitle": "From the group header context menu",
+      "headerMenuDesc": "Right-click an existing group header for Rename Group…, Pin Group / Unpin Group, Edit Group Config… (which opens ~/.config/cmux/cmux.json), Open Workspace Groups Docs, Ungroup (Keep Workspaces), and Delete Group (Close Workspaces). Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.",
+      "plusButtonTitle": "From the + button on a group header",
+      "plusButtonDesc": "Hover over a group header to reveal a trailing + button. Click it to create a new workspace in the group at the anchor working directory. Right-click it for New Workspace in Group, Edit Group Config…, and Open Workspace Groups Docs.",
+      "plusButtonNote": "Pressing {shortcut} while the active workspace is a group anchor or member also creates the new workspace inside that group. The default placement is After current: from a regular group member the new workspace lands right after the active member, and from the anchor or header it lands at the top of the group.",
+      "cliTitle": "CLI",
+      "cliDesc": "All group operations are scriptable with the cmux workspace-group subcommands. The hyphenated form ships first; once the broader cmux workspace command namespace lands, cmux workspace group becomes the canonical form, with the hyphenated form kept as an alias forever.",
+      "cliSubcommandsTitle": "Subcommands",
+      "cliCreateNote": "create returns a group handle (workspace_group:N by default). Pass --json for the full structured payload.",
+      "cliFlagsNote": "Pass set-color or set-icon an empty value to clear the group's color or icon. delete is irreversible: it closes every member workspace.",
+      "cliExamplesTitle": "Examples",
+      "cliExampleGroup": "Group the currently selected workspaces under a name:",
+      "cliExampleNew": "Spin up a new workspace inside an existing group, for example wired to a worktree script:",
+      "cliExampleList": "List groups in the focused window:",
+      "configTitle": "Configuration",
+      "configNote": "Per-group configuration lives under the workspaceGroups key in ~/.config/cmux/cmux.json, keyed by the anchor workspace's working directory. See the configuration reference for the supported keys, including the global new-workspace placement and per-directory color, icon, placement, and context-menu actions.",
+      "configLinkText": "workspaceGroups configuration reference",
+      "persistenceTitle": "Persistence",
+      "persistenceDesc": "Group name, anchor, pin state, collapse state, color, and icon are saved alongside your workspaces and restored across launches. Group membership is stored on each workspace."
     },
     "configuration": {
       "title": "Configuration",
@@ -811,10 +914,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
+          "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
+          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
+          "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
@@ -841,15 +947,39 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "canvas": {
+          "paneGap": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
+        },
         "fileEditor": {
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+        },
+        "sidebar": {
+          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+        },
+        "fileExplorer": {
+          "description": "Right-sidebar file explorer (file tree) settings.",
+          "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
+        "diffViewer": {
+          "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+      "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+      "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
+      "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",
+      "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
+      "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
+      "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -975,6 +1105,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
         "splitPanes": "Split Panes",
+        "canvas": "Canvas",
+        "canvasBlurb": "A freeform 2D layout mode where panes float on an infinite, pannable canvas. Alignment and distribution commands are available from the command palette.",
         "browser": "Browser",
         "notifications": "Notifications",
         "find": "Find",
@@ -1537,6 +1669,7 @@
     "navItems": {
       "gettingStarted": "Getting Started",
       "concepts": "Concepts",
+      "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
       "customCommands": "Custom Commands",
@@ -1546,6 +1679,7 @@
       "skills": "Skills",
       "notifications": "Notifications",
       "ssh": "SSH",
+      "remoteTmux": "Remote tmux",
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
@@ -1720,5 +1854,10 @@
     "downloadLight": "Download light icon",
     "downloadDark": "Download dark icon",
     "brandPage": "Brand assets"
+  },
+  "afterSignIn": {
+    "title": "Signed in to cmux",
+    "body": "If cmux did not open automatically, use the button below.",
+    "button": "Return to cmux"
   }
 }

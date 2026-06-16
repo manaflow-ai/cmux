@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileTerminalKit
 import Foundation
 import UIKit
@@ -6,13 +7,30 @@ final class TerminalInputTextView: UITextView {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
+    /// Invoked when the Paste accessory button reads an image off the system
+    /// clipboard. The host forwards the bytes (+ a lowercase format hint) to the
+    /// Mac, which injects the resulting file path into the terminal. Clipboard
+    /// *text* does not use this path; it rides ``onText``.
+    var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
+    /// Fired by the trailing "customize" button so the SwiftUI host can present
+    /// the toolbar shortcuts editor.
+    var onOpenToolbarSettings: (() -> Void)?
+    /// Invoked when the composer accessory button is tapped. The host toggles
+    /// the iMessage-style composer above the terminal.
+    var onToggleComposer: (() -> Void)?
+    /// Fired by the pinned HIDE button: temporarily hides the toolbar + composer
+    /// until the next terminal tap.
+    var onHideChrome: (() -> Void)?
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
     /// ``setKeyboardShown(_:)``.
     private weak var dismissButton: UIButton?
+    /// The composer toggle, pinned in the container (not the scrollable stack) so
+    /// it is always reachable regardless of the button row's scroll position.
+    private weak var composerButton: UIButton?
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -47,11 +65,63 @@ final class TerminalInputTextView: UITextView {
     private static let monokaiBarColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
-    private static let accessoryButtonSymbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-    private static let accessoryButtonInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+    /// One shared SF Symbol config for every icon on the bar (paste, zoom,
+    /// arrows, settings, keyboard toggle) so all glyphs render at one size.
+    /// The point size sits just under the 14pt text font because an SF Symbol's
+    /// bounding box reads larger than text at the same size; 13pt keeps the
+    /// icons visually in line with the text keys instead of looming over them.
+    private static let accessoryButtonSymbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+    /// Dedicated, slightly smaller config for the leading composer toggle.
+    /// `square.and.pencil` has a denser, taller bounding box than the
+    /// magnifying-glass/clipboard glyphs, so at the shared 13pt it still loomed
+    /// larger than its neighbors; 11pt brings it visually in line with them.
+    private static let composerButtonSymbolConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+    /// One comfortable inset applied to every button so the bar reads tappable and
+    /// uniform. Each button hugs its label/icon plus this inset. The bar's vertical
+    /// breathing room lives BELOW the strip (``dockedBottomPadding``), not as a
+    /// scroll-view margin that would shrink the capsule inside the strip, so the
+    /// glass capsule grows to fill the full strip height. The horizontal inset is
+    /// trimmed so the capsule hugs its glyph.
+    private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
     private static let accessoryButtonCornerRadius: CGFloat = 6
-    private static let accessoryButtonHeight: CGFloat = 28
-    private static let accessoryButtonMinWidth: CGFloat = 44
+    /// Button height. Equal to ``dockedNubSize`` so the capsule fills the strip
+    /// vertically: the buttons are as tall as the section, with the breathing
+    /// room living BELOW the strip (``dockedBottomPadding``) instead of inside it.
+    private static let accessoryButtonHeight: CGFloat = dockedNubSize
+    /// Size of the directional arrow nub (the tallest control in the bar). The
+    /// button-row strip is sized to exactly this so the nub fills the strip with no
+    /// slack above it, and the host reserves exactly this much grid height. Flush
+    /// with ``accessoryButtonHeight`` (the floor below which the buttons would clip
+    /// the strip) so the bar — and the reserved grid band above the keyboard — is as
+    /// short as it can be while every control stays a comfortable tap target.
+    static let dockedNubSize: CGFloat = 28
+    /// Breathing room below the control row, between the buttons and the keyboard
+    /// top (or the home indicator when the keyboard is down), so the bar is not
+    /// flush-tight at its bottom while the TOP stays snug to the terminal's last
+    /// row. It is part of ``dockedButtonRowHeight`` so the grid reservation, the
+    /// surface frame, and the composer host all reserve the same total band; the
+    /// button row itself is pinned to the BOTTOM of that band minus this padding
+    /// (see the docked bar's constraints), so the extra space lands below the
+    /// controls.
+    static let dockedBottomPadding: CGFloat = 8
+    /// Fixed height of the docked bar's button row band, reserved by the grid and
+    /// the composer host. It is the tallest control (the arrow nub,
+    /// ``dockedNubSize``) plus ``dockedBottomPadding`` below it. The controls are
+    /// pinned to the BOTTOM of this band (minus the padding) instead of the top:
+    /// when the surface-hosted container grows taller than this band (a
+    /// letterbox/resize pushes the rendered terminal's bottom up), the buttons stay
+    /// glued to the keyboard top and only the slack ABOVE them grows, so the
+    /// control row never rides up off the keyboard. In the composer host the frame
+    /// is exactly this height (no slack), so bottom-pinning is identical to
+    /// top-pinning there.
+    static let dockedButtonRowHeight: CGFloat = dockedNubSize + dockedBottomPadding
+    /// Minimum (not fixed) button width. Text buttons (Tab, Esc, ^C, ^D) size to
+    /// their intrinsic content width and only floor here so they hug their label
+    /// plus the comfortable inset; single-glyph modifiers/icons (⌃ ⌥ ⌘, the arrow
+    /// keys, paste) take this as a FIXED width so they stay uniform. The glyph keys
+    /// hug their icon tightly; the taller capsule supplies the tap area that a
+    /// wider button used to.
+    private static let accessoryButtonMinWidth: CGFloat = 32
     private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
@@ -61,7 +131,10 @@ final class TerminalInputTextView: UITextView {
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
         container.backgroundColor = .clear
-        container.frame = CGRect(x: 0, y: 0, width: 0, height: 44)
+        // Placeholder height until the host positions the bar via
+        // `GhosttySurfaceView.bottomDockFrames()`; sized to the button-row strip so
+        // the pre-layout frame matches the reserved grid height.
+        container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
         backgroundView.backgroundColor = Self.monokaiBarColor
@@ -69,8 +142,7 @@ final class TerminalInputTextView: UITextView {
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        let dismissConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: dismissConfig), for: .normal)
+        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = UIColor(white: 0.7, alpha: 1)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
@@ -87,7 +159,8 @@ final class TerminalInputTextView: UITextView {
 
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.spacing = 6
+        // Tighter inter-button spacing so the keys read as a compact row.
+        stack.spacing = 4
         stack.alignment = .center
 
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -97,14 +170,29 @@ final class TerminalInputTextView: UITextView {
 
         // Arrow nub for directional pad
         let nub = TerminalArrowNubView()
-        nub.onArrowKey = { [weak self] data in
-            self?.onEscapeSequence?(data)
+        nub.onArrowKey = { [weak self] action in
+            self?.handleNubArrow(action)
         }
         nub.translatesAutoresizingMaskIntoConstraints = false
+
+        // The composer toggle is pinned directly in the container (like the
+        // keyboard-dismiss button and the arrow nub), OUTSIDE the horizontally
+        // scrollable button row. It used to be the leading item of the scrollable
+        // stack, but any scroll (e.g. reaching the HIDE/customize controls at the
+        // right edge of the strip) carried it off-screen left, and that offset
+        // survived a hide→reveal reflow, stranding the compose button at a large
+        // negative window X (~-840 in a 402pt window) where it was unhittable.
+        // Pinning it makes "the composer is always one tap away" a structural
+        // invariant immune to `contentOffset`, which is what the populate comment
+        // below already claimed. It is not config/remote dependent, so it is built
+        // once here (not rebuilt by `populateAccessoryActions`).
+        let composerButton = makeAccessoryButton(for: .composer)
+        self.composerButton = composerButton
 
         container.addSubview(backgroundView)
         container.addSubview(dismissButton)
         container.addSubview(nub)
+        container.addSubview(composerButton)
         container.addSubview(scrollView)
 
         let backgroundLeadingConstraint = backgroundView.leadingAnchor.constraint(equalTo: container.leadingAnchor)
@@ -113,10 +201,27 @@ final class TerminalInputTextView: UITextView {
             equalTo: container.safeAreaLayoutGuide.leadingAnchor,
             constant: Self.accessoryHorizontalInset
         )
+        // The bar scrolls horizontally, so the right edge runs flush to the
+        // screen (zero trailing inset). `updateAccessoryLayoutInsets` only adds a
+        // safe-area inset when the surface itself does not reach the window edge.
         let scrollTrailingConstraint = scrollView.trailingAnchor.constraint(
             equalTo: container.safeAreaLayoutGuide.trailingAnchor,
-            constant: -Self.accessoryHorizontalInset
+            constant: 0
         )
+
+        // A short fixed-height strip pinned to the container's BOTTOM (minus
+        // ``dockedBottomPadding``) that holds the button row. The docked container
+        // can be TALLER than this strip, because the host
+        // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP to the
+        // rendered terminal's bottom and its BOTTOM to the keyboard top, so a
+        // letterbox/resize that pushes the rendered terminal up grows the container
+        // upward. Bottom-pinning the controls keeps them glued to the keyboard top
+        // (the container's bottom edge) with the slack absorbed ABOVE them; a
+        // top-pin would let the controls ride UP off the keyboard whenever the
+        // terminal was letterboxed. `dockedBottomPadding` lifts the strip off the
+        // very bottom edge so the controls have breathing room.
+        let buttonRow = UILayoutGuide()
+        container.addLayoutGuide(buttonRow)
 
         NSLayoutConstraint.activate([
             backgroundLeadingConstraint,
@@ -124,25 +229,54 @@ final class TerminalInputTextView: UITextView {
             backgroundView.topAnchor.constraint(equalTo: container.topAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
+            // Bottom-pinned (minus the bottom padding) so the controls hug the
+            // keyboard top no matter how tall the container grows; the strip itself
+            // stays exactly the nub height.
+            buttonRow.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Self.dockedBottomPadding),
+            buttonRow.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            buttonRow.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            buttonRow.heightAnchor.constraint(equalToConstant: Self.dockedNubSize),
+
+            // Every control shares the strip's single centerline. The strip is sized
+            // to the tallest control (the ``dockedNubSize`` nub), so centering keeps
+            // all three groups — keyboard button, nub, and the scrollable Ctrl/Esc/Tab
+            // row — on ONE horizontal line, hugging the keyboard top (the strip is
+            // bottom-pinned). (Top-pinning the directly-anchored controls instead
+            // would float them above the scroll row, which is centered inside its own
+            // scroll view.)
             dismissLeadingConstraint,
-            dismissButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
             dismissButton.widthAnchor.constraint(equalToConstant: 32),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
-            nub.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            nub.widthAnchor.constraint(equalToConstant: 34),
-            nub.heightAnchor.constraint(equalToConstant: 34),
+            nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            nub.widthAnchor.constraint(equalToConstant: Self.dockedNubSize),
+            nub.heightAnchor.constraint(equalToConstant: Self.dockedNubSize),
 
-            scrollView.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
+            // Pinned composer toggle: directly after the nub (same 6pt gap the
+            // scroll view used to take), centered on the shared strip line. The
+            // scroll view starts after it with the 4pt inter-button spacing the
+            // stack uses, so the bar reads identically to before — only now the
+            // composer can never scroll away.
+            composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
+            composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+
+            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
             scrollTrailingConstraint,
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 4),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -4),
+            // No vertical margin inside the scroll view: the stack fills the strip
+            // height so the glass capsules grow to the full section height. The
+            // bar's breathing room lives BELOW the strip (`dockedBottomPadding`),
+            // not as a margin that shrinks the buttons.
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -8),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -8),
+            // Zero trailing content padding so the last button runs to the screen
+            // edge when scrolled to the end (the bar scrolls horizontally).
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
@@ -167,10 +301,35 @@ final class TerminalInputTextView: UITextView {
     var toolbarView: UIView { terminalAccessoryToolbar }
 
     private weak var accessoryStackView: UIStackView?
-    // Strong reference — command button is not always in the stack's arrangedSubviews,
-    // so nothing else retains it.
-    private var commandAccessoryButton: UIButton?
     private var isMacRemote = false
+
+    #if DEBUG
+    /// Regression sentinel for the hide→reveal "compose button off-screen left" jank.
+    /// The composer toggle is pinned in the container (not the scrollable stack),
+    /// so its window X (``composeWinX``) must stay on-screen REGARDLESS of how far the
+    /// button row is scrolled (``scrollOffsetX`` can be anything up to
+    /// `scrollContentW - scrollFrameW`). Before the fix the composer rode inside the
+    /// scroll view and a persisted right-scroll carried it to ~-840. Appended to
+    /// ``GhosttySurfaceView.composerDockProbeValue`` so it lands in the XCUITest
+    /// failure message with no log plumbing.
+    var accessoryLayoutDiagnostics: String {
+        let scroll = accessoryStackView?.superview as? UIScrollView
+        let win = window
+        let scrollOffsetX = scroll.map { Int($0.contentOffset.x) } ?? -1
+        let scrollContentW = scroll.map { Int($0.contentSize.width) } ?? -1
+        let scrollFrameW = scroll.map { Int($0.frame.width) } ?? -1
+        let composeWinX: Int = {
+            guard let compose = composerButton, let win else { return -9999 }
+            return Int(compose.convert(compose.bounds, to: win).minX)
+        }()
+        return [
+            "scrollOffsetX=\(scrollOffsetX)",
+            "scrollContentW=\(scrollContentW)",
+            "scrollFrameW=\(scrollFrameW)",
+            "composeWinX=\(composeWinX)",
+        ].joined(separator: ";")
+    }
+    #endif
 
     func updateAccessoryLayoutInsets() {
         let insets = accessoryLayoutInsetsProvider?() ?? .zero
@@ -180,7 +339,10 @@ final class TerminalInputTextView: UITextView {
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
         accessoryDismissLeadingConstraint?.constant = Self.accessoryHorizontalInset + leftInset
-        accessoryScrollTrailingConstraint?.constant = -(Self.accessoryHorizontalInset + rightInset)
+        // Right edge runs flush to the surface edge: only honor the surface's own
+        // right offset from the window (when it does not span full width), not the
+        // bar's leading inset, so the rightmost button hugs the screen edge.
+        accessoryScrollTrailingConstraint?.constant = -rightInset
 
         if accessoryStackView != nil {
             terminalAccessoryToolbar.setNeedsLayout()
@@ -188,35 +350,76 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    /// The structural buttons pinned to the front of the bar, ahead of the
-    /// user-configurable shortcuts. Command is created but kept out of the
-    /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
-    private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
-        .control, .alternate, .command, .zoomOut, .zoomIn,
-    ]
-
-    /// Build (or rebuild) the bar's buttons: the pinned modifier/zoom controls
-    /// followed by the user-configurable shortcuts in their saved order. Safe to
-    /// call repeatedly; it clears the stack first.
+    /// Build (or rebuild) the SCROLLABLE button row: the user's configured order
+    /// (modifiers, zoom, paste, shortcuts, and custom actions all reorderable
+    /// together), followed by the fixed trailing HIDE and "customize" controls.
+    /// The composer toggle is NOT here — it is pinned in the container outside
+    /// the scroll view (see ``terminalAccessoryToolbar``). The ⌘ item is rendered
+    /// only when driving a Mac remote. Safe to call repeatedly; it clears the
+    /// stack first.
     private func populateAccessoryActions() {
         guard let stack = accessoryStackView else { return }
         for view in stack.arrangedSubviews {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        commandAccessoryButton?.removeFromSuperview()
-        commandAccessoryButton = nil
 
-        let actions = Self.pinnedLeadingActions + TerminalAccessoryConfiguration.shared.enabledActions
-        for action in actions {
-            let button = makeAccessoryButton(for: action)
-            // Command is Mac-only; kept out of the stack and inserted by
-            // applyModifierPresentation() when driving a Mac remote.
-            if action == .command {
-                commandAccessoryButton = button
-            } else {
-                stack.addArrangedSubview(button)
+        // The composer toggle is NOT added here: it is pinned directly in the
+        // container (see ``terminalAccessoryToolbar``), OUTSIDE this scrollable
+        // stack, so it can never be carried off-screen by the button row's scroll
+        // position. It is built once at toolbar construction (not config/remote
+        // dependent), so a repopulate must not re-add or rebuild it.
+        //
+        // The user-configurable region: built-in shortcuts/modifiers/zoom/paste
+        // and custom actions, all in the user's saved order.
+        for item in TerminalAccessoryConfiguration.shared.enabledItems {
+            switch item {
+            case let .builtin(action):
+                // ⌘ only makes sense against a Mac remote; skip it otherwise
+                // (it stays in the saved order, just unrendered, so flipping the
+                // remote re-shows it in place).
+                if action == .command && !isMacRemote { continue }
+                stack.addArrangedSubview(makeAccessoryButton(for: action))
+            case let .custom(custom):
+                stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
             }
+        }
+        // The HIDE button, pinned just before "customize": temporarily hides the
+        // whole bottom chrome (toolbar + composer) until the next terminal tap.
+        stack.addArrangedSubview(makeHideChromeButton())
+        // The "customize" button pinned at the very end of the bar.
+        stack.addArrangedSubview(makeToolbarSettingsButton())
+
+        // A modifier the user just hid (or ⌘ on a non-Mac remote) is no longer
+        // rendered, so it would otherwise stay armed/sticky with no visible
+        // button to turn it off and silently modify every keystroke. Clear any
+        // armed modifier whose button is not on the bar.
+        reconcileArmedModifierVisibility()
+    }
+
+    /// Disarm the active modifier if its bar button is no longer rendered, so a
+    /// hidden (or non-Mac-remote ⌘) modifier can never stay invisibly armed.
+    private func reconcileArmedModifierVisibility() {
+        guard let armed = modifierState.armedModifier,
+              let action = Self.accessoryAction(for: armed) else { return }
+        let renderedActions = (accessoryStackView?.arrangedSubviews ?? []).compactMap { view -> TerminalInputAccessoryAction? in
+            guard let button = view as? AccessoryActionButton,
+                  case let .builtin(builtinAction) = button.item else { return nil }
+            return builtinAction
+        }
+        guard !renderedActions.contains(action) else { return }
+        modifierState.disarmAll()
+        refreshAccessoryButtonStyles()
+    }
+
+    /// Maps a modifier-state modifier to its accessory-bar action, so the
+    /// rebuild can check whether its button is currently on the bar.
+    private static func accessoryAction(for modifier: TerminalInputModifier) -> TerminalInputAccessoryAction? {
+        switch modifier {
+        case .control: return .control
+        case .alternate: return .alternate
+        case .command: return .command
+        case .shift: return .shift
         }
     }
 
@@ -233,40 +436,32 @@ final class TerminalInputTextView: UITextView {
     func updateModifierLabels(isMacRemote: Bool) {
         guard self.isMacRemote != isMacRemote else { return }
         self.isMacRemote = isMacRemote
+        // The ⌘ item is rendered only for a Mac remote and modifier titles depend
+        // on `isMacRemote`, so a full repopulate (rather than an in-place relabel)
+        // keeps the bar correct now that ⌘ can sit anywhere in the user's order.
+        populateAccessoryActions()
         applyModifierPresentation()
     }
 
-    /// Retitle the modifier buttons for the current remote and insert/remove the
-    /// command button. Split out of ``updateModifierLabels(isMacRemote:)`` so a
-    /// configuration-driven rebuild can re-apply it without toggling the flag.
+    /// Retitle the modifier buttons for the current remote and re-apply each
+    /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
+    /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
         guard let stack = accessoryStackView else { return }
-        for case let button as UIButton in stack.arrangedSubviews {
-            guard let action = TerminalInputAccessoryAction(rawValue: button.tag) else { continue }
-            button.setTitle(action.title(isMacRemote: isMacRemote), for: .normal)
-        }
-        // Insert/remove the command button based on whether this is a Mac terminal.
-        // We manage it outside the normal loop because it's not always in arrangedSubviews.
-        if let cmdButton = commandAccessoryButton {
-            if isMacRemote {
-                if cmdButton.superview == nil {
-                    // Insert after alternate (index 2 in original enum order: ctrl, alt, cmd)
-                    // Find the alt button's index in the current arrangedSubviews
-                    var insertIndex = stack.arrangedSubviews.count
-                    for (idx, view) in stack.arrangedSubviews.enumerated() {
-                        if view.tag == TerminalInputAccessoryAction.alternate.rawValue {
-                            insertIndex = idx + 1
-                            break
-                        }
-                    }
-                    stack.insertArrangedSubview(cmdButton, at: insertIndex)
-                }
+        // Restyle every visible button for the current remote (built-in titles
+        // depend on `isMacRemote`) and its armed/sticky state. Custom actions
+        // never arm.
+        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+            let armed: Bool
+            let sticky: Bool
+            if case let .builtin(action) = button.item {
+                armed = isAccessoryActionArmed(action)
+                sticky = isAccessoryActionSticky(action)
             } else {
-                if cmdButton.superview != nil {
-                    stack.removeArrangedSubview(cmdButton)
-                    cmdButton.removeFromSuperview()
-                }
+                armed = false
+                sticky = false
             }
+            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
         }
         // Disarm command state if switching away from Mac remote (clears a
         // sticky lock too, matching the legacy unconditional setter).
@@ -353,6 +548,16 @@ final class TerminalInputTextView: UITextView {
             onBackspace?()
             return
         }
+        if shiftAccessoryArmed, markedTextRange == nil, !hasText {
+            // Shift does not change Backspace, but a one-shot ⇧ must still be
+            // consumed here so it cannot leak onto the next key (matching the
+            // Control branch above).
+            if !shiftAccessorySticky {
+                setShiftAccessoryArmed(false)
+            }
+            onBackspace?()
+            return
+        }
         if markedTextRange != nil || hasText {
             super.deleteBackward()
             return
@@ -374,9 +579,19 @@ final class TerminalInputTextView: UITextView {
         handleAccessoryAction(action)
     }
 
+    func simulateNubArrowForTesting(_ action: TerminalInputAccessoryAction) {
+        handleNubArrow(action)
+    }
+
     private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
         guard action.isModifier else { return }
         modifierState.clearDoubleTapWindow()
+    }
+
+    /// Route a directional-nub arrow through the same modifier-aware path as the
+    /// toolbar arrow buttons.
+    private func handleNubArrow(_ action: TerminalInputAccessoryAction) {
+        handleAccessoryAction(action)
     }
 
     @objc
@@ -395,9 +610,8 @@ final class TerminalInputTextView: UITextView {
     /// glyphs, cross-dissolved, so it reads as a single keyboard toggle.
     func setKeyboardShown(_ shown: Bool) {
         guard let dismissButton else { return }
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         let symbol = shown ? "keyboard.chevron.compact.down" : "keyboard"
-        let image = UIImage(systemName: symbol, withConfiguration: config)
+        let image = UIImage(systemName: symbol, withConfiguration: Self.accessoryButtonSymbolConfig)
         UIView.transition(with: dismissButton, duration: 0.2, options: .transitionCrossDissolve) {
             dismissButton.setImage(image, for: .normal)
         }
@@ -408,9 +622,32 @@ final class TerminalInputTextView: UITextView {
 
     @objc
     private func handleAccessoryButton(_ sender: Any) {
-        guard let button = sender as? UIView,
-              let action = TerminalInputAccessoryAction(rawValue: button.tag) else { return }
-        handleAccessoryAction(action)
+        guard let button = sender as? AccessoryActionButton else { return }
+        switch button.item {
+        case let .builtin(action):
+            handleAccessoryAction(action)
+        case let .custom(custom):
+            handleCustomAction(custom)
+        }
+    }
+
+    @objc
+    private func handleOpenToolbarSettings() {
+        onOpenToolbarSettings?()
+    }
+
+    @objc
+    private func handleHideChrome() {
+        onHideChrome?()
+    }
+
+    /// Fire a custom action's bytes. Custom actions are macros, so any armed
+    /// modifier is cleared first to avoid silently modifying the macro's output.
+    private func handleCustomAction(_ custom: CustomToolbarAction) {
+        disarmAllModifiers()
+        refreshAccessoryButtonStyles()
+        guard let output = custom.output else { return }
+        onEscapeSequence?(output)
     }
 
     @discardableResult
@@ -422,37 +659,209 @@ final class TerminalInputTextView: UITextView {
         return true
     }
 
-    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> UIButton {
-        let button = UIButton(type: .system)
+    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> AccessoryActionButton {
+        let button = AccessoryActionButton(item: .builtin(action))
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.tag = action.rawValue
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = action.accessibilityIdentifier
         button.accessibilityLabel = action.accessibilityLabel
-        button.titleLabel?.font = Self.accessoryButtonFont
-
-        if let symbolName = action.symbolName {
-            button.setImage(UIImage(systemName: symbolName), for: .normal)
-            button.setPreferredSymbolConfiguration(Self.accessoryButtonSymbolConfig, forImageIn: .normal)
+        applyAccessoryButtonStyle(button, item: .builtin(action), armed: false, sticky: false)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        if action.isModifier || action.symbolName != nil {
+            // Single-glyph modifiers (⌃⌥⌘⇧) and icon buttons (zoom) get a fixed
+            // width so they stay uniform — their glyph metrics differ, and a
+            // greater-than-or-equal min-width let some (e.g. the glass capsule)
+            // grow wider than others. Variable-text buttons keep growing.
+            button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         } else {
-            button.setTitle(action.title, for: .normal)
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
         }
-
-        applyAccessoryButtonBaseStyle(button)
         return button
     }
 
-    private func applyAccessoryButtonBaseStyle(_ button: UIButton) {
-        button.contentEdgeInsets = Self.accessoryButtonInsets
-        button.backgroundColor = Self.accessoryButtonNormalBackground
-        button.setTitleColor(.white, for: .normal)
-        button.tintColor = .white
-        button.layer.cornerRadius = Self.accessoryButtonCornerRadius
+    private func makeCustomAccessoryButton(for custom: CustomToolbarAction) -> AccessoryActionButton {
+        let button = AccessoryActionButton(item: .custom(custom))
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
+        button.accessibilityIdentifier = "terminal.inputAccessory.custom.\(custom.id.uuidString)"
+        button.accessibilityLabel = custom.title
+        // Custom actions never arm; they always render in the resting style.
+        applyAccessoryButtonStyle(button, item: .custom(custom), armed: false, sticky: false)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
+        if let symbolName = custom.symbolName,
+           !symbolName.isEmpty,
+           UIImage(systemName: symbolName) != nil {
+            // Icon-only custom actions match the fixed-width modifier/zoom keys.
+            button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
+        } else {
+            // Text custom actions (e.g. "Claude") grow with their title.
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
+        }
+        return button
+    }
+
+    /// The HIDE button. A plain `UIButton` (not an ``AccessoryActionButton``) so the
+    /// armed-modifier styling/relabel loops skip it. Styled as a de-emphasized control
+    /// like "customize"; tapping it temporarily hides the whole bottom chrome (toolbar
+    /// + composer) until the next terminal tap. Min-width matches the glyph keys so it
+    /// stays uniform.
+    private func makeHideChromeButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleHideChrome), for: .touchUpInside)
+        button.accessibilityIdentifier = "terminal.inputAccessory.hideChrome"
+        button.accessibilityLabel = String(
+            localized: "terminal.input_accessory.hideChrome",
+            defaultValue: "Hide Toolbar"
+        )
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "chevron.down.square")
+        config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
+        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.contentInsets = Self.accessoryButtonContentInsets
+        button.configuration = config
+        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
+        return button
+    }
+
+    /// The trailing button that opens the toolbar shortcuts editor. A plain
+    /// `UIButton` (not an ``AccessoryActionButton``) so the armed-modifier
+    /// styling/relabel loops skip it, and styled to read as a de-emphasized
+    /// control rather than an insertable key.
+    private func makeToolbarSettingsButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleOpenToolbarSettings), for: .touchUpInside)
+        button.accessibilityIdentifier = "terminal.inputAccessory.customize"
+        button.accessibilityLabel = String(
+            localized: "terminal.input_accessory.customize",
+            defaultValue: "Customize Toolbar"
+        )
+        // Read as a control, not a glass key: no glass/fill background, a muted
+        // gray tint, and a flat content layout matching the other buttons.
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "slider.horizontal.3")
+        config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
+        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.contentInsets = Self.accessoryButtonContentInsets
+        button.configuration = config
+        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
+        button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
+        return button
+    }
+
+    /// Build (or rebuild) a button's configuration for `item` and its current
+    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
+    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
+    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
+    /// follow `isMacRemote`; custom actions render their saved title/icon and
+    /// never arm.
+    private func applyAccessoryButtonStyle(
+        _ button: UIButton,
+        item: ResolvedToolbarItem,
+        armed: Bool,
+        sticky: Bool
+    ) {
+        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        let symbolName: String?
+        let title: String
+        switch item {
+        case let .builtin(action):
+            symbolName = action.symbolName
+            title = action.title(isMacRemote: isMacRemote)
+        case let .custom(custom):
+            // Only honor a custom symbol when it resolves to a real SF Symbol.
+            if let name = custom.symbolName, !name.isEmpty, UIImage(systemName: name) != nil {
+                symbolName = name
+            } else {
+                symbolName = nil
+            }
+            title = custom.title
+        }
+        if let symbolName {
+            config.image = UIImage(systemName: symbolName)
+            // The composer's `square.and.pencil` glyph reads heavier than the
+            // other icons, so it takes a slightly smaller config to sit in line.
+            let isComposer: Bool
+            if case .builtin(.composer) = item { isComposer = true } else { isComposer = false }
+            config.preferredSymbolConfigurationForImage = isComposer
+                ? Self.composerButtonSymbolConfig
+                : Self.accessoryButtonSymbolConfig
+            config.attributedTitle = nil
+        } else {
+            var attributed = AttributedString(title)
+            attributed.font = Self.accessoryButtonFont
+            config.attributedTitle = attributed
+            config.image = nil
+        }
+        config.contentInsets = Self.accessoryButtonContentInsets
+        button.configuration = config
+        if let actionButton = button as? AccessoryActionButton {
+            // On iOS 26 the armed and sticky states share the same
+            // prominent-glass blue fill, so the double-tap *lock* is
+            // distinguished by a white capsule border drawn over the glass (see
+            // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
+            // flat style already renders the locked white stroke through the
+            // background configuration, so the layer border stays off to avoid
+            // a doubled stroke.
+            if #available(iOS 26.0, *) {
+                actionButton.isStickyLocked = sticky
+            } else {
+                actionButton.isStickyLocked = false
+            }
+        }
+    }
+
+    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        if #available(iOS 26.0, *) {
+            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
+            config.baseForegroundColor = .white
+            if armed || sticky {
+                config.baseBackgroundColor = .systemBlue
+            }
+            return config
+        }
+        var config = UIButton.Configuration.plain()
+        var background = UIBackgroundConfiguration.clear()
+        if sticky {
+            background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
+            background.strokeColor = .white
+            background.strokeWidth = 2
+        } else if armed {
+            background.backgroundColor = .systemBlue
+        } else {
+            background.backgroundColor = accessoryButtonNormalBackground
+        }
+        background.cornerRadius = accessoryButtonCornerRadius
+        config.background = background
+        config.baseForegroundColor = .white
+        return config
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+        if action == .composer {
+            // Opening the composer moves first responder off this proxy, so clear
+            // any armed modifier first (like Paste/Zoom do); otherwise a
+            // Ctrl/Alt/Cmd/Shift armed before opening would linger invisibly and
+            // modify the next key after the composer is dismissed.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            onToggleComposer?()
+            return
+        }
+
+        if action == .paste {
+            // Paste is a clipboard read, not a key sequence: ignore any armed
+            // modifier and route clipboard content to the host directly.
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            handlePasteAction()
+            return
+        }
+
         if let zoomDirection = action.zoomDirection {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
@@ -493,6 +902,17 @@ final class TerminalInputTextView: UITextView {
             return
         }
 
+        if shiftAccessoryArmed,
+           !action.isModifier {
+            if !shiftAccessorySticky {
+                setShiftAccessoryArmed(false)
+            }
+            if let output = shiftAccessoryOutput(for: action) {
+                onEscapeSequence?(output)
+            }
+            return
+        }
+
         switch action {
         case .control:
             toggleControlModifier()
@@ -506,6 +926,35 @@ final class TerminalInputTextView: UITextView {
             if let output = action.output {
                 onEscapeSequence?(output)
             }
+        }
+    }
+
+    /// Read the system clipboard for the Paste button. An image is forwarded via
+    /// ``onPasteImage`` (the host uploads it to the Mac as `terminal.paste_image`
+    /// and the Mac injects the resulting file path); plain text rides the normal
+    /// ``onText`` input path. Images win when both are present. A large image
+    /// falls back to JPEG so it stays under the Mac's 10 MB cap. Accessing the
+    /// pasteboard contents here is what shows iOS's one-shot paste banner, which
+    /// is the expected confirmation for an explicit Paste tap.
+    private func handlePasteAction() {
+        let pasteboard = UIPasteboard.general
+        if pasteboard.hasImages, let image = pasteboard.image {
+            let maxImageBytes = 8 * 1024 * 1024
+            if let png = image.pngData(), png.count <= maxImageBytes {
+                onPasteImage?(png, "png")
+                return
+            }
+            if let jpeg = image.jpegData(compressionQuality: 0.8) {
+                onPasteImage?(jpeg, "jpg")
+                return
+            }
+            if let png = image.pngData() {
+                onPasteImage?(png, "png")
+                return
+            }
+        }
+        if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
+            onText?(string)
         }
     }
 
@@ -535,27 +984,18 @@ final class TerminalInputTextView: UITextView {
 
     private func refreshAccessoryButtonStyles() {
         guard let stack = accessoryStackView else { return }
-        for case let button as UIButton in stack.arrangedSubviews {
-            guard let action = TerminalInputAccessoryAction(rawValue: button.tag) else { continue }
-            let armed = isAccessoryActionArmed(action)
-            let sticky = isAccessoryActionSticky(action)
-            if sticky {
-                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 2
-                button.layer.borderColor = UIColor.white.cgColor
-            } else if armed {
-                button.backgroundColor = .systemBlue
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 0
+        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+            // Only built-in modifier keys arm; custom actions always render normal.
+            let armed: Bool
+            let sticky: Bool
+            if case let .builtin(action) = button.item {
+                armed = isAccessoryActionArmed(action)
+                sticky = isAccessoryActionSticky(action)
             } else {
-                button.backgroundColor = Self.accessoryButtonNormalBackground
-                button.setTitleColor(.white, for: .normal)
-                button.tintColor = .white
-                button.layer.borderWidth = 0
+                armed = false
+                sticky = false
             }
+            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
         }
     }
 
@@ -710,6 +1150,22 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
+    /// Translate a Shift-armed accessory key into its VT sequence. Shift+Tab is
+    /// the meaningful combination — back-tab (CSI Z), which agents and TUIs use to
+    /// cycle backward through fields/modes. Other keys have no distinct shifted
+    /// encoding, so the unmodified key is sent (Shift is still consumed), matching
+    /// how the Control branch handles special keys. Only non-modifier actions reach
+    /// here (the call site guards on `!action.isModifier`), so the modifier cases
+    /// are intentionally left to `default` (their `output` is `nil` regardless).
+    private func shiftAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
+        switch action {
+        case .tab:
+            return TerminalHardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
+        default:
+            return action.output
+        }
+    }
+
     private func isAccessoryActionArmed(_ action: TerminalInputAccessoryAction) -> Bool {
         switch action {
         case .control: return controlAccessoryArmed
@@ -752,6 +1208,33 @@ final class TerminalInputTextView: UITextView {
     private func setShiftAccessoryArmed(_ armed: Bool) {
         if !armed { consumeModifier(.shift) }
     }
+
+    #if DEBUG
+    /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
+    /// composer-dock diagnostics. Used to encode *which* view owns first
+    /// responder into the integer ``DiagnosticEvent`` payload. The `.other` case
+    /// is paired with the responder's class name in the companion `anchormux`
+    /// string log for a human-readable readback.
+    static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
+        switch responder {
+        case nil: return .none
+        case is TerminalInputTextView: return .terminalInputProxy
+        case is GhosttySurfaceView: return .ghosttySurface
+        case is UITextField: return .uiTextField
+        case is UITextView: return .uiTextView
+        default: return .other
+        }
+    }
+
+    /// The responder's concrete class name for the human-readable `anchormux`
+    /// readback (the integer ``InputResponderIdentity`` collapses every
+    /// unexpected class to `.other`; this preserves the exact type for the copied
+    /// debug log).
+    static func responderClassName(_ responder: UIResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
+    }
+    #endif
 }
 
 extension TerminalInputTextView: UITextViewDelegate {

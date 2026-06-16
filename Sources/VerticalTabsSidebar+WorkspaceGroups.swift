@@ -1,5 +1,8 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
+import CmuxSettings
+import CmuxWorkspaces
 
 extension VerticalTabsSidebar {
     @ViewBuilder
@@ -7,7 +10,8 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
+        shouldCollectWorkspaceDropTargets: Bool,
+        showModifierHoldHints: Bool
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -34,8 +38,8 @@ extension VerticalTabsSidebar {
             workspaceCount: renderContext.workspaceCount
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
@@ -51,12 +55,14 @@ extension VerticalTabsSidebar {
         let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
             groupId = group.id,
             anchorId = group.anchorWorkspaceId,
+            workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
             let reorderDelegate = SidebarTabDropDelegate(
                 targetTabId: anchorId,
                 tabManager: tabManager,
+                workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
@@ -115,7 +121,8 @@ extension VerticalTabsSidebar {
             },
             onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
-                let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+                let resolved = placement
+                    ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
                 _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
             },
             onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
@@ -156,7 +163,6 @@ extension VerticalTabsSidebar {
         .equatable()
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
 
         header
             .sidebarWorkspaceFrameAnchor(
