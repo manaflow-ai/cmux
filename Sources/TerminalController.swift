@@ -929,7 +929,7 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method).runsOnSocketWorker else {
+              ControlCommandExecutionPolicy.runsOnSocketWorker(for: request.controlRequest) else {
             return (false, nil)
         }
 
@@ -1502,7 +1502,8 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker(mainThreadCallable: false) {
+           ControlCommandExecutionPolicy.runsOnSocketWorker(for: request.controlRequest),
+           !ControlCommandExecutionPolicy.isMainThreadCallableWorkerRequest(request.controlRequest) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -1805,7 +1806,7 @@ class TerminalController {
         let method = bridged.method
         let params = bridged.params
 
-        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+        guard !ControlCommandExecutionPolicy.runsOnSocketWorker(for: request) else {
             return v2Error(
                 id: id,
                 code: "invalid_dispatch",

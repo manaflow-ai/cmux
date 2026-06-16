@@ -42,6 +42,28 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         return false
     }
 
+    /// True when a concrete request must execute on the socket worker. Most
+    /// commands are classified by method, but `surface.read_text` is
+    /// parameter-sensitive: normal reads are main-actor callable, while demand
+    /// reads may start a cold terminal and wait for readiness.
+    public static func runsOnSocketWorker(for request: ControlRequest) -> Bool {
+        if ControlCommandExecutionPolicy(forMethod: request.method).runsOnSocketWorker {
+            return true
+        }
+        return request.method == "surface.read_text"
+            && boolValue(request.params["start_if_needed"]) == true
+    }
+
+    /// True when a concrete worker request is safe to invoke synchronously from
+    /// the main thread.
+    public static func isMainThreadCallableWorkerRequest(_ request: ControlRequest) -> Bool {
+        guard case .socketWorker(let mainThreadCallable) =
+            ControlCommandExecutionPolicy(forMethod: request.method) else {
+            return false
+        }
+        return mainThreadCallable
+    }
+
     /// Methods that run on the socket-worker thread instead of the main actor.
     private static let socketWorkerMethods: Set<String> = [
         "system.ping",
@@ -74,10 +96,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
-        // Demand reads can start a cold terminal surface and then wait for the
-        // runtime-ready notification. Keep that wait off the main actor so the
-        // lifecycle/attachment path can finish materializing the surface.
-        "surface.read_text",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -150,4 +168,26 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
     ]
+
+    private static func boolValue(_ value: JSONValue?) -> Bool? {
+        switch value {
+        case .bool(let value):
+            return value
+        case .int(let value):
+            return value != 0
+        case .double(let value):
+            return value != 0
+        case .string(let value):
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            case "0", "false", "no", "off":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
 }

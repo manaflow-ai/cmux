@@ -22,7 +22,7 @@ struct ControlCommandExecutionPolicyTests {
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
-            "debug.sidebar.simulate_drag", "mobile.attach_ticket.create", "surface.read_text",
+            "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
@@ -50,6 +50,33 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.capabilities") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
-        #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func surfaceReadTextOnlyDemandReadsRunOnTheSocketWorker() {
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .mainActor)
+
+        let normalRead = ControlRequest(id: nil, method: "surface.read_text", params: [:])
+        #expect(!ControlCommandExecutionPolicy.runsOnSocketWorker(for: normalRead))
+
+        let explicitNonDemandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .bool(false)]
+        )
+        #expect(!ControlCommandExecutionPolicy.runsOnSocketWorker(for: explicitNonDemandRead))
+
+        let demandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .bool(true)]
+        )
+        #expect(ControlCommandExecutionPolicy.runsOnSocketWorker(for: demandRead))
+
+        let stringDemandRead = ControlRequest(
+            id: nil,
+            method: "surface.read_text",
+            params: ["start_if_needed": .string("true")]
+        )
+        #expect(ControlCommandExecutionPolicy.runsOnSocketWorker(for: stringDemandRead))
     }
 }
