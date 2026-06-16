@@ -754,7 +754,8 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
-            makePanel(for: definition, baseDirectory: baseDirectory).map { (definition, $0) }
+            guard let panel = makePanel(for: definition, baseDirectory: baseDirectory) else { return nil }
+            return (definition: definition, panel: panel)
         }
         guard !created.isEmpty else { return }
 
