@@ -1404,8 +1404,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
     }
 
-    private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+    private func socketCommand(_ command: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, responseTimeout: responseTimeout)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -1450,6 +1453,42 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
         guard let ok = envelope?["ok"] as? Bool, ok else { return nil }
         return envelope?["result"] as? [String: Any]
+    }
+
+    private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        process.arguments = [
+            "-lc",
+            "printf '%s\\n' \(shellSingleQuote(command)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        ]
+
+        let output = Pipe()
+        process.standardOutput = output
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        if let first = text.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func waitForCommandPaletteVisibility(
