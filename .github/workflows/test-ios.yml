@@ -18,25 +18,6 @@ on:
       - "scripts/lint-ios-package-conventions.sh"
       - "scripts/lint-namespace-types-baseline.txt"
       - ".github/workflows/test-ios.yml"
-  # Re-run on push to main so an iOS break that slips past PR checks is detected
-  # on main immediately, instead of only surfacing on the next iOS PR. The
-  # deterministic compile gate lives in ci.yml (ios-build); this is detection.
-  push:
-    branches:
-      - main
-    paths:
-      - "ios/**"
-      - "Packages/CMUXAuthCore/**"
-      - "Packages/CMUXMobileCore/**"
-      - "Packages/CmuxAuthRuntime/**"
-      - "Packages/CmuxMobile*/**"
-      - "Packages/CMUXMobile*/**"
-      - "Sources/Mobile/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/**"
-      - "Packages/**"
-      - "scripts/lint-ios-package-conventions.sh"
-      - "scripts/lint-namespace-types-baseline.txt"
-      - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
       ref:

@@ -1306,7 +1306,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache-ios
-          key: spm-ios-${{ hashFiles('ios/cmux-ios.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-ios-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
           restore-keys: spm-ios-
 
       - name: Resolve packages
