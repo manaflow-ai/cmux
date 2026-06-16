@@ -83,7 +83,10 @@ owner_is_alive() {
       return 1
       ;;
   esac
-  kill -0 "$owner_pid" 2>/dev/null
+  if kill -0 "$owner_pid" 2>/dev/null; then
+    return 0
+  fi
+  ps -p "$owner_pid" >/dev/null 2>&1
 }
 
 remove_stale_lock_if_needed() {

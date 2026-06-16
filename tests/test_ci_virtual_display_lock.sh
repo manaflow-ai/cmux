@@ -63,6 +63,26 @@ if RUNNER_TEMP="$TMP_DIR" \
   exit 1
 fi
 
+if ps -p 1 >/dev/null 2>&1; then
+  printf '1\n' > "$CMUX_VDISPLAY_LOCK_DIR/owner_pid"
+  {
+    printf 'created_at=1\n'
+    printf 'token=%s\n' "$CMUX_VDISPLAY_LOCK_TOKEN"
+  } > "$CMUX_VDISPLAY_LOCK_DIR/metadata"
+
+  if RUNNER_TEMP="$TMP_DIR" \
+    CMUX_VDISPLAY_LOCK_DIR="$LOCK_DIR" \
+    CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=1 \
+    CMUX_VDISPLAY_LOCK_STALE_SECONDS=1 \
+    CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
+    "$SCRIPT" acquire >/tmp/cmux-vdisplay-foreign-owner-acquire.out 2>/tmp/cmux-vdisplay-foreign-owner-acquire.err; then
+    cat /tmp/cmux-vdisplay-foreign-owner-acquire.out
+    cat /tmp/cmux-vdisplay-foreign-owner-acquire.err >&2
+    echo "FAIL: stale cleanup removed a lock whose owner PID exists but may reject kill -0" >&2
+    exit 1
+  fi
+fi
+
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
 CMUX_VDISPLAY_LOCK_TOKEN="wrong-token" \
