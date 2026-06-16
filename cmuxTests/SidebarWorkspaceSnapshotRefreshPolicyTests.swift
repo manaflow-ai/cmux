@@ -18,7 +18,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
             latestConversationMessage: "old message",
-            listeningPorts: [3000]
+            listeningPorts: [3000],
+            finderDirectoryPath: "/old"
         )
         let next = Self.snapshot(
             title: "lmao",
@@ -26,7 +27,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
             latestConversationMessage: "new message",
-            listeningPorts: [3000, 4000]
+            listeningPorts: [3000, 4000],
+            finderDirectoryPath: nil
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -43,6 +45,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
+        XCTAssertNil(decision.workspaceSnapshotStorage?.finderDirectoryPath)
         XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
     }
@@ -52,13 +55,15 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             title: "old",
             customDescription: nil,
             isPinned: false,
-            customColorHex: nil
+            customColorHex: nil,
+            finderDirectoryPath: nil
         )
         let next = Self.snapshot(
             title: "new",
             customDescription: "description",
             isPinned: true,
-            customColorHex: "#C0392B"
+            customColorHex: "#C0392B",
+            finderDirectoryPath: "/tmp/workspace"
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -97,7 +102,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
-        listeningPorts: [Int] = []
+        listeningPorts: [Int] = [],
+        finderDirectoryPath: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -121,7 +127,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            finderDirectoryPath: finderDirectoryPath
         )
     }
 

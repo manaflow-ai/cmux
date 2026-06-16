@@ -13131,7 +13131,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let branchLinesContainBranch: Bool
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
-
+        let finderDirectoryPath: String?
     }
 }
 
@@ -14042,6 +14042,7 @@ struct TabItemView: View, Equatable {
 
     @ViewBuilder
     private var workspaceContextMenu: some View {
+        let workspaceSnapshot = self.workspaceSnapshot
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
@@ -14300,11 +14301,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                let url = WorkspaceFinderDirectoryResolver.path(for: tab)
+                let url = workspaceSnapshot.finderDirectoryPath
                     .map { URL(fileURLWithPath: $0, isDirectory: true) }
                 workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(tab.isRemoteWorkspace)
+            .disabled(workspaceSnapshot.finderDirectoryPath == nil)
         }
     }
 
@@ -14630,7 +14631,8 @@ struct TabItemView: View, Equatable {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
         )
     }
 
