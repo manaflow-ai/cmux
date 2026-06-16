@@ -206,6 +206,21 @@ struct TerminalKeyboardCopyModeResolverTests {
         #expect(state == TerminalKeyboardCopyModeInputState(pendingG: true))
     }
 
+    @Test func pendingGThenRawUppercaseGResolvesBottomJump() {
+        var state = TerminalKeyboardCopyModeInputState(pendingG: true)
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 5,
+                charactersIgnoringModifiers: "G",
+                modifiers: [],
+                hasSelection: false,
+                state: &state
+            ) == .perform(.scrollToBottom, count: 1)
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState())
+    }
+
     @Test func capsLockUppercaseNSearchesForward() {
         #expect(
             terminalKeyboardCopyModeAction(

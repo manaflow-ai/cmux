@@ -267,7 +267,7 @@ public func terminalKeyboardCopyModeResolve(
     }
 
     if state.pendingG {
-        if lowercasedChars == "g", normalized.isEmpty {
+        if lowercasedChars == "g", normalized.isEmpty, !isUppercaseCommand {
             let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
             let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
             state.reset()

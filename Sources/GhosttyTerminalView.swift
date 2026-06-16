@@ -5175,12 +5175,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func adjustKeyboardCopyModeVisualLineSelectionToBoundary(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        surface: ghostty_surface_t
+    ) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        switch direction {
+        case .home:
+            cursor.row = 0
+            cursor.column = 0
+        case .end:
+            cursor.row = metrics.rows - 1
+            cursor.column = metrics.columns - 1
+        default:
+            return
+        }
+        keyboardCopyModeCursor = cursor
+
+        beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: true)
+        let action = direction == .home ? "scroll_to_top" : "scroll_to_bottom"
+        guard performBindingAction(action) else {
+            expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                generation: keyboardCopyModePendingViewportJumpGeneration
+            )
+            reselectKeyboardCopyModeVisualLineSelection(surface: surface)
+            return
+        }
+        if !flushPendingScrollbarIfAvailable() {
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+        }
+    }
+
     private func adjustKeyboardCopyModeVisualLineSelection(
         _ direction: TerminalKeyboardCopyModeSelectionMove,
         count: Int,
         surface: ghostty_surface_t
     ) {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        if direction == .home || direction == .end {
+            adjustKeyboardCopyModeVisualLineSelectionToBoundary(direction, surface: surface)
+            return
+        }
         var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
         let scrollDelta = cursor.move(direction, count: count, rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
