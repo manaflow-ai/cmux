@@ -4866,12 +4866,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func scrollKeyboardCopyModeViewportByLines(_ lineDelta: Int) -> Int {
         guard lineDelta != 0 else { return 0 }
 
+        _ = flushPendingScrollbarIfAvailable()
         let previousOffset = scrollbar?.offset
-        _ = performBindingAction("scroll_page_lines:\(lineDelta)")
+        guard performBindingAction("scroll_page_lines:\(lineDelta)") else {
+            return 0
+        }
         _ = flushPendingScrollbarIfAvailable()
         guard let previousOffset,
               let currentOffset = scrollbar?.offset else {
-            return lineDelta
+            return 0
         }
         return keyboardCopyModeViewportLineDelta(from: previousOffset, to: currentOffset)
     }
