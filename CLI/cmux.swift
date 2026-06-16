@@ -1406,17 +1406,21 @@ final class ClaudeHookSessionStore {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
             let incomingHasArguments = !launchCommand.arguments.isEmpty
             let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            let transcriptProvesRestorable = AgentLaunchCaptureTrust.launcherDescribesKind(
+                launchCommand.launcher,
+                kind: "claude"
+            ) && normalizeOptional(record.transcriptPath) != nil
             let hasPositiveRestorabilitySignal = isRestorable != false
                 && (
                     record.isRestorable == true
                         || isRestorable == true
-                        || normalizeOptional(record.transcriptPath) != nil
+                        || transcriptProvesRestorable
                 )
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
-            // captured) only after some other signal proves the session is restorable. Otherwise an
-            // unproven record would survive app restart and synthesize the same bogus default resume
-            // command this gate is meant to block.
+            // captured) only after some other signal proves the session is restorable. Transcript
+            // alone is durable proof only for Claude; legacy Codex exec/review records can carry a
+            // transcript path while `codex resume <id>` still fails.
             if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments && hasPositiveRestorabilitySignal) {
                 record.launchCommand = launchCommand
             }
@@ -23321,7 +23325,7 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    isRestorable: nil,
+                    isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
@@ -26806,8 +26810,9 @@ struct CMUXCLI {
 
     private func hasPositiveAgentResumeRestorabilitySignal(
         _ record: ClaudeHookSessionRecord?,
-        launchCommand _: AgentHookLaunchCommandRecord? = nil,
-        transcriptPath: String? = nil
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        transcriptPath: String? = nil,
+        allowTranscriptPathSignal: Bool = true
     ) -> Bool {
         if record?.isRestorable == false {
             return false
@@ -26815,10 +26820,16 @@ struct CMUXCLI {
         if record?.isRestorable == true {
             return true
         }
-        if normalizedHookValue(transcriptPath) != nil {
+        if !(launchCommand?.arguments.isEmpty ?? true) {
             return true
         }
-        return normalizedHookValue(record?.transcriptPath) != nil
+        if !(record?.launchCommand?.arguments.isEmpty ?? true) {
+            return true
+        }
+        if allowTranscriptPathSignal, normalizedHookValue(transcriptPath) != nil {
+            return true
+        }
+        return allowTranscriptPathSignal && normalizedHookValue(record?.transcriptPath) != nil
     }
 
     private func publishAgentSurfaceResumeBinding(
@@ -30036,7 +30047,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                 hasPositiveAgentResumeRestorabilitySignal(
                                     mapped,
                                     launchCommand: launchCommand,
-                                    transcriptPath: input.transcriptPath
+                                    transcriptPath: input.transcriptPath,
+                                    allowTranscriptPathSignal: def.name == "claude"
                                 )
                             )
                     )
@@ -30111,7 +30123,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     allowDefaultResumeCommand: !launchCapture.sanitizerRejected
                         && hasPositiveAgentResumeRestorabilitySignal(
                             latest,
-                            launchCommand: latest.launchCommand
+                            launchCommand: latest.launchCommand,
+                            allowTranscriptPathSignal: def.name == "claude"
                         )
                 )
                 if let lifecycle = latest.agentLifecycle {
@@ -30320,7 +30333,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
                             launchCommand: launchCommand ?? mapped?.launchCommand,
-                            transcriptPath: input.transcriptPath
+                            transcriptPath: input.transcriptPath,
+                            allowTranscriptPathSignal: def.name == "claude"
                         )
                 )
                 if codexPromptTurnWentTerminal() {
@@ -30604,7 +30618,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
                             launchCommand: launchCommand ?? mapped?.launchCommand,
-                            transcriptPath: input.transcriptPath
+                            transcriptPath: input.transcriptPath,
+                            allowTranscriptPathSignal: def.name == "claude"
                         )
                 )
             }
@@ -30794,7 +30809,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mapped,
                             launchCommand: launchCommand ?? mapped?.launchCommand,
-                            transcriptPath: input.transcriptPath
+                            transcriptPath: input.transcriptPath,
+                            allowTranscriptPathSignal: def.name == "claude"
                         )
                 )
             }

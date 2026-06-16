@@ -3510,8 +3510,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     /// Issue #6209 / #5393: a reaped Codex session with no captured launch command and no positive
     /// restorability signal must not synthesize a default `codex resume <id>` surface binding. An
-    /// env-only CODEX_HOME capture is provenance that should be preserved only after another positive
-    /// signal proves the session is restorable.
+    /// env-only CODEX_HOME capture and Codex transcript path are provenance that should be preserved
+    /// only after another positive signal proves the session is restorable.
     func testCodexHookDoesNotPublishDefaultResumeBindingWithoutRestorabilitySignal() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-no-restorable-signal")
@@ -3523,6 +3523,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-unproven-session"
         let ttyName = "ttys305"
+        let transcriptPath = root.appendingPathComponent("codex-unproven.jsonl").path
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -3597,7 +3598,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","transcript_path":"\#(transcriptPath)","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -3608,13 +3609,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.snapshot().contains { command in
                 self.jsonObject(command)?["method"] as? String == "surface.resume.set"
             },
-            "nil launchCommand with no restorable signal must not publish a synthesized codex resume binding; saw \(state.snapshot())"
+            "nil launchCommand with only Codex transcript provenance must not publish a synthesized codex resume binding; saw \(state.snapshot())"
         )
         XCTAssertFalse(
             state.snapshot().contains { command in
                 self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
             },
-            "nil launchCommand with no restorable signal must not clear an existing resume binding; saw \(state.snapshot())"
+            "nil launchCommand with only Codex transcript provenance must not clear an existing resume binding; saw \(state.snapshot())"
         )
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
@@ -3622,7 +3623,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertNil(
             persisted["launchCommand"],
-            "env-only launch provenance must not be persisted without a positive restorable signal"
+            "env-only launch provenance must not be persisted from Codex transcript provenance alone"
         )
     }
 
