@@ -221,6 +221,27 @@ check_app_detector_includes_ui_tests() {
   echo "PASS: app-domain change detector includes cmuxUITests/"
 }
 
+check_swift_package_tests_select_xcode() {
+  if ! awk '
+    /^  swift-package-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Select Xcode/ { saw_select=1 }
+    in_job && /echo "DEVELOPER_DIR=\$XCODE_DIR" >> "\$GITHUB_ENV"/ { saw_developer_dir=1 }
+    in_job && /- name: Run Swift package unit tests/ {
+      saw_run=1
+      if (!(saw_select && saw_developer_dir)) {
+        exit 1
+      }
+    }
+    END { exit !(saw_select && saw_developer_dir && saw_run) }
+  ' "$CI_FILE"; then
+    echo "FAIL: swift-package-tests must select the pinned Xcode before running swift test"
+    exit 1
+  fi
+
+  echo "PASS: swift-package-tests selects Xcode before swift test"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -269,4 +290,5 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_agent_session_resources_gate
 check_app_detector_includes_ui_tests
+check_swift_package_tests_select_xcode
 check_tmux_terminal_nightly_isolation
