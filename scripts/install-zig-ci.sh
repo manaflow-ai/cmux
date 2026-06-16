@@ -122,17 +122,24 @@ verify_zig_sha256() {
 }
 
 install_zig_without_sudo() {
-  local install_root="${ZIG_INSTALL_ROOT:-${RUNNER_TEMP:-/tmp}/${ZIG_NAME}}"
-  if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
-    echo "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under ${install_root}"
-  else
-    echo "sudo unavailable; installing zig under ${install_root}"
-  fi
-  rm -rf "$install_root"
+  local install_parent="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
+  local install_root="${ZIG_INSTALL_ROOT:-${install_parent}/${ZIG_NAME}}"
+  local source_root
+  local target_root
+  source_root="$(cd "$ZIG_DIR" && pwd -P)"
   mkdir -p "$(dirname "$install_root")"
-  mv "$ZIG_DIR" "$install_root"
-  publish_zig_for_later_steps "${install_root}/zig"
-  "${install_root}/zig" version
+  target_root="$(cd "$(dirname "$install_root")" && pwd -P)/$(basename "$install_root")"
+  if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
+    echo "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under ${target_root}"
+  else
+    echo "sudo unavailable; installing zig under ${target_root}"
+  fi
+  if [ "$source_root" != "$target_root" ]; then
+    rm -rf "$target_root"
+    mv "$source_root" "$target_root"
+  fi
+  publish_zig_for_later_steps "${target_root}/zig"
+  "${target_root}/zig" version
 }
 
 install_zig_with_sudo() {

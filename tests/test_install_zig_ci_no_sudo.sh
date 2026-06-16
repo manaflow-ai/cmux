@@ -5,7 +5,21 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/install-zig-ci.sh"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+DEFAULT_INSTALL_ROOT=""
+
+cleanup() {
+  rm -rf "$TMP_DIR"
+  if [ -n "$DEFAULT_INSTALL_ROOT" ]; then
+    rm -rf "$DEFAULT_INSTALL_ROOT"
+  fi
+}
+trap cleanup EXIT
+
+canonical_install_root() {
+  local root="$1"
+  mkdir -p "$(dirname "$root")"
+  printf '%s/%s\n' "$(cd "$(dirname "$root")" && pwd -P)" "$(basename "$root")"
+}
 
 ZIG_REQUIRED="99.99.99"
 case "$(uname -m)" in
@@ -20,6 +34,7 @@ esac
 FIXTURE_ROOT="$TMP_DIR/fixture"
 ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
+DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
 BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 GITHUB_PATH_FILE="$TMP_DIR/github-path"
@@ -29,6 +44,9 @@ FORCE_LOCAL_OUTPUT_FILE="$TMP_DIR/force-local-output"
 FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
 FORCE_LOCAL_INSTALL_ROOT="$TMP_DIR/force-local-install"
+DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
+DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
+DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
 mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib" "$BIN_DIR" "$RUNNER_TEMP_DIR"
@@ -80,19 +98,20 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   "$SCRIPT" > "$OUTPUT_FILE" 2>&1
 
 INSTALLED_ZIG="$RUNNER_TEMP_DIR/$ZIG_NAME/zig"
+EXPECTED_INSTALLED_ZIG="$(canonical_install_root "$RUNNER_TEMP_DIR/$ZIG_NAME")/zig"
 if [ ! -x "$INSTALLED_ZIG" ]; then
   cat "$OUTPUT_FILE"
   echo "FAIL: zig was not installed under RUNNER_TEMP" >&2
   exit 1
 fi
 
-if ! grep -Fxq "$(dirname "$INSTALLED_ZIG")" "$GITHUB_PATH_FILE"; then
+if ! grep -Fxq "$(dirname "$EXPECTED_INSTALLED_ZIG")" "$GITHUB_PATH_FILE"; then
   cat "$OUTPUT_FILE"
   echo "FAIL: installer did not publish the local zig bin dir to GITHUB_PATH" >&2
   exit 1
 fi
 
-if ! grep -Fxq "CMUX_ZIG=$INSTALLED_ZIG" "$GITHUB_ENV_FILE"; then
+if ! grep -Fxq "CMUX_ZIG=$EXPECTED_INSTALLED_ZIG" "$GITHUB_ENV_FILE"; then
   cat "$OUTPUT_FILE"
   echo "FAIL: installer did not publish CMUX_ZIG" >&2
   exit 1
@@ -123,6 +142,7 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
   "$SCRIPT" > "$FORCE_LOCAL_OUTPUT_FILE" 2>&1
 
+EXPECTED_FORCE_LOCAL_INSTALL_ROOT="$(canonical_install_root "$FORCE_LOCAL_INSTALL_ROOT")"
 if [ ! -x "$FORCE_LOCAL_INSTALL_ROOT/zig" ]; then
   cat "$FORCE_LOCAL_OUTPUT_FILE"
   echo "FAIL: force-local install did not install zig under ZIG_INSTALL_ROOT" >&2
@@ -142,16 +162,57 @@ if ! grep -Fq "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under" "$FORCE_LOCAL_OU
   exit 1
 fi
 
-if ! grep -Fxq "$(dirname "$FORCE_LOCAL_INSTALL_ROOT/zig")" "$FORCE_LOCAL_GITHUB_PATH_FILE"; then
+if ! grep -Fxq "$EXPECTED_FORCE_LOCAL_INSTALL_ROOT" "$FORCE_LOCAL_GITHUB_PATH_FILE"; then
   cat "$FORCE_LOCAL_OUTPUT_FILE"
   echo "FAIL: force-local install did not publish the local zig bin dir to GITHUB_PATH" >&2
   exit 1
 fi
 
-if ! grep -Fxq "CMUX_ZIG=$FORCE_LOCAL_INSTALL_ROOT/zig" "$FORCE_LOCAL_GITHUB_ENV_FILE"; then
+if ! grep -Fxq "CMUX_ZIG=$EXPECTED_FORCE_LOCAL_INSTALL_ROOT/zig" "$FORCE_LOCAL_GITHUB_ENV_FILE"; then
   cat "$FORCE_LOCAL_OUTPUT_FILE"
   echo "FAIL: force-local install did not publish CMUX_ZIG" >&2
   exit 1
 fi
 
-echo "PASS: install-zig-ci falls back locally without sudo and honors ZIG_FORCE_LOCAL_INSTALL"
+cat > "$BIN_DIR/sudo" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$BIN_DIR/sudo"
+rm -rf "$DEFAULT_INSTALL_ROOT"
+
+env -u RUNNER_TEMP -u ZIG_FORCE_LOCAL_INSTALL -u ZIG_INSTALL_ROOT \
+  PATH="$BIN_DIR:/usr/bin:/bin" \
+  GITHUB_PATH="$DEFAULT_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$DEFAULT_GITHUB_ENV_FILE" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$DEFAULT_OUTPUT_FILE" 2>&1
+
+EXPECTED_DEFAULT_INSTALL_ROOT="$(canonical_install_root "$DEFAULT_INSTALL_ROOT")"
+if [ ! -x "$DEFAULT_INSTALL_ROOT/zig" ]; then
+  cat "$DEFAULT_OUTPUT_FILE"
+  echo "FAIL: missing RUNNER_TEMP did not install zig under the distinct /tmp fallback root" >&2
+  exit 1
+fi
+
+if ! grep -Fq "sudo unavailable; installing zig under $EXPECTED_DEFAULT_INSTALL_ROOT" "$DEFAULT_OUTPUT_FILE"; then
+  cat "$DEFAULT_OUTPUT_FILE"
+  echo "FAIL: missing RUNNER_TEMP fallback did not report the distinct /tmp install root" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_DEFAULT_INSTALL_ROOT" "$DEFAULT_GITHUB_PATH_FILE"; then
+  cat "$DEFAULT_OUTPUT_FILE"
+  echo "FAIL: missing RUNNER_TEMP fallback did not publish the local zig bin dir to GITHUB_PATH" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_ENV_FILE"; then
+  cat "$DEFAULT_OUTPUT_FILE"
+  echo "FAIL: missing RUNNER_TEMP fallback did not publish CMUX_ZIG" >&2
+  exit 1
+fi
+
+echo "PASS: install-zig-ci falls back locally, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
