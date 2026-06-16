@@ -2,16 +2,16 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34475	CLI/cmux.swift
-17810	Sources/AppDelegate.swift
+17615	Sources/AppDelegate.swift
 16714	Sources/ContentView.swift
 14542	Sources/TerminalController.swift
+12660	Sources/Workspace.swift
 12617	Sources/Panels/BrowserPanel.swift
-13017	Sources/Workspace.swift
 12124	Sources/GhosttyTerminalView.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7925	Sources/Panels/BrowserPanelView.swift
-7355	cmuxTests/WorkspaceUnitTests.swift
+7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/GhosttyConfigTests.swift
@@ -23,7 +23,7 @@
 5526	cmuxTests/BrowserConfigTests.swift
 4921	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
-4400	cmuxTests/BrowserPanelTests.swift
+4401	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
@@ -46,7 +46,7 @@
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
-2070	Sources/SessionPersistence.swift
+2082	Sources/SessionPersistence.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/KeyboardShortcutSettingsFileStore.swift
 1880	Sources/RestorableAgentSession.swift
@@ -181,7 +181,7 @@
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
-554	Sources/Panels/BrowserAutomation.swift
+555	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 547	Sources/Windowing/WindowGlassEffect.swift
