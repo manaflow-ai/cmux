@@ -55,6 +55,10 @@ final class ComposerDictationController {
     /// store after the user left.
     private var onText: ((String) -> Void)?
 
+    /// Stateless merger that appends live dictation transcripts to the captured
+    /// composer text without accumulating stale partials.
+    private let textMerge = ComposerDictationTextMerge()
+
     /// Pending watchdog that force-finishes a graceful stop if the recognition
     /// task never delivers a final result. Cancelled when the final result (or an
     /// error) lands first, or when a hard cancel supersedes the graceful stop.
@@ -306,7 +310,7 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(ComposerDictationTextMerge.merged(
+                    self.onText?(self.textMerge.merged(
                         base: self.baseText,
                         transcript: transcript
                     ))
