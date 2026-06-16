@@ -27,6 +27,29 @@ struct CanvasMinimapViewTests {
         #expect(root.minimapView.alphaValue > 0)
     }
 
+    @Test func paneDragKeepsMinimapPinnedUntilDrop() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRootWithMinimapContent(panelA: panelA, panelB: panelB)
+        defer {
+            root.teardown()
+        }
+
+        root.resetMinimapVisibility()
+        let paneID = root.model.paneID(containing: panelA)!
+        let paneView = root.paneViews[paneID]!
+        root.paneView(paneView, mouseDownAt: CGPoint(x: 20, y: 10), region: .titleBar)
+        root.paneView(paneView, draggedTo: CGPoint(x: 64, y: 18), modifiers: [])
+
+        #expect(root.isMinimapInteractionActive)
+        #expect(!root.minimapAutoHideScheduler.hasPendingHide)
+
+        root.paneViewDidEndDrag(paneView)
+
+        #expect(!root.isMinimapInteractionActive)
+        #expect(root.minimapAutoHideScheduler.hasPendingHide)
+    }
+
     @Test func minimapDragRecenterDoesNotScheduleAutoHideUntilRelease() {
         let panelA = UUID()
         let panelB = UUID()

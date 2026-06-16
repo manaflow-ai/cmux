@@ -22,6 +22,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             model.bringToFront(panelId)
         }
         applyZOrder()
+        holdMinimapVisible()
         updateMinimap(reveal: true)
     }
 
@@ -89,10 +90,19 @@ extension CanvasRootView: CanvasPaneViewDelegate {
 
     func paneViewDidEndDrag(_ view: CanvasPaneView) {
         guidesView.setJoinHighlight(nil)
-        guard let session = dragSession,
-              let panelId = model.layout.selectedPanelId(in: session.paneID)?.rawValue else { return }
+        guard let session = dragSession else {
+            releaseMinimapAfterInteraction()
+            return
+        }
         dragSession = nil
+        defer {
+            releaseMinimapAfterInteraction()
+        }
         guidesView.setGuides([])
+        guard let panelId = model.layout.selectedPanelId(in: session.paneID)?.rawValue else {
+            updateMinimap(reveal: true)
+            return
+        }
 
         // Dropping a single-tab pane onto another pane's tab bar joins it as
         // a tab there (the canvas twin of bonsplit's tab drop).
@@ -148,6 +158,8 @@ extension CanvasRootView: CanvasPaneViewDelegate {
                     lastFrame: frame,
                     lastPoint: point
                 )
+                holdMinimapVisible()
+                updateMinimap(reveal: true)
             }
             return
         }
@@ -162,7 +174,6 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         reconcilePanes()
         applyZOrder()
         applyAllPaneFrames()
-        updateMinimap(reveal: true)
         guard let paneID = model.paneID(containing: panelId) else { return }
         dragSession = DragSession(
             paneID: paneID,
@@ -172,6 +183,8 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             lastFrame: frame,
             lastPoint: point
         )
+        holdMinimapVisible()
+        updateMinimap(reveal: true)
         callbacks.onFocusPanel(panelId)
         callbacks.onViewportGeometryChanged(window)
     }
