@@ -17,6 +17,15 @@ enum DeviceTreePresence: Equatable {
     case offline(lastSeenAt: Date)
 }
 
+/// An immutable identifier + label for a device pending remove-confirmation.
+/// Captured out of the store so the confirmation alert holds values, not a
+/// store reference (snapshot-boundary rule).
+struct DeviceTreeRemovalTarget: Identifiable, Equatable {
+    let deviceId: String
+    let title: String
+    var id: String { deviceId }
+}
+
 /// Immutable per-device snapshot for the device (top-level) row.
 struct DeviceTreeDeviceSnapshot: Equatable {
     let deviceId: String
@@ -55,6 +64,10 @@ struct DeviceTreeDeviceRow: View {
     let device: DeviceTreeDeviceSnapshot
     let isExpanded: Bool
     let setExpanded: (Bool) -> Void
+    /// Ask to remove this device. The caller (the tree) raises a confirmation
+    /// before the destructive ``CMUXMobileShellStore/removeDevice(deviceID:)``
+    /// runs, so this closure only signals intent.
+    let requestRemove: () -> Void
 
     var body: some View {
         Button {
@@ -98,6 +111,27 @@ struct DeviceTreeDeviceRow: View {
                 ? L10n.string("mobile.deviceTree.collapseHint", defaultValue: "Collapse builds")
                 : L10n.string("mobile.deviceTree.expandHint", defaultValue: "Expand builds")
         )
+        // iOS-idiomatic destructive affordances, both routed through the same
+        // confirm-then-remove path: trailing swipe-to-delete and a long-press
+        // context menu. The list owns the confirmation alert.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive, action: requestRemove) {
+                Label(
+                    L10n.string("mobile.deviceTree.remove", defaultValue: "Remove"),
+                    systemImage: "trash"
+                )
+            }
+            .accessibilityIdentifier("MobileDeviceTreeRemove-\(device.deviceId)")
+        }
+        .contextMenu {
+            Button(role: .destructive, action: requestRemove) {
+                Label(
+                    L10n.string("mobile.deviceTree.remove", defaultValue: "Remove"),
+                    systemImage: "trash"
+                )
+            }
+            .accessibilityIdentifier("MobileDeviceTreeRemoveMenu-\(device.deviceId)")
+        }
     }
 
     private var chevronSymbol: String {

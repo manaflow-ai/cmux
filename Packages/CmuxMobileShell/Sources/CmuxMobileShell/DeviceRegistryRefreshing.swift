@@ -34,6 +34,17 @@ public protocol DeviceRegistryRefreshing: Sendable {
     /// after the token/scope changed must NOT keep the previous scope's
     /// team-device data visible.
     func listDevices() async -> DeviceRegistryListOutcome
+
+    /// Remove the caller's registration for the given device from the team-scoped
+    /// registry (`DELETE /api/devices`), the same server path `cmux remotes remove`
+    /// uses. Scoped server-side to the caller's own row, so a co-member cannot
+    /// remove another member's registered Mac.
+    ///
+    /// - Returns: `true` when the server confirmed a row was deleted, `false`
+    ///   otherwise (no such device, not owned by the caller, or the request
+    ///   failed). Best-effort: a transient failure returns `false` rather than
+    ///   throwing, so the caller can still drop the local pairing.
+    func removeDevice(deviceID: String) async -> Bool
 }
 
 /// The outcome of a device-list registry read, distinguishing the cases that

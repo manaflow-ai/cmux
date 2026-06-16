@@ -42,6 +42,11 @@ struct DeviceTreeView: View {
         DeviceTreeExpansionStore(storage: expandedStorage)
     }
 
+    /// The device pending remove-confirmation, captured as a value snapshot (id +
+    /// title) so the confirmation alert never holds a store reference and the
+    /// `List` snapshot boundary stays intact.
+    @State private var pendingRemoval: DeviceTreeRemovalTarget?
+
     /// Devices the phone can attach to (mac/linux/windows hosts). The phone never
     /// controls itself, so an `ios` row is filtered out rather than shown as a
     /// tappable, dead host. Sourced from ``CMUXMobileShellStore/deviceTreeDevices``
@@ -85,8 +90,85 @@ struct DeviceTreeView: View {
                 await store.loadPairedMacs()
                 await store.loadRegistryDevices()
             }
+            // A full-width, bottom-anchored "Add device" button pinned below the
+            // list and above the home indicator. `safeAreaInset` keeps it visible
+            // while the list scrolls and respects the safe area automatically.
+            .safeAreaInset(edge: .bottom) {
+                addDeviceBar
+            }
+        }
+        .alert(
+            removalAlertTitle,
+            isPresented: removalAlertBinding,
+            presenting: pendingRemoval
+        ) { target in
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                pendingRemoval = nil
+            }
+            Button(
+                L10n.string("mobile.deviceTree.removeConfirm", defaultValue: "Remove"),
+                role: .destructive
+            ) {
+                removeDevice(target)
+            }
+        } message: { target in
+            Text(removalAlertMessage(for: target))
         }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    /// The bottom add-device button bar. Triggers the one shared add-device flow
+    /// through the store (`requestAddDevice`), which the root view turns into the
+    /// existing pairing sheet, then dismisses this sheet so the pairing sheet is
+    /// the only thing presented.
+    @ViewBuilder
+    private var addDeviceBar: some View {
+        Button {
+            store.requestAddDevice()
+            dismiss()
+        } label: {
+            Label(
+                L10n.string("mobile.addDevice.title", defaultValue: "Add device"),
+                systemImage: "plus"
+            )
+            .font(.body.weight(.semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+        .accessibilityIdentifier("MobileDeviceTreeAddDevice")
+    }
+
+    private var removalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented { pendingRemoval = nil }
+            }
+        )
+    }
+
+    private var removalAlertTitle: String {
+        L10n.string("mobile.deviceTree.removeTitle", defaultValue: "Remove Device?")
+    }
+
+    private func removalAlertMessage(for target: DeviceTreeRemovalTarget) -> String {
+        String(
+            format: L10n.string(
+                "mobile.deviceTree.removeMessageFormat",
+                defaultValue: "Remove \"%@\"? You can pair it again anytime."
+            ),
+            target.title
+        )
+    }
+
+    private func removeDevice(_ target: DeviceTreeRemovalTarget) {
+        pendingRemoval = nil
+        let store = store
+        Task { await store.removeDevice(deviceID: target.deviceId) }
     }
 
     @ViewBuilder
@@ -132,7 +214,13 @@ struct DeviceTreeView: View {
                     presence: presence
                 ),
                 isExpanded: expansion.isExpanded(deviceExpansionID(device)),
-                setExpanded: { expanded in setExpanded(deviceExpansionID(device), expanded) }
+                setExpanded: { expanded in setExpanded(deviceExpansionID(device), expanded) },
+                requestRemove: {
+                    pendingRemoval = DeviceTreeRemovalTarget(
+                        deviceId: device.deviceId,
+                        title: device.title
+                    )
+                }
             )
 
             if expansion.isExpanded(deviceExpansionID(device)) {
