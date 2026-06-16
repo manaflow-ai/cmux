@@ -23,26 +23,61 @@ func configureCLIWriteFDNoSIGPIPE(_ fd: Int32) {
     setCLINoSIGPIPE(true, for: fd)
 }
 
-private func inheritedCLIWriteFDs(for childEndpoint: Any?, defaultFD: Int32) -> Set<Int32> {
+private func cliInheritedWriteFD(for childEndpoint: Any?, defaultFD: Int32) -> Int32? {
     if childEndpoint == nil {
-        return [defaultFD]
+        return defaultFD
     }
     guard let handle = childEndpoint as? FileHandle else {
-        return []
+        return nil
     }
 
     switch handle.fileDescriptor {
     case STDOUT_FILENO, STDERR_FILENO:
-        return [handle.fileDescriptor]
+        return handle.fileDescriptor
     default:
-        return []
+        return nil
     }
 }
 
-private func childInheritedCLINoSIGPIPEFDs(for process: Process) -> [Int32] {
-    let outputFDs = inheritedCLIWriteFDs(for: process.standardOutput, defaultFD: STDOUT_FILENO)
-    let errorFDs = inheritedCLIWriteFDs(for: process.standardError, defaultFD: STDERR_FILENO)
-    return Array(outputFDs.union(errorFDs)).sorted()
+private func cliDefaultSIGPIPEWriteHandle(duplicating fd: Int32) throws -> FileHandle {
+    let duplicateFD = dup(fd)
+    guard duplicateFD >= 0 else {
+        throw CLIError(message: "Could not duplicate child stdio fd \(fd): \(String(cString: strerror(errno)))")
+    }
+    setCLINoSIGPIPE(false, for: duplicateFD)
+    return FileHandle(fileDescriptor: duplicateFD, closeOnDealloc: true)
+}
+
+private struct CLIProcessStdioOverride {
+    let outputHandle: FileHandle?
+    let errorHandle: FileHandle?
+
+    func close() {
+        try? outputHandle?.close()
+        try? errorHandle?.close()
+    }
+}
+
+private func configureCLIDefaultSIGPIPEStdio(for process: Process) throws -> CLIProcessStdioOverride {
+    let originalOutput = process.standardOutput
+    let originalError = process.standardError
+    let outputFD = cliInheritedWriteFD(for: originalOutput, defaultFD: STDOUT_FILENO)
+    let errorFD = cliInheritedWriteFD(for: originalError, defaultFD: STDERR_FILENO)
+
+    let outputHandle = try outputFD.map { try cliDefaultSIGPIPEWriteHandle(duplicating: $0) }
+    let errorHandle = try errorFD.map { try cliDefaultSIGPIPEWriteHandle(duplicating: $0) }
+
+    if let outputHandle {
+        process.standardOutput = outputHandle
+    }
+    if let errorHandle {
+        process.standardError = errorHandle
+    }
+
+    return CLIProcessStdioOverride(
+        outputHandle: outputHandle,
+        errorHandle: errorHandle
+    )
 }
 
 func withCLIDefaultSIGPIPEForChildLaunch<T>(
@@ -78,11 +113,9 @@ func configureCLIStdioNoSIGPIPE() {
 }
 
 func cliRunProcess(_ process: Process) throws {
-    try withCLIDefaultSIGPIPEForChildLaunch(
-        inheritedNoSIGPIPEFDs: childInheritedCLINoSIGPIPEFDs(for: process)
-    ) {
-        try process.run()
-    }
+    let stdioOverride = try configureCLIDefaultSIGPIPEStdio(for: process)
+    defer { stdioOverride.close() }
+    try process.run()
 }
 
 func cliExecFailureErrno(_ body: () -> Void) -> Int32 {
