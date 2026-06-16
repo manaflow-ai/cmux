@@ -155,15 +155,30 @@ jobs:
           validate_non_negative_integer other_scrollback_lines "$OTHER_SCROLLBACK_LINES_INPUT"
           validate_non_negative_integer scrollback_target_chars "$SCROLLBACK_TARGET_CHARS_INPUT"
           mkdir -p perf-results
-          python3 scripts/perf-activation-session.py \
-            --tag "$PERF_TAG" \
-            --workspace-count "$WORKSPACE_COUNT_INPUT" \
-            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES_INPUT" \
-            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES_INPUT" \
-            --scrollback-target-chars "$SCROLLBACK_TARGET_CHARS_INPUT" \
-            --synthetic-scrollback-fallback \
-            --output perf-results/activation-session.json \
+
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          BENCHMARK_CMD=(
+            python3 scripts/perf-activation-session.py
+            --tag "$PERF_TAG"
+            --app-path "$APP_PATH"
+            --workspace-count "$WORKSPACE_COUNT_INPUT"
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES_INPUT"
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES_INPUT"
+            --scrollback-target-chars "$SCROLLBACK_TARGET_CHARS_INPUT"
+            --synthetic-scrollback-fallback
+            --output perf-results/activation-session.json
             --junit perf-results/activation-session.junit.xml
+          )
+
+          CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+              env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" HOME="$HOME" GITHUB_WORKSPACE="$PWD" \
+              "${BENCHMARK_CMD[@]}"
+          else
+            echo "::warning::Passwordless sudo unavailable; running activation benchmark in current bootstrap" >&2
+            "${BENCHMARK_CMD[@]}"
+          fi
 
       - name: Run Cmd-Tab activation benchmark
         run: |

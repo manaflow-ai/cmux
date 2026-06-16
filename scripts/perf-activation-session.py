@@ -142,6 +142,32 @@ class CmuxPerfRunner:
         if not self.cli_path.exists():
             raise PerfFailure(f"cmux CLI not found: {self.cli_path}")
 
+    def log_tail(self, path: pathlib.Path, max_lines: int = 80) -> str:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except FileNotFoundError:
+            return f"{path}: missing"
+        except OSError as exc:
+            return f"{path}: unreadable ({exc})"
+        if not lines:
+            return f"{path}: empty"
+        return "\n".join(lines[-max_lines:])
+
+    def launch_failure_context(self) -> str:
+        proc_state = "not started"
+        if self.proc is not None:
+            returncode = self.proc.poll()
+            proc_state = "running" if returncode is None else f"exited {returncode}"
+        return "\n".join(
+            [
+                f"process: {proc_state}",
+                f"stdout tail ({self.stdout_path}):",
+                self.log_tail(self.stdout_path),
+                f"debug log tail ({self.debug_log_path}):",
+                self.log_tail(self.debug_log_path),
+            ]
+        )
+
     def clean_persisted_state(self) -> None:
         app_support = pathlib.Path.home() / "Library/Application Support/cmux"
         bundle_id = f"com.cmuxterm.app.debug.{self.tag_id}"
@@ -218,7 +244,10 @@ class CmuxPerfRunner:
         ready = self.wait_for_socket(timeout_s=self.args.launch_timeout)
         elapsed = rounded_ms(now_ms() - start)
         if not ready:
-            raise PerfFailure(f"{label}: socket not ready after {self.args.launch_timeout}s")
+            raise PerfFailure(
+                f"{label}: socket not ready after {self.args.launch_timeout}s\n"
+                + self.launch_failure_context()
+            )
         self.result["measurements"][f"{label}_socket_ready_ms"] = elapsed
         return elapsed
 
