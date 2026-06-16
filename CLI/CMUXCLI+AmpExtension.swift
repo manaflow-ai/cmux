@@ -434,11 +434,33 @@ export default function (amp: PluginAPI) {
   const TITLE_LOOKUP_TIMEOUT_MS = 1000;
   function normalizedTitle(value: unknown): string | null {
     if (typeof value !== "string") return null;
-    const title = value.replace(/\s+/g, " ").trim();
+    const title = value
+      .slice(0, TITLE_MAX_LENGTH * 2)
+      .replace(/\s+/g, " ")
+      .trim();
     if (!title) return null;
     return title.length > TITLE_MAX_LENGTH
       ? title.slice(0, TITLE_MAX_LENGTH - 1) + "…"
       : title;
+  }
+
+  function titleFromContentBlocks(content: unknown[]): string | null {
+    let text = "";
+    for (const block of content) {
+      if ((block as { type?: string }).type !== "text") continue;
+      const raw = (block as { text?: unknown }).text;
+      if (typeof raw !== "string") continue;
+      const remaining = TITLE_MAX_LENGTH * 2 - text.length;
+      if (remaining <= 0) break;
+      const piece = raw
+        .slice(0, remaining)
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!piece) continue;
+      text = text ? `${text} ${piece}` : piece;
+      if (text.length >= TITLE_MAX_LENGTH) break;
+    }
+    return normalizedTitle(text);
   }
 
   async function resolveSessionTitle(
@@ -479,17 +501,7 @@ export default function (amp: PluginAPI) {
       for (const message of messages) {
         const m = message as { role?: string; content?: unknown };
         if (m.role !== "user" || !Array.isArray(m.content)) continue;
-        const text = m.content
-          .filter(
-            (block) =>
-              (block as { type?: string }).type === "text" &&
-              typeof (block as { text?: unknown }).text === "string",
-          )
-          .map((block) => (block as { text: string }).text)
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        const title = normalizedTitle(text);
+        const title = titleFromContentBlocks(m.content);
         if (title) {
           capturedTitles.set(threadID, title);
           return title;
@@ -521,7 +533,21 @@ export default function (amp: PluginAPI) {
   // session.start/agent.start misses it. Subscribe once per thread and push each
   // new title to cmux as it lands. Title updates are title-only hook-store
   // writes; they must not replay session-start lifecycle side effects.
-  const titleSubs = new Map<string, { unsubscribe?: () => void }>();
+  const titleSubs = new Map<string, { unsubscribe?: () => void; clearTimer?: () => void }>();
+  function cleanupThreadTitle(threadID: string): void {
+    const sub = titleSubs.get(threadID);
+    if (sub) {
+      try {
+        sub.clearTimer?.();
+      } catch (_) {}
+      try {
+        sub.unsubscribe?.();
+      } catch (_) {}
+      titleSubs.delete(threadID);
+    }
+    capturedTitles.delete(threadID);
+  }
+
   function watchThreadTitle(threadID: string, ctx?: AmpThreadContext): void {
     const observable = ctx?.thread?.title;
     if (!observable?.subscribe || titleSubs.has(threadID)) return;
@@ -536,6 +562,11 @@ export default function (amp: PluginAPI) {
       lastSent = title;
       sendHook("title-update", threadID, cwdFromEnv(), { title });
     };
+    const clearTimer = () => {
+      if (flushTimer !== null) clearTimeout(flushTimer);
+      flushTimer = null;
+      pendingTitle = null;
+    };
     try {
       const sub = observable.subscribe((value) => {
         const title = normalizedTitle(value);
@@ -544,17 +575,17 @@ export default function (amp: PluginAPI) {
         if (flushTimer !== null) clearTimeout(flushTimer);
         flushTimer = setTimeout(flushTitle, TITLE_UPDATE_DEBOUNCE_MS);
       });
-      titleSubs.set(threadID, sub);
+      titleSubs.set(threadID, {
+        unsubscribe: () => sub.unsubscribe?.(),
+        clearTimer,
+      });
     } catch (_) {}
   }
 
   process.on("exit", () => {
-    for (const sub of titleSubs.values()) {
-      try {
-        sub.unsubscribe?.();
-      } catch (_) {}
+    for (const threadID of Array.from(titleSubs.keys())) {
+      cleanupThreadTitle(threadID);
     }
-    titleSubs.clear();
   });
 
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
@@ -633,6 +664,7 @@ export default function (amp: PluginAPI) {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     sendHook("stop", sessionId, cwdFromEnv());
+    cleanupThreadTitle(sessionId);
   });
 }
 """#
