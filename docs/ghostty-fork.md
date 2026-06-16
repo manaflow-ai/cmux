@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5829274d4`, which adds precision pixel-scroll
+Current cmux pinned fork head: `eac310b72`, which adds precision pixel-scroll
 rendering for primary-screen scrollback on top of `5697db81` and lets macOS
 native live scroll submit a fractional row offset directly to Ghostty.
 Precision scroll input now accumulates a fractional pixel offset, advances the
@@ -21,12 +21,14 @@ remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
 text, and images translate between rows. The render state preloads one
 render-only guard row above and below the visible viewport when available, then
 shifts the shader uniform by the guard-row origin so fractional motion reveals
-real adjacent rows instead of empty edge pixels. cmux iOS uses this for local
-scrollback on non-alt terminal content without waiting for a host round trip,
-and macOS uses the same renderer path while AppKit remains the native scroll
-gesture owner. The renderer-space pixel-scroll invariant is that positive
-`pixel_scroll_offset_y` moves rendered cells upward, matching positive fractional
-row offsets from the top of scrollback. The patch intentionally avoids the
+real adjacent rows instead of empty edge pixels. Boundary clamping preserves
+fractional motion that moves back into scrollback from top or bottom, and only
+zeros the fractional remainder when it would overscroll past the boundary. cmux
+iOS uses this for local scrollback on non-alt terminal content without waiting
+for a host round trip, and macOS uses the same renderer path while AppKit
+remains the native scroll gesture owner. The renderer-space pixel-scroll
+invariant is that positive `pixel_scroll_offset_y` moves rendered cells upward,
+matching positive fractional row offsets from the top of scrollback. The patch intentionally avoids the
 unrelated Neovim GUI, cursor animation, and visual-effect changes in
 parkers0405/ghostty-pixel-scroll.
 
@@ -73,6 +75,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `f644b4c10` (Drive macOS scrollback by fractional row offset)
   - `55b399077` (Fix fractional scroll renderer direction)
   - `5829274d4` (Preload guard rows for smooth pixel scrolling)
+  - `eac310b72` (Clamp pixel scroll only past viewport boundaries)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
