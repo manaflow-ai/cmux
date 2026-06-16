@@ -73,7 +73,7 @@ public struct WindowAppearanceSnapshot {
     public var compositedTerminalBackgroundColor: NSColor {
         Self.compositedTerminalColor(
             backgroundColor: terminalBackgroundColor,
-            opacity: terminalBackgroundOpacity
+            opacity: Double(terminalBackgroundOpacity)
         )
     }
 

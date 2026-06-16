@@ -9,6 +9,8 @@ public final class NativeTitlebarBackdropCoordinator {
     private static var unifiedTitlebarLayerOpaqueKey: UInt8 = 0
     private static var unifiedTitlebarHiddenAppliedKey: UInt8 = 0
     private static var unifiedTitlebarHiddenKey: UInt8 = 0
+    private static var unifiedTitlebarTransparencyAppliedKey: UInt8 = 0
+    private static var unifiedTitlebarTransparencyKey: UInt8 = 0
 
     private let fullscreenAuxiliaryWindows: @MainActor () -> [NSWindow]
 
@@ -34,44 +36,37 @@ public final class NativeTitlebarBackdropCoordinator {
         usesGlassStyle: Bool
     ) {
         guard let titlebarContainer = nativeTitlebarContainer(in: window) else { return }
-        let titlebarView = firstNativeDescendant(
-            in: titlebarContainer,
-            className: "NSTitlebarView",
-            includeRoot: true
-        )
-        let titlebarBackgroundViews = nativeDescendants(
-            in: titlebarContainer,
-            className: "NSTitlebarBackgroundView"
-        )
-        let effectViews = nativeDescendants(in: titlebarContainer, className: "NSVisualEffectView")
+        let titlebarViews = collectNativeTitlebarViews(in: titlebarContainer)
 
         if enabled {
+            rememberNativeTitlebarTransparencyState(window)
             rememberNativeTitlebarBackdropState(
                 titlebarContainer: titlebarContainer,
-                titlebarView: titlebarView,
-                titlebarBackgroundViews: titlebarBackgroundViews,
-                effectViews: effectViews
+                titlebarView: titlebarViews.titlebarView,
+                titlebarBackgroundViews: titlebarViews.titlebarBackgroundViews,
+                effectViews: titlebarViews.effectViews
             )
         } else {
             restoreNativeTitlebarBackdropState(
                 titlebarContainer: titlebarContainer,
-                titlebarView: titlebarView,
-                titlebarBackgroundViews: titlebarBackgroundViews,
-                effectViews: effectViews
+                titlebarView: titlebarViews.titlebarView,
+                titlebarBackgroundViews: titlebarViews.titlebarBackgroundViews,
+                effectViews: titlebarViews.effectViews
             )
+            restoreNativeTitlebarTransparencyState(window)
             return
         }
 
         titlebarContainer.wantsLayer = true
         titlebarContainer.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
         titlebarContainer.layer?.isOpaque = false
-        titlebarView?.wantsLayer = true
-        titlebarView?.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
-        titlebarView?.layer?.isOpaque = false
-        for titlebarBackgroundView in titlebarBackgroundViews {
+        titlebarViews.titlebarView?.wantsLayer = true
+        titlebarViews.titlebarView?.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
+        titlebarViews.titlebarView?.layer?.isOpaque = false
+        for titlebarBackgroundView in titlebarViews.titlebarBackgroundViews {
             titlebarBackgroundView.isHidden = true
         }
-        for effectView in effectViews {
+        for effectView in titlebarViews.effectViews {
             effectView.isHidden = true
         }
         window.titlebarAppearsTransparent = true
@@ -174,6 +169,23 @@ public final class NativeTitlebarBackdropCoordinator {
         objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
+    private func rememberNativeTitlebarTransparencyState(_ window: NSWindow) {
+        guard objc_getAssociatedObject(window, &Self.unifiedTitlebarTransparencyAppliedKey) == nil else { return }
+        objc_setAssociatedObject(window, &Self.unifiedTitlebarTransparencyAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(window, &Self.unifiedTitlebarTransparencyKey, NSNumber(value: window.titlebarAppearsTransparent), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func restoreNativeTitlebarTransparencyState(_ window: NSWindow) {
+        guard objc_getAssociatedObject(window, &Self.unifiedTitlebarTransparencyAppliedKey) != nil else { return }
+
+        if let value = objc_getAssociatedObject(window, &Self.unifiedTitlebarTransparencyKey) as? NSNumber {
+            window.titlebarAppearsTransparent = value.boolValue
+        }
+
+        objc_setAssociatedObject(window, &Self.unifiedTitlebarTransparencyAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(window, &Self.unifiedTitlebarTransparencyKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
     private func nativeTitlebarContainer(in window: NSWindow) -> NSView? {
         if !window.styleMask.contains(.fullScreen) {
             return window.contentView.flatMap {
@@ -207,6 +219,45 @@ public final class NativeTitlebarBackdropCoordinator {
         return root
     }
 
+    private struct NativeTitlebarViews {
+        var titlebarView: NSView?
+        var titlebarBackgroundViews: [NSView] = []
+        var effectViews: [NSView] = []
+    }
+
+    private func collectNativeTitlebarViews(in view: NSView) -> NativeTitlebarViews {
+        var result = NativeTitlebarViews()
+        collectNativeTitlebarViews(in: view, result: &result, includeRoot: true)
+        return result
+    }
+
+    private func collectNativeTitlebarViews(
+        in view: NSView,
+        result: inout NativeTitlebarViews,
+        includeRoot: Bool = false
+    ) {
+        if includeRoot {
+            collectNativeTitlebarView(view, result: &result)
+        }
+        for subview in view.subviews {
+            collectNativeTitlebarView(subview, result: &result)
+            collectNativeTitlebarViews(in: subview, result: &result)
+        }
+    }
+
+    private func collectNativeTitlebarView(_ view: NSView, result: inout NativeTitlebarViews) {
+        switch String(describing: type(of: view)) {
+        case "NSTitlebarView" where result.titlebarView == nil:
+            result.titlebarView = view
+        case "NSTitlebarBackgroundView":
+            result.titlebarBackgroundViews.append(view)
+        case "NSVisualEffectView":
+            result.effectViews.append(view)
+        default:
+            break
+        }
+    }
+
     private func firstNativeDescendant(
         in view: NSView,
         className: String,
@@ -226,17 +277,6 @@ public final class NativeTitlebarBackdropCoordinator {
         }
 
         return nil
-    }
-
-    private func nativeDescendants(in view: NSView, className: String) -> [NSView] {
-        var result: [NSView] = []
-        for subview in view.subviews {
-            if String(describing: type(of: subview)) == className {
-                result.append(subview)
-            }
-            result.append(contentsOf: nativeDescendants(in: subview, className: className))
-        }
-        return result
     }
 }
 

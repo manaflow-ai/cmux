@@ -24,7 +24,7 @@ public struct TitlebarLeadingInsetReader: NSViewRepresentable {
 
     /// Updates the SwiftUI binding with the current leading inset.
     public func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
+        Task { @MainActor in
             guard let window = nsView.window else { return }
             var leading = baseLeadingInset()
             for accessory in window.titlebarAccessoryViewControllers

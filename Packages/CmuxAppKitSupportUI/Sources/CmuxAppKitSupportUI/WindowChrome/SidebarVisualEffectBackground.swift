@@ -56,11 +56,9 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
             nsView.layer?.cornerRadius = cornerRadius
             nsView.layer?.masksToBounds = cornerRadius > 0
 
-            if let color = tintColor {
-                let selector = NSSelectorFromString("setTintColor:")
-                if nsView.responds(to: selector) {
-                    nsView.perform(selector, with: color)
-                }
+            let selector = NSSelectorFromString("setTintColor:")
+            if nsView.responds(to: selector) {
+                nsView.perform(selector, with: tintColor)
             }
         } else if let visualEffect = nsView as? NSVisualEffectView {
             visualEffect.material = material
