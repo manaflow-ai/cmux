@@ -382,6 +382,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     }
 }
 
+@MainActor
 private struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
     let expandedIDs: Set<String>
