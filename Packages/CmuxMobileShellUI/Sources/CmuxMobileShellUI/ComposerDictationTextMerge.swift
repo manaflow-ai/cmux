@@ -67,8 +67,10 @@ enum ComposerDictationState: Equatable {
 /// composer always reads `base` + the latest transcript and never accumulates
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
-extension String {
-    /// Combine this captured base text with the current dictation transcript.
+struct ComposerDictationTextMerger {
+    init() {}
+
+    /// Combine the captured base text with the current transcript.
     ///
     /// - A trailing run of whitespace on the base is preserved (the user may
     ///   have typed "hello " and the dictation continues the sentence).
@@ -79,19 +81,21 @@ extension String {
     ///   empty); leading whitespace in the transcript is trimmed so the join is
     ///   not doubled.
     ///
-    /// - Parameter transcript: The latest (partial or final) recognized transcript.
+    /// - Parameters:
+    ///   - base: The composer text captured when dictation started.
+    ///   - transcript: The latest (partial or final) recognized transcript.
     /// - Returns: The text to write back into the composer.
-    func mergingDictationTranscript(_ transcript: String) -> String {
+    func merged(base: String, transcript: String) -> String {
         let trimmedTranscript = transcript.drop(while: { $0.isWhitespace })
         if trimmedTranscript.isEmpty {
-            return self
+            return base
         }
-        if isEmpty {
+        if base.isEmpty {
             return String(trimmedTranscript)
         }
-        if let last = last, last.isWhitespace {
-            return self + trimmedTranscript
+        if let last = base.last, last.isWhitespace {
+            return base + trimmedTranscript
         }
-        return self + " " + trimmedTranscript
+        return base + " " + trimmedTranscript
     }
 }
