@@ -129,14 +129,32 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p perf-results
-          python3 scripts/perf-activation-session.py \
-            --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
-            --synthetic-scrollback-fallback \
-            --output perf-results/activation-session.json \
-            --junit perf-results/activation-session.junit.xml
+          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
+          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
+          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
+
+          # GitHub's self-hosted runner service can execute outside the console
+          # user's Aqua bootstrap. Launch the benchmark there so the tagged GUI
+          # app can start normally and publish its debug socket.
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" PERF_TAG="$PERF_TAG" \
+              WORKSPACE_COUNT="$WORKSPACE_COUNT" \
+              HEAVY_SCROLLBACK_LINES="$HEAVY_SCROLLBACK_LINES" \
+              OTHER_SCROLLBACK_LINES="$OTHER_SCROLLBACK_LINES" \
+            bash -c '
+              set -euo pipefail
+              cd "$1"
+              python3 scripts/perf-activation-session.py \
+                --tag "$PERF_TAG" \
+                --workspace-count "$WORKSPACE_COUNT" \
+                --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES" \
+                --other-scrollback-lines "$OTHER_SCROLLBACK_LINES" \
+                --synthetic-scrollback-fallback \
+                --output perf-results/activation-session.json \
+                --junit perf-results/activation-session.junit.xml
+            ' bash "$PWD"
 
       - name: Run Cmd-Tab activation benchmark
         run: |
