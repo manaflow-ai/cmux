@@ -157,7 +157,7 @@ enum TerminalCopyOnSelectSettings {
     static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
-    /// Returns the Ghostty `copy-on-select` value; when `emitsFalse` is `false`, disabled settings return `nil` so user config/defaults win.
+    /// Returns the Ghostty `copy-on-select` value; `emitsFalse: false` lets Ghostty config/defaults remain authoritative.
     static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
         guard let enabled = storedValue(defaults: defaults) else { return nil }
         return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
