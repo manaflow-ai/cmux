@@ -285,18 +285,21 @@ check_create_dmg_uses_run_local_npm_prefix() {
     if ! awk '
       /- name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /CMUX_NODE_BIN="\$\(command -v node\)"/ { saw_node=1 }
       in_step && /export npm_config_prefix="\$RUNNER_TEMP\/npm-global"/ { saw_prefix=1 }
       in_step && /mkdir -p "\$npm_config_prefix"/ { saw_mkdir=1 }
-      in_step && /echo "\$npm_config_prefix\/bin" >> "\$GITHUB_PATH"/ { saw_path=1 }
       in_step && /npm install --global "create-dmg@\$\{CREATE_DMG_VERSION\}"/ { saw_install=1 }
-      END { exit !(saw_prefix && saw_mkdir && saw_path && saw_install) }
+      in_step && /wrapper_dir="\$RUNNER_TEMP\/create-dmg-wrapper"/ { saw_wrapper=1 }
+      in_step && /exec "\$CMUX_NODE_BIN" "\$npm_config_prefix\/lib\/node_modules\/create-dmg\/cli\.js" "\\\$@"/ { saw_exec=1 }
+      in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
+      END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must install create-dmg into a run-local npm global prefix"
+      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
       exit 1
     fi
   done
 
-  echo "PASS: create-dmg installs into run-local npm global prefix"
+  echo "PASS: create-dmg uses setup-node-bound wrapper from run-local npm prefix"
 }
 
 check_no_ci_xctest_skips() {
