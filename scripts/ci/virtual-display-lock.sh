@@ -9,6 +9,7 @@ fi
 LOCK_DIR="${CMUX_VDISPLAY_LOCK_DIR:-/tmp/cmux-ci-virtual-display.lock}"
 LOCK_TIMEOUT_SECONDS="${CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS:-600}"
 LOCK_STALE_SECONDS="${CMUX_VDISPLAY_LOCK_STALE_SECONDS:-1800}"
+LOCK_OWNERLESS_STALE_SECONDS="${CMUX_VDISPLAY_LOCK_OWNERLESS_STALE_SECONDS:-$LOCK_TIMEOUT_SECONDS}"
 LOCK_POLL_SECONDS="${CMUX_VDISPLAY_LOCK_POLL_SECONDS:-2}"
 
 usage() {
@@ -89,8 +90,21 @@ owner_is_alive() {
   ps -p "$owner_pid" >/dev/null 2>&1
 }
 
+ownerless_stale_seconds() {
+  local stale_seconds="$LOCK_OWNERLESS_STALE_SECONDS"
+  case "$stale_seconds" in
+    ''|*[!0-9]*)
+      stale_seconds="$LOCK_TIMEOUT_SECONDS"
+      ;;
+  esac
+  if [ "$stale_seconds" -gt "$LOCK_TIMEOUT_SECONDS" ]; then
+    stale_seconds="$LOCK_TIMEOUT_SECONDS"
+  fi
+  printf '%s\n' "$stale_seconds"
+}
+
 remove_stale_lock_if_needed() {
-  local now created age owner_pid
+  local now created age owner_pid stale_seconds
   owner_pid=""
   if [ -f "$LOCK_DIR/owner_pid" ]; then
     owner_pid="$(cat "$LOCK_DIR/owner_pid" 2>/dev/null || true)"
@@ -114,10 +128,11 @@ remove_stale_lock_if_needed() {
     created="$(stat -f %m "$LOCK_DIR" 2>/dev/null || printf '%s\n' "$now")"
   fi
   age=$((now - created))
-  if [ "$age" -lt "$LOCK_STALE_SECONDS" ]; then
+  stale_seconds="$(ownerless_stale_seconds)"
+  if [ "$age" -lt "$stale_seconds" ]; then
     return 1
   fi
-  echo "Removing stale virtual display lock at $LOCK_DIR (age ${age}s)" >&2
+  echo "Removing ownerless stale virtual display lock at $LOCK_DIR (age ${age}s)" >&2
   rm -rf "$LOCK_DIR"
   return 0
 }

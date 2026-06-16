@@ -267,7 +267,11 @@ private func directLaunchLogURL(bundleIdentifier: String) -> URL {
 }
 
 private func launchApplicationProcess(appURL: URL, bundleIdentifier: String) -> NSRunningApplication? {
-    let executableURL = appURL.appendingPathComponent("Contents/MacOS/cmux DEV")
+    guard let bundle = Bundle(url: appURL),
+          let executableURL = bundle.executableURL else {
+        fputs("direct launch: unable to resolve executable for bundle at \(appURL.path)\n", stderr)
+        return nil
+    }
     guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
         fputs("direct launch executable missing: \(executableURL.path)\n", stderr)
         return nil
