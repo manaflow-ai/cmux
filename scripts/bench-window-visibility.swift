@@ -190,6 +190,20 @@ private func hasVisibleCGWindow(processIdentifier: pid_t) -> Bool {
     !visibleCGWindows(processIdentifier: processIdentifier).isEmpty
 }
 
+private func resolvedBundleIdentifier(appURL: URL, requestedBundleIdentifier: String) -> String {
+    guard let actualBundleIdentifier = Bundle(url: appURL)?.bundleIdentifier,
+          !actualBundleIdentifier.isEmpty else {
+        return requestedBundleIdentifier
+    }
+    if actualBundleIdentifier != requestedBundleIdentifier {
+        fputs(
+            "Using app bundle identifier \(actualBundleIdentifier) instead of requested \(requestedBundleIdentifier).\n",
+            stderr
+        )
+    }
+    return actualBundleIdentifier
+}
+
 private let directLaunchEnvironmentKeysToRemove = [
     "CMUX_SOCKET",
     "CMUX_SOCKET_PATH",
@@ -525,7 +539,10 @@ private func main() {
     }
 
     let appURL = URL(fileURLWithPath: arguments[1])
-    let bundleIdentifier = arguments[2]
+    let bundleIdentifier = resolvedBundleIdentifier(
+        appURL: appURL,
+        requestedBundleIdentifier: arguments[2]
+    )
     let verbose = arguments.contains("--verbose")
     let activateRestore = arguments.contains("--activate-restore")
     let cmdTabActivation = arguments.contains("--cmd-tab-activation")

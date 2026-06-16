@@ -169,18 +169,22 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
-          # The GitHub Actions runner process runs in launchd's system
-          # bootstrap, not the console user's Aqua session, so windows
-          # created by apps launched via NSWorkspace.openApplication do
-          # not show up in CGWindowListCopyWindowInfo([.optionOnScreenOnly]).
-          # Re-enter the Aqua session via launchctl asuser before running
-          # the bench so visibility polling sees real on-screen windows.
-          CONSOLE_USER="$(stat -f %Su /dev/console)"
-          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
-          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
-            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
-            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
-            > perf-results/cmd-tab-activation.txt
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")"
+          # Prefer the console user's Aqua bootstrap when passwordless sudo is
+          # available. Some self-hosted runners deliberately omit sudo; on
+          # those, run in the current bootstrap and let the benchmark fail if it
+          # cannot produce a real CG-visible app window.
+          CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+              env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" APP_PATH="$APP_PATH" BUNDLE_ID="$BUNDLE_ID" GITHUB_WORKSPACE="$PWD" \
+              bash -c 'cd "$GITHUB_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
+              > perf-results/cmd-tab-activation.txt
+          else
+            echo "::warning::Passwordless sudo unavailable; running Cmd-Tab benchmark in current bootstrap" >&2
+            swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility \
+              > perf-results/cmd-tab-activation.txt
+          fi
           cat perf-results/cmd-tab-activation.txt
 
       - name: Write benchmark summary
