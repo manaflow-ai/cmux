@@ -6516,21 +6516,7 @@ extension BrowserPanel {
         bypassesRemoteWorkspaceProxy
     }
 
-    private enum ReloadMode {
-        case soft
-        case hard
-
-        var recoveryCachePolicy: URLRequest.CachePolicy {
-            switch self {
-            case .soft:
-                return .useProtocolCachePolicy
-            case .hard:
-                return .reloadIgnoringLocalCacheData
-            }
-        }
-    }
-
-    private func prepareForReload(reason: String, mode: ReloadMode) -> Bool {
+    private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
         if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }

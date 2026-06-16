@@ -53,7 +53,7 @@ struct AppDelegateRenameShortcutContextTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(withId: windowId))
             let renameTabPosted = ShortcutNotificationFlag()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
@@ -99,7 +99,7 @@ struct AppDelegateRenameShortcutContextTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(withId: windowId))
             let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
@@ -145,7 +145,7 @@ struct AppDelegateRenameShortcutContextTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
@@ -198,7 +198,7 @@ struct AppDelegateRenameShortcutContextTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
@@ -251,7 +251,7 @@ struct AppDelegateRenameShortcutContextTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let terminalPanelId = try #require(workspace.focusedPanelId)
@@ -384,13 +384,13 @@ struct AppDelegateRenameShortcutContextTests {
         )
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
+    private func mainWindow(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
+        guard let window = mainWindow(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
