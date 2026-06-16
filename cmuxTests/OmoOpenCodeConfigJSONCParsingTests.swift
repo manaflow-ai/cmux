@@ -113,7 +113,9 @@ struct OmoOpenCodePluginRegistrationTests {
         #expect(edited.contains("// be in -*- jsonc -*- mode"))
         #expect(edited.contains("// primary model"))
         #expect(edited.contains("\"plugin\""))
-        #expect(edited.contains("cmux-session"))
+        // The pre-existing model property (and its trailing comma) must survive
+        // the surgical insertion untouched.
+        #expect(edited.contains(#""model": "github-copilot/claude-opus-4.8","#))
 
         // The edited document must still decode (as JSONC) back to the expected shape.
         let config = try CMUXCLI.parseOpenCodeConfig(
@@ -121,8 +123,9 @@ struct OmoOpenCodePluginRegistrationTests {
             sourcePath: "/tmp/opencode.json"
         )
         #expect(config["model"] as? String == "github-copilot/claude-opus-4.8")
+        // Assert the exact plugin array so a duplicate or stray entry fails the test.
         let plugins = try #require(config["plugin"] as? [Any])
-        #expect(plugins.contains { $0 as? String == "cmux-session" })
+        #expect(plugins.compactMap { $0 as? String } == ["cmux-session"])
     }
 
     /// Replacing an existing `plugin` array must keep unrelated comments intact.
@@ -154,12 +157,25 @@ struct OmoOpenCodePluginRegistrationTests {
         #expect(config["model"] as? String == "x")
     }
 
-    /// The logical no-op comparison must treat reordering-free identical lists as
-    /// equal so an already-registered config is never rewritten.
+    /// The logical no-op comparison must treat identical lists as equal so an
+    /// already-registered config is never rewritten. It must also be
+    /// order-insensitive: registration re-appends the session plugin at the end,
+    /// so a config that already lists it earlier must still count as a no-op
+    /// instead of triggering a comment-stripping reorder rewrite.
     @Test
     func pluginListsEqualDetectsNoOp() {
         #expect(CMUXCLI.openCodePluginListsEqual(["cmux-session"], ["cmux-session"]))
         #expect(!CMUXCLI.openCodePluginListsEqual([], ["cmux-session"]))
         #expect(!CMUXCLI.openCodePluginListsEqual(["a"], ["a", "cmux-session"]))
+        // Order-insensitive: same membership, different order -> still equal.
+        #expect(CMUXCLI.openCodePluginListsEqual(
+            ["cmux-session", "other-plugin"],
+            ["other-plugin", "cmux-session"]
+        ))
+        // Different membership must not be masked by the order-insensitive compare.
+        #expect(!CMUXCLI.openCodePluginListsEqual(
+            ["cmux-session", "other-plugin"],
+            ["other-plugin", "third-plugin"]
+        ))
     }
 }

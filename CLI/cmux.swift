@@ -27676,12 +27676,32 @@ export default CMUXSessionRestore;
     /// re-serialized array is always strict JSON, so the two can never match even
     /// when nothing changed. Comparing the decoded arrays avoids needlessly
     /// stripping the user's comments on every hook install/uninstall.
+    ///
+    /// The comparison is order-insensitive on purpose. Registration rebuilds the
+    /// list by removing the session plugin and re-appending it at the end, so an
+    /// already-registered config like `["cmux-session", "other"]` would otherwise
+    /// look "changed" (it re-serializes to `["other", "cmux-session"]`) and get
+    /// rewritten — needlessly reordering the user's plugins and stripping their
+    /// comments. `.sortedKeys` only sorts keys inside JSON objects, not array
+    /// element order, so we canonicalize each element and sort before comparing.
     static func openCodePluginListsEqual(_ lhs: [Any], _ rhs: [Any]) -> Bool {
-        guard
-            let lhsData = try? JSONSerialization.data(withJSONObject: lhs, options: [.sortedKeys]),
-            let rhsData = try? JSONSerialization.data(withJSONObject: rhs, options: [.sortedKeys])
-        else { return false }
-        return lhsData == rhsData
+        func canonicalized(_ plugins: [Any]) -> [String]? {
+            var encoded: [String] = []
+            encoded.reserveCapacity(plugins.count)
+            for element in plugins {
+                guard
+                    JSONSerialization.isValidJSONObject([element]),
+                    let data = try? JSONSerialization.data(withJSONObject: [element], options: [.sortedKeys]),
+                    let string = String(data: data, encoding: .utf8)
+                else { return nil }
+                encoded.append(string)
+            }
+            return encoded.sorted()
+        }
+        guard let lhsCanonical = canonicalized(lhs), let rhsCanonical = canonicalized(rhs) else {
+            return false
+        }
+        return lhsCanonical == rhsCanonical
     }
 
     /// Serializes an opencode `plugin` array to pretty-printed JSON for embedding
