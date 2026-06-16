@@ -151,13 +151,6 @@ install_zig_with_sudo() {
   /usr/local/bin/zig version
 }
 
-install_zig_to_usr_local_if_writable() {
-  mkdir -p /usr/local/bin /usr/local/lib 2>/dev/null || return 1
-  copy_zig_tree /usr/local/bin /usr/local/lib/zig 2>/dev/null || return 1
-  publish_zig_for_later_steps /usr/local/bin/zig
-  /usr/local/bin/zig version
-}
-
 echo "Installing verified zig ${ZIG_REQUIRED}"
 rm -f "$ZIG_TAR" "$ZIG_SIG"
 if ! download_file "$ZIG_MIRROR_URL" "$ZIG_TAR"; then
@@ -179,9 +172,6 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C /tmp
-if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && install_zig_to_usr_local_if_writable; then
-  exit 0
-fi
 if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
