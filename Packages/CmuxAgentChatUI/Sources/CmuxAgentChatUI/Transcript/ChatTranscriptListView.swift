@@ -73,35 +73,41 @@ public struct ChatTranscriptListView: View {
 
     public var body: some View {
         #if os(iOS)
-        ChatTranscriptTableView(
-            rows: rows,
-            expandedIDs: expandedIDs,
-            agentState: agentState,
-            transcriptAvailability: transcriptAvailability,
-            hasMoreHistory: hasMoreHistory,
-            hasLoadedInitialHistory: hasLoadedInitialHistory,
-            initialLoadFailed: initialLoadFailed,
-            historyTruncatedAtHead: historyTruncatedAtHead,
-            actions: actions,
-            onReachTop: onReachTop,
-            onRetryInitialLoad: onRetryInitialLoad,
-            isAtBottom: $isAtBottom,
-            scrollToBottomRequest: scrollToBottomRequest
-        )
-        .overlay(alignment: .bottomTrailing) {
-            Group {
-                if !isAtBottom {
-                    ChatScrollToBottomButton {
-                        isAtBottom = true
-                        scrollToBottomRequest += 1
+        if usesViewportPlaceholder {
+            emptyPlaceholder
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+        } else {
+            ChatTranscriptTableView(
+                rows: rows,
+                expandedIDs: expandedIDs,
+                agentState: agentState,
+                transcriptAvailability: transcriptAvailability,
+                hasMoreHistory: hasMoreHistory,
+                hasLoadedInitialHistory: hasLoadedInitialHistory,
+                initialLoadFailed: initialLoadFailed,
+                historyTruncatedAtHead: historyTruncatedAtHead,
+                actions: actions,
+                onReachTop: onReachTop,
+                onRetryInitialLoad: onRetryInitialLoad,
+                isAtBottom: $isAtBottom,
+                scrollToBottomRequest: scrollToBottomRequest
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if !isAtBottom {
+                        ChatScrollToBottomButton {
+                            isAtBottom = true
+                            scrollToBottomRequest += 1
+                        }
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 8)
+                        .excludedFromKeyboardDismiss()
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 8)
-                    .excludedFromKeyboardDismiss()
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
+                .animation(.snappy(duration: 0.2), value: isAtBottom)
             }
-            .animation(.snappy(duration: 0.2), value: isAtBottom)
         }
         #else
         ScrollViewReader { proxy in
@@ -120,6 +126,10 @@ public struct ChatTranscriptListView: View {
     private var isWorking: Bool {
         if case .working = agentState { return true }
         return false
+    }
+
+    private var usesViewportPlaceholder: Bool {
+        rows.isEmpty && !hasMoreHistory && !historyTruncatedAtHead
     }
 
     private var scrollContent: some View {
