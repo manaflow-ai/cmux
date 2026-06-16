@@ -13582,39 +13582,39 @@ struct TabItemView: View, Equatable {
         )
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
+            ZStack(alignment: .topTrailing) {
+                HStack(alignment: .top, spacing: 8) {
+                    if unreadCount > 0 {
+                        ZStack {
+                            Circle()
+                                .fill(activeUnreadBadgeFillColor)
+                            Text("\(unreadCount)")
+                                .font(.system(size: scaledFontSize(9), weight: .semibold))
+                                .foregroundColor(activeUnreadBadgeTextColor)
+                        }
+                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                     }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+
+                    if workspaceSnapshot.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                            .foregroundColor(activeSecondaryColor(0.8))
+                            .safeHelp(protectedWorkspaceTooltip)
+                    }
+
+                    Text(displayedTitle)
+                        .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                        .foregroundColor(activePrimaryTextColor)
+                        .lineLimit(titleLineLimit)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
                 }
+                .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth + 8 : 0)
 
-                if workspaceSnapshot.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: scaledFontSize(9), weight: .semibold))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(protectedWorkspaceTooltip)
-                }
-
-                Text(displayedTitle)
-                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(titleLineLimit)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
+                // Reserve the close affordance with fixed trailing padding so
+                // hover visibility never changes the title's proposed width.
                 if canCloseWorkspace {
                     Button(action: {
                         #if DEBUG
