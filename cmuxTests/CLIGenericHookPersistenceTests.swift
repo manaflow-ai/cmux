@@ -1020,24 +1020,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let now = Date().timeIntervalSince1970
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": root.path,
-                    "transcriptPath": transcriptPath,
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
-            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
-
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return self.malformedRequestResponse(raw: line)
