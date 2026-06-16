@@ -42,6 +42,8 @@ extension AgentLaunchSanitizer {
         ],
         optionalValueOptions: [
             "--debug",
+            "--prompt-suggestions",
+            "--remote-control",
             "--tmux"
         ],
         variadicOptions: [

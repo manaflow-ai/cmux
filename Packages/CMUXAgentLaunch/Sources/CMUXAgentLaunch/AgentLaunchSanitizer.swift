@@ -452,7 +452,7 @@ public enum AgentLaunchSanitizer {
             return 2
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
+            return arg.hasPrefix("--") && index + 2 < args.count && !args[index + 1].hasPrefix("-") && args[index + 2].hasPrefix("-") ? 2 : 1
         }
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
