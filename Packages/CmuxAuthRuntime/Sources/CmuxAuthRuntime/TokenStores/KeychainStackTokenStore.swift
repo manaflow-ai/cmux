@@ -41,6 +41,24 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return "\(bundleIdentifier).auth"
     }
 
+    /// The keychain service name for one signed-in account's tokens
+    /// (multi-account; see plans/feat-ios-multi-account/DESIGN.md).
+    ///
+    /// A `nil` or empty `accountID` returns the legacy single-account service
+    /// byte-for-byte, so existing installs keep resolving their stored session
+    /// and a feature-flag rollback stays safe.
+    /// - Parameters:
+    ///   - bundleIdentifier: The app's bundle identifier.
+    ///   - accountID: The Stack user id owning this token pair, or `nil` for
+    ///     the legacy single-account namespace.
+    public static func serviceName(bundleIdentifier: String?, accountID: String?) -> String {
+        let base = serviceName(bundleIdentifier: bundleIdentifier)
+        guard let accountID, !accountID.isEmpty else {
+            return base
+        }
+        return "\(base).account.\(accountID)"
+    }
+
     public func getStoredAccessToken() async -> String? {
         if let cachedAccessToken { return cachedAccessToken }
         return keychainRead(account: Self.accessTokenAccount)
