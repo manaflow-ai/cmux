@@ -179,7 +179,10 @@ struct SettingsRowAnchorResolutionTests {
     func everyCuratedSettingEntryIsReachable() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let pathBackedIDs = Set(Self.rowConfigPaths.compactMap { index.anchorID(forSettingsPath: $0) })
-        let reachable = pathBackedIDs.union(Self.explicitlyAnchoredEntryIDs)
+        let sectionIDs = Set(SettingsSectionID.allCases.map { "section:\($0.rawValue)" })
+        let reachable = pathBackedIDs
+            .union(Self.explicitlyAnchoredEntryIDs)
+            .union(sectionIDs)
 
         let unreachable = index.entries
             .filter { if case .setting = $0.kind { return true } else { return false } }

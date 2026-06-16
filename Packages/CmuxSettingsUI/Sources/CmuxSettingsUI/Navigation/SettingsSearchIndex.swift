@@ -380,7 +380,11 @@ public struct SettingsSearchIndex: Sendable {
     }
 
     private static func section(forSettingPath path: String) -> SettingsSectionID? {
-        guard let prefix = path.split(separator: ".").first.map(String.init) else { return nil }
+        let components = path.split(separator: ".").map(String.init)
+        if components.dropFirst().contains("beta") {
+            return .betaFeatures
+        }
+        guard let prefix = components.first else { return nil }
         switch prefix {
         case "account":
             return .account
