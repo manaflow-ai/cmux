@@ -1921,6 +1921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
+        RemotesClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
@@ -1932,6 +1933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
+        AgentChatTranscriptService.shared.start()
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()

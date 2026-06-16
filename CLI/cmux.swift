@@ -4128,6 +4128,9 @@ struct CMUXCLI {
                     """)
             }
 
+        case "remotes", "remote":
+            try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -14343,6 +14346,8 @@ struct CMUXCLI {
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "remotes", "remote":
+            return Self.remotesUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -16395,7 +16400,7 @@ struct CMUXCLI {
         return (value, remaining)
     }
 
-    private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
+    func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
         var remaining: [String] = []
         var values: [String] = []
         var skipNext = false
@@ -34258,6 +34263,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
