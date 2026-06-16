@@ -100,13 +100,18 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    # Run on the macOS 15 host that carries the signing/notarization secrets.
+    # Pinned to WarpBuild, NOT vars.MACOS_RUNNER_15 (= cmux-aws-macos-15, a
+    # self-hosted mini): the self-hosted runners are not provisioned for
+    # codesigning (no Developer-ID/WWDR chain in the keychain), so `codesign`
+    # fails with "unable to build chain to self-signed root" / errSecInternalComponent.
+    # Signing + notarization must run on the Warp image that carries the chain
+    # until the self-hosted minis are provisioned for signing.
     # The Swift app still selects an Xcode with the macOS 26 SDK so it adopts
     # Liquid Glass on Tahoe. The Ghostty CLI helper is built separately and
     # injected before signing, preferring a pre-26 SDK when the runner image has
     # one but falling back to the selected app Xcode when the image only ships
     # Xcode 26. The helper build remains required and lipo-verified below.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
     steps:
       - name: Checkout build ref
