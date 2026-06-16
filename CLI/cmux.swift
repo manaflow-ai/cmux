@@ -30103,7 +30103,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
-            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
+            let promptRestorabilitySignal: Bool? = launchCapture.sanitizerRejected ? false : true
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -30251,7 +30251,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
                         launchCommand: launchCommand,
-                        isRestorable: sanitizerRestorableOverride,
+                        isRestorable: promptRestorabilitySignal,
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -30309,7 +30309,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         turnId: input.turnId,
                         pid: pid,
                         launchCommand: launchCommand,
-                        isRestorable: sanitizerRestorableOverride
+                        isRestorable: promptRestorabilitySignal
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -30320,7 +30320,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
-                        isRestorable: sanitizerRestorableOverride,
+                        isRestorable: promptRestorabilitySignal,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -30346,7 +30346,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             mapped,
                             launchCommand: launchCommand ?? mapped?.launchCommand,
                             transcriptPath: input.transcriptPath,
-                            allowTranscriptPathSignal: def.name == "claude"
+                            allowTranscriptPathSignal: def.name == "claude",
+                            eventIsRestorable: promptRestorabilitySignal == true
                         )
                 )
                 if codexPromptTurnWentTerminal() {

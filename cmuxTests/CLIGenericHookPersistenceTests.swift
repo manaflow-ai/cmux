@@ -3334,7 +3334,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "startedAt": now,
                     "updatedAt": now,
                     "pid": deadPID,
-                    "isRestorable": true,
                 ],
             ],
         ]
@@ -3413,6 +3412,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
         let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            persisted["isRestorable"] as? Bool,
+            true,
+            "prompt-submit should durably mark the Codex session restorable before persisting env-only CODEX_HOME"
+        )
         let persistedLaunch = try XCTUnwrap(
             persisted["launchCommand"] as? [String: Any],
             "env-only launchCommand must be persisted for the fork path"
