@@ -195,6 +195,10 @@ struct AgentChatTranscriptServiceTests {
         ])
         #expect(bounded.map(\.id) == ["detected-claude-surface-terminal-one"])
         #expect(bounded.first?.transcriptAvailability == .pending)
+        let boundedRecords = service.sessionRecords(workspaceAndTerminalIDs: [
+            "workspace-a": ["terminal-one"],
+        ])
+        #expect(boundedRecords.map(\.sessionID) == ["detected-claude-surface-terminal-one"])
     }
 
     @Test("provisional Claude sessions become available after transcript resolution")

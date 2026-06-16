@@ -293,9 +293,11 @@ extension TerminalController {
         guard !workspaceTerminalIDsByWorkspaceID.isEmpty else { return [:] }
         let service = AgentChatTranscriptService.shared
         var grouped: [String: [String: [ChatSessionDescriptor]]] = [:]
-        for descriptor in service.sessionDescriptors(
+        for record in service.sessionRecords(
             workspaceAndTerminalIDs: workspaceTerminalIDsByWorkspaceID
         ) {
+            guard mobileChatBindingIsCurrentAgent(record) else { continue }
+            let descriptor = record.descriptor
             guard let workspaceID = descriptor.workspaceID,
                   let terminalID = descriptor.terminalID else {
                 continue

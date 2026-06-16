@@ -118,7 +118,7 @@ final class AgentChatTranscriptService {
     func sessionDescriptors(
         workspaceAndTerminalIDs: [String: Set<String>]
     ) -> [ChatSessionDescriptor] {
-        registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs)
+        sessionRecords(workspaceAndTerminalIDs: workspaceAndTerminalIDs)
             .map(\.descriptor)
     }
 
@@ -129,6 +129,14 @@ final class AgentChatTranscriptService {
     /// - Returns: Matching records, most recent first.
     func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
         registry.sessions(workspaceID: workspaceID)
+    }
+
+    /// Lists raw session records for known workspace/terminal ids so callers
+    /// can validate live terminal bindings before exposing descriptors.
+    func sessionRecords(
+        workspaceAndTerminalIDs: [String: Set<String>]
+    ) -> [AgentChatSessionRecord] {
+        registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs)
     }
 
     /// Adopts a Claude session cmux detected by terminal title but that
