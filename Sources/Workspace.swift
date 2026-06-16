@@ -960,6 +960,29 @@ extension Workspace {
         return effectiveBinding
     }
 
+    nonisolated private static func resumeBindingForSessionRestore(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding,
+              binding.isAgentHookBinding,
+              let restorableAgent else {
+            return binding
+        }
+
+        let launchWorkingDirectory =
+            restorableAgent.workingDirectory ?? restorableAgent.launchCommand?.workingDirectory
+        let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: binding.kind ?? restorableAgent.kind.rawValue,
+            runtimeCwd: binding.cwd,
+            launchWorkingDirectory: launchWorkingDirectory
+        )
+        guard resolvedWorkingDirectory != binding.cwd else {
+            return binding
+        }
+        return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
     nonisolated private static func hermesAgentSubrouterBindingForStartup(
         _ binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot {
@@ -1542,8 +1565,11 @@ extension Workspace {
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
+            let resumeBinding = Self.resumeBindingForSessionRestore(
+                snapshot.terminal?.resumeBinding,
+                restorableAgent: restorableAgent
+            )
             let restoredHibernation = snapshot.terminal?.hibernation
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
