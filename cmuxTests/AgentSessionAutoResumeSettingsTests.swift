@@ -572,6 +572,71 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testClaudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sessionId = "claude-drifted-binding-session"
+            let launchCwd = "/tmp/cmux-claude-launch"
+            let runtimeCwd = "/tmp/cmux-claude-runtime"
+            let agent = SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: sessionId,
+                workingDirectory: launchCwd,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: ["/usr/local/bin/claude", "--model", "claude-opus-4-8"],
+                    workingDirectory: launchCwd,
+                    environment: ["CLAUDE_CONFIG_DIR": "/tmp/cmux-claude-config"],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
+            )
+            source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Claude",
+                    kind: "claude",
+                    command: "{ cd -- '\(runtimeCwd)' 2>/dev/null || [ ! -d '\(runtimeCwd)' ]; } && 'claude' '--resume' '\(sessionId)'",
+                    cwd: runtimeCwd,
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.workingDirectory, launchCwd)
+            XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.cwd, runtimeCwd)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            try assertAgentAutoResumeUsesStartupCommand(
+                restoredPanel,
+                scriptContains: [launchCwd, "'--resume' '\(sessionId)'"],
+                scriptDoesNotContain: [runtimeCwd]
+            )
+            XCTAssertEqual(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd,
+                launchCwd
+            )
+        }
+    }
+
+    @MainActor
     func testNonAgentResumeBindingDoesNotMarkRestoredAgentAwaitingAutoResume() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
@@ -712,6 +777,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     private func assertAgentAutoResumeUsesStartupCommand(
         _ panel: TerminalPanel,
         scriptContains needles: [String],
+        scriptDoesNotContain excludedNeedles: [String] = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -722,6 +788,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
             XCTAssertTrue(script.contains(needle), script, file: file, line: line)
+        }
+        for needle in excludedNeedles {
+            XCTAssertFalse(script.contains(needle), script, file: file, line: line)
         }
         XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
         XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
