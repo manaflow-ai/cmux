@@ -3720,8 +3720,10 @@ final class UITestLaunchManifestTests: XCTestCase {
     }
 }
 
-final class PostHogAnalyticsPropertiesTests: XCTestCase {
-    func testDailyActivePropertiesIncludeVersionAndBuild() {
+@Suite(.serialized)
+struct PostHogAnalyticsPropertiesTests {
+    @Test
+    func dailyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.dailyActiveProperties(
             dayUTC: "2026-02-21",
             reason: "didBecomeActive",
@@ -3731,13 +3733,14 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(properties["day_utc"] as? String, "2026-02-21")
-        XCTAssertEqual(properties["reason"] as? String, "didBecomeActive")
-        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
-        XCTAssertEqual(properties["app_build"] as? String, "230")
+        #expect(properties["day_utc"] as? String == "2026-02-21")
+        #expect(properties["reason"] as? String == "didBecomeActive")
+        #expect(properties["app_version"] as? String == "0.31.0")
+        #expect(properties["app_build"] as? String == "230")
     }
 
-    func testSuperPropertiesIncludePlatformVersionAndBuild() {
+    @Test
+    func superPropertiesIncludePlatformVersionAndBuild() {
         let properties = PostHogAnalytics.superProperties(
             infoDictionary: [
                 "CFBundleShortVersionString": "0.31.0",
@@ -3745,12 +3748,13 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(properties["platform"] as? String, "cmuxterm")
-        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
-        XCTAssertEqual(properties["app_build"] as? String, "230")
+        #expect(properties["platform"] as? String == "cmuxterm")
+        #expect(properties["app_version"] as? String == "0.31.0")
+        #expect(properties["app_build"] as? String == "230")
     }
 
-    func testHourlyActivePropertiesIncludeVersionAndBuild() {
+    @Test
+    func hourlyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.hourlyActiveProperties(
             hourUTC: "2026-02-21T14",
             reason: "didBecomeActive",
@@ -3760,46 +3764,82 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
-        XCTAssertEqual(properties["reason"] as? String, "didBecomeActive")
-        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
-        XCTAssertEqual(properties["app_build"] as? String, "230")
+        #expect(properties["hour_utc"] as? String == "2026-02-21T14")
+        #expect(properties["reason"] as? String == "didBecomeActive")
+        #expect(properties["app_version"] as? String == "0.31.0")
+        #expect(properties["app_build"] as? String == "230")
     }
 
-    func testHourlyPropertiesOmitVersionFieldsWhenUnavailable() {
+    @Test
+    func hourlyPropertiesOmitVersionFieldsWhenUnavailable() {
         let properties = PostHogAnalytics.hourlyActiveProperties(
             hourUTC: "2026-02-21T14",
             reason: "activeTimer",
             infoDictionary: [:]
         )
 
-        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
-        XCTAssertEqual(properties["reason"] as? String, "activeTimer")
-        XCTAssertNil(properties["app_version"])
-        XCTAssertNil(properties["app_build"])
+        #expect(properties["hour_utc"] as? String == "2026-02-21T14")
+        #expect(properties["reason"] as? String == "activeTimer")
+        #expect(properties["app_version"] == nil)
+        #expect(properties["app_build"] == nil)
     }
 
-    func testPropertiesOmitVersionFieldsWhenUnavailable() {
+    @Test
+    func propertiesOmitVersionFieldsWhenUnavailable() {
         let superProperties = PostHogAnalytics.superProperties(infoDictionary: [:])
-        XCTAssertEqual(superProperties["platform"] as? String, "cmuxterm")
-        XCTAssertNil(superProperties["app_version"])
-        XCTAssertNil(superProperties["app_build"])
+        #expect(superProperties["platform"] as? String == "cmuxterm")
+        #expect(superProperties["app_version"] == nil)
+        #expect(superProperties["app_build"] == nil)
 
         let dailyProperties = PostHogAnalytics.dailyActiveProperties(
             dayUTC: "2026-02-21",
             reason: "activeTimer",
             infoDictionary: [:]
         )
-        XCTAssertEqual(dailyProperties["day_utc"] as? String, "2026-02-21")
-        XCTAssertEqual(dailyProperties["reason"] as? String, "activeTimer")
-        XCTAssertNil(dailyProperties["app_version"])
-        XCTAssertNil(dailyProperties["app_build"])
+        #expect(dailyProperties["day_utc"] as? String == "2026-02-21")
+        #expect(dailyProperties["reason"] as? String == "activeTimer")
+        #expect(dailyProperties["app_version"] == nil)
+        #expect(dailyProperties["app_build"] == nil)
     }
 
-    func testFlushPolicyIncludesDailyAndHourlyActiveEvents() {
-        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
-        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
-        XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
+    @Test
+    func flushPolicyIncludesDailyAndHourlyActiveEvents() {
+        #expect(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
+        #expect(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
+        #expect(!PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
+    }
+
+    @Test
+    func flushReturnsWithoutWaitingForBusyWorkQueue() {
+        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.analytics")
+        let workQueueOccupied = DispatchSemaphore(value: 0)
+        let releaseWorkQueue = DispatchSemaphore(value: 0)
+        workQueue.async {
+            workQueueOccupied.signal()
+            releaseWorkQueue.wait()
+        }
+        #expect(workQueueOccupied.wait(timeout: .now() + .seconds(1)) == .success)
+
+        let flushCalled = DispatchSemaphore(value: 0)
+        let analytics = PostHogAnalytics(
+            workQueue: workQueue,
+            didStart: true,
+            flushPostHog: {
+                flushCalled.signal()
+            }
+        )
+
+        let flushReturned = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            analytics.flush()
+            flushReturned.signal()
+        }
+
+        #expect(flushReturned.wait(timeout: .now() + .milliseconds(200)) == .success)
+        #expect(flushCalled.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
+
+        releaseWorkQueue.signal()
+        #expect(flushCalled.wait(timeout: .now() + .seconds(1)) == .success)
     }
 }
 

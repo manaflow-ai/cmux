@@ -21,12 +21,19 @@ final class PostHogAnalytics {
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
+    private let flushPostHog: () -> Void
 
-    private var didStart = false
+    private var didStart: Bool
     private var activeCheckTimer: Timer?
 
-    private init() {
-        workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+    init(
+        workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
+        didStart: Bool = false,
+        flushPostHog: @escaping () -> Void = { PostHogSDK.shared.flush() }
+    ) {
+        self.workQueue = workQueue
+        self.didStart = didStart
+        self.flushPostHog = flushPostHog
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
@@ -56,7 +63,7 @@ final class PostHogAnalytics {
             let didCaptureHourly = self.trackHourlyActiveOnWorkQueue(reason: reason, flush: false)
             if didCaptureDaily || didCaptureHourly {
                 // On app focus we can capture both events; flush once to reduce extra work.
-                PostHogSDK.shared.flush()
+                self.flushPostHog()
             }
         }
     }
@@ -76,7 +83,7 @@ final class PostHogAnalytics {
     func flush() {
         dispatchSyncOnWorkQueue {
             guard didStart else { return }
-            PostHogSDK.shared.flush()
+            flushPostHog()
         }
     }
 
@@ -144,7 +151,7 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // For active metrics we care more about delivery than batching.
-            PostHogSDK.shared.flush()
+            flushPostHog()
         }
 
         return true
@@ -176,7 +183,7 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
-            PostHogSDK.shared.flush()
+            flushPostHog()
         }
 
         return true
