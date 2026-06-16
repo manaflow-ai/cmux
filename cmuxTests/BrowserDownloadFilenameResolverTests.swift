@@ -11,6 +11,33 @@ import UniformTypeIdentifiers
 @Suite struct BrowserDownloadFilenameResolverTests {
     private let resolver = BrowserDownloadFilenameResolver()
 
+    @Test func downloadPolicyForcesChromeDownloadTypes() {
+        #expect(resolver.shouldForceDownload(mimeType: "text/csv", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "text/csv; charset=utf-8", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/json", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/zip", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/x-zip-compressed", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/octet-stream", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/gzip", contentDisposition: nil))
+    }
+
+    @Test func downloadPolicyKeepsInlineRenderableTypesInline() {
+        #expect(!resolver.shouldForceDownload(mimeType: "text/html", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "image/png", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "application/pdf", contentDisposition: nil))
+    }
+
+    @Test func downloadPolicyHonorsAttachmentForAnyType() {
+        #expect(resolver.shouldForceDownload(
+            mimeType: "text/html",
+            contentDisposition: "attachment; filename=index.html"
+        ))
+        #expect(resolver.shouldForceDownload(
+            mimeType: "application/pdf",
+            contentDisposition: "ATTACHMENT; filename=report.pdf"
+        ))
+    }
+
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {
         let url = try #require(URL(string: "https://example.test/logo.jpg"))
         let response = try #require(HTTPURLResponse(

@@ -8,6 +8,16 @@ nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
 }
 
 nonisolated struct BrowserDownloadFilenameResolver: Sendable {
+    func shouldForceDownload(
+        mimeType: String?,
+        contentDisposition: String?
+    ) -> Bool {
+        guard let contentDisposition else {
+            return false
+        }
+        return contentDisposition.lowercased().hasPrefix("attachment")
+    }
+
     func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .allow
