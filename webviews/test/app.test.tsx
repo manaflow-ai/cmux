@@ -90,6 +90,35 @@ test("App surfaces check status from payload data", async () => {
   expect(checks?.textContent).toContain("1/2");
 });
 
+test("App treats skipped and neutral checks as terminal non-failing results", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          checks: [
+            { name: "lint", conclusion: "success" },
+            { name: "docs", conclusion: "skipped" },
+            { name: "review", conclusion: "neutral" },
+          ],
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const checks = dom.window.document.getElementById("checks-status");
+  expect(checks?.getAttribute("data-status")).toBe("pass");
+  expect(checks?.textContent).toContain("Checks passing");
+  expect(checks?.textContent).toContain("3/3");
+});
+
 test("context separator click passes through when the hunk is not already expanded", () => {
   dom = createDom();
   installDomGlobals(dom, () => {

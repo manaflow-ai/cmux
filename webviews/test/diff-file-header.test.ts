@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { JSDOM } from "jsdom";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { DiffFileHeader, diffFileLanguageLabel, diffFileLineTotals } from "../src/diff-file-header";
 import { createDiffViewerLabelResolver } from "../src/labels";
@@ -85,15 +84,17 @@ test("DiffFileHeader toggles collapse and opens a dedicated tab without also tog
   const previousWindow = (globalThis as any).window;
   const previousDocument = (globalThis as any).document;
   const previousHTMLElement = (globalThis as any).HTMLElement;
+  const previousActEnvironment = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   let toggleCount = 0;
   let openCount = 0;
   const root = createRoot(dom.window.document.getElementById("root")!);
 
   try {
-    flushSync(() => {
+    await act(async () => {
       root.render(createElement(DiffFileHeader, {
         collapsed: false,
         fileDiff: fileDiff({ name: "src/App.tsx" }),
@@ -111,18 +112,25 @@ test("DiffFileHeader toggles collapse and opens a dedicated tab without also tog
     expect(header?.getAttribute("role")).toBe("button");
     expect(header?.getAttribute("aria-expanded")).toBe("true");
 
-    header?.click();
+    await act(async () => {
+      header?.click();
+    });
     expect(toggleCount).toBe(1);
 
-    header?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    await act(async () => {
+      header?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    });
     expect(toggleCount).toBe(2);
 
-    dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open")?.click();
+    await act(async () => {
+      dom.window.document.querySelector<HTMLButtonElement>(".cmux-fileheader-open")?.click();
+    });
     expect(openCount).toBe(1);
     expect(toggleCount).toBe(2);
   } finally {
-    flushSync(() => root.unmount());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      root.unmount();
+    });
     dom.window.close();
     if (previousWindow === undefined) {
       delete (globalThis as any).window;
@@ -138,6 +146,11 @@ test("DiffFileHeader toggles collapse and opens a dedicated tab without also tog
       delete (globalThis as any).HTMLElement;
     } else {
       (globalThis as any).HTMLElement = previousHTMLElement;
+    }
+    if (previousActEnvironment === undefined) {
+      delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+    } else {
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
     }
   }
 });

@@ -1069,13 +1069,13 @@ function normalizeCheckRecordStatus(check: any): ChecksSummary["status"] {
 
 function normalizeCheckStatus(value: unknown): ChecksSummary["status"] | null {
   const status = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (["pass", "passed", "success", "successful"].includes(status)) {
+  if (["pass", "passed", "success", "successful", "neutral", "skipped"].includes(status)) {
     return "pass";
   }
   if (["fail", "failed", "failure", "error", "cancelled", "timed_out", "action_required"].includes(status)) {
     return "fail";
   }
-  if (["pending", "queued", "running", "in_progress", "waiting", "neutral", "skipped"].includes(status)) {
+  if (["pending", "queued", "running", "in_progress", "waiting"].includes(status)) {
     return "pending";
   }
   return null;
