@@ -23321,7 +23321,7 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    isRestorable: false,
+                    isRestorable: nil,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
@@ -26809,6 +26809,9 @@ struct CMUXCLI {
         launchCommand _: AgentHookLaunchCommandRecord? = nil,
         transcriptPath: String? = nil
     ) -> Bool {
+        if record?.isRestorable == false {
+            return false
+        }
         if record?.isRestorable == true {
             return true
         }
