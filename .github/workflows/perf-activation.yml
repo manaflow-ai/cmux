@@ -138,23 +138,6 @@ jobs:
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
 
-      - name: Dump startup breadcrumbs (diagnostics)
-        if: always()
-        run: |
-          set -uo pipefail
-          shopt -s nullglob
-          echo "===== startup breadcrumb logs ($HOME/Library/Logs/cmux) ====="
-          for f in "$HOME/Library/Logs/cmux/"startup-*.log; do
-            echo "----- $f -----"
-            cat "$f" || true
-            echo
-          done
-          echo "===== app stdout (/tmp/cmux-perf-*-stdout.log) ====="
-          for f in /tmp/cmux-perf-*-stdout.log; do
-            echo "----- $f -----"
-            tail -n 200 "$f" || true
-          done
-
       - name: Run Cmd-Tab activation benchmark
         run: |
           set -euo pipefail
