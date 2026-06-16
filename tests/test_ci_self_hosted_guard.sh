@@ -31,6 +31,26 @@ check_macos_runner() {
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
 }
 
+check_display_runner_identity_guard() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /REQUESTED_RUNNER:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_requested=1 }
+    in_job && /RUNNER_CONTEXT_NAME:[[:space:]]*\$\{\{ runner\.name \}\}/ { saw_runner_name=1 }
+    in_job && /case "\$REQUESTED_RUNNER" in/ { saw_requested_case=1 }
+    in_job && /depot-\*\)/ { saw_depot_case=1 }
+    in_job && /Display runner is not Depot; skipping Depot identity guard/ { saw_non_depot_skip=1 }
+    in_job && /resolved outside Depot/ { saw_error=1 }
+    END { exit !(saw_requested && saw_runner_name && saw_requested_case && saw_depot_case && saw_non_depot_skip && saw_error) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must validate actual Depot identity when MACOS_RUNNER_DISPLAY resolves to a depot-* runner"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") validates display runner identity"
+}
+
 check_e2e_runner_fallbacks() {
   if ! awk '
     /^run-name:/ {
@@ -364,6 +384,8 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
+check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
+check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
