@@ -120,6 +120,7 @@ public struct ChatScreen: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
                 Text(error)

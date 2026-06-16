@@ -74,9 +74,12 @@ public struct ChatTranscriptListView: View {
     public var body: some View {
         #if os(iOS)
         if usesViewportPlaceholder {
-            emptyPlaceholder
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .contentShape(Rectangle())
+            ZStack {
+                Color.clear
+                emptyPlaceholder
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
         } else {
             ChatTranscriptTableView(
                 rows: rows,
