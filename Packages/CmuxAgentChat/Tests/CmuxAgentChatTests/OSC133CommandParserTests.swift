@@ -12,7 +12,7 @@ struct OSC133CommandParserTests {
 
     @Test("a complete command/output/exit cycle yields one finished block")
     func happyPath() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + "user@host$ " + mark("B") + "echo hi" + mark("C") + "hi\n" + mark("D;0"))
         #expect(parser.blocks.count == 1)
         let block = parser.blocks[0]
@@ -25,7 +25,7 @@ struct OSC133CommandParserTests {
 
     @Test("a nonzero exit code marks the block failed")
     func failure() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "false" + mark("C") + mark("D;1"))
         #expect(parser.blocks[0].exitCode == 1)
         #expect(parser.blocks[0].failed)
@@ -33,7 +33,7 @@ struct OSC133CommandParserTests {
 
     @Test("a block with no D mark stays running until the next prompt closes it")
     func runningUntilNextPrompt() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "sleep 5" + mark("C") + "working")
         #expect(parser.blocks.count == 1)
         #expect(parser.blocks[0].isRunning)
@@ -46,7 +46,7 @@ struct OSC133CommandParserTests {
 
     @Test("two commands produce two blocks with distinct ids")
     func twoCommands() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "ls" + mark("C") + "a b\n" + mark("D;0"))
         parser.consume(mark("A") + mark("B") + "pwd" + mark("C") + "/tmp\n" + mark("D;0"))
         #expect(parser.blocks.count == 2)
@@ -57,7 +57,7 @@ struct OSC133CommandParserTests {
 
     @Test("an escape sequence split across chunks is parsed once completed")
     func splitEscape() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         let full = mark("A") + mark("B") + "id" + mark("C") + "uid=0\n" + mark("D;0")
         let mid = full.index(full.startIndex, offsetBy: 3)
         parser.consume(String(full[..<mid]))
@@ -70,7 +70,7 @@ struct OSC133CommandParserTests {
 
     @Test("streaming output updates the running block incrementally")
     func streaming() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "build" + mark("C"))
         parser.consume("step 1\n")
         #expect(parser.blocks[0].output == "step 1\n")
@@ -83,21 +83,21 @@ struct OSC133CommandParserTests {
 
     @Test("carriage-return progress redraws fold to the final per-line state")
     func carriageReturnFold() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "dl" + mark("C") + "10%\r50%\r100%\n" + mark("D;0"))
         #expect(parser.blocks[0].output == "100%\n")
     }
 
     @Test("entering the alt screen flags the running block interactive")
     func altScreen() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "vim" + mark("C") + "\u{1b}[?1049h")
         #expect(parser.blocks[0].isInteractive)
     }
 
     @Test("non-133 OSC and CSI sequences are stripped from output")
     func stripsOtherSequences() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         // OSC 0 (window title) + SGR color around the text.
         let noise = "\u{1b}]0;my title\u{07}" + "\u{1b}[31mred\u{1b}[0m"
         parser.consume(mark("A") + mark("B") + "x" + mark("C") + noise + "\n" + mark("D;0"))
@@ -106,28 +106,28 @@ struct OSC133CommandParserTests {
 
     @Test("CRLF line endings are preserved, not blanked")
     func crlfPreserved() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "x" + mark("C") + "line1\r\nline2\r\n" + mark("D;0"))
         #expect(parser.blocks[0].output == "line1\nline2\n")
     }
 
     @Test("a CR progress redraw still folds even with surrounding CRLF lines")
     func crlfAndProgressMix() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "x" + mark("C") + "start\r\n10%\r99%\r100%\r\ndone\r\n" + mark("D;0"))
         #expect(parser.blocks[0].output == "start\n100%\ndone\n")
     }
 
     @Test("alt screen batched with other private modes is still detected")
     func batchedAltScreen() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "tmux" + mark("C") + "\u{1b}[?1049;2004h")
         #expect(parser.blocks[0].isInteractive)
     }
 
     @Test("an unterminated OSC does not hang and the parser resyncs after it")
     func unterminatedOSCResyncs() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         // A title OSC with no terminator, far longer than the escape cap.
         let junk = "\u{1b}]0;" + String(repeating: "x", count: 9000)
         parser.consume(mark("A") + mark("B") + "echo" + mark("C") + junk)
@@ -140,7 +140,7 @@ struct OSC133CommandParserTests {
 
     @Test("large output is folded once and parses correctly")
     func largeOutput() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         let big = (1...2000).map { "line \($0)" }.joined(separator: "\n")
         parser.consume(mark("A") + mark("B") + "seq" + mark("C") + big + "\n" + mark("D;0"))
         #expect(parser.blocks[0].output == big + "\n")
@@ -149,7 +149,7 @@ struct OSC133CommandParserTests {
 
     @Test("a CRLF split across consume chunks is not blanked")
     func crlfSplitAcrossChunks() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + "x" + mark("C") + "ab\r")
         // mid-stream the open line looks cleared, but the bytes are retained
         parser.consume("\ncd\r\n" + mark("D;0"))
@@ -158,7 +158,7 @@ struct OSC133CommandParserTests {
 
     @Test("output fed one character at a time parses identically (incremental fold)")
     func byteAtATimeStreaming() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         let full = mark("A") + mark("B") + "run" + mark("C")
             + "start\r\n10%\r99%\r100%\r\ndone\r\n" + mark("D;0")
         for char in full {
@@ -172,7 +172,7 @@ struct OSC133CommandParserTests {
 
     @Test("a bare prompt with no command yields an empty command string")
     func bareCommand() {
-        let parser = OSC133CommandParser()
+        var parser = OSC133CommandParser()
         parser.consume(mark("A") + mark("B") + mark("C") + mark("D;0"))
         #expect(parser.blocks[0].command.isEmpty)
         #expect(parser.blocks[0].output.isEmpty)

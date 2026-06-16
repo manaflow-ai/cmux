@@ -2,20 +2,20 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34475	CLI/cmux.swift
-17699	Sources/AppDelegate.swift
-16056	Sources/ContentView.swift
+17694	Sources/AppDelegate.swift
+16055	Sources/ContentView.swift
 14829	Sources/TerminalController.swift
 13359	Sources/Panels/BrowserPanel.swift
-12661	Sources/Workspace.swift
-12137	Sources/GhosttyTerminalView.swift
+12622	Sources/Workspace.swift
+12134	Sources/GhosttyTerminalView.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7925	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
-6300	cmuxTests/GhosttyConfigTests.swift
-6156	Sources/TabManager.swift
+6217	cmuxTests/GhosttyConfigTests.swift
+6154	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
@@ -27,7 +27,7 @@
 4225	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
-3906	cmuxTests/WindowAndDragTests.swift
+3896	cmuxTests/WindowAndDragTests.swift
 3734	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
@@ -96,10 +96,9 @@
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-912	Sources/WorkspaceContentView.swift
 905	Sources/CmuxSSHURLRequest.swift
 901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
-878	Sources/Panels/TerminalPanel.swift
+879	Sources/Panels/TerminalPanel.swift
 877	Packages/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 859	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
@@ -109,6 +108,7 @@
 830	Sources/TaskManagerTypes.swift
 825	Packages/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
+802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift

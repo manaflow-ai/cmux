@@ -2650,8 +2650,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  tabId == tabManager.selectedTabId else { return }
+            guard GhosttyTitleChange(notification: notification)?.tabId == tabManager.selectedTabId else { return }
             scheduleTitlebarTextRefresh()
         })
 

@@ -5,12 +5,16 @@ extension CanvasRootView {
     public convenience init(
         model: CanvasModel,
         commandScrollHintText: String,
+        minimapAccessibilityLabel: String = "",
+        minimapAccessibilityHelp: String = "",
         callbacks: CanvasHostCallbacks,
         themeProvider: @escaping () -> CanvasTheme
     ) {
         self.init(
             model: model,
             commandScrollHintText: commandScrollHintText,
+            minimapAccessibilityLabel: minimapAccessibilityLabel,
+            minimapAccessibilityHelp: minimapAccessibilityHelp,
             callbacks: callbacks,
             themeProvider: themeProvider,
             minimapClock: ContinuousClock()
