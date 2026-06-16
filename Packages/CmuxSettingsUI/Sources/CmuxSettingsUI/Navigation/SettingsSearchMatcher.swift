@@ -133,15 +133,18 @@ struct SettingsSearchMatcher: Sendable {
     }
 
     private func isLightTypo(_ token: String, comparedTo word: String) -> Bool {
-        guard token.count >= 4, word.count >= 4 else { return false }
-        let allowedDistance = min(token.count, word.count) >= 6 ? 2 : 1
+        let tokenCount = token.count
+        let wordCount = word.count
+        guard tokenCount >= 4, wordCount >= 4 else { return false }
+        let allowedDistance = min(tokenCount, wordCount) >= 6 ? 2 : 1
+        guard abs(tokenCount - wordCount) <= allowedDistance else { return false }
         return editDistance(token, word, maximum: allowedDistance) <= allowedDistance
     }
 
     private func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
+        if abs(lhs.count - rhs.count) > maximum { return maximum + 1 }
         let left = Array(lhs)
         let right = Array(rhs)
-        if abs(left.count - right.count) > maximum { return maximum + 1 }
         var previous = Array(0...right.count)
         var current = Array(repeating: 0, count: right.count + 1)
         for leftIndex in 1...left.count {
