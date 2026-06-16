@@ -306,7 +306,7 @@ final class ComposerDictationController {
             Task { @MainActor in
                 guard let self else { return }
                 if let transcript {
-                    self.onText?(ComposerDictationTextMerge.merged(
+                    self.onText?(ComposerDictationTextMerge().merged(
                         base: self.baseText,
                         transcript: transcript
                     ))
