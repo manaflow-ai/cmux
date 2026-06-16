@@ -1262,7 +1262,12 @@ jobs:
     # simulator WITHOUT running tests or booting a simulator, so it is
     # deterministic (no virtual display, no sim boot) and safe to require.
     # It runs on every PR and on push to main; make it a required status check.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    # Use GitHub-hosted macos-26 (NOT the warp/self-hosted MACOS_RUNNER_26 label
+    # the macOS app jobs use): ensure-ghosttykit.sh calls sudo during
+    # provisioning, which has no passwordless/tty path on the self-hosted fleet.
+    # The proven iOS jobs (ios-simulator, mobile-core-package in test-ios.yml)
+    # run on hosted macos-26 for the same reason.
+    runs-on: macos-26
     timeout-minutes: 35
     steps:
       - name: Checkout
