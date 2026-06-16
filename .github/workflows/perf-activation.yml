@@ -25,13 +25,17 @@ on:
         required: false
         default: "12"
       heavy_scrollback_lines:
-        description: Lines per terminal in the selected heavy workspace
+        description: Max lines per terminal in the selected heavy workspace before target scaling
         required: false
         default: "2400"
       other_scrollback_lines:
-        description: Lines per terminal in other workspaces
+        description: Max lines per terminal in other workspaces before target scaling
         required: false
         default: "1400"
+      scrollback_target_chars:
+        description: Target real scrollback chars before the timed snapshot, 0 disables scaling
+        required: false
+        default: "1500000"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -134,6 +138,7 @@ jobs:
             --workspace-count "${{ inputs.workspace_count || '12' }}" \
             --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
             --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
+            --scrollback-target-chars "${{ inputs.scrollback_target_chars || '1500000' }}" \
             --synthetic-scrollback-fallback \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
@@ -182,6 +187,8 @@ jobs:
           if real_capture:
             print(f"- Real scrollback capture polling: {real_capture.get('attempts')} attempts over {real_capture.get('wait_ms')} ms at {real_capture.get('refresh_rate_hz')} Hz")
             print(f"- Added CI time from capture polling: {real_capture.get('retry_overhead_ms')} ms measured, {int(real_capture.get('timeout_s') or 0)} s worst case")
+          if fixture.get("scrollback_target_chars") is not None:
+            print(f"- Scrollback seed target: {fixture.get('scrollback_target_chars')} chars, estimated {fixture.get('scrollback_effective_estimated_chars')} chars after scaling from {fixture.get('scrollback_requested_estimated_chars')}")
           synthetic_seed = fixture.get("synthetic_scrollback_fallback")
           if synthetic_seed:
             print(f"- Synthetic scrollback fallback: {synthetic_seed.get('scrollback_chars')} chars across {synthetic_seed.get('terminals')} terminals ({fixture.get('synthetic_scrollback_fallback_reason')})")
