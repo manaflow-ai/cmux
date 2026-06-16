@@ -38,10 +38,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "startup-only-session"
+        let claudeConfigDir = context.root.appendingPathComponent("claude-config", isDirectory: true).path
+        let launchEnvironment = [
+            "CLAUDE_CONFIG_DIR": claudeConfigDir,
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+        ]
         let start = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
@@ -56,11 +63,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             record["transcriptPath"] as? String,
             "\(context.root.path)/projects/startup-only-session.jsonl"
         )
+        XCTAssertNil(
+            record["launchCommand"],
+            "Startup-only SessionStart must not persist env-only launch context before Claude creates a restorable conversation."
+        )
 
         let prompt = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"UserPromptSubmit"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(prompt.timedOut, prompt.stderr)
         XCTAssertEqual(prompt.status, 0, prompt.stderr)
@@ -71,6 +83,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             true,
             "UserPromptSubmit marks the session eligible for resume."
         )
+        let launchCommand = try XCTUnwrap(record["launchCommand"] as? [String: Any])
+        XCTAssertEqual((launchCommand["environment"] as? [String: String])?["CLAUDE_CONFIG_DIR"], claudeConfigDir)
     }
 
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
@@ -8652,6 +8666,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
             default:

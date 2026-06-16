@@ -23565,10 +23565,16 @@ struct CMUXCLI {
                 // A forked session's first hook is this prompt-submit — its
                 // SessionStart fired under the parent session id — so capture the
                 // pane's pid and launch command here the way session-start does for
-                // normal launches. Only on first sighting, so an established
-                // record's richer capture is never overwritten.
+                // normal launches. Startup-only records also reach this point before
+                // they have durable launch context; the prompt is the positive
+                // restorability signal that lets us persist env-only Claude config.
                 // https://github.com/manaflow-ai/cmux/issues/5908
-                let firstSightingLaunchCapture = mappedSession == nil
+                let existingLaunchCommand = mappedSession?.launchCommand
+                let existingLaunchCommandHasAnyCapture = existingLaunchCommand.map {
+                    !$0.arguments.isEmpty || !($0.environment?.isEmpty ?? true)
+                } ?? false
+                let shouldCapturePromptLaunchCommand = mappedSession == nil || !existingLaunchCommandHasAnyCapture
+                let promptLaunchCapture = shouldCapturePromptLaunchCommand
                     ? agentLaunchCommandCaptureFromEnvironment(
                         ProcessInfo.processInfo.environment,
                         fallbackPID: claudePid,
@@ -23576,7 +23582,8 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                let firstSightingLaunchCommand = firstSightingLaunchCapture?.command
+                let promptLaunchCommand = promptLaunchCapture?.command
+                let durableLaunchCommand = existingLaunchCommand ?? promptLaunchCommand
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -23584,7 +23591,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     pid: mappedSession == nil ? claudePid : nil,
-                    launchCommand: firstSightingLaunchCommand,
+                    launchCommand: promptLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
                     markActive: true,
@@ -23598,12 +23605,13 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
-                    allowDefaultResumeCommand: !(firstSightingLaunchCapture?.sanitizerRejected ?? false)
+                    launchCommand: durableLaunchCommand,
+                    allowDefaultResumeCommand: !(promptLaunchCapture?.sanitizerRejected ?? false)
                         && hasPositiveAgentResumeRestorabilitySignal(
                             mappedSession,
-                            launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
-                            transcriptPath: parsedInput.transcriptPath
+                            launchCommand: durableLaunchCommand,
+                            transcriptPath: parsedInput.transcriptPath,
+                            eventIsRestorable: true
                         )
                 )
             }
@@ -26812,8 +26820,12 @@ struct CMUXCLI {
         _ record: ClaudeHookSessionRecord?,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         transcriptPath: String? = nil,
-        allowTranscriptPathSignal: Bool = true
+        allowTranscriptPathSignal: Bool = true,
+        eventIsRestorable: Bool = false
     ) -> Bool {
+        if eventIsRestorable {
+            return true
+        }
         if record?.isRestorable == false {
             return false
         }
