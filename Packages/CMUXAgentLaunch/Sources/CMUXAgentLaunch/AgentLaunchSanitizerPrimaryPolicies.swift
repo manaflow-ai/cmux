@@ -36,13 +36,13 @@ extension AgentLaunchSanitizer {
             "--settings",
             "--system-prompt",
             "--teammate-mode",
-            "--tmux",
             "--tools",
             "--worktree",
             "-w"
         ],
         optionalValueOptions: [
-            "--debug"
+            "--debug",
+            "--tmux"
         ],
         variadicOptions: [
             "--add-dir",
@@ -81,7 +81,6 @@ extension AgentLaunchSanitizer {
             "--resume",
             "-r",
             "--session-id",
-            "--tmux",
             "--worktree",
             "-w"
         ],
@@ -91,7 +90,6 @@ extension AgentLaunchSanitizer {
             "--from-pr=",
             "--resume=",
             "--session-id=",
-            "--tmux=",
             "--worktree="
         ],
         rejectOptions: [
