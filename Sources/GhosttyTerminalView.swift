@@ -4999,10 +4999,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func keyboardCopyModeScreenRow(
         forViewportRow viewportRow: Int,
-        metrics: TerminalKeyboardCopyModeGridMetrics
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        scrollOffset overrideScrollOffset: UInt64? = nil
     ) -> UInt64 {
         let rowOffset = UInt64(max(0, min(viewportRow, metrics.rows - 1)))
-        let scrollOffset = scrollbar?.offset ?? 0
+        let scrollOffset = overrideScrollOffset ?? scrollbar?.offset ?? 0
         let unclampedRow = scrollOffset > UInt64.max - rowOffset
             ? UInt64.max
             : scrollOffset + rowOffset
@@ -5021,17 +5022,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return scrollOffset ... upperRow
     }
 
+    private func keyboardCopyModePendingVisualLineScrollOffset() -> UInt64? {
+        guard keyboardCopyModePendingViewportJumpSync,
+              keyboardCopyModePendingViewportJumpVisualLineReselect,
+              let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta else { return nil }
+        let baseOffset = scrollbar?.offset ?? 0
+        let deltaMagnitude = UInt64(clamping: lineDelta.magnitude)
+        if lineDelta > 0 {
+            let unclampedOffset = baseOffset > UInt64.max - deltaMagnitude
+                ? UInt64.max
+                : baseOffset + deltaMagnitude
+            guard let total = scrollbar?.total, total > 0 else { return unclampedOffset }
+            return min(unclampedOffset, total - 1)
+        }
+        return baseOffset > deltaMagnitude ? baseOffset - deltaMagnitude : 0
+    }
+
+    private func keyboardCopyModeBoundaryFallbackLineDelta(
+        _ direction: TerminalKeyboardCopyModeSelectionMove
+    ) -> Int? {
+        guard let scrollbar else { return nil }
+        let currentOffset = scrollbar.offset
+        let targetOffset: UInt64
+        switch direction {
+        case .home:
+            targetOffset = 0
+        case .end:
+            targetOffset = scrollbar.total > scrollbar.len ? scrollbar.total - scrollbar.len : 0
+        default:
+            return nil
+        }
+
+        if targetOffset >= currentOffset {
+            return Int(clamping: targetOffset - currentOffset)
+        }
+        return -Int(clamping: currentOffset - targetOffset)
+    }
+
     // Visual-line mode keeps the full copy range in absolute screen rows; the
     // live Ghostty selection is refreshed only for the visible intersection.
     private func keyboardCopyModeVisualLineScreenRows(
-        surface: ghostty_surface_t
+        surface: ghostty_surface_t,
+        usePendingScrollFallback: Bool = false
     ) -> ClosedRange<UInt64>? {
         guard keyboardCopyModeVisualLineActive,
               let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return nil }
         let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
             .clamped(rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
-        let cursorScreenRow = keyboardCopyModeScreenRow(forViewportRow: cursor.row, metrics: metrics)
+        let pendingScrollOffset = usePendingScrollFallback ? keyboardCopyModePendingVisualLineScrollOffset() : nil
+        let cursorScreenRow = keyboardCopyModeScreenRow(
+            forViewportRow: cursor.row,
+            metrics: metrics,
+            scrollOffset: pendingScrollOffset
+        )
         let anchorScreenRow = keyboardCopyModeVisualLineAnchorScreenRow ?? cursorScreenRow
         return min(anchorScreenRow, cursorScreenRow) ... max(anchorScreenRow, cursorScreenRow)
     }
@@ -5055,7 +5099,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func readKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) -> String? {
-        guard let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface),
+        _ = flushPendingScrollbarIfAvailable()
+        guard let selectedRows = keyboardCopyModeVisualLineScreenRows(
+            surface: surface,
+            usePendingScrollFallback: true
+        ),
               let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return nil }
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
@@ -5112,6 +5160,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
         }
         return copied || !selectedText.isEmpty
+    }
+
+    private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
+        keyboardCopyModeVisualLineActive || ghostty_surface_has_selection(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -5194,7 +5246,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         keyboardCopyModeCursor = cursor
 
-        beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: true)
+        beginKeyboardCopyModeViewportJumpCursorSync(
+            fallbackLineDelta: keyboardCopyModeBoundaryFallbackLineDelta(direction),
+            visualLineReselect: true
+        )
         let action = direction == .home ? "scroll_to_top" : "scroll_to_bottom"
         guard performBindingAction(action) else {
             expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
@@ -5223,7 +5278,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeCursor = cursor
         if scrollDelta != 0 {
             _ = flushPendingScrollbarIfAvailable()
-            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: true)
+            beginKeyboardCopyModeViewportJumpCursorSync(
+                fallbackLineDelta: scrollDelta,
+                visualLineReselect: true
+            )
             guard performBindingAction("scroll_page_lines:\(scrollDelta)") else {
                 expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
                     generation: keyboardCopyModePendingViewportJumpGeneration
@@ -5369,7 +5427,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
-        _ = performBindingAction("copy_to_clipboard")
+        guard let surface else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -5434,7 +5496,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch item.action {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
-            return ghostty_surface_has_selection(surface)
+            return hasCopyableTerminalSelection(surface: surface)
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -7449,7 +7511,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
+        if hasCopyableTerminalSelection(surface: surface) {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
