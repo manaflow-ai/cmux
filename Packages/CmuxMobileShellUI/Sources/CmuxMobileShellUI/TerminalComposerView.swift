@@ -114,7 +114,7 @@ struct TerminalComposerView: View {
     /// clipboard paste path and keep the bounded encode under ~8 MB. The store
     /// re-enforces this as the authoritative per-image cap; this constant only
     /// bounds the encode loop below it.
-    private static let maxImageBytes = CMUXMobileShellStore.maxPendingAttachmentImageBytes
+    private nonisolated static let maxImageBytes = CMUXMobileShellStore.maxPendingAttachmentImageBytes
 
     /// Cap how many images one message may carry, mirrored from the store so the
     /// picker's `maxSelectionCount` matches the store's authoritative count cap.
@@ -137,14 +137,14 @@ struct TerminalComposerView: View {
 
     /// Max pixel dimension of the cached chip thumbnail. The chip renders at 56pt;
     /// 3x covers Retina without holding the full-resolution image.
-    private static let thumbnailMaxPixelSize = 168
+    private nonisolated static let thumbnailMaxPixelSize = 168
 
     /// Max pixel dimension of the SEND payload. ImageIO downsamples the picked
     /// item to fit this longest edge before re-encoding, so a panorama or a
     /// 48-megapixel HEIC never materializes as a full-resolution raster. 2048 px
     /// keeps screenshot text legible for an agent while bounding the bytes well
     /// under the per-image cap.
-    private static let sendMaxPixelSize = 2048
+    private nonisolated static let sendMaxPixelSize = 2048
 
     var body: some View {
         composerSurface
