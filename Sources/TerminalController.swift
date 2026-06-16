@@ -1099,7 +1099,9 @@ class TerminalController {
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
         case "surface.read_text":
-            return socketWorkerSurfaceReadTextResponse(request.controlRequest)
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 6) {
+                await self.socketWorkerSurfaceReadTextResult(request.controlRequest)
+            }
         case "remote.tmux.sessions":
             return v2RemoteTmuxSessions(id: request.id, params: request.params)
         case "remote.tmux.attach":
