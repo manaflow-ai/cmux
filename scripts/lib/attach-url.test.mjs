@@ -21,6 +21,13 @@ function samplePayload() {
   };
 }
 
+function samplePayloadWithCanonicalURL() {
+  return {
+    ...samplePayload(),
+    attach_url: "cmux-ios://attach?v=2&r=100.1.2.3:8080",
+  };
+}
+
 function decodePayload(url) {
   const params = new URL(url).searchParams;
   const b64 = params.get("payload");
@@ -72,6 +79,22 @@ test("defaults version to 1 when the ticket omits it", () => {
   delete payload.ticket.version;
   const { attachURL } = buildAttachURL(payload);
   assert.match(attachURL, /\?v=1&/);
+});
+
+test("prefers the canonical attach_url returned by the Mac RPC", () => {
+  const { attachURL, routes, payload } = buildAttachURL(samplePayloadWithCanonicalURL());
+  assert.equal(attachURL, "cmux-ios://attach?v=2&r=100.1.2.3:8080");
+  assert.equal(payload.attach_url, attachURL);
+  assert.equal(routes.length, 2);
+});
+
+test("does not reuse canonical attach_url after local route filtering", () => {
+  const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
+  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
+  assert.equal(routes.length, 1);
+  const decoded = decodePayload(attachURL);
+  assert.equal(decoded.routes.length, 1);
+  assert.equal(decoded.routes[0].kind, "tailscale");
 });
 
 test("filterRoutes returns all routes when no filter is given", () => {

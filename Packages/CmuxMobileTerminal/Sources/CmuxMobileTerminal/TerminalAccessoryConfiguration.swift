@@ -5,12 +5,12 @@ import Observation
 /// User-editable configuration of the terminal input-accessory bar: which
 /// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s.
 ///
-/// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘), the zoom
+/// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘ ⇧), the zoom
 /// controls, paste, the shipped insertable shortcuts (Esc, Tab, arrows, the agent
 /// launchers, …), and any custom actions, all ordered and toggled together and
-/// keyed by ``ToolbarItemID``. (The ⇧ key and the trailing "customize" control
-/// are the only structural exceptions; ⇧ is never surfaced as a bar button and
-/// the customize control is a fixed affordance, not an action.)
+/// keyed by ``ToolbarItemID``. (The composer toggle and the trailing "customize"
+/// control are the only structural exceptions; the composer is pinned outside the
+/// scroll view and the customize control is a fixed affordance, not an action.)
 ///
 /// This is the single source of truth for that region. It persists to
 /// `UserDefaults`, is `@Observable` for the SwiftUI editor, and posts
@@ -89,9 +89,20 @@ public final class TerminalAccessoryConfiguration {
         let savedOrder: [ToolbarItemID]
         let savedEnabled: [ToolbarItemID]?
         if let v3Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
-            savedOrder = v3Order.compactMap(ToolbarItemID.init(storageKey:))
-            savedEnabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
+            let order = v3Order.compactMap(ToolbarItemID.init(storageKey:))
+            let enabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
+            // ⇧ and Return each became user-configurable after the v3 schema
+            // shipped, so a layout persisted under the v3 keys has no record of
+            // them and a naive load would leave them hidden. Fold each in next to
+            // its neighbours and show it — once per id, keyed off that id's
+            // absence from the saved order — so an existing install surfaces them
+            // like a fresh one. Once an id is persisted into the order it is
+            // present on every later launch, so the fold becomes a no-op and a
+            // user who then hides it keeps it hidden.
+            let folded = Self.foldNewlyConfigurableV3(order: order, enabled: enabled, migration: migration)
+            savedOrder = folded.order
+            savedEnabled = folded.enabled
         } else if let v2Order = defaults.array(forKey: Self.legacyV2OrderDefaultsKey) as? [String] {
             let widened = migration.widenedToV3(
                 order: v2Order.compactMap(ToolbarItemID.init(storageKey:)),
@@ -100,8 +111,11 @@ public final class TerminalAccessoryConfiguration {
                 forcedLeading: Self.forcedLeadingRawValues,
                 forcedTrailing: Self.forcedTrailingRawValues
             )
-            savedOrder = widened.order
-            savedEnabled = widened.enabled
+            // The widening force-enables the pinned modifiers/zoom but never the
+            // post-v3 shortcuts; a v2 config predates Return, so fold it in too.
+            let folded = Self.foldNewlyConfigurableV3(order: widened.order, enabled: widened.enabled, migration: migration)
+            savedOrder = folded.order
+            savedEnabled = folded.enabled
         } else if let v1Order = defaults.array(forKey: Self.legacyV1OrderDefaultsKey) as? [Int] {
             let widened = migration.widenedToV3(
                 order: migration.migratedOrder(legacy: v1Order),
@@ -111,8 +125,11 @@ public final class TerminalAccessoryConfiguration {
                 forcedLeading: Self.forcedLeadingRawValues,
                 forcedTrailing: Self.forcedTrailingRawValues
             )
-            savedOrder = widened.order
-            savedEnabled = widened.enabled
+            // Same as the v2 path: fold in the post-v3 shortcuts the widening
+            // doesn't cover (Return), force-shown, exactly once.
+            let folded = Self.foldNewlyConfigurableV3(order: widened.order, enabled: widened.enabled, migration: migration)
+            savedOrder = folded.order
+            savedEnabled = folded.enabled
         } else {
             savedOrder = []
             savedEnabled = nil
@@ -124,6 +141,51 @@ public final class TerminalAccessoryConfiguration {
         // Persist the normalized (and possibly migrated) layout under the v3 keys
         // so the migration path runs at most once.
         persist()
+    }
+
+    /// Folds the built-ins that became user-configurable *after* the v3 schema
+    /// shipped (⇧, then Return) into a persisted v3 layout, each adjacent to its
+    /// canonical neighbours and force-shown, exactly once per id. Returns the
+    /// possibly-folded order and enabled set; `enabled` is passed through
+    /// unchanged (including `nil`) when no fold applies, so a config already
+    /// carrying both keeps its authoritative shown/hidden choices.
+    private static func foldNewlyConfigurableV3(
+        order: [ToolbarItemID],
+        enabled: [ToolbarItemID]?,
+        migration: ToolbarLayoutMigration
+    ) -> (order: [ToolbarItemID], enabled: [ToolbarItemID]?) {
+        var resolvedOrder = order
+        var resolvedEnabled = enabled
+        // Each entry is the newly-configurable id plus the predecessors to insert
+        // it after (first present wins; front if none present), mirroring
+        // `defaultConfigurableOrder`: ⇧ trails the other modifiers, Return trails
+        // Esc (then Tab, then the modifiers).
+        let folds: [(id: ToolbarItemID, anchors: [ToolbarItemID])] = [
+            (TerminalInputAccessoryAction.shift.itemID, [
+                TerminalInputAccessoryAction.command.itemID,
+                TerminalInputAccessoryAction.alternate.itemID,
+                TerminalInputAccessoryAction.control.itemID,
+            ]),
+            (TerminalInputAccessoryAction.returnKey.itemID, [
+                TerminalInputAccessoryAction.escape.itemID,
+                TerminalInputAccessoryAction.tab.itemID,
+                TerminalInputAccessoryAction.command.itemID,
+                TerminalInputAccessoryAction.alternate.itemID,
+                TerminalInputAccessoryAction.control.itemID,
+            ]),
+        ]
+        for fold in folds {
+            if let widened = migration.foldingNewlyConfigurable(
+                fold.id,
+                after: fold.anchors,
+                order: resolvedOrder,
+                enabled: resolvedEnabled ?? resolvedOrder
+            ) {
+                resolvedOrder = widened.order
+                resolvedEnabled = widened.enabled
+            }
+        }
+        return (resolvedOrder, resolvedEnabled)
     }
 
     /// `rawValue`s of the built-ins that v1/v2 pinned at the front of the bar,

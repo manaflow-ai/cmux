@@ -448,6 +448,11 @@ jobs:
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
+          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
+          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
+          # to keep the FFI parity suite a real gate).
+          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
           # not execute the SPM package test targets. Run them here so package
           # tests (settings stores, secret-file migration, socket-control
@@ -467,6 +472,7 @@ jobs:
             CmuxRemoteWorkspace
             CmuxRemoteSession
             CmuxAuthRuntime
+            CmuxCommandPalette
             CmuxControlSocket
             CmuxFileWatch
             CmuxFoundation
@@ -475,6 +481,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminal
             CmuxTerminalCore
             CmuxTerminalEngine
             CmuxTerminalServices
@@ -494,7 +501,7 @@ jobs:
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
             case "$pkg" in
-            CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
+            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
               status=0
               output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
               printf '%s\n' "$output"

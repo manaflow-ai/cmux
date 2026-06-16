@@ -136,6 +136,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// A warning that must be accepted before pairing continues, currently used
+    /// for Mac/iPhone app-version skew.
+    public private(set) var pairingVersionWarning: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -191,7 +194,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview] {
-        didSet { workspaceTopologyVersion &+= 1 }
+        didSet {
+            workspaceTopologyVersion &+= 1
+            prunePendingAttachmentsForMissingTerminals()
+        }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
@@ -307,6 +313,60 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (the field is cleared only on ack), pasting the message to the agent
     /// twice. Not observed: it gates an async flow, not view state.
     @ObservationIgnored private var isSubmittingComposerInput = false
+    /// Guards the WHOLE composer submit (``submitComposer()``: images + text)
+    /// against re-entrancy. The Send button stays enabled while the first image
+    /// RPC awaits (attachments are cleared only on ack), so a second tap would
+    /// otherwise start another submit capturing the same still-staged
+    /// attachments and re-upload them. Distinct from
+    /// ``isSubmittingComposerInput`` (which guards only the inner text paste):
+    /// this spans the entire image-then-text run. Not observed: it gates an
+    /// async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposer = false
+    /// Pending image attachments per terminal, keyed by terminal id so switching
+    /// terminals keeps each draft's own attachments (mirroring how the text draft
+    /// is keyed). Observed so the composer's chip row re-renders on add/remove.
+    /// Sent in order on the next submit and then cleared for that terminal.
+    private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+
+    /// Max number of staged attachments per terminal. Enforced in
+    /// ``addPendingAttachment(_:format:forTerminalID:)`` against the CURRENT
+    /// staged set at mutation time so the check+insert is atomic on the main
+    /// actor: two concurrent picker batches that each snapshot the same starting
+    /// budget cannot both append past the cap, because the second add re-reads
+    /// the (already-grown) staged set. The view may pre-filter for
+    /// responsiveness, but the store is the authoritative cap.
+    public nonisolated static let maxPendingAttachmentCount = 10
+    /// Total encoded-bytes budget across one terminal's staged attachments.
+    /// Enforced in the same atomic add path as the count cap so a run of large
+    /// photos (or two racing batches) cannot balloon observable state past the
+    /// budget regardless of the count.
+    public nonisolated static let maxPendingAttachmentTotalBytes = 32 * 1024 * 1024
+    /// Per-image encoded-bytes cap. An add whose single image exceeds this is
+    /// rejected outright (the view bounds the encode below this, but the store
+    /// re-enforces it as the single source of truth).
+    public nonisolated static let maxPendingAttachmentImageBytes = 8 * 1024 * 1024
+    /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
+    /// just the target's. The per-terminal cap bounds one draft, but each live
+    /// terminal carries its own per-terminal budget, so staging photos across many
+    /// terminals/workspaces without sending grows linearly with terminal count and
+    /// can OOM. This global cap is enforced in the same atomic add path (on
+    /// @MainActor, summing across all keys at insert time is consistent) as a hard
+    /// reject: an add that would push the all-terminals total past this is dropped,
+    /// in addition to the per-terminal checks. 64 MB tolerates a couple of full
+    /// per-terminal drafts while still bounding the process.
+    public nonisolated static let maxPendingAttachmentTotalBytesAllTerminals = 64 * 1024 * 1024
+    /// GLOBAL count budget summed across EVERY terminal's staged set. Bounds the
+    /// total number of staged images process-wide regardless of how they are spread
+    /// across terminals, enforced as a hard reject in the same atomic add path.
+    public nonisolated static let maxPendingAttachmentCountAllTerminals = 20
+    /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
+    /// session. The composer's photo-staging path captures it before its
+    /// (off-main) load + encode and re-checks it just before mutating the store:
+    /// a sign-out that lands while a photo is in flight bumps the token, so the
+    /// stale continuation is dropped instead of re-staging the previous user's
+    /// photo bytes under a terminal id the next account may reuse. Not observed:
+    /// it gates an async hand-back, not view state.
+    @ObservationIgnored private var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -417,14 +477,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
     let deliveredNotificationClearer: any DeliveredNotificationClearing
-    /// Durable outbox for phone→Mac dismissals (see
-    /// ``PendingNotificationDismissQueue``): ids are enqueued before the RPC is
-    /// attempted, removed only on confirmed delivery, and re-flushed on every
-    /// successful (re)subscribe.
+    /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
-    // Internal (not private): used by the dismiss-sync and dogfood-feedback
-    // extension files.
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -456,6 +511,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reading it again would report the first successful pair as `is_first_pair:
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
+    private var pendingPairingVersionWarningURL: String?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -466,8 +522,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
-    // Internal (not private): used by the dismiss-sync and dogfood-feedback
-    // extension files.
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -477,6 +531,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
+    var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -530,6 +586,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
+    private var connectionAttemptGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -643,6 +700,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
+        self.pairingVersionWarning = nil
         self.activeTicket = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
@@ -658,6 +716,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
+        self.connectionAttemptGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
@@ -728,11 +787,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
+        clearPairingVersionWarning()
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a
@@ -749,6 +810,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
         pendingDraftSaveTextByTerminalID = [:]
+        // Drop every account's staged photo bytes for the same reason as the
+        // text drafts above: the pending attachments are this user's unsent
+        // content, and a reused terminal id under the next account must never
+        // surface the previous user's selected photos.
+        pendingAttachmentsByTerminalID = [:]
+        // Bump the session token so a photo load+encode already in flight (started
+        // under this account) is dropped at its store-mutation re-check instead of
+        // re-staging this user's bytes after the wipe above.
+        signInGeneration &+= 1
         // Per-terminal composer dismissals are this user's session UI state; the
         // next account starts with the default-open composer everywhere. Clear
         // the focus mirror BEFORE the selection resets below so the terminal
@@ -2017,6 +2087,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                terminalID: ticket.terminalID,
                macDeviceID: reportedID,
                macDisplayName: ticket.macDisplayName,
+               macUserEmail: ticket.macUserEmail,
+               macUserID: ticket.macUserID,
+               macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+               macAppVersion: ticket.macAppVersion,
+               macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
                expiresAt: ticket.expiresAt,
                authToken: ticket.authToken
@@ -2109,8 +2184,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     @discardableResult
     public func connectPairingURLResult(_ rawValue: String? = nil) async -> MobilePairingURLConnectionResult {
+        await connectPairingURLResult(rawValue, acceptedVersionWarning: false)
+    }
+
+    @discardableResult
+    private func connectPairingURLResult(
+        _ rawValue: String? = nil,
+        acceptedVersionWarning: Bool
+    ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
-        let attemptID = beginPairingAttempt(method: "qr")
+        _ = beginPairingValidationAttempt()
+        connectionAttemptGeneration = UUID()
+        if connectionState != .connected {
+            clearActiveConnectionContext()
+            macConnectionStatus = .unavailable
+            replaceRemoteClient(with: nil)
+        }
+        clearPairingError()
+        clearPairingVersionWarning()
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
@@ -2129,21 +2220,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
         } catch {
-            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
                 // A scanned/pasted code that only points back at the Mac
                 // itself (127.0.0.1) would make the phone dial itself. Name
                 // the actual fix (Tailscale on the Mac) instead of the
                 // generic invalid-code copy.
-                applyPairingFailure(.loopbackRejected, phase: "validation")
+                applyPairingValidationFailure(.loopbackRejected)
             } else {
-                applyPairingFailure(.invalidCode, phase: "validation")
+                applyPairingValidationFailure(.invalidCode)
             }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
             return .failed
         }
+
+        if let emailFailure = Self.emailFailure(
+            for: ticket,
+            actualUserID: identityProvider?.currentUserID,
+            actualEmail: identityProvider?.currentUserEmail
+        ) {
+            applyPairingValidationFailure(emailFailure)
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
+            return .failed
+        }
+
+        if !acceptedVersionWarning,
+           let warning = versionWarning(for: ticket) {
+            pendingPairingVersionWarningURL = rawURL
+            pairingVersionWarning = warning
+            return .needsUserApproval
+        }
+
+        let attemptID = beginPairingAttempt(method: "qr")
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
@@ -2198,9 +2313,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func cancelPairing() {
         invalidatePairingAttempt()
         clearPairingError()
+        if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil {
+            clearPairingVersionWarning()
+            return
+        }
+        clearPairingVersionWarning()
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+    }
+
+    /// Accepts the pending version mismatch warning and retries the stored pairing URL.
+    ///
+    /// Returns the retry result so the UI can clear temporary attach-ticket
+    /// authentication only after the accepted pairing flow reaches a terminal
+    /// state.
+    @discardableResult
+    public func acceptPairingVersionWarning() async -> MobilePairingURLConnectionResult {
+        guard let rawURL = pendingPairingVersionWarningURL else {
+            clearPairingVersionWarning()
+            return .failed
+        }
+        clearPairingVersionWarning()
+        return await connectPairingURLResult(rawURL, acceptedVersionWarning: true)
     }
 
     /// Tear down the live connection and reset connection UI state, without
@@ -2625,6 +2760,168 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
+    /// The pending image attachments for a terminal, in pick order. Empty when
+    /// none are staged. Drives the composer's chip row.
+    /// - Parameter terminalID: The terminal whose attachments to read; `nil`
+    ///   falls back to the selected terminal.
+    public func pendingAttachments(forTerminalID terminalID: String? = nil) -> [MobilePendingAttachment] {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue else { return [] }
+        return pendingAttachmentsByTerminalID[key] ?? []
+    }
+
+    /// Stage a picked image as a pending attachment for a terminal, appended in
+    /// pick order so it sends after earlier picks. A no-op when the bytes are
+    /// empty.
+    /// - Parameters:
+    ///   - data: The encoded image bytes (PNG/JPEG), already under the size cap.
+    ///   - format: A lowercase format hint (`"png"`/`"jpg"`).
+    ///   - terminalID: The terminal to stage under; `nil` falls back to the
+    ///     selected terminal.
+    /// - Returns: The new attachment's stable id, so the caller can key a side
+    ///   cache (e.g. a downsampled thumbnail) to it; `nil` when nothing was
+    ///   staged (empty bytes, no target terminal, an over-cap single image, an
+    ///   add that would exceed the per-terminal count or total-byte budget, or one
+    ///   that would exceed the GLOBAL all-terminals count or byte budget).
+    ///
+    /// The count and total-byte caps are enforced HERE against the current staged
+    /// set, not against a caller-side pre-await snapshot, so the check+insert is
+    /// atomic on the main actor: if the user opens the picker again while a prior
+    /// batch is still encoding, both batches funnel through this one mutation
+    /// path and the second add re-reads the (already-grown) set, so the combined
+    /// total can never exceed the cap. The store is the single source of truth.
+    @discardableResult
+    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
+        guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+        // Reject any add for a terminal that is not in the current topology, so a
+        // closed/recreated/stale id can never accrue orphaned bytes the user can no
+        // longer see or send. This is the single validated path: both the base
+        // call and the session-guarded variant funnel through here.
+        guard terminalExistsInTopology(key) else { return nil }
+        // A single image larger than the per-image cap is rejected outright.
+        guard data.count <= Self.maxPendingAttachmentImageBytes else { return nil }
+        let existing = pendingAttachmentsByTerminalID[key] ?? []
+        // Count cap, computed against the CURRENT staged set (atomic on @MainActor).
+        guard existing.count < Self.maxPendingAttachmentCount else { return nil }
+        // Total-byte budget, likewise against the current set.
+        let currentBytes = existing.reduce(0) { $0 + $1.data.count }
+        guard currentBytes + data.count <= Self.maxPendingAttachmentTotalBytes else { return nil }
+        // GLOBAL caps, summed across ALL terminals' staged sets (not just the
+        // target's). The per-terminal checks above bound one draft, but each live
+        // terminal keeps its own per-terminal budget, so without a global cap
+        // staging across many terminals/workspaces grows unbounded with terminal
+        // count and can OOM. Summing all keys at insert time is consistent because
+        // this whole add path runs on @MainActor: no other mutation interleaves.
+        // A hard reject (no eviction) keeps the invariant simple and testable.
+        var globalCount = 0
+        var globalBytes = 0
+        for list in pendingAttachmentsByTerminalID.values {
+            globalCount += list.count
+            for item in list { globalBytes += item.data.count }
+        }
+        guard globalCount < Self.maxPendingAttachmentCountAllTerminals else { return nil }
+        guard globalBytes + data.count <= Self.maxPendingAttachmentTotalBytesAllTerminals else { return nil }
+        let attachment = MobilePendingAttachment(data: data, format: format)
+        pendingAttachmentsByTerminalID[key, default: []].append(attachment)
+        return attachment.id
+    }
+
+    /// A token identifying the current signed-in session. Capture it before an
+    /// async photo load/encode and pass it back to
+    /// ``addPendingAttachment(_:format:forTerminalID:ifSessionGeneration:)`` so a
+    /// sign-out that lands mid-flight (which bumps the token) drops the stale
+    /// result instead of staging the previous user's bytes under a terminal id the
+    /// next account may reuse.
+    public var currentSessionGeneration: Int { signInGeneration }
+
+    /// Stage a picked image only if the captured session token still matches the
+    /// current one, AND (when an explicit terminal id is given) that terminal
+    /// still exists. Used by the composer's photo picker, whose load+encode runs
+    /// off-main: a sign-out (or the target terminal going away) while that work is
+    /// in flight must not re-stage the result. The token recheck lives in this
+    /// store-mutation path so it is robust even if the picker view is already
+    /// gone.
+    /// - Parameter capturedGeneration: The value of
+    ///   ``currentSessionGeneration`` read before the async work began.
+    /// - Returns: The new attachment's id, or `nil` when nothing was staged
+    ///   (empty bytes, no target terminal, a superseded session, or a terminal
+    ///   that no longer exists).
+    @discardableResult
+    public func addPendingAttachment(
+        _ data: Data,
+        format: String,
+        forTerminalID terminalID: String? = nil,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> MobilePendingAttachment.ID? {
+        // A sign-out (or account switch) bumped the token while the photo was
+        // loading/encoding: this is the previous user's content, drop it.
+        guard capturedGeneration == signInGeneration else { return nil }
+        // For an explicit target, require it to still exist so a closed terminal
+        // does not accrue orphaned bytes the user can no longer see or send. The
+        // base add re-validates this for every path (including the selected-id
+        // fallback), so existence is enforced once and only once below.
+        if let terminalID, !terminalExistsInTopology(terminalID) {
+            return nil
+        }
+        return addPendingAttachment(data, format: format, forTerminalID: terminalID)
+    }
+
+    /// Whether a terminal id is present in the current workspace/terminal
+    /// topology. The single existence check both add paths share, so a stale id
+    /// (closed or never-existed terminal) can never accrue staged bytes.
+    private func terminalExistsInTopology(_ terminalID: String) -> Bool {
+        workspaces.contains { $0.terminals.contains { $0.id.rawValue == terminalID } }
+    }
+
+    /// Drop staged attachments whose terminal id is no longer in the topology.
+    /// Called from the ``workspaces`` `didSet` so a workspace/terminal sync that
+    /// removes a terminal also releases its (potentially multi-MB) staged photo
+    /// bytes instead of letting them accumulate until sign-out. The dictionary
+    /// holds large `Data`, so unlike the externally-stored text draft it must be
+    /// pruned in memory on every topology change.
+    private func prunePendingAttachmentsForMissingTerminals() {
+        guard !pendingAttachmentsByTerminalID.isEmpty else { return }
+        let liveTerminalIDs: Set<String> = Set(
+            workspaces.flatMap { $0.terminals.map(\.id.rawValue) }
+        )
+        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
+            liveTerminalIDs.contains($0.key)
+        }
+    }
+
+    /// Remove one staged attachment by id. A no-op when the id is not staged.
+    /// - Parameters:
+    ///   - id: The attachment's stable id.
+    ///   - terminalID: The terminal it is staged under; `nil` falls back to the
+    ///     selected terminal.
+    public func removePendingAttachment(id: MobilePendingAttachment.ID, forTerminalID terminalID: String? = nil) {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue,
+              var list = pendingAttachmentsByTerminalID[key] else { return }
+        list.removeAll { $0.id == id }
+        if list.isEmpty {
+            pendingAttachmentsByTerminalID[key] = nil
+        } else {
+            pendingAttachmentsByTerminalID[key] = list
+        }
+    }
+
+    /// Drop every staged attachment for a terminal (used after a successful send).
+    /// - Parameter terminalID: The terminal to clear; `nil` falls back to the
+    ///   selected terminal.
+    public func clearPendingAttachments(forTerminalID terminalID: String? = nil) {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue else { return }
+        pendingAttachmentsByTerminalID[key] = nil
+    }
+
+    /// Whether the composer's Send should be enabled: text is non-empty OR at
+    /// least one attachment is staged. An attachments-only send (empty text) is
+    /// allowed, so the gating cannot key on text alone.
+    /// - Parameter terminalID: The terminal whose composer to gate; `nil` falls
+    ///   back to the selected terminal.
+    public func composerCanSend(forTerminalID terminalID: String? = nil) -> Bool {
+        let textNonEmpty = !terminalInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return textNonEmpty || !pendingAttachments(forTerminalID: terminalID).isEmpty
+    }
+
     /// Submit the composer's text to the selected terminal as a bracketed paste
     /// plus a single Return, then clear the field while keeping the composer
     /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
@@ -2636,23 +2933,197 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `terminal.paste` and answers `method_not_found`), the composed text is
     /// kept so the user can retry instead of silently losing the message.
     public func submitComposerInput() async {
-        let text = terminalInputText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard remoteClient != nil else { return }
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else { return }
+        await submitComposerInput(workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Submit the composer's text to an explicitly captured terminal. Used by
+    /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
+    /// to whatever is selected when the (awaited) image sends return: the target
+    /// is captured once up front and threaded through here, while the draft
+    /// reconciliation still keys on that captured terminal (not the live
+    /// selection).
+    ///
+    /// - Parameter capturedText: The exact text to send, snapshotted by the
+    ///   caller before any await. When `nil`, the live ``terminalInputText`` is
+    ///   read (the text-only entry points have no earlier await, so there is no
+    ///   snapshot to drift). ``submitComposer()`` MUST pass a snapshot: a terminal
+    ///   switch or a field edit during its image awaits would otherwise make this
+    ///   send (and the draft reconcile) read a different terminal's draft or skip
+    ///   the text the user actually composed at Send time.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste (or the text was
+    ///   empty, i.e. nothing to send), `false` when the send failed so the caller
+    ///   keeps the text for a retry.
+    @discardableResult
+    func submitComposerInput(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID,
+        capturedText: String? = nil
+    ) async -> Bool {
+        let text = capturedText ?? terminalInputText
+        // Empty text is "nothing to send", which is a success from the caller's
+        // point of view (an images-only send has no text to keep on failure).
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        guard remoteClient != nil else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
-        guard !isSubmittingComposerInput else { return }
+        guard !isSubmittingComposerInput else { return false }
         isSubmittingComposerInput = true
         defer { isSubmittingComposerInput = false }
-        // Capture which terminal this text is for: if the user switches terminals
-        // while the ack is in flight, the switch persists the outgoing text as the
-        // SUBMITTED terminal's draft, and the sent text must be cleared from that
-        // key, not from whatever terminal is selected when the ack returns.
-        let submittedTerminalID = selectedTerminalID
-        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
-        guard sent else { return }
-        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+        let sent = await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+        guard sent else { return false }
+        // Reconcile against the CAPTURED terminal, not the live selection: if the
+        // user switched terminals while the ack was in flight, the switch persists
+        // the outgoing text as the captured terminal's draft, and the sent text
+        // must be cleared from that key, not from whatever terminal is selected
+        // when the ack returns.
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
+        return true
+    }
+
+    /// Send the composer's staged attachments then its text, iMessage-style: the
+    /// images are delivered first (in pick order) so their injected file paths
+    /// land before the message that references them, then the text is submitted.
+    /// Attachments for the submitted terminal are cleared once they have all been
+    /// sent.
+    ///
+    /// Allowed with empty text as long as at least one attachment is staged; an
+    /// images-only send skips the (no-op) text submit.
+    ///
+    /// Captures the target workspace + terminal ONCE up front and threads them
+    /// through both the image sends and the text send, so a terminal switch while
+    /// an (awaited) image send is in flight cannot reroute later images or the
+    /// text to whatever is selected at that moment. Attachments are removed from
+    /// the staged set one at a time, only after each send is acknowledged: a
+    /// failed image send stops the run and keeps the remaining (and failed)
+    /// attachments staged AND keeps the text unsent, so the user can retry
+    /// instead of silently losing photos (matching the text-keep-on-failure
+    /// semantics of ``submitComposerInput()``).
+    public func submitComposer() async {
+        // Reject a re-entrant submit (e.g. a double tap on Send): the button
+        // stays enabled while the first image RPC awaits, and a second submit
+        // would capture the same still-staged attachments and re-upload them.
+        // Set/cleared on the main actor around the awaits, so no second call can
+        // slip past. A failed send keeps the attachments staged (below), so the
+        // user can retry once this flag clears.
+        guard !isSubmittingComposer else { return }
+        isSubmittingComposer = true
+        defer { isSubmittingComposer = false }
+        guard let workspaceID = selectedWorkspace?.id,
+              let submittedTerminalID = selectedTerminalID else {
+            // No target: fall back to the text-only path, which is itself a no-op
+            // without a selected terminal.
+            await submitComposerInput()
+            return
+        }
+        // Snapshot the text BEFORE any await (the image sends below). Threaded
+        // through the text submit + the post-send reconcile so a terminal switch
+        // (which swaps the draft into a different terminal's text) or a field edit
+        // while an image send is in flight cannot make the text send read the
+        // wrong draft or skip the message the user composed at Send time. An
+        // images-only send snapshots empty text, which the text submit no-ops.
+        let submittedText = terminalInputText
+        let attachments = pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+        // Capture the submit-time session + connection identity ONCE up front and
+        // re-check it before every subsequent send. The captured terminal already
+        // pins the target surface, but it does NOT pin the session/transport the
+        // bytes flow through: each image RPC is awaited, and a sign-out, account
+        // switch, Mac switch, or reconnect that lands during that await replaces
+        // `remoteClient` (and bumps these generations) WITHOUT cancelling this
+        // loop. `sendRemoteTerminalPasteImage` returns true even when a superseded
+        // connection answered, so without this guard the loop would keep going and
+        // send the next staged image, then the captured text, through whatever
+        // session is now current, leaking the previous user's / previous Mac's
+        // unsent content into a different session. `signInGeneration` covers
+        // sign-out + account switch; `connectionGeneration` covers Mac switch,
+        // reconnect, and disconnect. On mismatch we abort the WHOLE submit (stop
+        // the loop, do not send the text) and leave everything staged for a retry.
+        let submitSignInGeneration = signInGeneration
+        let submitConnectionGeneration = connectionGeneration
+        // Deliver each image first and await it, so the agent's terminal has the
+        // file paths before the text arrives. Remove each only after its send is
+        // acknowledged; on failure stop and keep the rest (and the text) staged.
+        for attachment in attachments {
+            // Re-check the captured session/connection still matches before each
+            // image send (the previous iteration's send was awaited). A mismatch
+            // means the session or transport was replaced mid-submit; abort
+            // without sending so nothing leaks into the new session. Attachments
+            // are left staged (no removal happened for this iteration).
+            guard isComposerSubmitIdentityCurrent(
+                signIn: submitSignInGeneration,
+                connection: submitConnectionGeneration
+            ) else { return }
+            // Re-check the attachment is still staged for the captured terminal
+            // before uploading it. The user can delete a not-yet-acked chip while
+            // an earlier image's send is in flight; that removes it from
+            // `pendingAttachmentsByTerminalID`, but this loop iterates a snapshot
+            // taken before the awaits. Skipping the removed one keeps the local
+            // snapshot from re-uploading bytes the user already dismissed. Runs on
+            // the @MainActor, so the membership check is consistent with the
+            // removal.
+            guard pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
+                .contains(where: { $0.id == attachment.id }) else { continue }
+            let sent = await submitTerminalPasteImage(
+                attachment.data,
+                format: attachment.format,
+                workspaceID: workspaceID,
+                terminalID: submittedTerminalID
+            )
+            guard sent else { return }
+            removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
+        }
+        // Re-check the captured identity one last time before the text send. The
+        // final image's send was awaited above, so a sign-out / Mac switch /
+        // reconnect could have landed after it; abort (keep the text staged in the
+        // field) rather than paste the user's message into the now-current
+        // session.
+        guard isComposerSubmitIdentityCurrent(
+            signIn: submitSignInGeneration,
+            connection: submitConnectionGeneration
+        ) else { return }
+        // Submit the captured text to the captured terminal (a no-op when empty,
+        // e.g. an images-only send). All images acked by here, so the text
+        // follows. Passing the snapshot (not the live field) keeps this immune to
+        // a switch/edit that happened during the image awaits above.
+        await submitComposerInput(
+            workspaceID: workspaceID,
+            terminalID: submittedTerminalID,
+            capturedText: submittedText
+        )
+    }
+
+    /// Whether the session + connection identity captured at the start of a
+    /// ``submitComposer()`` run still matches the current one. Re-checked before
+    /// every image send and before the text send so a sign-out, account switch,
+    /// Mac switch, or reconnect that lands while an (awaited) image RPC is in
+    /// flight aborts the rest of the submit instead of routing the next image or
+    /// the captured text through a now-current, different session.
+    ///
+    /// `signInGeneration` is bumped by ``signOut()`` (sign-out + account switch);
+    /// `connectionGeneration` is bumped whenever the remote client/transport is
+    /// replaced (Mac switch, reconnect, disconnect). Either bump invalidates the
+    /// in-flight submit.
+    ///
+    /// Internal (not private) so tests can drive the captured-identity recheck.
+    func isComposerSubmitIdentityCurrent(signIn: Int, connection: UUID) -> Bool {
+        signIn == signInGeneration && connection == connectionGeneration
+    }
+
+    /// Bump the connection generation so any composer submit (or other
+    /// generation-guarded operation) in flight against the previous connection is
+    /// treated as superseded. Internal (not private) so a test can model a
+    /// mid-submit connection swap that the pairing/reconnect flow performs in
+    /// production without standing up the full handshake.
+    func bumpConnectionGenerationForTesting() {
+        connectionGeneration = UUID()
     }
 
     /// Clear the sent text from wherever it now lives after a successful
@@ -2800,6 +3271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
+        connectionAttemptGeneration = generation
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
@@ -2826,7 +3298,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
-            guard generation == connectionGeneration else { return nil }
+            guard isCurrentConnectionAttempt(generation) else { return nil }
             clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
@@ -2858,7 +3330,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
+                    guard isCurrentConnectionAttempt(generation) else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
@@ -2890,7 +3362,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
+                    guard isCurrentConnectionAttempt(generation) else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -3040,6 +3512,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func clearRemoteConnectionContext() {
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -3096,12 +3569,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
     private func beginPairingAttempt(method: String? = nil) -> UUID {
-        let attemptID = UUID()
-        pairingAttemptID = attemptID
+        let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         clearPairingError()
+        clearPairingVersionWarning()
+        return attemptID
+    }
+
+    private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
+        let attemptID = UUID()
+        pairingAttemptID = attemptID
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
@@ -3165,6 +3645,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptID == attemptID && isSignedIn
     }
 
+    private func isCurrentConnectionAttempt(_ generation: UUID) -> Bool {
+        generation == connectionAttemptGeneration && isSignedIn
+    }
+
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``
     /// (cancel, sign-out, live-connection teardown), dropping its instrumentation
     /// so a stale attempt can never emit `ios_pairing_*` via a later auth eviction.
@@ -3192,11 +3676,72 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
+    private func applyPairingValidationFailure(_ category: MobilePairingFailureCategory) {
+        if pairingAttemptMethod == nil {
+            _ = beginPairingValidationAttempt(method: "qr")
+        }
+        applyPairingFailure(category, phase: "validation")
+    }
+
     /// Clear the error and its guidance together (never bare `connectionError
     /// = nil`) so guidance cannot linger under a cleared headline.
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+    }
+
+    private func clearPairingVersionWarning() {
+        pairingVersionWarning = nil
+        pendingPairingVersionWarningURL = nil
+    }
+
+    static func emailFailure(
+        for ticket: CmxAttachTicket,
+        actualUserID: String?,
+        actualEmail: String?
+    ) -> MobilePairingFailureCategory? {
+        if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
+            guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
+            guard actualUserID == expectedUserID else {
+                return .authFailed
+            }
+            return nil
+        }
+        guard let actual = Self.mobileShellNormalizedEmail(actualEmail) else { return nil }
+        if let expected = Self.mobileShellNormalizedEmail(ticket.macUserEmail) {
+            guard actual == expected else {
+                return .emailMismatch(expected: expected, actual: actual)
+            }
+            return nil
+        }
+        return nil
+    }
+
+    private func versionWarning(for ticket: CmxAttachTicket) -> String? {
+        guard let macCompatibilityVersion = ticket.macPairingCompatibilityVersion,
+              macCompatibilityVersion != CmxMobileDefaults.pairingCompatibilityVersion else {
+            return nil
+        }
+        let phoneStamp = feedbackStampProvider()
+        let phoneVersion = Self.mobileShellNormalizedNonEmpty(phoneStamp.appVersion)
+        let macVersion = Self.mobileShellNormalizedNonEmpty(ticket.macAppVersion)
+        let format = L10n.string(
+            "mobile.pairing.versionWarningFormat",
+            defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different compatibility levels can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+        )
+        return String(
+            format: format,
+            Self.mobileShellVersionDisplay(
+                version: phoneVersion,
+                build: phoneStamp.appBuild,
+                compatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion
+            ),
+            Self.mobileShellVersionDisplay(
+                version: macVersion,
+                build: ticket.macAppBuild,
+                compatibilityVersion: macCompatibilityVersion
+            )
+        )
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
@@ -3669,14 +4214,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   - data: The encoded image bytes (PNG/JPEG/…).
     ///   - format: A lowercase file-extension hint (e.g. `"png"`). The Mac
     ///     sanitizes it and defaults to `png` for anything unrecognized.
-    public func submitTerminalPasteImage(_ data: Data, format: String) async {
-        guard !data.isEmpty else { return }
+    /// - Returns: `true` when the Mac acknowledged the image, `false` on any
+    ///   failure (no selection, no client, a stale generation, or an RPC error).
+    @discardableResult
+    public func submitTerminalPasteImage(_ data: Data, format: String) async -> Bool {
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
-            return
+            return false
         }
-        guard remoteClient != nil else { return }
-        await sendRemoteTerminalPasteImage(
+        return await submitTerminalPasteImage(
             data,
             format: format,
             workspaceID: workspaceID,
@@ -3684,13 +4230,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Send an image to an explicitly captured terminal. Used by
+    /// ``submitComposer()`` so a mid-send terminal switch cannot reroute a later
+    /// image to whatever is selected when the prior image's ack returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the image, `false` on any
+    ///   failure, so the caller keeps the attachment staged for a retry.
+    @discardableResult
+    func submitTerminalPasteImage(
+        _ data: Data,
+        format: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !data.isEmpty else { return false }
+        guard remoteClient != nil else { return false }
+        return await sendRemoteTerminalPasteImage(
+            data,
+            format: format,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
+    /// - Returns: `true` when the Mac acknowledged the image paste, `false` on
+    ///   any failure (no client, a stale generation, or an RPC error such as an
+    ///   oversized payload or `method_not_found` from an older host). Callers use
+    ///   this to keep the staged attachment on failure instead of dropping it.
+    @discardableResult
     private func sendRemoteTerminalPasteImage(
         _ data: Data,
         format: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
-    ) async {
-        guard let client = remoteClient else { return }
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
         let generation = connectionGeneration
         do {
             #if DEBUG
@@ -3709,13 +4283,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            // The Mac acked the image: treat it as applied even if a reconnect
+            // superseded this client mid-flight (only the per-connection response
+            // bookkeeping is generation-guarded), so a retry does not re-send the
+            // same image.
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
+            return true
         } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             applyOperationalError(error)
+            return false
         }
     }
 
@@ -3922,12 +4503,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
                 } else if event.topic == "notification.dismissed" {
-                    // The Mac dismissed/cleared notifications; clear the matching
-                    // mirrored banners on this phone.
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
-                    // The Mac's unread count changed; SET the app-icon badge to
-                    // the authoritative total.
                     self.handleNotificationBadgeEvent(event)
                 }
             }
@@ -3970,10 +4547,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
-            // Lane 3 of dismiss-sync: every successful (re)subscribe — initial
-            // connect, app foreground, network recovery, liveness restart —
-            // runs one reconcile sweep so banners/badge heal anything missed
-            // while the app was closed or detached.
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -4909,6 +5482,43 @@ private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     }
 }
 
+private extension MobileShellComposite {
+    static func mobileShellVersionDisplay(
+        version: String?,
+        build: String?,
+        compatibilityVersion: Int?
+    ) -> String {
+        let version = version ?? mobileShellCompatibilityDisplay(compatibilityVersion)
+        guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
+        return "\(version) (\(build))"
+    }
+
+    static func mobileShellCompatibilityDisplay(_ compatibilityVersion: Int?) -> String {
+        guard let compatibilityVersion, compatibilityVersion > 0 else {
+            return L10n.string(
+                "mobile.pairing.compatibilityUnknown",
+                defaultValue: "unknown compatibility"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.pairing.compatibilityDisplayFormat",
+                defaultValue: "compatibility %@"
+            ),
+            "\(compatibilityVersion)"
+        )
+    }
+
+    static func mobileShellNormalizedEmail(_ value: String?) -> String? {
+        mobileShellNormalizedNonEmpty(value)?.lowercased()
+    }
+
+    static func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}
+
 private extension CmxAttachTicket {
     func constrainingRoutes(
         to routes: [CmxAttachRoute],
@@ -4919,6 +5529,11 @@ private extension CmxAttachTicket {
             terminalID: terminalID,
             macDeviceID: macDeviceID,
             macDisplayName: macDisplayName ?? fallbackDisplayName,
+            macUserEmail: macUserEmail,
+            macUserID: macUserID,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: expiresAt,
             authToken: authToken

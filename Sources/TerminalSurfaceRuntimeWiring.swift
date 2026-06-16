@@ -4,6 +4,7 @@ import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
 import CmuxSocketControl
+import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
@@ -40,16 +41,17 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
-        TerminalSurfaceSpawnPolicy(
-            claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-            customClaudePath: ClaudeCodeIntegrationSettings.customClaudePath(),
-            subagentNotificationEnvironmentKey: AgentSubagentNotificationSettings.environmentKey,
-            suppressSubagentNotifications: AgentSubagentNotificationSettings.suppressNotifications(),
-            cursorHooksEnabled: CursorIntegrationSettings.hooksEnabled(),
-            geminiHooksEnabled: GeminiIntegrationSettings.hooksEnabled(),
-            kiroHooksEnabled: KiroIntegrationSettings.hooksEnabled(),
-            kiroNotificationLevel: KiroIntegrationSettings.notificationLevel().rawValue,
-            ampHooksEnabled: AmpIntegrationSettings.hooksEnabled(),
+        let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        return TerminalSurfaceSpawnPolicy(
+            claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
+            customClaudePath: integrations.customClaudePath,
+            subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
+            suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
+            cursorHooksEnabled: integrations.cursorHooksEnabled,
+            geminiHooksEnabled: integrations.geminiHooksEnabled,
+            kiroHooksEnabled: integrations.kiroHooksEnabled,
+            kiroNotificationLevel: integrations.kiroNotificationLevel.rawValue,
+            ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
             showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
@@ -125,6 +127,25 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     }
 }
 
+// MARK: Filesystem
+
+extension TerminalSurfaceRuntimeFilesystem {
+    static func live() -> TerminalSurfaceRuntimeFilesystem {
+        TerminalSurfaceRuntimeFilesystem(
+            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installClaudeCommandShim: {
+                TerminalSurface.installClaudeCommandShimIfPossible(
+                    wrapperURL: $0,
+                    surfaceId: $1,
+                    temporaryDirectory: $2,
+                    fileManager: .default
+                )
+            },
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+    }
+}
+
 // MARK: Construction
 
 extension TerminalSurface {
@@ -145,7 +166,10 @@ extension TerminalSurface {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         self.init(
             id: id,
@@ -160,6 +184,9 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
+            manualIO: manualIO,
+            manualInputHandler: manualInputHandler,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

@@ -212,7 +212,7 @@ public struct GhosttyConfig {
             return []
         }
 
-        return CmuxGhosttyConfigPathResolver.loadConfigURLs(
+        return CmuxGhosttyConfigPathResolver().loadConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fileManager
@@ -898,12 +898,12 @@ public struct GhosttyConfig {
 
     /// Clamps a sidebar font size into the supported range.
     public static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
-        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(Double(value)))
+        CGFloat(CmuxGhosttyConfigSettingEditor().clampedSidebarFontSize(Double(value)))
     }
 
     /// Clamps a surface tab-bar font size into the supported range.
     public static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
-        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(Double(value)))
+        CGFloat(CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(Double(value)))
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
@@ -1242,7 +1242,7 @@ public struct GhosttyConfig {
         // 4) Common system/user fallback locations.
         appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
         appendUniquePath("~/.config/ghostty/themes/\(themeName)")
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: environment) {
+        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: environment).userDirectories {
             appendUniquePath(
                 appSupportDirectory
                     .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
