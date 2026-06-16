@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowserPanel
 import CmuxCommandPalette
@@ -508,6 +509,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
+    /// owned and created lazily so the window-decoration seam can point back at `self`.
+    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
+    var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
@@ -11871,6 +11877,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.attach(to: window)
     }
 
+    // Satisfies CmuxAppKitSupportUI's WindowDecorating seam (see extension below).
     func applyWindowDecorations(to window: NSWindow) {
         windowDecorationsController.apply(to: window)
     }
@@ -17892,3 +17899,7 @@ extension AppDelegate {
         window.setFrame(frame, display: true, animate: false)
     }
 }
+
+// MARK: - CmuxAppKitSupportUI seam conformance
+
+extension AppDelegate: WindowDecorating {}
