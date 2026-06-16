@@ -65,7 +65,7 @@ public final class UpdateController {
     ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
-    ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
+    ///   - fileManager: Filesystem access for the Sparkle installer preflight;
     ///     injectable so tests can avoid touching the real filesystem.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
@@ -220,7 +220,7 @@ public final class UpdateController {
 
     private func performCheckForUpdates() {
         startUpdaterIfNeeded()
-        ensureSparkleInstallationCache()
+        runSparkleUpdatePreflight()
         // Cancel any pending deferred re-check on every path so a stale one can't fire a
         // duplicate checkForUpdates() after this new check starts.
         recheckTask?.cancel()
@@ -248,7 +248,7 @@ public final class UpdateController {
     private func checkForUpdatesWhenReady() {
         cancelReadinessRetry()
         startUpdaterIfNeeded()
-        ensureSparkleInstallationCache()
+        runSparkleUpdatePreflight()
         let canCheck = updater.canCheckForUpdates
         log.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
@@ -300,7 +300,7 @@ public final class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     public func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
-        ensureSparkleInstallationCache()
+        runSparkleUpdatePreflight()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
         // delegate now suppresses Sparkle's permission UI entirely.
@@ -382,38 +382,11 @@ public final class UpdateController {
 #endif
     }
 
-    private func ensureSparkleInstallationCache() {
-        guard let bundleIdentifier = hostBundle.bundleIdentifier else { return }
-        guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
-
-        let baseURL = cachesURL
-            .appendingPathComponent(bundleIdentifier)
-            .appendingPathComponent("org.sparkle-project.Sparkle")
-        let installURL = baseURL.appendingPathComponent("Installation")
-
-        var isDirectory: ObjCBool = false
-        if fileManager.fileExists(atPath: installURL.path, isDirectory: &isDirectory) {
-            if !isDirectory.boolValue {
-                do {
-                    try fileManager.removeItem(at: installURL)
-                } catch {
-                    log.append("Failed removing Sparkle installation cache file: \(error)")
-                    return
-                }
-            } else {
-                return
-            }
-        }
-
-        do {
-            try fileManager.createDirectory(
-                at: installURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            log.append("Ensured Sparkle installation cache at \(installURL.path)")
-        } catch {
-            log.append("Failed creating Sparkle installation cache: \(error)")
-        }
+    private func runSparkleUpdatePreflight() {
+        SparkleUpdatePreflight(
+            hostBundle: hostBundle,
+            fileManager: fileManager,
+            log: log
+        ).run()
     }
 }
