@@ -143,12 +143,23 @@ final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        let errorDescription = String(describing: error)
+        guard !SentryNoiseFilter.isExpectedCLISocketTransportFailure(
+            stage: stage,
+            message: errorDescription,
+            dataKeys: Set(data.keys)
+        ) else {
+            return
+        }
+#if DEBUG
+        recordCaptureProbe(stage: stage, error: error)
+#endif
 #if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
         var context = baseContext()
         context["stage"] = stage
-        context["error"] = String(describing: error)
+        context["error"] = errorDescription
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
@@ -172,7 +183,32 @@ final class CLISocketSentryTelemetry {
         !disabledByEnv
     }
 
+#if DEBUG
+    private func recordCaptureProbe(stage: String, error: Error) {
+        guard let path = processEnv["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
+        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
+    }
+#endif
+
 #if canImport(Sentry)
+    private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
+        if let message = event.message?.formatted,
+           SentryNoiseFilter.isExpectedCLISocketTransportMessage(message) {
+            return true
+        }
+        for exception in event.exceptions ?? [] {
+            if let value = exception.value,
+               SentryNoiseFilter.isExpectedCLISocketTransportMessage(value) {
+                return true
+            }
+        }
+        return false
+    }
+
     private func flushPendingBreadcrumbs() {
         for pending in pendingBreadcrumbs {
             addBreadcrumb(message: pending.message, data: pending.data)
@@ -310,7 +346,12 @@ final class CLISocketSentryTelemetry {
             // Redact file paths, emails, and secrets from every outgoing event
             // and breadcrumb before it leaves the device.
             let scrubber = SentryEventScrubber()
-            options.beforeSend = { event in scrubber.scrub(event) }
+            options.beforeSend = { event in
+                if Self.isExpectedCLISocketTransportEvent(event) {
+                    return nil
+                }
+                return scrubber.scrub(event)
+            }
             options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         }
         started = true
