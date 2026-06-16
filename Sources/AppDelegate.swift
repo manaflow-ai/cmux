@@ -730,6 +730,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    /// Mac-side agent-chat transcript service, owned by the app composition root
+    /// and injected into socket/mobile routing.
+    private let agentChatTranscriptService = AgentChatTranscriptService()
 
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
@@ -1930,10 +1933,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
         )
+        TerminalController.shared.attachAgentChatTranscriptService(agentChatTranscriptService)
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        AgentChatTranscriptService.shared.start()
+        agentChatTranscriptService.start { workspaceID in
+            TerminalController.shared.adoptDetectedAgentSessions(workspaceID: workspaceID)
+        }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
