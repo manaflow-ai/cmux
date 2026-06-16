@@ -166,3 +166,78 @@ struct AgentChatSessionRegistryTests {
         #expect(registry.record(sessionID: "stale")?.state == .ended)
     }
 }
+
+@MainActor
+@Suite("Agent chat transcript service")
+struct AgentChatTranscriptServiceTests {
+    @Test("provisional Claude sessions without transcripts are not advertised as openable")
+    func provisionalClaudeWithoutTranscriptIsNotOpenable() {
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver()
+        )
+        registry.adoptDetectedSession(
+            sessionID: "detected-claude-surface-terminal-one",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-one",
+            workingDirectory: "/Users/example",
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(service.openableSessionRecords(workspaceID: "workspace-a").isEmpty)
+        #expect(service.sessionDescriptors(workspaceID: "workspace-a").isEmpty)
+        #expect(service.sessionDescriptors(workspaceAndTerminalIDs: [
+            "workspace-a": ["terminal-one"],
+        ]).isEmpty)
+    }
+
+    @Test("provisional Claude sessions become openable after transcript resolution")
+    func provisionalClaudeWithTranscriptIsOpenable() {
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver()
+        )
+        registry.adoptDetectedSession(
+            sessionID: "detected-claude-surface-terminal-one",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-one",
+            workingDirectory: "/Users/example",
+            transcriptPath: "/tmp/claude-session.jsonl",
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(service.openableSessionRecords(workspaceID: "workspace-a").map(\.sessionID) == [
+            "detected-claude-surface-terminal-one",
+        ])
+        #expect(service.sessionDescriptors(workspaceAndTerminalIDs: [
+            "workspace-a": ["terminal-one"],
+        ]).map(\.id) == ["detected-claude-surface-terminal-one"])
+    }
+
+    @Test("hook-backed sessions remain openable while their transcript fallback resolves")
+    func hookBackedSessionWithoutRecordedTranscriptRemainsOpenable() {
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver()
+        )
+        registry.adoptDetectedSession(
+            sessionID: "hook-backed-session",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-one",
+            workingDirectory: "/Users/example",
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(service.openableSessionRecords(workspaceID: "workspace-a").map(\.sessionID) == [
+            "hook-backed-session",
+        ])
+    }
+}
