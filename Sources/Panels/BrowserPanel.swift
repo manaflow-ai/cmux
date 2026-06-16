@@ -8355,6 +8355,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+
         // Cmd+click and middle-click on regular links should always open in a new tab.
         if shouldOpenInNewTab,
            let requestURL = navigationAction.request.url {
@@ -8421,25 +8426,16 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
               responseURL, mime, canShow ? 1 : 0,
               navigationResponse.isForMainFrame ? 1 : 0)
 
-        // Check if this response should be treated as a download.
-        // Criteria: explicit Content-Disposition: attachment, or a MIME type
-        // that WebKit cannot render inline.
-        if let response = navigationResponse.response as? HTTPURLResponse {
-            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
-            if contentDisposition.lowercased().hasPrefix("attachment") {
-                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
-                #if DEBUG
-                cmuxDebugLog("download.policy=download reason=content-disposition mime=\(mime)")
-                #endif
-                decisionHandler(.download)
-                return
-            }
-        }
-
-        if !canShow {
-            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")
+        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: mime,
+            canShowMIMEType: canShow,
+            contentDisposition: contentDisposition
+        ) {
+            NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
             #if DEBUG
-            cmuxDebugLog("download.policy=download reason=cannotShowMIME mime=\(mime)")
+            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
             #endif
             decisionHandler(.download)
             return
