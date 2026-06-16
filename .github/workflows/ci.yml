@@ -91,6 +91,9 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate activation benchmark scrollback sizing
+        run: python3 tests/test_perf_activation_scrollback_sizing.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 

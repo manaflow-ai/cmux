@@ -44,6 +44,90 @@ TEST_METHOD_RE = re.compile(r"\bfunc\s+(test[A-Za-z0-9_]+)\s*\(")
 SWIFT_TEST_ATTRIBUTE_RE = re.compile(r"@Test\b")
 
 
+def _mask_range(masked: list[str], start: int, end: int) -> None:
+    for index in range(start, min(end, len(masked))):
+        if masked[index] != "\n":
+            masked[index] = " "
+
+
+def _string_literal_start(source: str, index: int) -> tuple[int, int, bool] | None:
+    if source[index] == '"':
+        hash_count = 0
+        quote_index = index
+    elif source[index] == "#":
+        cursor = index
+        while cursor < len(source) and source[cursor] == "#":
+            cursor += 1
+        if cursor >= len(source) or source[cursor] != '"':
+            return None
+        hash_count = cursor - index
+        quote_index = cursor
+    else:
+        return None
+    return hash_count, quote_index, source.startswith('"""', quote_index)
+
+
+def _consume_string_literal(source: str, hash_count: int, quote_index: int, multiline: bool) -> int:
+    cursor = quote_index + (3 if multiline else 1)
+    delimiter_hashes = "#" * hash_count
+    if multiline:
+        while cursor < len(source):
+            if source.startswith('"""' + delimiter_hashes, cursor):
+                return cursor + 3 + hash_count
+            cursor += 1
+        return len(source)
+
+    while cursor < len(source):
+        if hash_count == 0 and source[cursor] == "\\":
+            cursor += 2
+            continue
+        if source[cursor] == '"' and source.startswith(delimiter_hashes, cursor + 1):
+            return cursor + 1 + hash_count
+        cursor += 1
+    return len(source)
+
+
+def mask_swift_non_code(source: str) -> str:
+    """Return source with Swift comments and string literals replaced by spaces."""
+    masked = list(source)
+    index = 0
+    while index < len(source):
+        if source.startswith("//", index):
+            end = source.find("\n", index + 2)
+            if end == -1:
+                end = len(source)
+            _mask_range(masked, index, end)
+            index = end
+            continue
+
+        if source.startswith("/*", index):
+            depth = 1
+            cursor = index + 2
+            while cursor < len(source) and depth:
+                if source.startswith("/*", cursor):
+                    depth += 1
+                    cursor += 2
+                elif source.startswith("*/", cursor):
+                    depth -= 1
+                    cursor += 2
+                else:
+                    cursor += 1
+            _mask_range(masked, index, cursor)
+            index = cursor
+            continue
+
+        string_start = _string_literal_start(source, index)
+        if string_start is not None:
+            hash_count, quote_index, multiline = string_start
+            end = _consume_string_literal(source, hash_count, quote_index, multiline)
+            _mask_range(masked, index, end)
+            index = end
+            continue
+
+        index += 1
+    return "".join(masked)
+
+
 def find_matching_brace(source: str, open_index: int) -> int:
     depth = 0
     index = open_index
@@ -63,35 +147,36 @@ def discover_xctest_identifiers(tests_dir: Path, module: str) -> list[str]:
     identifiers: list[str] = []
     for path in sorted(tests_dir.glob("*.swift")):
         source = path.read_text(encoding="utf-8")
-        for match in SUITE_RE.finditer(source):
+        masked_source = mask_swift_non_code(source)
+        for match in SUITE_RE.finditer(masked_source):
             identifiers.append(f"{module}/{match.group(1)}")
-        for match in TYPE_DECL_RE.finditer(source):
+        for match in TYPE_DECL_RE.finditer(masked_source):
             type_name = match.group(1)
-            open_index = source.find("{", match.end())
+            open_index = masked_source.find("{", match.end())
             if open_index == -1:
                 continue
-            close_index = find_matching_brace(source, open_index)
-            body = source[open_index:close_index]
+            close_index = find_matching_brace(masked_source, open_index)
+            body = masked_source[open_index:close_index]
             if SWIFT_TEST_ATTRIBUTE_RE.search(body):
                 identifiers.append(f"{module}/{type_name}")
-        for match in EXTENSION_RE.finditer(source):
+        for match in EXTENSION_RE.finditer(masked_source):
             type_name = match.group(1)
-            open_index = source.find("{", match.end())
+            open_index = masked_source.find("{", match.end())
             if open_index == -1:
                 continue
-            close_index = find_matching_brace(source, open_index)
-            body = source[open_index:close_index]
+            close_index = find_matching_brace(masked_source, open_index)
+            body = masked_source[open_index:close_index]
             if SWIFT_TEST_ATTRIBUTE_RE.search(body):
                 identifiers.append(f"{module}/{type_name}")
             methods = sorted({method.group(1) for method in TEST_METHOD_RE.finditer(body)})
             identifiers.extend(f"{module}/{type_name}/{method}" for method in methods)
-        for match in CLASS_RE.finditer(source):
+        for match in CLASS_RE.finditer(masked_source):
             class_name = match.group(1)
-            open_index = source.find("{", match.end())
+            open_index = masked_source.find("{", match.end())
             if open_index == -1:
                 continue
-            close_index = find_matching_brace(source, open_index)
-            body = source[open_index:close_index]
+            close_index = find_matching_brace(masked_source, open_index)
+            body = masked_source[open_index:close_index]
             methods = sorted({method.group(1) for method in TEST_METHOD_RE.finditer(body)})
             if methods:
                 identifiers.extend(f"{module}/{class_name}/{method}" for method in methods)

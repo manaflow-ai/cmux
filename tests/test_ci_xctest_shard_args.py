@@ -203,6 +203,39 @@ def test_ignores_comment_and_string_declaration_words() -> None:
     assert "cmuxTests/kit" not in output
 
 
+def test_string_and_comment_braces_do_not_steal_later_tests() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tests_dir = Path(tmp)
+        (tests_dir / "BraceLiteralTests.swift").write_text(
+            textwrap.dedent(
+                '''
+                import XCTest
+
+                final class LiteralOwnerTests: XCTestCase {
+                    let json = """
+                    {
+                        "key": "value"
+                    """
+
+                    /*
+                    {
+                    */
+                }
+
+                final class LaterOwnerTests: XCTestCase {
+                    func testRealOwner() {}
+                }
+                '''
+            ),
+            encoding="utf-8",
+        )
+
+        output = run_helper(tests_dir)
+
+    assert "-only-testing:cmuxTests/LaterOwnerTests/testRealOwner" in output
+    assert "cmuxTests/LiteralOwnerTests/testRealOwner" not in output
+
+
 def main() -> int:
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
