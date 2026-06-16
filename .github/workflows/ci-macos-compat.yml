@@ -96,6 +96,9 @@ jobs:
           key: spm-${{ matrix.os }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ matrix.os }}-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
