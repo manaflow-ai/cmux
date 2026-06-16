@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -53,7 +54,7 @@ struct SidebarScrollViewConfiguratorTests {
     @Test func firstApplyEstablishesOverlayConfiguration() {
         let scrollView = SetterCountingScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
 
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         #expect(!scrollView.hasHorizontalScroller)
         #expect(scrollView.hasVerticalScroller)
@@ -68,10 +69,10 @@ struct SidebarScrollViewConfiguratorTests {
         // in-flight knob fade without rescheduling it, leaving the knob
         // permanently visible.
         let scrollView = SetterCountingScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         scrollView.configPropertyWrites = 0
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         #expect(scrollView.configPropertyWrites == 0)
     }
@@ -95,7 +96,7 @@ struct SidebarScrollViewConfiguratorTests {
         resolver.onResolve = { resolved in
             resolveCount += 1
             guard let resolved else { return }
-            SidebarScrollViewConfigurator.apply(to: resolved)
+            resolved.applySidebarOverlayScrollerConfiguration()
         }
         documentView.addSubview(resolver)
         await yieldUntil { resolveCount > 0 }

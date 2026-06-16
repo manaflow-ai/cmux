@@ -122,6 +122,17 @@ import Testing
         #expect(category.isAuthorizationFailure)
     }
 
+    @Test func emailMismatchIsAuthorizationFailure() {
+        let category = MobilePairingFailureCategory.emailMismatch(
+            expected: "mac@example.com",
+            actual: "phone@example.com"
+        )
+        #expect(category.analyticsReason == "email_mismatch")
+        #expect(category.isAuthorizationFailure)
+        #expect(category.message.contains("mac@example.com"))
+        #expect(category.message.contains("phone@example.com"))
+    }
+
     @Test func insecureManualRouteIsUnsupportedRoute() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.insecureManualRoute,
@@ -190,9 +201,11 @@ import Testing
             .handshakeTimedOut(host: "h", port: 1),
             .connectionDropped(host: "h", port: 1),
             .accountMismatch,
+            .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
             .authFailed,
             .ticketExpired,
             .invalidCode,
+            .unrecognizedVersion,
             .unsupportedRoute,
             .noSupportedRoute,
             .unknown(host: "h", port: 1),
@@ -201,6 +214,24 @@ import Testing
             #expect(!category.message.isEmpty, "category \(category) had an empty message")
         }
         _ = route
+    }
+
+    @Test func invalidCodeNoLongerMentionsAPairingCode() {
+        // There is no pairing-code secret anymore (the v2 QR carries bare routes
+        // and the host authorizes by Stack account). The copy must not imply a
+        // wrong "code" was entered.
+        let message = MobilePairingFailureCategory.invalidCode.message
+        #expect(!message.lowercased().contains("pairing code"))
+        #expect(!message.isEmpty)
+    }
+
+    @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
+        // A real cmux QR from a newer Mac whose grammar this build predates: the
+        // user must be told to update, not that the code is invalid.
+        let message = MobilePairingFailureCategory.unrecognizedVersion.message
+        #expect(message.lowercased().contains("newer version"))
+        #expect(MobilePairingFailureCategory.unrecognizedVersion.guidance != nil)
+        #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }
 
     @Test func missingRouteFallsBackWithoutCrashingOnFormat() {

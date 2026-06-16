@@ -30,6 +30,10 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    #if DEBUG
+    @State private var showingChatDemo = false
+    @State private var showingTerminalDemo = false
+    #endif
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -133,11 +137,38 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
 
+                #if DEBUG
+                Section("Developer") {
+                    Button {
+                        showingChatDemo = true
+                    } label: {
+                        Label("Agent Chat Demo", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .accessibilityIdentifier("MobileSettingsAgentChatDemo")
+                    Button {
+                        showingTerminalDemo = true
+                    } label: {
+                        Label("Terminal Log Demo", systemImage: "terminal")
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+                }
+                #endif
+
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
+                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
+                            .tag(1)
+                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
+                            .tag(2)
+                    } label: {
+                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
@@ -189,6 +220,14 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: $showingChatDemo) {
+                AgentChatDemoScreen()
+            }
+            .fullScreenCover(isPresented: $showingTerminalDemo) {
+                TerminalLogDemoScreen()
+            }
+            #endif
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
                     MobileHostPickerView(store: store)

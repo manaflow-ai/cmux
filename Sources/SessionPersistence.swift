@@ -1,6 +1,8 @@
 import CoreGraphics
+import CmuxCore
 import Foundation
 import Bonsplit
+import CmuxSession
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -1700,6 +1702,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
     var isPinned: Bool
     var isManuallyUnread: Bool
@@ -1789,6 +1795,22 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+/// One canvas pane's persisted geometry, ordered back-to-front so restore
+/// reproduces the z-order.
+struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
+    /// The pane identity (its founding panel's UUID). Pre-tab snapshots
+    /// stored the single hosted panel here.
+    var panelId: UUID
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+    /// Ordered tabs. Absent in pre-tab snapshots (treated as `[panelId]`).
+    var panelIds: [UUID]? = nil
+    /// Selected tab. Absent in pre-tab snapshots (treated as `panelId`).
+    var selectedPanelId: UUID? = nil
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
@@ -1796,6 +1818,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
@@ -1807,12 +1833,21 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
+    /// (treated as splits).
+    var layoutMode: String? = nil
+    /// Canvas pane frames in z-order; persisted whenever any exist so
+    /// positions survive toggling back to splits across restarts.
+    var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// User-defined per-workspace environment variables (issue #5995). Optional
+    /// with a `nil` default so manifests written before this field decode cleanly.
+    var environment: [String: String]? = nil
 }
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
@@ -1867,175 +1902,12 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-enum SessionPersistenceStore {
-    enum SnapshotLoadOutcome {
-        case loaded(AppSessionSnapshot)
-        /// No snapshot file on disk: a genuinely clean state.
-        case missing
-        /// A snapshot file exists but cannot be restored (unreadable data,
-        /// decode failure, schema version drift, or an anomalous empty
-        /// window list; empty states remove the file instead of writing it).
-        case unusable
-    }
-
-    static func loadOutcome(fileURL: URL) -> SnapshotLoadOutcome {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
-        guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return .unusable }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return .unusable }
-        guard !snapshot.windows.isEmpty else { return .unusable }
-        return .loaded(snapshot)
-    }
-
-    static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
-        return snapshot
-    }
-
-    @discardableResult
-    static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
-        let directory = fileURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
-            }
-            try data.write(to: fileURL, options: .atomic)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
-    }
-
-    static func removeSnapshot(fileURL: URL? = nil) {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-    }
-
-    static func loadReopenSessionSnapshot(
-        fileURL: URL? = nil,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else {
-            return nil
-        }
-        return load(fileURL: fileURL)
-    }
-
-    static func syncManualRestoreSnapshotCache(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) {
-        guard let backupURL = manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return }
-        guard let primaryURL = defaultSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return }
-        switch loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            _ = save(snapshot, fileURL: backupURL)
-        case .missing:
-            removeSnapshot(fileURL: backupURL)
-        case .unusable:
-            // The primary snapshot exists but cannot be restored. Keep the
-            // backup: it is the only remaining recovery path for the user's
-            // sessions (startup fallback and `cmux restore-session`).
-            break
-        }
-    }
-
-    static func loadStartupSnapshot(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let primaryURL = defaultSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return nil }
-        switch loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            return snapshot
-        case .missing:
-            return nil
-        case .unusable:
-            let backup = loadReopenSessionSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: appSupportDirectory
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "session.restore.primaryUnusable path=\(primaryURL.path) " +
-                    "backupRecovered=\(backup != nil ? 1 : 0)"
-            )
-#endif
-            return backup
-        }
-    }
-
-    static func defaultSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func manualRestoreSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "-previous",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    private static func snapshotFileURL(
-        suffix: String,
-        bundleIdentifier: String?,
-        appSupportDirectory: URL?
-    ) -> URL? {
-        let resolvedAppSupport: URL
-        if let appSupportDirectory {
-            resolvedAppSupport = appSupportDirectory
-        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            resolvedAppSupport = discovered
-        } else {
-            return nil
-        }
-        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? bundleIdentifier!
-            : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
-    }
+extension AppSessionSnapshot: SessionSnapshotRepresenting {
+    /// Whether the snapshot carries at least one window. The `CmuxSession`
+    /// repository treats an empty-window snapshot as unusable (empty states
+    /// remove the file instead of writing it), matching the legacy
+    /// `!snapshot.windows.isEmpty` usability check.
+    var hasWindows: Bool { !windows.isEmpty }
 }
 
 enum SessionScrollbackReplayStore {

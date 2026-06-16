@@ -194,7 +194,7 @@ extension ControlSidebarContext {
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
-    ) -> UUID? { nil }
+    ) -> ControlSidebarPaneSplitResolution { .failed }
 
     func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
         .noTabSelected

@@ -18,10 +18,17 @@ import Testing
 
     private func makeHarness(
         user: CMUXAuthUser? = nil,
-        browserAttemptTimeout: TimeInterval = 5 * 60
+        browserAttemptTimeout: TimeInterval = 5 * 60,
+        slowSignInThreshold: TimeInterval = 30
     ) -> Harness {
         let store = FakeKeyValueStore()
-        let client = FlowFakeAuthClient(user: user)
+        // The fake client reads and clears the SAME token store the flow
+        // seeds, like production (StackAuthClient wraps the StackClientApp
+        // built over the store the callback seeds into). Split stores would
+        // hide races between the flow's seed handling and the coordinator's
+        // capture/clear sequence.
+        let tokenStore = FlowInMemoryTokenStore()
+        let client = FlowFakeAuthClient(user: user, store: tokenStore)
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
@@ -31,7 +38,6 @@ import Testing
             config: .test,
             launch: .plain()
         )
-        let tokenStore = FlowInMemoryTokenStore()
         let factory = FakeBrowserAuthSessionFactory()
         let flow = HostBrowserSignInFlow(
             coordinator: coordinator,
@@ -40,7 +46,8 @@ import Testing
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
-            browserAttemptTimeout: browserAttemptTimeout
+            browserAttemptTimeout: browserAttemptTimeout,
+            slowSignInThreshold: slowSignInThreshold
         )
         return Harness(flow: flow, coordinator: coordinator, client: client, tokenStore: tokenStore, factory: factory)
     }
@@ -192,6 +199,113 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
     }
 
+    @Test func slowSignInSurfacesBrowserFallback() async throws {
+        // A popup that never delivers a callback models the issue #6015 hang:
+        // ASWebAuthenticationSession opens its Safari window but the hosted
+        // page never redirects to cmux://auth-callback, so the user is left
+        // staring at a dead window. Past the slow threshold the flow must flip
+        // `signInIsSlow` so the account UI can offer the "open in your default
+        // browser" fallback instead of an indefinite spinner.
+        let harness = makeHarness(slowSignInThreshold: 0.05)
+        #expect(harness.flow.signInIsSlow == false)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        var becameSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow { becameSlow = true; break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(becameSlow)
+
+        // Resolving the attempt clears the slow flag so a later sign-in starts
+        // from a clean slate.
+        harness.factory.sessions[0].cancel()
+        var clearedSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow == false, harness.flow.isSigningIn == false {
+                clearedSlow = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(clearedSlow)
+    }
+
+    @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
+        let harness = makeHarness()
+        #expect(harness.flow.activeAttemptSignInURL == nil)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        let fallbackURL = harness.flow.activeAttemptSignInURL
+        #expect(fallbackURL != nil)
+        // The default-browser fallback must carry the same callback state as
+        // the popup so the cmux:// deep link routes back to THIS attempt —
+        // handleCallbackURL matches on cmux_auth_state.
+        let fallbackState = fallbackURL.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+        #expect(fallbackState == callbackState(harness.factory.sessions[0]))
+    }
+
+    @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func issuedFallbackCallbackAfterSignOutIsRejected() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+        await harness.flow.signOut()
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+    }
+
     @Test func signOutDuringCallbackValidationWins() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = makeHarness(user: user)
@@ -328,123 +442,49 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
     }
-}
 
-// MARK: - Fakes
+    @Test func signOutDuringCallbackValidationStillRevokesWithCapturedCredentials() async {
+        // flow.signOut() advances the flow's sign-out generation BEFORE the
+        // coordinator captures the teardown credentials with raw store reads.
+        // If the parked callback validation resumes inside that capture
+        // window, a flow-side seed clear runs first, the capture reads an
+        // empty store, and the best-effort server teardown (push unregister,
+        // session revocation) silently loses its credentials even though the
+        // device is online. The coordinator owns the local clear AFTER the
+        // capture; the flow must not clear the shared store underneath it.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+        await harness.client.closeUserGate()
 
-/// Scriptable ``AuthClient`` with a gate on `currentUser` so tests can hold the
-/// callback-completion round trip open while a sign-out races it.
-private actor FlowFakeAuthClient: AuthClient {
-    private var user: CMUXAuthUser?
-    private(set) var pendingUserRequests = 0
-    private var userGateClosed = false
-    private var userGateWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(user: CMUXAuthUser?) {
-        self.user = user
-    }
-
-    func closeUserGate() { userGateClosed = true }
-
-    func openUserGate() {
-        userGateClosed = false
-        let waiters = userGateWaiters
-        userGateWaiters = []
-        for waiter in waiters { waiter.resume() }
-    }
-
-    func accessToken() async -> String? { nil }
-    func refreshToken() async -> String? { nil }
-    func forceRefreshAccessToken() async -> String? { nil }
-
-    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
-        if userGateClosed {
-            pendingUserRequests += 1
-            await withCheckedContinuation { userGateWaiters.append($0) }
-            pendingUserRequests -= 1
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await waitForSession(harness.factory)
+        harness.factory.sessions[0].deliver(callbackURL(state: callbackState(harness.factory.sessions[0])))
+        while await harness.client.pendingUserRequests == 0 {
+            await Task.yield()
         }
-        return user
-    }
 
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
-    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
-    func signInWithMagicLink(code: String) async throws {}
-    func signInWithCredential(email: String, password: String) async throws {}
-    func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
-    func signOut() async throws {}
-}
+        // Sign-out parks inside its credential capture, before its local
+        // clear.
+        await harness.client.armStoredAccessTokenGate()
+        let signOut = Task { await harness.flow.signOut() }
+        await harness.client.storedAccessTokenDidPark()
 
-/// In-memory ``StackAuthTokenStoreProtocol`` fake.
-private actor FlowInMemoryTokenStore: StackAuthTokenStoreProtocol {
-    private var accessToken: String?
-    private var refreshToken: String?
+        // The parked validation resumes and fails as cancelled while
+        // sign-out is still inside the capture window.
+        await harness.client.openUserGate()
+        #expect(await attempt.value == false)
 
-    func getStoredAccessToken() async -> String? { accessToken }
-    func getStoredRefreshToken() async -> String? { refreshToken }
+        // Sign-out proceeds: capture, local-first clear, bounded revocation.
+        await harness.client.releaseStoredAccessTokenGate()
+        await signOut.value
 
-    func setTokens(accessToken: String?, refreshToken: String?) async {
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
-    }
-
-    func clearTokens() async {
-        accessToken = nil
-        refreshToken = nil
-    }
-
-    func compareAndSet(
-        compareRefreshToken: String,
-        newRefreshToken: String?,
-        newAccessToken: String?
-    ) async {
-        guard refreshToken == compareRefreshToken else { return }
-        refreshToken = newRefreshToken
-        accessToken = newAccessToken
-    }
-}
-
-/// Records created browser sessions and lets tests deliver their callbacks.
-@MainActor
-private final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
-    private(set) var sessions: [FakeBrowserAuthSession] = []
-
-    func makeSession(
-        signInURL: URL,
-        callbackScheme: String,
-        completion: @escaping @MainActor (URL?) -> Void
-    ) -> any HostBrowserAuthSession {
-        let session = FakeBrowserAuthSession(signInURL: signInURL, completion: completion)
-        sessions.append(session)
-        return session
-    }
-}
-
-/// Delivers its completion exactly once, mirroring `ASWebAuthenticationSession`.
-@MainActor
-private final class FakeBrowserAuthSession: HostBrowserAuthSession {
-    let signInURL: URL
-    var deliverCancelCompletion = true
-    private let completion: @MainActor (URL?) -> Void
-    private var completed = false
-    private(set) var cancelled = false
-
-    init(signInURL: URL, completion: @escaping @MainActor (URL?) -> Void) {
-        self.signInURL = signInURL
-        self.completion = completion
-    }
-
-    func start() -> Bool { true }
-
-    func cancel() {
-        cancelled = true
-        if deliverCancelCompletion {
-            deliver(nil)
-        }
-    }
-
-    func deliver(_ url: URL?) {
-        guard !completed else { return }
-        completed = true
-        completion(url)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        // The teardown must authenticate as the signed-out session.
+        let revoked = await harness.client.revokedCredentials
+        #expect(revoked.count == 1)
+        #expect(revoked.first?.access == "access-1")
+        #expect(revoked.first?.refresh == "refresh-1")
     }
 }

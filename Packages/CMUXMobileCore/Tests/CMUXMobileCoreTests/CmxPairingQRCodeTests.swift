@@ -42,7 +42,10 @@ import Testing
             try tailscaleRoute(index: 0, host: "100.64.0.5"),
         ])
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
+        // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
+        // to its build. The rest of the URL is identical across channels.
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -72,6 +75,41 @@ import Testing
         #expect(decoded.routes.map(\.priority) == [10, 20])
     }
 
+    @Test func roundTripsUserIDAndBuildMetadataWithoutExposingEmail() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-device-uuid",
+            macDisplayName: "Lawrence's Mac",
+            macUserEmail: "Lawrence@Example.com",
+            macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: 1,
+            macAppVersion: "0.64.15",
+            macAppBuild: "42",
+            routes: [
+                try tailscaleRoute(index: 0, host: "100.64.0.5"),
+            ],
+            expiresAt: Date().addingTimeInterval(600),
+            authToken: "minted-but-never-in-the-qr"
+        )
+
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(url.contains("ub=user_mac_123"))
+        #expect(!url.contains("Lawrence@Example.com"))
+        #expect(!url.lowercased().contains("lawrence@example.com"))
+        #expect(url.contains("pc=1"))
+        #expect(url.contains("av=0.64.15"))
+        #expect(url.contains("ab=42"))
+
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
+        #expect(decoded.macAppVersion == "0.64.15")
+        #expect(decoded.macAppBuild == "42")
+        #expect(decoded.routes == ticket.routes)
+    }
+
     @Test func roundTripsIPv6LiteralThroughRealURLParsing() throws {
         let route = try tailscaleRoute(index: 0, host: "fd7a:115c:a1e0::1")
         let ticket = try pairingTicket(routes: [route])
@@ -96,7 +134,7 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
     }

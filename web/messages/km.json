@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "បើកដំណើរ cmux integration hooks សម្រាប់ Amp។ ពេលបិទ កម្មវិធីបន្ថែមដែលរួមបញ្ចូលនឹងនៅអសកម្ម ដោយមិនចាំបាច់ដកវាចេញ។",
-          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
+          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
+          "workspaceAutoNaming": "ការដាក់ឈ្មោះស្វ័យប្រវត្តិដោយ AI សម្រាប់កន្លែងធ្វើការ និងផ្ទាំងនានា ពីខ្លឹមសារសន្ទនារបស់ភ្នាក់ងារ (ជាជម្រើស)។ នៅពេលបើកដំណើរការ cmux នឹងសង្ខេបវគ្គភ្នាក់ងារដែលគាំទ្រទៅជាចំណងជើងខ្លីៗ ដោយប្រើប្រាស់ binary ផ្ទាល់របស់ភ្នាក់ងារនីមួយៗ; ការប្ដូរឈ្មោះដោយដៃតែងតែមានអាទិភាពជានិច្ច។",
+          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។"
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
+          "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
+        },
+        "fileExplorer": {
+          "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
+          "doubleClickAction": "កំណត់អ្វីដែលកើតឡើងពេលចុចពីរដង (ឬចុច Return លើលទ្ធផលស្វែងរក) លើឯកសារនៅក្នុងកម្មវិធីរុករកឯកសារ។ `preview` បើកការមើលជាមុនឯកសារ cmux ដែលភ្ជាប់មកជាមួយ (ជាលំនាំដើម និងជាឥរិយាបថចាស់)។ `defaultEditor` បើកដោយប្រើកម្មវិធីលំនាំដើមរបស់ macOS សម្រាប់ប្រភេទឯកសារនោះ។ `preferredEditor` បើកដោយប្រើពាក្យបញ្ជា `app.preferredEditor` ហើយត្រឡប់ទៅកម្មវិធីលំនាំដើម ប្រសិនបើមិនបានកំណត់។ អនុវត្តតែលើឯកសារ; ថតតែងតែពង្រីក/បង្រួម ហើយកម្មវិធីរុករកឯកសារដែលមិនមែនក្នុងមូលដ្ឋាន (ពីចម្ងាយ) តែងតែបើកការមើលជាមុនរបស់ cmux។"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។"
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "ចុចពីរដងលើឯកសារ៖ preview (លំនាំដើម), defaultEditor (កម្មវិធីលំនាំដើមរបស់ macOS), ឬ preferredEditor (ពាក្យបញ្ជា app.preferredEditor)។",
       "shortcutsWhenIntro": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា when រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ ការចងនឹងដំណើរការ — និងទាស់ជាមួយការចងផ្សេងទៀតលើការចុចដូចគ្នា — តែពេលឃ្លារបស់វាពិតប៉ុណ្ណោះ។ បើមិនដាក់ឃ្លា សកម្មភាពនឹងរក្សាបរិបទដើមរបស់វា។ វាក្យសព្ទក្នុងឃ្លា៖",
       "shortcutsWhenBooleanKeys": "គន្លឹះ boolean។ គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false ហើយក៏អាចប្រើ true និង false ផងដែរ។",
       "shortcutsWhenTypedKeys": "គន្លឹះមានប្រភេទសម្រាប់ការប្រៀបធៀប៖ មុខងារសកម្មរបស់របារចំហៀងស្តាំ (ខ្សែអក្សរ) និងចំនួនផ្ទាំង និង workspace (ចំនួនគត់)។",
@@ -922,6 +934,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface គឺជាផ្ទាំងក្នុងបន្ទះ។",
         "splitPanes": "បន្ទះបំបែក",
+        "canvas": "ផ្ទាំងក្រណាត់",
+        "canvasBlurb": "របៀបប្លង់ 2D សេរីដែលផ្ទាំងអណ្តែតលើផ្ទាំងក្រណាត់គ្មានដែនកំណត់ដែលអាចរំកិលបាន។ ពាក្យបញ្ជាតម្រឹមនិងចែកចាយមាននៅក្នុងបន្ទះពាក្យបញ្ជា។",
         "browser": "កម្មវិធីរុករក",
         "notifications": "ជូនដំណឹង",
         "find": "ស្វែងរក",
