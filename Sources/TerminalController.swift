@@ -5194,15 +5194,10 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        // Quit/session-save snapshots can visit many terminal surfaces. The VT
-        // file-export path preserves styling but serializes every surface through
-        // a slow binding action; the in-process Ghostty text read keeps recent
-        // scrollback content bounded enough for large workspaces.
         readTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
-            lineLimit: lineLimit,
-            allowVTExport: false
+            lineLimit: lineLimit, allowVTExport: false
         )
     }
 
