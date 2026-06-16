@@ -20,6 +20,9 @@ final class AgentSessionWebRendererSession {
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
         workingDirectory: String?,
+        guiModePage: GuiModePanelPage,
+        guiModePrompt: String?,
+        guiModeProviderID: GuiModeProviderID,
         theme: AgentSessionWebTheme,
         isFocused: Bool
     ) -> AgentSessionWebRendererCoordinator {
@@ -29,6 +32,9 @@ final class AgentSessionWebRendererSession {
             rendererKind: rendererKind,
             initialProviderID: initialProviderID,
             workingDirectory: workingDirectory,
+            guiModePage: guiModePage,
+            guiModePrompt: guiModePrompt,
+            guiModeProviderID: guiModeProviderID,
             theme: theme,
             isFocused: isFocused
         )

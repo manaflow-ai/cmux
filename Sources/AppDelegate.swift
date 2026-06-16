@@ -7145,16 +7145,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         debugSource: debugSource,
                         replacingInitialWorkspace: initialWorkspace
                     )
-                case .browser:
-                    // The fresh window boots with a terminal workspace; add the
-                    // browser workspace and close that initial one so the
-                    // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .browser)
+                case .browser, .guiMode:
+                    let workspace = context.tabManager.addWorkspace(initialSurface: initialSurface)
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
                     )
-                    focusInitialBrowserAddressBar(in: workspace)
+                    if initialSurface == .browser {
+                        focusInitialBrowserAddressBar(in: workspace)
+                    }
                 }
             }
             return true
@@ -7850,8 +7849,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(initialSurface: .browser, select: true)
+        if initialSurface.createsDedicatedWorkspace {
+            workspace = context.tabManager.addWorkspace(initialSurface: initialSurface, select: true)
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
                 workingDirectory: workingDirectory,

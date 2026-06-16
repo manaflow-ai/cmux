@@ -1,0 +1,374 @@
+.gui-mode-root {
+  min-height: 100vh;
+  color: var(--agent-text);
+  background:
+    linear-gradient(180deg, rgba(14, 17, 18, 0.28), rgba(14, 17, 18, 0.06)),
+    var(--agent-page-bg);
+}
+
+.gui-mode-home {
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: 24px;
+}
+
+.gui-mode-chat-shell {
+  display: grid;
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+  gap: 14px;
+  width: min(860px, 100%);
+  min-height: min(760px, calc(100vh - 48px));
+}
+
+.gui-mode-center-stack {
+  width: 100%;
+}
+
+.gui-mode-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.gui-mode-title {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-composer {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.gui-mode-editor {
+  padding: 16px 14px 0;
+}
+
+.gui-mode-chat-thread {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 14px;
+  min-height: 260px;
+  padding: 8px 2px;
+}
+
+.gui-mode-chat-turn {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+}
+
+.gui-mode-chat-turn-assistant {
+  align-items: flex-start;
+}
+
+.gui-mode-chat-turn-user {
+  justify-content: flex-end;
+}
+
+.gui-mode-chat-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 34%, var(--agent-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 10%, var(--agent-surface));
+}
+
+.gui-mode-chat-message {
+  min-width: 0;
+  max-width: min(680px, 86%);
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.gui-mode-assistant-message {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 10%, transparent), transparent),
+    color-mix(in srgb, var(--agent-surface) 86%, transparent);
+}
+
+.gui-mode-user-message {
+  border-color: color-mix(in srgb, var(--agent-text) 16%, var(--agent-border));
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+
+.gui-mode-chat-message-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.gui-mode-chat-agent-name {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-chat-agent-support {
+  flex: none;
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 76%, var(--agent-text));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.gui-mode-chat-message-text {
+  color: color-mix(in srgb, var(--agent-text) 88%, var(--agent-muted));
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.gui-mode-chat-user-label {
+  margin-bottom: 5px;
+  color: var(--agent-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.gui-mode-runtime-pill {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 48%, var(--agent-border));
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 76%, var(--agent-text));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-provider-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gui-provider-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gui-provider-accent) 18%, transparent);
+}
+
+.gui-mode-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px;
+}
+
+.gui-mode-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gui-mode-submit {
+  border-radius: 8px;
+  min-width: 76px;
+  justify-content: center;
+}
+
+.gui-mode-error {
+  min-height: 18px;
+  padding: 0 12px 8px;
+  color: var(--agent-danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.gui-mode-agent-select-shell {
+  --gui-provider-accent: var(--agent-accent);
+  display: inline-grid;
+  grid-template-columns: 8px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 230px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent) 32%, var(--agent-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-surface) 82%, transparent);
+  padding: 0 7px;
+}
+
+.gui-mode-agent-select-label {
+  color: var(--agent-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.gui-mode-agent-select {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+.gui-mode-command-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.gui-mode-command-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gui-mode-command-label {
+  color: var(--agent-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.gui-mode-command-code {
+  min-width: 0;
+  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-status {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--agent-muted);
+}
+
+.gui-mode-task {
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.gui-mode-task-chat {
+  display: grid;
+  align-items: stretch;
+}
+
+.gui-mode-task-shell {
+  width: 100%;
+  min-height: calc(100vh - 40px);
+}
+
+.gui-mode-task-thread {
+  justify-content: flex-start;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 20%, var(--agent-border));
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 8%, transparent), transparent 42%),
+    color-mix(in srgb, var(--agent-surface) 70%, transparent);
+  padding: 16px;
+}
+
+.gui-mode-task-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gui-mode-task-chip {
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 24%, var(--agent-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 7%, transparent);
+  color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-muted));
+  font-size: 11px;
+  line-height: 15px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.gui-mode-task-command-row {
+  margin-top: 2px;
+  border-top: 1px solid var(--agent-border);
+  padding-top: 10px;
+}
+
+.gui-mode-task-command {
+  color: color-mix(in srgb, var(--agent-text) 82%, var(--agent-muted));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .gui-mode-home {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .gui-mode-chat-shell {
+    min-height: calc(100vh - 32px);
+  }
+
+  .gui-mode-topline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gui-mode-runtime-pill {
+    justify-self: start;
+  }
+
+  .gui-mode-command-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gui-mode-footer {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .gui-mode-footer-left {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gui-mode-agent-select-shell,
+  .gui-mode-chat-message {
+    max-width: 100%;
+  }
+}

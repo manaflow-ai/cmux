@@ -42,6 +42,10 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.gui_mode.open":
+            return debugGuiModeOpen()
+        case "debug.gui_mode.submit":
+            return debugGuiModeSubmit(request.params)
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":

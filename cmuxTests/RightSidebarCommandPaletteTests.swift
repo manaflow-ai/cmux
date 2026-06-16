@@ -1,3 +1,4 @@
+import Darwin
 import CmuxCommandPalette
 import Foundation
 import XCTest
@@ -9,6 +10,204 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    private struct ProcessRunResult {
+        let status: Int32
+        let stdout: String
+        let timedOut: Bool
+    }
+
+    func testCommandPaletteIncludesGuiModeCommand() throws {
+        let contributions = ContentView.commandPaletteViewCommandContributions()
+        let contribution = try XCTUnwrap(
+            contributions.first { $0.commandId == GuiModeWorkspaceCoordinator.commandPaletteCommandId }
+        )
+
+        XCTAssertTrue(contribution.keywords.contains("gui"))
+        XCTAssertTrue(contribution.keywords.contains("worktree"))
+    }
+
+    func testGuiModeTaskPromptShellQuotingKeepsMetacharactersLiteral() {
+        let cases = [
+            ("", "''"),
+            ("   ", "'   '"),
+            ("build Lawrence's thing", "'build Lawrence'\\''s thing'"),
+            ("`uname`", "'`uname`'"),
+            ("$HOME", "'$HOME'"),
+            ("line one\nline two", "'line one\nline two'"),
+            (#"back\slash"#, #"'back\slash'"#),
+            (#""quoted""#, "'\"quoted\"'"),
+        ]
+
+        for (input, expected) in cases {
+            XCTAssertEqual(GuiModeWorkspaceCoordinator.shellQuoted(input), expected)
+        }
+    }
+
+    func testGuiModeTaskWorkspaceTitleCollapsesWhitespace() {
+        XCTAssertEqual(
+            GuiModeWorkspaceCoordinator.taskWorkspaceTitle(prompt: "  build\n\tthe   provider  UI  "),
+            "GUI: build the provider UI"
+        )
+    }
+
+    func testGuiModeProviderCatalogMatchesHookedAgents() {
+        XCTAssertEqual(
+            GuiModeProviderID.allCases.map(\.rawValue),
+            [
+                "codex",
+                "claude",
+                "opencode",
+                "grok",
+                "pi",
+                "omp",
+                "amp",
+                "cursor",
+                "gemini",
+                "kiro",
+                "antigravity",
+                "rovodev",
+                "hermes-agent",
+                "copilot",
+                "codebuddy",
+                "factory",
+                "qoder",
+            ]
+        )
+
+        for provider in GuiModeProviderID.allCases {
+            XCTAssertFalse(provider.displayName.isEmpty)
+            XCTAssertFalse(provider.detail.isEmpty)
+            XCTAssertFalse(provider.supportLabel.isEmpty)
+            XCTAssertTrue(provider.accentColor.hasPrefix("#"))
+            XCTAssertEqual(provider.accentColor.count, 7)
+            XCTAssertFalse(provider.setupCommand.isEmpty)
+            XCTAssertFalse(provider.taskCommandPreview.isEmpty)
+            XCTAssertFalse(provider.capabilityLabels.isEmpty)
+        }
+    }
+
+    func testGuiModeHookBackedProvidersMatchBundledCLIHookAgents() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agents", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let agents = try XCTUnwrap(object["agents"] as? [[String: Any]])
+        let agentsByName = Dictionary(uniqueKeysWithValues: agents.compactMap { agent -> (String, [String: Any])? in
+            guard let name = agent["name"] as? String else { return nil }
+            return (name, agent)
+        })
+        let guiHookBackedProviderIDs = GuiModeProviderID.allCases
+            .filter { $0 != .claude }
+            .map(\.rawValue)
+
+        XCTAssertEqual(Set(agentsByName.keys), Set(guiHookBackedProviderIDs))
+        for provider in GuiModeProviderID.allCases where provider != .claude {
+            let agent = try XCTUnwrap(agentsByName[provider.rawValue], provider.rawValue)
+            XCTAssertEqual(agent["installCommand"] as? String, provider.setupCommand, provider.rawValue)
+            XCTAssertEqual(agent["displayName"] as? String, provider.displayName, provider.rawValue)
+            XCTAssertFalse((agent["statusKey"] as? String ?? "").isEmpty, provider.rawValue)
+        }
+    }
+
+    func testGuiModeTaskCommandIncludesProviderForEveryAgent() {
+        for provider in GuiModeProviderID.allCases {
+            XCTAssertEqual(
+                GuiModeWorkspaceCoordinator.taskWorktreePRCommand(
+                    prompt: "build Lawrence's thing",
+                    providerID: provider
+                ),
+                "/task-worktree-pr --provider \(provider.rawValue) 'build Lawrence'\\''s thing'"
+            )
+        }
+    }
+
+    @MainActor
+    func testGuiModeTaskWorkspaceInitialStateBootsTaskPanelForEveryProvider() throws {
+        for provider in GuiModeProviderID.allCases {
+            let manager = TabManager()
+            let prompt = "Build a provider catalog smoke test with \(provider.rawValue)"
+
+            let workspace = manager.addWorkspace(
+                title: "GUI task \(provider.rawValue)",
+                initialSurface: .guiMode,
+                initialGuiModeState: .taskWorktreePR(prompt: prompt, providerID: provider),
+                autoRefreshMetadata: false
+            )
+
+            XCTAssertEqual(manager.selectedTabId, workspace.id, provider.rawValue)
+            XCTAssertEqual(workspace.panels.count, 1, provider.rawValue)
+            let guiPanel = try XCTUnwrap(workspace.panels.values.first as? AgentSessionPanel, provider.rawValue)
+            XCTAssertEqual(guiPanel.rendererKind, .guiMode, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModePage, .taskWorktreePR, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModePrompt, prompt, provider.rawValue)
+            XCTAssertEqual(guiPanel.guiModeProviderID, provider, provider.rawValue)
+            XCTAssertFalse(guiPanel.workingDirectory?.isEmpty ?? true, provider.rawValue)
+            XCTAssertEqual(
+                guiPanel.displayTitle,
+                String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr"),
+                provider.rawValue
+            )
+
+            XCTAssertEqual(workspace.bonsplitController.allTabIds.count, 1, provider.rawValue)
+        }
+    }
+
+    @MainActor
+    func testGuiModeContextPayloadIncludesEveryProviderSnapshotField() throws {
+        let payload = AgentSessionWebRendererCoordinator.guiModeContextPayload(
+            page: .home,
+            prompt: nil,
+            selectedProviderID: .qoder
+        )
+
+        XCTAssertEqual(payload["selectedProviderId"] as? String, "qoder")
+        let providers = try XCTUnwrap(payload["providers"] as? [[String: Any]])
+        XCTAssertEqual(providers.map { $0["id"] as? String }, GuiModeProviderID.allCases.map(\.rawValue))
+
+        for provider in providers {
+            XCTAssertNotNil(provider["displayName"] as? String)
+            XCTAssertNotNil(provider["accentColor"] as? String)
+            XCTAssertNotNil(provider["detail"] as? String)
+            XCTAssertNotNil(provider["runtimeMode"] as? String)
+            XCTAssertNotNil(provider["supportLabel"] as? String)
+            XCTAssertNotNil(provider["setupCommand"] as? String)
+            XCTAssertNotNil(provider["taskCommandPreview"] as? String)
+            XCTAssertFalse((provider["capabilities"] as? [String] ?? []).isEmpty)
+        }
+        let copy = try XCTUnwrap(payload["copy"] as? [String: String])
+        for key in [
+            "errorMessage",
+            "homeTitle",
+            "noProvidersFound",
+            "promptPlaceholder",
+            "providerLabel",
+            "providerSearchPlaceholder",
+            "runtimeLabel",
+            "setupCommandLabel",
+            "submit",
+            "submitting",
+            "taskCommandLabel",
+            "taskPromptLabel",
+            "taskTitle",
+        ] {
+            XCTAssertFalse(copy[key]?.isEmpty ?? true, key)
+        }
+    }
+
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -89,5 +288,53 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func bundledCLIPath() throws -> String {
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+    }
+
+    private func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+
+        return ProcessRunResult(
+            status: process.terminationStatus,
+            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
     }
 }

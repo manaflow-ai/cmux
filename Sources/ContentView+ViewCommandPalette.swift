@@ -6,6 +6,12 @@ extension ContentView {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
+        func localizedKeywordList(_ value: String) -> [String] {
+            value
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
 
         return [
             CommandPaletteCommandContribution(
@@ -20,6 +26,17 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
                 keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: GuiModeWorkspaceCoordinator.commandPaletteCommandId,
+                title: constant(String(localized: "guiMode.command.enable.title", defaultValue: "Enable GUI Mode")),
+                subtitle: constant(String(localized: "guiMode.command.enable.subtitle", defaultValue: "Workspace")),
+                keywords: localizedKeywordList(
+                    String(
+                        localized: "guiMode.command.enable.keywords",
+                        defaultValue: "gui,mode,homepage,task,worktree,pr"
+                    )
+                )
+            ),
         ]
     }
 
@@ -30,5 +47,99 @@ extension ContentView {
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
         }
+        registry.register(commandId: GuiModeWorkspaceCoordinator.commandPaletteCommandId) {
+            GuiModeWorkspaceCoordinator.createHomeWorkspace(in: tabManager)
+        }
+    }
+}
+
+enum GuiModeWorkspaceCoordinator {
+    static let commandPaletteCommandId = "palette.enableGuiMode"
+
+    @discardableResult
+    @MainActor
+    static func createHomeWorkspace(in tabManager: TabManager) -> Workspace {
+        tabManager.addWorkspace(
+            title: String(localized: "guiMode.workspace.home.title", defaultValue: "GUI Mode"),
+            initialSurface: .guiMode,
+            select: true,
+            autoRefreshMetadata: false
+        )
+    }
+
+    @discardableResult
+    @MainActor
+    static func createTaskWorkspace(
+        prompt: String,
+        providerID: GuiModeProviderID,
+        sourcePanelId: UUID,
+        preferredWorkspaceId: UUID
+    ) throws -> Workspace {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw AgentSessionBridgeError.missingParameter("prompt")
+        }
+        guard let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                panelId: sourcePanelId,
+                preferredWorkspaceId: preferredWorkspaceId
+              ) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+
+        let title = taskWorkspaceTitle(prompt: trimmedPrompt)
+        let workspace = location.tabManager.addWorkspace(
+            title: title,
+            workingDirectory: location.workspace.currentDirectory,
+            initialSurface: .guiMode,
+            initialGuiModeState: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID),
+            inheritWorkingDirectory: false,
+            select: true,
+            autoRefreshMetadata: false
+        )
+
+        guard let guiPanel = workspace.panels.values.compactMap({ $0 as? AgentSessionPanel }).first(where: {
+            $0.rendererKind == .guiMode
+        }) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+
+        guard let guiPaneId = workspace.paneId(forPanelId: guiPanel.id) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        let initialInput = taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
+        guard workspace.splitPaneWithNewTerminal(
+            targetPane: guiPaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: location.workspace.currentDirectory,
+            initialInput: initialInput
+        ) != nil else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        return workspace
+    }
+
+    static func taskWorktreePRCommand(prompt: String, providerID: GuiModeProviderID) -> String {
+        "/task-worktree-pr --provider \(providerID.rawValue) \(shellQuoted(prompt))"
+    }
+
+    static func taskWorkspaceTitle(prompt: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        let summary = String(normalized.prefix(48))
+        guard !summary.isEmpty else {
+            return String(localized: "guiMode.workspace.task.title", defaultValue: "GUI Task")
+        }
+        return String(
+            format: String(localized: "guiMode.workspace.task.format", defaultValue: "GUI: %@"),
+            summary
+        )
+    }
+
+    static func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }

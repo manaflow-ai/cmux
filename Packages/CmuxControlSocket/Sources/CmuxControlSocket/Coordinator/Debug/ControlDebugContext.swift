@@ -1,5 +1,14 @@
 public import Foundation
 
+#if DEBUG
+public enum ControlDebugGuiModeSubmitResolution: Equatable, Sendable {
+    case created(workspaceID: UUID)
+    case invalidProvider(String)
+    case sourceNotFound
+    case unavailable
+}
+#endif
+
 /// The debug/test-only-domain slice of the control-command seam (a constituent
 /// of the ``ControlCommandContext`` umbrella).
 ///
@@ -56,6 +65,25 @@ public protocol ControlDebugContext: AnyObject {
     ///
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
+
+    /// Opens the GUI mode workspace through the app's shared action path for
+    /// `debug.gui_mode.open`.
+    ///
+    /// - Returns: The created workspace id, or `nil` if no tab manager is
+    ///   available.
+    func controlDebugOpenGuiModeWorkspace() -> UUID?
+
+    /// Submits a GUI-mode task through the app's shared task-workspace creation
+    /// path for `debug.gui_mode.submit`.
+    ///
+    /// - Parameters:
+    ///   - prompt: The task prompt.
+    ///   - providerID: The optional provider id, or `nil` for the default.
+    /// - Returns: The task workspace creation outcome.
+    func controlDebugSubmitGuiModeTask(
+        prompt: String,
+        providerID: String?
+    ) -> ControlDebugGuiModeSubmitResolution
 
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
