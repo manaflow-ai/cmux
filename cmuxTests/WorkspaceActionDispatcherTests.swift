@@ -27,9 +27,42 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
                 )
             )
         )
+        let workspacesById = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
+        let indexedState = try XCTUnwrap(
+            WorkspaceActionDispatcher.pinState(
+                workspacesById: workspacesById,
+                target: WorkspaceActionDispatcher.Target(
+                    workspaceIds: [workspace.id],
+                    anchorWorkspaceId: workspace.id
+                )
+            )
+        )
 
         XCTAssertEqual(singleState, sidebarState)
+        XCTAssertEqual(singleState, indexedState)
         XCTAssertEqual(singleState.pinned, !workspace.isPinned)
+    }
+
+    func testIndexedPinStateFiltersStaleAndDuplicateTargets() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace()
+        let stale = UUID()
+        let workspacesById = Dictionary(uniqueKeysWithValues: manager.tabs.map { ($0.id, $0) })
+
+        let state = try XCTUnwrap(
+            WorkspaceActionDispatcher.pinState(
+                workspacesById: workspacesById,
+                target: WorkspaceActionDispatcher.Target(
+                    workspaceIds: [stale, second.id, second.id, first.id],
+                    anchorWorkspaceId: stale
+                )
+            )
+        )
+
+        XCTAssertEqual(state.targetWorkspaceIds, [second.id, first.id])
+        XCTAssertEqual(state.anchorWorkspaceId, second.id)
+        XCTAssertEqual(state.pinned, !second.isPinned)
     }
 
     func testPinActionPinsMultipleTargetsFromAnchorState() throws {

@@ -12276,7 +12276,7 @@ struct VerticalTabsSidebar: View {
             anchorWorkspaceId: tab.id
         )
         let contextMenuPinState = WorkspaceActionDispatcher.pinState(
-            in: tabManager,
+            workspacesById: renderContext.workspaceById,
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)

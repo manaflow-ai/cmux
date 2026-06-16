@@ -33,7 +33,15 @@ enum WorkspaceActionDispatcher {
         target: Target
     ) -> PinState? {
         let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
-        let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: target.workspaceIds)
+        return pinState(workspacesById: workspacesById, target: target)
+    }
+
+    @MainActor
+    static func pinState(
+        workspacesById: [UUID: Workspace],
+        target: Target
+    ) -> PinState? {
+        let targetWorkspaceIds = liveWorkspaceIds(workspacesById: workspacesById, from: target.workspaceIds)
         guard !targetWorkspaceIds.isEmpty else { return nil }
 
         let anchorWorkspaceId = target.anchorWorkspaceId.flatMap { anchorId in
@@ -67,7 +75,8 @@ enum WorkspaceActionDispatcher {
         _ state: PinState,
         in tabManager: TabManager
     ) -> PinResult {
-        let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: state.targetWorkspaceIds)
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
+        let targetWorkspaceIds = liveWorkspaceIds(workspacesById: workspacesById, from: state.targetWorkspaceIds)
         let changedWorkspaceIds = tabManager.setPinned(
             workspaceIds: targetWorkspaceIds,
             pinned: state.pinned
@@ -81,15 +90,14 @@ enum WorkspaceActionDispatcher {
     }
 
     @MainActor
-    private static func liveWorkspaceIds(
-        in tabManager: TabManager,
+    static func liveWorkspaceIds(
+        workspacesById: [UUID: Workspace],
         from workspaceIds: [UUID]
     ) -> [UUID] {
         var seen = Set<UUID>()
-        let liveIds = Set(tabManager.tabs.map(\.id))
         var resolved: [UUID] = []
 
-        for workspaceId in workspaceIds where liveIds.contains(workspaceId) && !seen.contains(workspaceId) {
+        for workspaceId in workspaceIds where workspacesById[workspaceId] != nil && !seen.contains(workspaceId) {
             seen.insert(workspaceId)
             resolved.append(workspaceId)
         }
