@@ -234,7 +234,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
+    func testWorkspaceToolbarCreatesTerminalAndWorkspace() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
@@ -242,7 +242,21 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
+        // The prominent top-bar "+" adds a terminal to the CURRENT workspace
+        // (the intuitive expectation from TestFlight feedback), not a brand-new
+        // workspace. workspace-main seeds two terminals, so the new one is #3.
+        tap(app.buttons["MobileTerminalNewTerminalButton"], in: app)
+        await assertHostSelection(
+            workspaceID: "workspace-main",
+            terminalID: "workspace-main-terminal-3",
+            server: server
+        )
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("workspace-main-terminal-3", in: app)
+
+        // Creating a whole new workspace lives in the picker menu.
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
             terminalID: "workspace-3-terminal-1",
@@ -251,15 +265,6 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
-        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        await assertHostSelection(
-            workspaceID: "workspace-3",
-            terminalID: "workspace-3-terminal-2",
-            server: server
-        )
-
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
     }
 
     @MainActor

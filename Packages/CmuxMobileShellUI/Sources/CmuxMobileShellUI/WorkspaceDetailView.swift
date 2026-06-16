@@ -153,7 +153,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
-                newWorkspaceToolbarButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -250,7 +250,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
-                newWorkspaceToolbarButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -363,7 +363,7 @@ struct WorkspaceDetailView: View {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
-                newWorkspaceToolbarButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -388,17 +388,21 @@ struct WorkspaceDetailView: View {
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
-        newWorkspaceToolbarButton
+        newTerminalToolbarButton
         terminalPickerToolbarButton
     }
 
-    private var newWorkspaceToolbarButton: some View {
-        Button(action: createWorkspaceFromToolbar) {
-            Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+    /// The prominent top-bar "+" adds a terminal to the *current* workspace,
+    /// matching the intuitive expectation (TestFlight feedback: a "+" next to
+    /// the terminal should make another terminal here, not spin up a whole new
+    /// workspace). Creating a new workspace lives in the picker menu instead.
+    private var newTerminalToolbarButton: some View {
+        Button(action: createTerminalFromToolbar) {
+            Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
                 .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
+        .accessibilityIdentifier("MobileTerminalNewTerminalButton")
     }
 
     // The picker is a native SwiftUI `Menu`, which renders as the platform menu
