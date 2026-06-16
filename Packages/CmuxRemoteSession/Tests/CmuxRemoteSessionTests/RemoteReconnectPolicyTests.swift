@@ -103,7 +103,11 @@ struct RemoteReconnectPolicyTests {
     }
 }
 
-@Suite("RemoteHostReachabilityProbe")
+// `.serialized` for the same reason as the other real-subprocess suites: the
+// `resolveEndpoint` cases shell out to `/usr/bin/ssh -G` with `Process`/`Pipe`,
+// and the TCP-probe cases open real sockets, so they share the process-global
+// fd table. See ``remoteSubprocessTestLock``.
+@Suite("RemoteHostReachabilityProbe", .serialized)
 struct RemoteHostReachabilityProbeTests {
     @Test("Parses hostname, port, and proxy fields from ssh -G output")
     func parsesSSHConfigOutput() {
@@ -158,6 +162,10 @@ struct RemoteHostReachabilityProbeTests {
 
     @Test("ProxyCommand destinations cannot be probed directly")
     func proxyCommandResolvesToNil() {
+        // Serialize the real `ssh -G` subprocess against the other fd-table
+        // suites; see ``remoteSubprocessTestLock``.
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         // sshConfigFile pins resolution to an empty config so the test stays
         // hermetic against the developer/CI user's ~/.ssh/config.
         let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
@@ -172,6 +180,10 @@ struct RemoteHostReachabilityProbeTests {
 
     @Test("Resolves a direct destination's endpoint via ssh -G")
     func resolvesDirectEndpoint() throws {
+        // Serialize the real `ssh -G` subprocess against the other fd-table
+        // suites; see ``remoteSubprocessTestLock``.
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
         let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 2222,

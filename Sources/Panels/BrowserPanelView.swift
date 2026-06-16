@@ -1,4 +1,7 @@
 import Bonsplit
+import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import WebKit
 import AppKit
@@ -422,10 +425,10 @@ struct BrowserPanelView: View {
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
-    @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
-    @AppStorage(BrowserSearchSettings.customSearchEngineNameKey) private var customSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
-    @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var customSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
+    @AppStorage(BrowserSearchSettingsStore.customSearchEngineNameKey) private var customSearchEngineName = BrowserSearchSettingsStore.defaultCustomSearchEngineName
+    @AppStorage(BrowserSearchSettingsStore.customSearchEngineURLTemplateKey) private var customSearchEngineURLTemplate = BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate
+    @AppStorage(BrowserSearchSettingsStore.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
@@ -438,6 +441,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
@@ -520,7 +524,7 @@ struct BrowserPanelView: View {
     }
 
     private var searchConfiguration: BrowserSearchConfiguration {
-        BrowserSearchSettings.configuration(
+        BrowserSearchSettingsStore().configuration(
             engineRaw: searchEngineRaw,
             customName: customSearchEngineName,
             customURLTemplate: customSearchEngineURLTemplate
@@ -530,7 +534,7 @@ struct BrowserPanelView: View {
     private var searchSuggestionsEnabled: Bool {
         // Touch @AppStorage so SwiftUI invalidates this view when settings change.
         _ = searchSuggestionsEnabledStorage
-        return BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: .standard)
+        return BrowserSearchSettingsStore(defaults: .standard).currentSearchSuggestionsEnabled
     }
 
     private var remoteSuggestionsEnabled: Bool {
@@ -799,7 +803,15 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
-            (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
+            (ShortcutHintDebugSettings().alwaysShowHints || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
+    }
+
+    private func startFocusModeShortcutHintMonitorIfNeeded() {
+        if showModifierHoldHints {
+            focusModeShortcutHintMonitor.start()
+        } else {
+            focusModeShortcutHintMonitor.stop()
+        }
     }
 
     private func handleBrowserPanelAppear() {
@@ -827,7 +839,7 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
-        focusModeShortcutHintMonitor.start()
+        startFocusModeShortcutHintMonitorIfNeeded()
     }
 
     /// Runs the view-state initialization that should happen on first appearance,
@@ -1194,6 +1206,9 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            startFocusModeShortcutHintMonitorIfNeeded()
+        }
     }
 
     var body: some View {
@@ -1269,8 +1284,8 @@ struct BrowserPanelView: View {
             }
         }
         .background(
-            WindowAccessor { window in
-                focusModeShortcutHintMonitor.setHostWindow(window)
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
         )
         .background {
@@ -1741,15 +1756,8 @@ struct BrowserPanelView: View {
                 onTap: {
                     handleOmnibarTap()
                 },
-                onSubmit: {
-                    if canHandleOmnibarSuggestionInteraction() {
-                        commitSelectedSuggestion()
-                    } else {
-                        panel.navigateSmart(omnibarState.buffer)
-                        hideSuggestions()
-                        suppressNextFocusLostRevert = true
-                        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
-                    }
+                onSubmit: { liveField in
+                    handleOmnibarSubmit(liveField: liveField)
                 },
                 onEscape: {
                     handleOmnibarEscape()
@@ -2521,6 +2529,30 @@ struct BrowserPanelView: View {
         suggestionTask?.cancel()
         suggestionTask = nil
         isLoadingRemoteSuggestions = false
+    }
+
+    private func handleOmnibarSubmit(liveField: OmnibarLiveFieldSnapshot?) {
+        let decision = omnibarSubmitDecision(
+            liveField: liveField,
+            state: omnibarState,
+            inlineCompletion: inlineCompletion,
+            canInteractWithSuggestions: canHandleOmnibarSuggestionInteraction()
+        )
+        switch decision {
+        case .commitSelectedSuggestion:
+            commitSelectedSuggestion()
+        case .navigate(let text):
+            if text != omnibarState.buffer {
+                // Reconcile the reducer with the live field before navigating so
+                // blur and URL-change handling see the text that was submitted.
+                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+                applyOmnibarEffects(effects)
+            }
+            panel.navigateSmart(text)
+            hideSuggestions()
+            suppressNextFocusLostRevert = true
+            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+        }
     }
 
     private func commitSelectedSuggestion() {
@@ -3685,6 +3717,11 @@ struct OmnibarState: Equatable {
     var suggestions: [OmnibarSuggestion] = []
     var selectedSuggestionIndex: Int = 0
     var selectedSuggestionID: String?
+    /// True only while the current suggestion selection came from an explicit
+    /// user action (arrow keys, Ctrl+N/P). Automatic highlighting (preferred
+    /// autocompletion pick, popup reopen, pointer hover) leaves this false so
+    /// a row auto-selected for an older query can never hijack Return.
+    var selectionIsExplicit: Bool = false
     var isUserEditing: Bool = false
 }
 
@@ -3722,12 +3759,19 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldSelectAll = shouldSelectAll
         effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusReasserted(let shouldSelectAll):
         state.isFocused = true
         effects.shouldSelectAll = shouldSelectAll
+        if shouldSelectAll {
+            // A Cmd+L style reassert restarts editing from the full selected
+            // text; an earlier arrow selection no longer reflects Return
+            // intent. Plain focus restoration (no select-all) keeps it.
+            state.selectionIsExplicit = false
+        }
 
     case .focusLostRevertBuffer(let url):
         state.isFocused = false
@@ -3737,6 +3781,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusLostPreserveBuffer(let url):
@@ -3746,6 +3791,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldCancelPendingSuggestionRefresh = true
 
     case .panelURLChanged(let url):
@@ -3755,6 +3801,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldCancelPendingSuggestionRefresh = true
         }
 
@@ -3765,6 +3812,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.isUserEditing = (newValue != state.currentURLString)
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldRefreshSuggestions = true
             effects.shouldClearInlineCompletion = bufferChanged
         }
@@ -3776,8 +3824,10 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         if items.isEmpty {
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
         } else if let previousSelectedID,
                   let existingIdx = items.firstIndex(where: { $0.id == previousSelectedID }) {
+            // Same row carried across a refresh: an explicit selection stays explicit.
             state.selectedSuggestionIndex = existingIdx
             state.selectedSuggestionID = items[existingIdx].id
         } else if let preferredSuggestionIndex = omnibarPreferredAutocompletionSuggestionIndex(
@@ -3786,17 +3836,16 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         ) {
             state.selectedSuggestionIndex = preferredSuggestionIndex
             state.selectedSuggestionID = items[preferredSuggestionIndex].id
+            state.selectionIsExplicit = false
         } else if previousItems.isEmpty {
             // Popup reopened: start keyboard focus from the first row.
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = items[0].id
-        } else if let previousSelectedID,
-                  let idx = items.firstIndex(where: { $0.id == previousSelectedID }) {
-            state.selectedSuggestionIndex = idx
-            state.selectedSuggestionID = items[idx].id
+            state.selectionIsExplicit = false
         } else {
             state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
             state.selectedSuggestionID = items[state.selectedSuggestionIndex].id
+            state.selectionIsExplicit = false
         }
 
     case .moveSelection(let delta):
@@ -3806,11 +3855,15 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions.count - 1
         )
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        state.selectionIsExplicit = true
 
     case .highlightIndex(let idx):
         guard !state.suggestions.isEmpty else { break }
         state.selectedSuggestionIndex = min(max(0, idx), state.suggestions.count - 1)
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        // Pointer hover tracks the highlight but is not an explicit selection:
+        // the popup can appear underneath a stationary cursor.
+        state.selectionIsExplicit = false
 
     case .escape:
         guard state.isFocused else { break }
@@ -3823,6 +3876,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldSelectAll = true
             effects.shouldCancelPendingSuggestionRefresh = true
         } else {
@@ -4255,7 +4309,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
     let onTap: () -> Void
-    let onSubmit: () -> Void
+    let onSubmit: (OmnibarLiveFieldSnapshot?) -> Void
     let onEscape: () -> Void
     let onFieldLostFocus: () -> Void
     let onMoveSelection: (Int) -> Void
@@ -4539,7 +4593,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
                 guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: textView))
 #if DEBUG
                 handled = true
 #endif
@@ -4677,6 +4731,27 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        /// Captures the field-editor text synchronously at submit time. Both
+        /// Return interception paths (`doCommandBy` and `handleKeyEvent`) go
+        /// through here so the submit decision always starts from what the
+        /// field actually shows, not the possibly lagging published state.
+        private func liveFieldSnapshot(preferredEditor: NSTextView?) -> OmnibarLiveFieldSnapshot? {
+            let editor = preferredEditor ?? (parentField?.currentEditor() as? NSTextView)
+            if let editor {
+                return OmnibarLiveFieldSnapshot(
+                    text: editor.string,
+                    selectionRange: editor.selectedRange(),
+                    hasMarkedText: editor.hasMarkedText()
+                )
+            }
+            guard let field = parentField else { return nil }
+            return OmnibarLiveFieldSnapshot(
+                text: field.stringValue,
+                selectionRange: nil,
+                hasMarkedText: false
+            )
+        }
+
         private func inlineCompletionSelectionIsActive(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
             suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)
         }
@@ -4740,7 +4815,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             switch keyCode {
             case 36, 76: // Return / keypad Enter
                 guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: editor))
 #if DEBUG
                 handled = true
 #endif

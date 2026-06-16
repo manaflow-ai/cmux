@@ -18,11 +18,30 @@ public struct SignInCodeInputPolicy {
         return shouldVerifyAfterChange(normalized) ? .verify : .none
     }
 
-    /// Normalizes a code by trimming whitespace and clamping to ``maximumCodeLength``.
+    /// Normalizes a code by keeping ASCII letters/digits, uppercasing letters,
+    /// and clamping to ``maximumCodeLength``.
     /// - Parameter value: The raw code string.
     /// - Returns: The normalized code.
     public static func normalizedCode(_ value: String) -> String {
-        String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumCodeLength))
+        var normalized = ""
+        normalized.reserveCapacity(maximumCodeLength)
+
+        for scalar in value.unicodeScalars {
+            guard normalized.count < maximumCodeLength else { break }
+            switch scalar.value {
+            case 48...57:
+                normalized.unicodeScalars.append(scalar)
+            case 65...90:
+                normalized.unicodeScalars.append(scalar)
+            case 97...122:
+                guard let uppercase = UnicodeScalar(scalar.value - 32) else { continue }
+                normalized.unicodeScalars.append(uppercase)
+            default:
+                continue
+            }
+        }
+
+        return normalized
     }
 
     /// Whether a normalized code is complete and should trigger verification.

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -9,7 +10,7 @@ import XCTest
 final class SidebarMarkdownRendererTests: XCTestCase {
     func testRenderWorkspaceDescriptionPreservesLineBreaks() throws {
         let rendered = try XCTUnwrap(
-            SidebarMarkdownRenderer.renderWorkspaceDescription("First line\nSecond line")
+            SidebarMarkdownRenderer(markdown: "First line\nSecond line").workspaceDescription
         )
 
         XCTAssertEqual(String(rendered.characters), "First line\nSecond line")
@@ -17,7 +18,7 @@ final class SidebarMarkdownRendererTests: XCTestCase {
 
     func testRenderWorkspaceDescriptionPreservesInlineMarkdownAttributes() throws {
         let rendered = try XCTUnwrap(
-            SidebarMarkdownRenderer.renderWorkspaceDescription("**Bold**\n[Link](https://example.com)")
+            SidebarMarkdownRenderer(markdown: "**Bold**\n[Link](https://example.com)").workspaceDescription
         )
 
         XCTAssertEqual(String(rendered.characters), "Bold\nLink")
