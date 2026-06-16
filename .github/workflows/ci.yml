@@ -1166,10 +1166,15 @@ jobs:
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
-          cleanup() {
+          cleanup_attempt() {
             pkill -x "cmux DEV" 2>/dev/null || true
-            rm -f "$HELPER_PATH" "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
+          }
+
+          cleanup() {
+            cleanup_attempt
+            rm -f "$HELPER_PATH"
           }
           trap cleanup EXIT
 
@@ -1186,7 +1191,7 @@ jobs:
           echo "App binary: $APP_BINARY"
 
           for attempt in 1 2; do
-            cleanup 2>/dev/null || true
+            cleanup_attempt 2>/dev/null || true
 
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
