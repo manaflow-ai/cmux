@@ -38,7 +38,7 @@ public struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
-private final class TitlebarLeadingInsetPassthroughView: NSView {
+final class TitlebarLeadingInsetPassthroughView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

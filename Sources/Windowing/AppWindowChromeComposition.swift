@@ -31,7 +31,7 @@ struct AppWindowChromeComposition {
     let glassEffect: WindowGlassEffect
     let nativeTitlebarBackdropCoordinator: NativeTitlebarBackdropCoordinator
 
-    init(fullscreenAuxiliaryWindows: @escaping @MainActor () -> [NSWindow] = { NSApp.windows }) {
+    init(fullscreenAuxiliaryWindows: (@MainActor @Sendable () -> [NSWindow])? = nil) {
         self.init(
             glassEffect: WindowGlassEffect(),
             fullscreenAuxiliaryWindows: fullscreenAuxiliaryWindows
@@ -40,11 +40,13 @@ struct AppWindowChromeComposition {
 
     init(
         glassEffect: WindowGlassEffect,
-        fullscreenAuxiliaryWindows: @escaping @MainActor () -> [NSWindow] = { NSApp.windows }
+        fullscreenAuxiliaryWindows: (@MainActor @Sendable () -> [NSWindow])? = nil
     ) {
         self.glassEffect = glassEffect
+        let resolvedFullscreenAuxiliaryWindows: @MainActor @Sendable () -> [NSWindow] =
+            fullscreenAuxiliaryWindows ?? { NSApp.windows }
         nativeTitlebarBackdropCoordinator = NativeTitlebarBackdropCoordinator(
-            fullscreenAuxiliaryWindows: fullscreenAuxiliaryWindows
+            fullscreenAuxiliaryWindows: resolvedFullscreenAuxiliaryWindows
         )
     }
 
@@ -93,9 +95,11 @@ struct AppWindowChromeComposition {
         )
     }
 
+    @MainActor
     private static func currentAppColorScheme(
-        appearance: NSAppearance = NSApplication.shared.effectiveAppearance
+        appearance: NSAppearance? = nil
     ) -> ColorScheme {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        let resolved = appearance ?? NSApplication.shared.effectiveAppearance
+        return resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }
 }
