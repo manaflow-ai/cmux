@@ -212,6 +212,10 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
     private var hasLoadedConfiguration = false
     private var activeConfigURL: URL?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    /// The `baseDirectoryProvider()` value the config was last resolved from, so
+    /// the Dock can re-seed when the workspace's directory changes (e.g. moved
+    /// between projects) and a different `.cmux/dock.json` should apply.
+    private var lastLoadedRootDirectory: String??
 
     init(
         workspaceId: UUID,
@@ -280,8 +284,19 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         let shouldBeVisible = isVisible && mode == .dock
         if shouldBeVisible {
             ensureLoaded()
+            reloadIfBaseDirectoryChanged()
         }
         setVisibleInUI(shouldBeVisible)
+    }
+
+    /// Re-seeds the Dock when the workspace's base directory changed since the
+    /// last config load (so a different project's `.cmux/dock.json` applies).
+    /// Re-seeding replaces the tree, matching the prior Dock lifecycle.
+    private func reloadIfBaseDirectoryChanged() {
+        guard hasLoadedConfiguration else { return }
+        let current = baseDirectoryProvider()
+        guard lastLoadedRootDirectory != .some(current) else { return }
+        reload()
     }
 
     func setVisibleInUI(_ visible: Bool) {
@@ -704,6 +719,7 @@ final class DockSplitStore: ObservableObject, BonsplitDelegate {
         trustRequest = nil
         activeConfigURL = nil
         let rootDirectory = baseDirectoryProvider()
+        lastLoadedRootDirectory = .some(rootDirectory)
 
         do {
             let resolution = try Self.resolve(rootDirectory: rootDirectory)
