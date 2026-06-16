@@ -224,7 +224,10 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 # ci.yml jobs
-check_macos_runner "$CI_FILE" "tests"
+check_macos_runner "$CI_FILE" "debug-app-build"
+check_macos_runner "$CI_FILE" "xctest-focused-regressions"
+check_macos_runner "$CI_FILE" "xctest-shard"
+check_macos_runner "$CI_FILE" "swift-package-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"

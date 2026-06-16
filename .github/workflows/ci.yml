@@ -10,12 +10,57 @@ on:
 permissions:
   contents: read
   actions: write
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+      daemon: ${{ steps.detect.outputs.daemon }}
+      web: ${{ steps.detect.outputs.web }}
+      webviews: ${{ steps.detect.outputs.webviews }}
+    steps:
+      - name: Detect changed domains
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            {
+              echo "app=true"
+              echo "daemon=true"
+              echo "web=true"
+              echo "webviews=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename' > /tmp/changed-files.txt
+
+          domain_changed() {
+            local name="$1"
+            local pattern="$2"
+            if grep -Eq "$pattern" /tmp/changed-files.txt; then
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          domain_changed app '^(\.github/workflows/ci\.yml|\.xcode-version|[^/]+\.h$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmuxTests/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|tests/)'
+          domain_changed daemon '^(\.github/workflows/ci\.yml|daemon/remote/|tests/test_remote_daemon_release_assets\.sh$)'
+          domain_changed web '^(\.github/workflows/ci\.yml|web/|bun\.lock|package\.json|drizzle\.config\.ts$)'
+          domain_changed webviews '^(\.github/workflows/ci\.yml|webviews/|Resources/agent-session-react/|Resources/agent-session-solid/|scripts/build-webviews-app\.sh$|scripts/check-webviews-react-compiler\.mjs$|bun\.lock|package\.json)'
+
   workflow-guard-tests:
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +84,9 @@ jobs:
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
+
+      - name: Validate XCTest shard argument helper
+        run: python3 tests/test_ci_xctest_shard_args.py
 
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
@@ -89,6 +137,8 @@ jobs:
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
   remote-daemon-tests:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.daemon == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -108,6 +158,8 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -131,6 +183,8 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.webviews == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -162,6 +216,8 @@ jobs:
         run: bun run react-doctor:ci
 
   web-db-migrations:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -209,15 +265,13 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  debug-app-build:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 75
+    timeout-minutes: 45
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
-      # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
-      # backtracer until the job timeout. Keep crash handling non-interactive
-      # and cheap so xcodebuild can restart/finish the suite.
-      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -289,7 +343,7 @@ jobs:
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-debug-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -301,7 +355,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
@@ -315,79 +369,194 @@ jobs:
             sleep $((attempt * 5))
           done
 
-      - name: Run Ghostty split-theme appearance regression
+      - name: Build once for macOS tests
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          {
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
+          } 2>&1 | tee /tmp/cmux-build-output.txt
+
+      - name: Validate Swift warning budget
+        run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+
+      - name: Package shared test products
+        run: |
+          set -euo pipefail
+          test -d "$CMUX_DERIVED_DATA_PATH/Build/Products"
+          tar -czf "$RUNNER_TEMP/cmux-debug-test-products.tgz" -C "$CMUX_DERIVED_DATA_PATH" Build/Products
+
+      - name: Upload shared test products
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-debug-test-products
+          path: ${{ runner.temp }}/cmux-debug-test-products.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  xctest-focused-regressions:
+    needs: [detect-changes, debug-app-build]
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 30
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Download shared test products
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-debug-test-products
+          path: ${{ runner.temp }}/cmux-debug-test-products
+
+      - name: Prepare shared DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-focused-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          tar -xzf "$RUNNER_TEMP/cmux-debug-test-products/cmux-debug-test-products.tgz" -C "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Run Ghostty split-theme appearance regression
+        run: |
+          set -euo pipefail
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+            test-without-building
 
       - name: Run browser system proxy mirror regression
         run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
-          # The full "Run unit tests" step tolerates app-host crashes by
-          # parsing only the last test summary, so suites that run late can
-          # be silently skipped when an earlier crash aborts the run. This
-          # step makes the system-proxy loopback-bypass regression an
-          # unconditional gate.
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test
+            test-without-building
 
       - name: Run Option/Alt sided-modifier regression
         run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5993.
-          # The full "Run unit tests" step tolerates app-host crashes by
-          # parsing only the last test summary, so suites that run late can
-          # be silently skipped when an earlier crash aborts the run. This
-          # step makes the Option/Alt sided-modifier and Option-composition
-          # regression an unconditional gate.
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test
+            test-without-building
 
-      - name: Run unit tests
+  xctest-shard:
+    needs: [detect-changes, debug-app-build]
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1, 2, 3]
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_XCTEST_SHARD_COUNT: "4"
+      CMUX_XCTEST_SHARD_INDEX: ${{ matrix.shard_index }}
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Download shared test products
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-debug-test-products
+          path: ${{ runner.temp }}/cmux-debug-test-products
+
+      - name: Prepare shared DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-xctest-${CMUX_XCTEST_SHARD_INDEX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          tar -xzf "$RUNNER_TEMP/cmux-debug-test-products/cmux-debug-test-products.tgz" -C "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Run unit test shard
+        run: |
+          set -euo pipefail
+          ONLY_TESTING_TEXT="$(python3 scripts/ci/xctest_shard_args.py \
+            --shard-count "$CMUX_XCTEST_SHARD_COUNT" \
+            --shard-index "$CMUX_XCTEST_SHARD_INDEX" \
+            --summary)"
+          eval "ONLY_TESTING_ARGS=($ONLY_TESTING_TEXT)"
+
           run_unit_tests() {
-            # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-            # intermittently crash inside XCTest's post-test memory checker or
-            # leave native display/WebKit work alive on GitHub macOS runners.
-            # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
+              "${ONLY_TESTING_ARGS[@]}" \
+              test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
@@ -405,29 +574,11 @@ jobs:
             wait "$xcodebuild_pid"
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
           set +e
           run_unit_tests | tee /tmp/test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$CMUX_DERIVED_DATA_PATH"
-            mkdir -p "$CMUX_DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat /tmp/test-output.txt)
-            set -e
-          fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
@@ -440,100 +591,13 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
+        if: ${{ matrix.shard_index == 0 }}
         run: |
           set -euo pipefail
-          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
-      - name: Run Swift package unit tests
-        run: |
-          set -euo pipefail
-          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
-          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
-          # to keep the FFI parity suite a real gate).
-          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
-          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
-          # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
-          # not execute the SPM package test targets. Run them here so package
-          # tests (settings stores, secret-file migration, socket-control
-          # convergence, etc.) are a real CI gate, not just compiled.
-          # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
-          # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone. The GhosttyKit-referencing
-          # packages (CmuxTerminalCore and the terminal packages stacked on
-          # it) are the exception: their binaryTarget only needs the
-          # xcframework present at the repo root (downloaded earlier in this
-          # job), and their test runners link a C stub for the @_silgen_name
-          # symbol instead of the GhosttyKit archive.
-          PACKAGES=(
-            CMUXAuthCore
-            CmuxCore
-            CmuxRemoteDaemon
-            CmuxRemoteWorkspace
-            CmuxRemoteSession
-            CmuxAuthRuntime
-            CmuxCommandPalette
-            CmuxControlSocket
-            CmuxFileWatch
-            CmuxFoundation
-            CmuxGit
-            CmuxProcess
-            CmuxSettings
-            CmuxSettingsUI
-            CmuxSocketControl
-            CmuxTerminal
-            CmuxTerminalCore
-            CmuxTerminalEngine
-            CmuxTerminalServices
-            CmuxUpdater
-            CMUXAgentLaunch
-          )
-          # SwiftPM emits an error-severity diagnostic while planning the
-          # GhosttyKit binaryTarget (the xcframework's static archive is not
-          # lib-prefixed: "unexpected binary name"/"unexpected binary
-          # framework"). The build and every test still succeed, but the
-          # diagnostic poisons the process exit code on a fresh .build. For
-          # the GhosttyKit-referencing packages only, tolerate exactly that
-          # case: a nonzero exit passes only when the all-tests-passed summary
-          # is present, no test failures are reported, and the only error
-          # lines are that known diagnostic. Everything else (compile errors,
-          # test failures, crashes) still fails the job.
-          for pkg in "${PACKAGES[@]}"; do
-            echo "::group::swift test Packages/$pkg"
-            case "$pkg" in
-            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
-              status=0
-              output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
-              printf '%s\n' "$output"
-              if [ "$status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
-                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
-                  echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
-                else
-                  exit "$status"
-                fi
-              fi
-              ;;
-            *)
-              swift test --package-path "Packages/$pkg"
-              ;;
-            esac
-            echo "::endgroup::"
-          done
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Build and test Agent Session web resources
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run agent-session-web:build
-          bun run agent-session-web:test
-          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
+          ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Run CLI no-socket regressions
+        if: ${{ matrix.shard_index == 0 }}
         run: |
           set -euo pipefail
 
@@ -569,53 +633,30 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
-  tests-build-and-lag:
-    # Build the full cmux scheme and run the lag regression on macOS CI.
-    # Keep lag validation separate from UI regressions so functional UI failures
-    # and performance regressions stay isolated. Broader interactive UI suites
-    # still run via test-e2e.yml on GitHub-hosted runners.
+  swift-package-tests:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone can run 20+ min. Project/package
-    # changes from the sidebar extension kit pushed this full build plus the
-    # CA and lag regressions beyond 35 min before the cache could repopulate.
-    timeout-minutes: 55
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: auth-remote
+            packages: CMUXAuthCore CmuxCore CmuxRemoteDaemon CmuxRemoteWorkspace CmuxRemoteSession CmuxAuthRuntime
+          - group: app-core
+            packages: CmuxControlSocket CmuxFileWatch CmuxFoundation CmuxGit CmuxProcess CmuxSettings CmuxSettingsUI CmuxSocketControl CmuxUpdater CMUXAgentLaunch
+          - group: command-palette
+            packages: CmuxCommandPalette
+          - group: terminal
+            packages: CmuxTerminal CmuxTerminalCore CmuxTerminalEngine CmuxTerminalServices
+    env:
+      CMUX_SWIFT_PACKAGES: ${{ matrix.packages }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
-
-      - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-
-      - name: Prepare isolated DerivedData
-        run: |
-          set -euo pipefail
-          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-tests-build-and-lag-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
-          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -623,79 +664,112 @@ jobs:
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit-lag
+        id: cache-ghosttykit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
 
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
-
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
-
-      - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .ci-source-packages
-          key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-build-
-
-      - name: Resolve Swift packages
+      - name: Build command palette FFI library
+        if: ${{ matrix.group == 'command-palette' }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          rm -rf "$CMUX_DERIVED_DATA_PATH"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
+          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+          echo "CMUX_NUCLEO_FFI_LIB=$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib" >> "$GITHUB_ENV"
 
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Build app
+      - name: Run Swift package unit tests
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+          ./scripts/ci/run_swift_package_tests.sh $CMUX_SWIFT_PACKAGES
 
-      - name: Validate Swift warning budget
-        run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+  agent-session-web-resources:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Build and test Agent Session web resources
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run agent-session-web:build
+          bun run agent-session-web:test
+          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
+
+  tests:
+    needs:
+      - detect-changes
+      - debug-app-build
+      - xctest-focused-regressions
+      - xctest-shard
+      - swift-package-tests
+      - agent-session-web-resources
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize split test jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          bad = {
+              name: data["result"]
+              for name, data in needs.items()
+              if data["result"] not in {"success", "skipped"}
+          }
+          print(json.dumps({name: data["result"] for name, data in needs.items()}, indent=2))
+          if bad:
+              print(f"Split test job failures: {bad}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  tests-build-and-lag:
+    needs: [detect-changes, debug-app-build]
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # Reuse the shared Debug build and keep CA/lag regressions isolated from UI regressions.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: false
+
+      - name: Download shared test products
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-debug-test-products
+          path: ${{ runner.temp }}/cmux-debug-test-products
+
+      - name: Prepare shared DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-tests-build-and-lag-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          tar -xzf "$RUNNER_TEMP/cmux-debug-test-products/cmux-debug-test-products.tgz" -C "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Run CoreAnimation main-thread startup regression
         run: |
@@ -779,6 +853,8 @@ jobs:
           rm -f /tmp/create-virtual-display
 
   release-ghostty-cli-helper:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -823,7 +899,8 @@ jobs:
           overwrite: true
 
   release-build:
-    needs: release-ghostty-cli-helper
+    needs: [detect-changes, release-ghostty-cli-helper]
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -938,9 +1015,11 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
+    needs: [detect-changes, debug-app-build]
+    if: ${{ needs.detect-changes.outputs.app == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # Cold builds after project/package changes can spend more than 25 minutes
-    # in build-for-testing before the UI regression script starts.
+    # Reuse debug-app-build's build-for-testing artifact so UI tests start
+    # without a second full Debug compile.
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -972,70 +1051,20 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
-      - name: Prepare isolated DerivedData
+      - name: Download shared test products
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-debug-test-products
+          path: ${{ runner.temp }}/cmux-debug-test-products
+
+      - name: Prepare shared DerivedData
         run: |
           set -euo pipefail
           DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-ui-regressions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH" .ci-source-packages
+          tar -xzf "$RUNNER_TEMP/cmux-debug-test-products/cmux-debug-test-products.tgz" -C "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
-
-      - name: Download pre-built GhosttyKit.xcframework
-        run: ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
-
-      - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
-
-      - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .ci-source-packages
-          key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-regressions-
-
-      - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          rm -rf "$CMUX_DERIVED_DATA_PATH"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Build for testing (display resolution)
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            build-for-testing
 
       - name: Create persistent virtual display
         run: |

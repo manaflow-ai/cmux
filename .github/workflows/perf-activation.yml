@@ -43,22 +43,14 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-          submodules: false
-
       - name: Detect app runtime changes
         id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
@@ -66,8 +58,9 @@ jobs:
             exit 0
           fi
 
-          BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename' > /tmp/changed-files.txt
           if grep -Eq '^(\.github/workflows/perf-activation\.yml|\.xcode-version|[^/]+\.h$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|bun\.lock|package\.json)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
