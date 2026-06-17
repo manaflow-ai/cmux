@@ -5453,7 +5453,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     /// Explicit pane-ownership for hosts (the Dock) whose panels are not in the
     /// main `Workspace` tree, so the portal-visibility gate can resolve ownership
     /// without `Workspace.paneId(forPanelId:)`. `nil` keeps the main-area path.
-    let paneOwnershipOverride: Bool?
+    let paneOwnershipOverride: Bool? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat

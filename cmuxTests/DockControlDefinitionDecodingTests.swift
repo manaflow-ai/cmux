@@ -125,6 +125,7 @@ struct DockControlDefinitionDecodingTests {
     }
 
     @Test("Project config identity follows the resolved dock file, not child cwd")
+    @MainActor
     func projectConfigIdentityUsesResolvedDockFile() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
