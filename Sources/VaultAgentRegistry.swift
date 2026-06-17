@@ -147,6 +147,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             name: "Campfire",
             detect: CmuxVaultAgentDetectRule(
                 processName: "campfire",
+                alternateProcessNames: ["bun", "node", "deno", "tsx", "ts-node"],
                 alternateArgvContainsAny: [
                     "packages/session/bin/campfire.ts",
                     "packages/session/dist/campfire",
@@ -189,17 +190,19 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var processName: String?
     var processNames: [String]
     var argvContains: [String]
+    var alternateProcessNames: [String]
     var alternateArgvContains: [String]
     var alternateArgvContainsAny: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case processName, processNames, argvContains, alternateArgvContains, alternateArgvContainsAny
+        case processName, processNames, argvContains, alternateProcessNames, alternateArgvContains, alternateArgvContainsAny
     }
 
     init(
         processName: String? = nil,
         processNames: [String] = [],
         argvContains: [String] = [],
+        alternateProcessNames: [String] = [],
         alternateArgvContains: [String] = [],
         alternateArgvContainsAny: [String] = []
     ) {
@@ -209,6 +212,9 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         self.argvContains = argvContains
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.alternateProcessNames = alternateProcessNames
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         self.alternateArgvContains = alternateArgvContains
@@ -226,6 +232,7 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         processName = name?.isEmpty == true ? nil : name
         processNames = try Self.decodeOneOrManyStrings(forKey: .processNames, in: container)
         argvContains = try Self.decodeOneOrManyStrings(forKey: .argvContains, in: container)
+        alternateProcessNames = try Self.decodeOneOrManyStrings(forKey: .alternateProcessNames, in: container)
         alternateArgvContains = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContains, in: container)
         alternateArgvContainsAny = try Self.decodeOneOrManyStrings(forKey: .alternateArgvContainsAny, in: container)
     }

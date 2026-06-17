@@ -826,9 +826,16 @@ private extension CmuxVaultAgentDetectRule {
             }
         }
         let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
+        let alternateProcessNameMatch = alternateProcessNames.isEmpty || alternateProcessNames.contains { expected in
+            process.executableBasenames.contains { candidate in
+                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
+            }
+        }
         let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
+            && alternateProcessNameMatch
             && process.argumentsContainAll(alternateArgvContains)
         let alternateArgvContainsAnyMatch = !alternateArgvContainsAny.isEmpty
+            && alternateProcessNameMatch
             && process.argumentsContainAny(alternateArgvContainsAny)
         return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch || alternateArgvContainsAnyMatch
     }
