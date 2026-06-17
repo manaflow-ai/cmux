@@ -30,12 +30,15 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
-    if [ "$attempt" -lt "$max_attempts" ] && { [ "$status" -eq 124 ] || grep -Fq 'The test runner hung before establishing connection.' "$log_path"; }; then
-      if [ "$status" -eq 124 ]; then
-        echo "Retrying app-host xcodebuild after ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout (attempt $attempt/$max_attempts)" >&2
-      else
-        echo "Retrying app-host xcodebuild after XCTest startup hang (attempt $attempt/$max_attempts)" >&2
-      fi
+    retry_reason=""
+    if [ "$status" -eq 124 ]; then
+      retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
+    elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
+      retry_reason="XCTest startup hang"
+    fi
+
+    if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
+      echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       pkill -x "cmux DEV" || true
       attempt=$((attempt + 1))
       continue
