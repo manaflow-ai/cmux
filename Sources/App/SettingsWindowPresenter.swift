@@ -16,6 +16,7 @@ struct SettingsWindowPresenter {
         var pendingNavigationTarget: SettingsNavigationTarget?
         var pendingContentNavigationTarget: SettingsNavigationTarget?
         var shouldOpenWhenConfigured = false
+        var shouldFocusWhenConfigured = false
     }
 
     private let state: State
@@ -51,7 +52,10 @@ struct SettingsWindowPresenter {
     }
 
     func configure(window: NSWindow) {
-        let shouldFocusAfterConfiguration = state.settingsWindow !== window
+        let shouldFocusAfterConfiguration = state.settingsWindow !== window && state.shouldFocusWhenConfigured
+        if shouldFocusAfterConfiguration {
+            state.shouldFocusWhenConfigured = false
+        }
         state.settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
@@ -109,14 +113,17 @@ struct SettingsWindowPresenter {
         }
 
         if let openWindowOverride {
+            state.shouldFocusWhenConfigured = true
             openWindowOverride()
             return
         }
 
         guard let openWindow = state.openWindow else {
             state.shouldOpenWhenConfigured = true
+            state.shouldFocusWhenConfigured = true
             return
         }
+        state.shouldFocusWhenConfigured = true
         openWindow()
     }
 
@@ -145,7 +152,7 @@ struct SettingsWindowPresenter {
     }
 
     func refocusIfVisible() {
-        guard let window = existingWindow() else { return }
+        guard let window = visibleExistingWindow() else { return }
         focus(window)
     }
 
@@ -163,6 +170,19 @@ struct SettingsWindowPresenter {
         }
         return NSApp.windows.first {
             $0.identifier?.rawValue == Self.windowIdentifier
+        }
+    }
+
+    private func visibleExistingWindow() -> NSWindow? {
+        if let settingsWindow = state.settingsWindow,
+           settingsWindow.isVisible,
+           !settingsWindow.isMiniaturized {
+            return settingsWindow
+        }
+        return NSApp.windows.first {
+            $0.identifier?.rawValue == Self.windowIdentifier &&
+            $0.isVisible &&
+            !$0.isMiniaturized
         }
     }
 
