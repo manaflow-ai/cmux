@@ -3103,6 +3103,8 @@
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
+				5E27010400000000000000A3 /* CmuxSettings */,
+				5E27010400000000000000A4 /* CmuxWorkspaces */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
@@ -5058,6 +5060,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
 			productName = CmuxFoundation;
+		};
+		5E27010400000000000000A3 /* CmuxSettings */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
+			productName = CmuxSettings;
+		};
+		5E27010400000000000000A4 /* CmuxWorkspaces */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */;
+			productName = CmuxWorkspaces;
 		};
 		C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */ = {
 			isa = XCSwiftPackageProductDependency;
