@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: $0 <xcodebuild args...>" >&2
+  exit 2
+fi
+log_dir="${RUNNER_TEMP:-/tmp}"
+log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
+max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-2}"
+
+attempt=1
+while [ "$attempt" -le "$max_attempts" ]; do
+  log_path="${log_stem}-attempt-${attempt}.log"
+  set +e
+  scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@" 2>&1 | tee "$log_path"
+  status=${PIPESTATUS[0]}
+  set -e
+
+  if grep -Fq 'path = "/tmp/cmux-debug.sock"' "$log_path"; then
+    echo "FAIL: app-host used default debug socket instead of an XCTest-scoped socket" >&2
+    exit 1
+  fi
+
+  if grep -Fq 'SocketControlServer: Listening on /tmp/cmux-debug.sock' "$log_path"; then
+    echo "FAIL: app-host listener used default debug socket instead of an XCTest-scoped socket" >&2
+    exit 1
+  fi
+
+  if [ "$status" -ne 0 ]; then
+    if [ "$attempt" -lt "$max_attempts" ] && grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
+      echo "Retrying app-host xcodebuild after XCTest startup hang (attempt $attempt/$max_attempts)" >&2
+      pkill -x "cmux DEV" || true
+      attempt=$((attempt + 1))
+      continue
+    fi
+    exit "$status"
+  fi
+
+  if ! grep -Eq 'SocketControlServer: Listening on |message = "socket.listener.start"' "$log_path"; then
+    echo "FAIL: app-host xcodebuild output did not include socket listener evidence" >&2
+    exit 1
+  fi
+
+  exit 0
+done
+
+exit 1
