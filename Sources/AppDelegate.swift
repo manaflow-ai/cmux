@@ -2037,6 +2037,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded(tabManager: tabManager, notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2061,6 +2062,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Starts the per-pane runaway-memory guardrail: a background timer that
+    /// attributes each pane's process-tree memory by controlling tty and warns
+    /// (sidebar badge + dismissible banner with a kill action) before a single
+    /// leaking pane can OOM-suspend the whole app (issue #6313).
+    private func startPaneMemoryGuardrailIfNeeded(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore
+    ) {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak tabManager] in
+            guard let tabManager else { return [] }
+            var descriptors: [PaneMemoryDescriptor] = []
+            for workspace in tabManager.tabs {
+                let workspaceTitle = workspace.title
+                let reportedTTYs = workspace.surfaceTTYNames
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    let surface = terminalPanel.surface
+                    guard surface.hasLiveSurface else { continue }
+                    // Prefer the shell-reported tty (reliable, socket `report_tty`);
+                    // fall back to the libghostty accessor.
+                    let ttyName = reportedTTYs[terminalPanel.id] ?? surface.controllingTTYName()
+                    guard let ttyName, !ttyName.isEmpty else { continue }
+                    descriptors.append(PaneMemoryDescriptor(
+                        workspaceId: workspace.id,
+                        panelId: terminalPanel.id,
+                        workspaceTitle: workspaceTitle,
+                        paneTitle: terminalPanel.displayTitle,
+                        ttyName: ttyName,
+                        foregroundPID: surface.foregroundProcessID()
+                    ))
+                }
+            }
+            return descriptors
+        }
+        guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
+            notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
+        }
+        guardrail.onRequestClosePane = { [weak tabManager] workspaceId, panelId in
+            _ = tabManager?.closeSurface(tabId: workspaceId, surfaceId: panelId)
+        }
+        guardrail.start()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
@@ -16870,20 +16915,25 @@ private extension NSWindow {
             // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when
             // the terminal is focused. Otherwise our browser menu shortcuts can
             // consume the event even when no browser panel is focused.
-            if shouldRouteTerminalFontZoomShortcutToGhostty(
-                firstResponderIsGhostty: true,
+            //
+            // Drive the resolved font-size action through Ghostty's binding API
+            // directly rather than re-dispatching the raw key event. Re-dispatch
+            // relied on Ghostty re-matching the chord against its own keybinds,
+            // which fails for increase on layouts where "+" is a dedicated key
+            // (Spanish, German QWERTZ, …) — decrease/reset still matched, so only
+            // increase broke (manaflow-ai/cmux#5981). cmux already resolves the
+            // intent layout-independently via browserZoomShortcutAction.
+            if let fontZoomAction = browserZoomShortcutAction(
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
                 keyCode: event.keyCode,
                 literalChars: event.characters
             ) {
-                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
+                let handled = ghosttyView.performBindingAction(fontZoomAction.ghosttyFontSizeBindingAction)
 #if DEBUG
-                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+                cmuxDebugLog("zoom.shortcut stage=window.ghosttyBindingAction event=\(Self.keyDescription(event)) action=\(fontZoomAction.ghosttyFontSizeBindingAction) handled=\(handled ? 1 : 0)")
 #endif
-                    return true
-                }
-                return false
+                return handled
             }
         }
 
