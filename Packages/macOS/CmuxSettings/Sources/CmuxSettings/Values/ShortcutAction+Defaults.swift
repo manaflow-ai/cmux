@@ -106,6 +106,7 @@ extension ShortcutAction {
         case .browserBack: return ShortcutStroke(key: "[", command: true)
         case .browserForward: return ShortcutStroke(key: "]", command: true)
         case .browserReload: return ShortcutStroke(key: "r", command: true)
+        case .browserHardReload: return ShortcutStroke(key: "r", command: true, shift: true)
         case .browserZoomIn: return ShortcutStroke(key: "=", command: true)
         case .browserZoomOut: return ShortcutStroke(key: "-", command: true)
         case .browserZoomReset: return ShortcutStroke(key: "0", command: true)
