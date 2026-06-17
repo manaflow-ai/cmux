@@ -73,7 +73,11 @@ extension CMUXCLI {
 
         let messages = engine.extractMessages(fromTranscriptLines: lines)
         guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+        let prompt = engine.buildPrompt(
+            currentTitle: outcome.lastTitle,
+            context: context,
+            languageTag: probe["summarizer_language"] as? String
+        )
 
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
@@ -217,7 +221,11 @@ extension CMUXCLI {
         ) { engine, outcome in
             let messages = engine.extractCodexMessages(fromRolloutLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
-            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+            let prompt = engine.buildPrompt(
+                currentTitle: outcome.lastTitle,
+                context: context,
+                languageTag: probe["summarizer_language"] as? String
+            )
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,

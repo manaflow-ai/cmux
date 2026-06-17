@@ -128,7 +128,11 @@ extension CMUXCLI {
             telemetry: telemetry
         ) { engine, outcome in
             guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
-            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+            let prompt = engine.buildPrompt(
+                currentTitle: outcome.lastTitle,
+                context: context,
+                languageTag: probe["summarizer_language"] as? String
+            )
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,

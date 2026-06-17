@@ -918,6 +918,12 @@
           "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
           "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
+        "autoNamingLanguage": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingLanguage",
+          "description": "Output language for auto-generated workspace and tab titles. \"auto\" (default) follows the conversation's own language; \"system\" derives it from your macOS preferred languages; a BCP-47 tag (\"ja\", \"en\", \"zh-Hans\", …) pins every title to that language regardless of the transcript. Unknown values are passed to the summarizer as-is, so a bad value never breaks naming."
+        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",

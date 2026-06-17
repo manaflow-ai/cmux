@@ -3482,9 +3482,17 @@ class TerminalController {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
             let agentSlug = AutomationCatalogSection().autoNamingAgent.value(in: .standard)
+            // Resolve the output-language override here (app side) so the CLI
+            // hook gets a concrete BCP-47 tag and "system" can read the live
+            // macOS preferred languages.
+            let languageTag = AutoNamingLanguage.resolvedLanguageTag(
+                setting: AutomationCatalogSection().autoNamingLanguage.value(in: .standard),
+                preferredLanguages: Locale.preferredLanguages
+            )
             var result: [String: Any] = [
                 "enabled": enabled,
-                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug)
+                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug),
+                "summarizer_language": v2OrNull(languageTag)
             ]
             // With a workspace_id the probe also reports user ownership, so
             // naming engines can skip the LLM call entirely for workspaces
