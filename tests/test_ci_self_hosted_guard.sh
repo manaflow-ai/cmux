@@ -455,6 +455,15 @@ check_gui_smoke_unsupported_launch_handling() {
     exit 1
   fi
 
+  if ! awk '
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
+    END { exit !(saw_launchservices && saw_direct_exec) }
+  ' "$ROOT_DIR/.github/workflows/nightly.yml"; then
+    echo "FAIL: nightly signing smoke must run direct exec after unsupported-GUI LaunchServices smoke"
+    exit 1
+  fi
+
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$file"; then
       echo "FAIL: $(basename "$file") signing workflow must run launch smoke"
