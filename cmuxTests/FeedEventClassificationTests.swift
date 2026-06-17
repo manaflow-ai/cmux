@@ -115,6 +115,24 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 
+    /// Codex now mirrors the upstream CLI hook event surface: tool completion,
+    /// compaction, and subagent lifecycle events are Feed telemetry. Each keeps
+    /// its own `hook_event_name` rather than collapsing into a single lifecycle
+    /// event, and none of them is actionable (the upstream approval reviewer
+    /// still owns allow/deny).
+    @Test func codexExpandedTelemetryKeepsDistinctNonActionableNames() {
+        #expect(classify("codex", "PostToolUse", tool: "shell").name == "PostToolUse")
+        #expect(classify("codex", "PostToolUse", tool: "shell").actionable == false)
+        #expect(classify("codex", "PreCompact").name == "PreCompact")
+        #expect(classify("codex", "PreCompact").actionable == false)
+        #expect(classify("codex", "PostCompact").name == "PostCompact")
+        #expect(classify("codex", "PostCompact").actionable == false)
+        #expect(classify("codex", "SubagentStart").name == "SubagentStart")
+        #expect(classify("codex", "SubagentStart").actionable == false)
+        #expect(classify("codex", "SubagentStop").name == "SubagentStop")
+        #expect(classify("codex", "SubagentStop").actionable == false)
+    }
+
     /// Unknown source + unknown event is safe by default.
     @Test func unknownSourceUnknownEventIsSafe() {
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)

@@ -25,6 +25,8 @@ CODEX_HOOK_EVENT_LABELS = {
     "PostToolUse": "post_tool_use",
     "PreCompact": "pre_compact",
     "PostCompact": "post_compact",
+    "SubagentStart": "subagent_start",
+    "SubagentStop": "subagent_stop",
     "SessionStart": "session_start",
     "UserPromptSubmit": "user_prompt_submit",
     "Stop": "stop",
@@ -48,6 +50,11 @@ CMUX_CODEX_HOOK_SUBCOMMANDS = (
 CMUX_CODEX_FEED_EVENTS = (
     "PreToolUse",
     "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SubagentStart",
+    "SubagentStop",
 )
 
 FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
@@ -714,7 +721,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         if groups[-1]["hooks"][0].get("timeout") != 5:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
-    for event_name in ["PreToolUse", "PermissionRequest"]:
+    for event_name in CMUX_CODEX_FEED_EVENTS:
         groups = hook_groups.get(event_name)
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
@@ -2039,6 +2046,29 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
 
 
+def test_codex_expanded_telemetry_events_stay_distinct(cli_path: str, root: Path) -> None:
+    for event_name in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"]:
+        stdout, frame = run_feed_hook(
+            cli_path,
+            root / f"cmux-codex-{event_name.lower()}.sock",
+            {
+                "session_id": "codex-session",
+                "cwd": "/tmp/project",
+                "hook_event_name": event_name,
+                "tool_name": "shell",
+            },
+            None,
+        )
+        if stdout != {}:
+            raise AssertionError(f"Codex {event_name} telemetry should not emit a decision: {stdout!r}")
+        params = frame["params"]
+        if params.get("wait_timeout_seconds") != 0:
+            raise AssertionError(f"Codex {event_name} should not wait for Feed reply: {frame!r}")
+        event = params["event"]
+        if event.get("hook_event_name") != event_name or event.get("_source") != "codex":
+            raise AssertionError(f"Codex {event_name} should stay distinct in Feed, got {event!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2106,6 +2136,7 @@ def main() -> int:
             test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_codex_expanded_telemetry_events_stay_distinct(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
