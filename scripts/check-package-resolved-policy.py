@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from pathlib import Path
 import subprocess
 import sys
@@ -38,13 +39,22 @@ def is_allowed_vendor_path(path: str) -> bool:
 
 
 def ignores_package_resolved(gitignore: Path) -> bool:
+    ignored = False
+
     for raw_line in gitignore.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if line.lstrip("!").rstrip("/") == "Package.resolved":
-            return True
-    return False
+
+        is_negated = line.startswith("!")
+        pattern = line[1:] if is_negated else line
+        pattern = pattern.rstrip("/").lstrip("/")
+        if pattern == "Package.resolved" or pattern.endswith("/Package.resolved"):
+            ignored = not is_negated
+            continue
+        if fnmatchcase("Package.resolved", pattern):
+            ignored = not is_negated
+    return ignored
 
 
 def main() -> int:
