@@ -4386,9 +4386,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = fallbackLineDelta
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = keyboardCopyModeBoundedFallbackLineDelta(fallbackLineDelta)
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModePendingViewportJumpVisualLineReselect = visualLineReselect
+        scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration()
+    }
+
+    private func keyboardCopyModeBoundedFallbackLineDelta(_ lineDelta: Int?) -> Int? {
+        guard let lineDelta, let scrollbar else { return lineDelta }
+        guard lineDelta != 0 else { return 0 }
+
+        if lineDelta > 0 {
+            let maxOffset = scrollbar.total > scrollbar.len ? scrollbar.total - scrollbar.len : 0
+            let available = maxOffset > scrollbar.offset ? maxOffset - scrollbar.offset : 0
+            return min(lineDelta, Int(clamping: available))
+        }
+
+        return max(lineDelta, -Int(clamping: scrollbar.offset))
+    }
+
+    private func scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration() {
+        let generation = keyboardCopyModePendingViewportJumpGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            self?.cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
+        }
     }
 
     private func resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: ghostty_surface_t) {
@@ -4714,14 +4735,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return String(decoding: selectedData, as: UTF8.self)
     }
 
-    private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        if keyboardCopyModeVisualLineActive,
-           let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface),
-           !selectedText.isEmpty {
-            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
-            return true
-        }
+    private func keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: ghostty_surface_t) -> Bool {
+        _ = flushPendingScrollbarIfAvailable()
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface),
+              let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface) else { return false }
 
+        let visibleRows = keyboardCopyModeVisibleScreenRows(metrics: metrics)
+        return selectedRows.lowerBound >= visibleRows.lowerBound
+            && selectedRows.upperBound <= visibleRows.upperBound
+    }
+
+    private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         let generalPasteboard = NSPasteboard.general
         let previousChangeCount = generalPasteboard.changeCount
         let copied = performBindingAction("copy_to_clipboard")
@@ -4743,6 +4767,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
         }
         return copied || !selectedText.isEmpty
+    }
+
+    private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
+        if keyboardCopyModeVisualLineActive {
+            if keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: surface) {
+                return copyCurrentGhosttySelectionToClipboard(surface: surface)
+            }
+
+            guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface),
+                  !selectedText.isEmpty else { return false }
+
+            GhosttyApp.terminalPasteboard.writeString(
+                TerminalKeyboardCopyModeClipboardFormatter().trimTrailingLinePadding(selectedText),
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        return copyCurrentGhosttySelectionToClipboard(surface: surface)
     }
 
     private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
