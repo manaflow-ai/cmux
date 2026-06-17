@@ -1260,14 +1260,6 @@ private final class BrowserDropZoneOverlayView: NSView {
     }
 }
 
-private final class BrowserActivePaneBoundaryOverlayView: NSView {
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
@@ -1467,10 +1459,6 @@ enum BrowserPaneDropRouting {
 }
 
 final class WindowBrowserSlotView: NSView {
-    private enum ActivePaneBoundaryMetrics {
-        static let lineWidth: CGFloat = 2
-    }
-
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
@@ -1515,7 +1503,7 @@ final class WindowBrowserSlotView: NSView {
         dropZoneOverlayView.isHidden = true
         activePaneBoundaryOverlayView.wantsLayer = true
         activePaneBoundaryOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
-        activePaneBoundaryOverlayView.layer?.borderWidth = ActivePaneBoundaryMetrics.lineWidth
+        activePaneBoundaryOverlayView.layer?.borderWidth = WindowBrowserSlotActivePaneBoundaryMetrics.lineWidth
         activePaneBoundaryOverlayView.layer?.borderColor = NSColor.clear.cgColor
         activePaneBoundaryOverlayView.isHidden = true
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)

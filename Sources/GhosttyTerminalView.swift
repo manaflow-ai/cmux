@@ -7533,11 +7533,6 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
-    private enum ActivePaneBoundaryMetrics {
-        static let lineWidth: CGFloat = 2
-        static let inset: CGFloat = lineWidth / 2
-    }
-
     private var sharedBackdropCutoutView: NSView?
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
@@ -7860,7 +7855,7 @@ final class GhosttySurfaceScrollView: NSView {
         activePaneBoundaryOverlayView.layer?.masksToBounds = false
         activePaneBoundaryOverlayView.autoresizingMask = [.width, .height]
         activePaneBoundaryLayer.fillColor = NSColor.clear.cgColor
-        activePaneBoundaryLayer.lineWidth = ActivePaneBoundaryMetrics.lineWidth
+        activePaneBoundaryLayer.lineWidth = GhosttySurfaceActivePaneBoundaryMetrics.lineWidth
         activePaneBoundaryLayer.lineJoin = .miter
         activePaneBoundaryLayer.lineCap = .butt
         activePaneBoundaryLayer.opacity = 0
@@ -10553,7 +10548,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateActivePaneBoundaryPath() {
         activePaneBoundaryLayer.frame = activePaneBoundaryOverlayView.bounds
-        let inset = ActivePaneBoundaryMetrics.inset
+        let inset = GhosttySurfaceActivePaneBoundaryMetrics.inset
         let bounds = activePaneBoundaryOverlayView.bounds
         guard bounds.width > inset * 2, bounds.height > inset * 2 else {
             activePaneBoundaryLayer.path = nil
