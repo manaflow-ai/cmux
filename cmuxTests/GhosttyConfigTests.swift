@@ -1589,7 +1589,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
 // cmuxShouldApplyWindowGlass) were lifted out of the app target into
 // CmuxWorkspaceWindow's WindowBackgroundPolicy by the window-chrome tranche, and
 // equivalent coverage now lives in
-// Packages/CmuxWorkspaceWindow/Tests/CmuxWorkspaceWindowTests/WindowBackgroundPolicyTests.swift.
+// Packages/macOS/CmuxWorkspaceWindow/Tests/CmuxWorkspaceWindowTests/WindowBackgroundPolicyTests.swift.
 // The stale app-side test was left referencing the removed symbols, which broke
 // the cmuxTests compile on the Swift 6 depot toolchain.
 
