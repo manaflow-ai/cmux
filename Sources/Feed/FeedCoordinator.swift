@@ -1173,9 +1173,12 @@ enum FeedSocketEncoding {
     ///
     /// Uses default `formatOptions` (no fractional seconds) because the feed
     /// snapshot wire bytes are contractually exact. `ISO8601DateFormatter` is
-    /// safe for concurrent read-only `string(from:)` use.
-    private static let isoFormatter = ISO8601DateFormatter()
+    /// not documented thread-safe, so this single shared instance is confined to
+    /// the main actor (matching `itemDict`); the compiler enforces that no
+    /// off-main caller can race on its lazily-initialized internal state.
+    @MainActor private static let isoFormatter = ISO8601DateFormatter()
 
+    @MainActor
     static func itemDict(_ item: WorkstreamItem) -> [String: Any] {
         let isoFormatter = Self.isoFormatter
         var dict: [String: Any] = [
