@@ -71,6 +71,8 @@ def gh_json(*args: str) -> dict:
     if proc.returncode != 0:
         stderr = (proc.stderr or proc.stdout).strip()
         raise subprocess.CalledProcessError(proc.returncode, proc.args, output=proc.stdout, stderr=stderr)
+    if not proc.stdout:
+        return {}
     return json.loads(proc.stdout)
 
 

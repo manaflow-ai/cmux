@@ -52,6 +52,27 @@ assert requests == [
     ("GET", "https://api.example.test/repos/manaflow-ai/cmux/releases/tags/nightly"),
     ("DELETE", "https://api.example.test/repos/manaflow-ai/cmux/releases/assets/123"),
 ]
+
+class FakeProc:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+
+gh_calls = []
+
+def fake_run(args, capture_output=None, text=None):
+    gh_calls.append(args)
+    return FakeProc()
+
+module.os.environ.pop("GH_TOKEN")
+module.os.environ.pop("GITHUB_TOKEN", None)
+module.shutil.which = lambda name: "/fake/gh" if name == "gh" else None
+module.subprocess.run = fake_run
+
+module.delete_assets("manaflow-ai/cmux", [module.ReleaseAsset(asset_id=456, name="older.dmg", build=1)])
+assert gh_calls == [
+    ["gh", "api", "-X", "DELETE", "repos/manaflow-ai/cmux/releases/assets/456"],
+]
 PY
 
 echo "PASS: nightly prune script is compatible with older macOS runner Python"
