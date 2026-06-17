@@ -2878,7 +2878,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let nextChromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity,
+            backgroundOpacity: backgroundOpacity, splitDividerColor: GhosttyConfig.load().splitDividerColor,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )

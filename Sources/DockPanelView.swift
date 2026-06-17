@@ -613,12 +613,9 @@ struct DockPanelView: View {
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
         )
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshDividerColor()
-        }
-        .onChange(of: colorScheme) { _, _ in
-            refreshDividerColor()
-        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in refreshDividerColor() }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in refreshDividerColor() }
+        .onChange(of: colorScheme) { _, _ in refreshDividerColor() }
         .accessibilityIdentifier("DockPanel")
     }
 
@@ -686,7 +683,9 @@ struct DockPanelView: View {
     }
 
     private func refreshDividerColor() {
-        dividerNSColor = GhosttyConfig.load().resolvedSplitDividerColor
+        dividerNSColor = WorkspaceContentView
+            .resolveGhosttyAppearanceConfig(reason: "dockDividerRefresh")
+            .resolvedSplitDividerColor
     }
 }
 
