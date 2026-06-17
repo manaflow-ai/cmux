@@ -104,8 +104,11 @@ jobs:
         id: build_macos
         run: |
           set -euo pipefail
-          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee /tmp/reload.log
-          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' /tmp/reload.log)"
+          # Per-run log path: /tmp/reload.log collides across tenants on the
+          # multi-tenant self-hosted fleet Macs (tee: Permission denied).
+          log="$RUNNER_TEMP/reload.log"
+          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee "$log"
+          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
           mkdir -p artifact
