@@ -116,7 +116,15 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
-    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command, requestedHeight: definition.height) }
+    fileprivate func snapshot(isFocused: Bool) -> DockControlSnapshot {
+        .init(
+            id: id,
+            title: definition.title,
+            command: definition.command,
+            requestedHeight: definition.height,
+            isFocused: isFocused
+        )
+    }
 
     fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
 
@@ -233,6 +241,7 @@ fileprivate struct DockControlSnapshot: Identifiable {
     let title: String
     let command: String
     let requestedHeight: Double?
+    let isFocused: Bool
 }
 
 fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
@@ -243,6 +252,7 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var trustRequest: DockTrustRequest?
+    @Published private(set) var focusedControlId: String?
 
     private var lastRootDirectory: String?
     private var lastWorkspaceId: UUID?
@@ -251,7 +261,7 @@ final class DockControlsStore: ObservableObject {
     private var controlsVisibleInUI = false
 
     fileprivate var controlSnapshots: [DockControlSnapshot] {
-        controls.map(\.snapshot)
+        controls.map { $0.snapshot(isFocused: $0.id == focusedControlId) }
     }
 
     fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
@@ -332,6 +342,7 @@ final class DockControlsStore: ObservableObject {
 
     func focusFirstControl() -> Bool {
         guard let first = controls.first else { return false }
+        focusedControlId = first.id
         first.focus()
         return true
     }
@@ -354,7 +365,9 @@ final class DockControlsStore: ObservableObject {
     }
 
     func focusControl(id: String) {
-        controls.first { $0.id == id }?.focus()
+        guard let control = controls.first(where: { $0.id == id }) else { return }
+        focusedControlId = id
+        control.focus()
     }
 
     func restartControl(id: String) {
@@ -372,6 +385,7 @@ final class DockControlsStore: ObservableObject {
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
         guard controls.contains(where: { $0.id == id }) else { return }
+        focusedControlId = id
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
@@ -382,6 +396,9 @@ final class DockControlsStore: ObservableObject {
     private func replaceControls(with newControls: [DockControlRuntime]) {
         let oldControls = controls
         controls = newControls
+        if let focusedControlId, !newControls.contains(where: { $0.id == focusedControlId }) {
+            self.focusedControlId = nil
+        }
         newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
         oldControls.forEach { $0.close() }
     }
@@ -568,18 +585,33 @@ struct DockPanelView: View {
     let rootDirectory: String?
     let workspaceId: UUID?
     @ObservedObject var store: DockControlsStore
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var dividerNSColor = GhosttyConfig.load().resolvedSplitDividerColor
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider()
+            dockDivider
             content
         }
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
         )
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshDividerColor()
+        }
+        .onChange(of: colorScheme) { _, _ in
+            refreshDividerColor()
+        }
         .accessibilityIdentifier("DockPanel")
+    }
+
+    private var dockDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: dividerNSColor))
+            .frame(height: 2)
+            .allowsHitTesting(false)
     }
 
     private var toolbar: some View {
@@ -628,6 +660,7 @@ struct DockPanelView: View {
         } else {
             DockControlsLayoutView(
                 snapshots: store.controlSnapshots,
+                dividerNSColor: dividerNSColor,
                 terminalAttachment: { id in store.terminalAttachment(for: id) },
                 onFocus: { id in store.focusControl(id: id) },
                 onRestart: { id in store.restartControl(id: id) },
@@ -636,10 +669,15 @@ struct DockPanelView: View {
             )
         }
     }
+
+    private func refreshDividerColor() {
+        dividerNSColor = GhosttyConfig.load().resolvedSplitDividerColor
+    }
 }
 
 private struct DockControlsLayoutView: View {
     let snapshots: [DockControlSnapshot]
+    let dividerNSColor: NSColor
     let terminalAttachment: (String) -> DockTerminalAttachment?
     let onFocus: (String) -> Void
     let onRestart: (String) -> Void
@@ -647,8 +685,12 @@ private struct DockControlsLayoutView: View {
     let onTriggerFlash: (String) -> Void
 
     private let headerHeight: CGFloat = 30
-    private let dividerHeight: CGFloat = 1
+    private let dividerHeight: CGFloat = 2
     private let minimumTerminalHeight: CGFloat = 160
+
+    private var dividerColor: Color {
+        Color(nsColor: dividerNSColor)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -660,12 +702,15 @@ private struct DockControlsLayoutView: View {
                             snapshot: snapshot,
                             ordinal: index + 1,
                             terminalHeight: heights[index],
+                            dividerColor: dividerColor,
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
                             terminalContent: {
                                 if let attachment = terminalAttachment(snapshot.id) {
                                     DockTerminalView(
                                         attachment: attachment,
+                                        isFocused: snapshot.isFocused,
+                                        activePaneBoundaryColor: dividerNSColor,
                                         onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
                                         onTriggerFlash: { onTriggerFlash(snapshot.id) }
                                     )
@@ -675,8 +720,10 @@ private struct DockControlsLayoutView: View {
                             }
                         )
                         if index < snapshots.count - 1 {
-                            Divider()
+                            Rectangle()
+                                .fill(dividerColor)
                                 .frame(height: dividerHeight)
+                                .allowsHitTesting(false)
                         }
                     }
                 }
@@ -727,6 +774,7 @@ private struct DockControlSectionView<TerminalContent: View>: View {
     let snapshot: DockControlSnapshot
     let ordinal: Int
     let terminalHeight: CGFloat
+    let dividerColor: Color
     let onFocus: () -> Void
     let onRestart: () -> Void
     @ViewBuilder let terminalContent: () -> TerminalContent
@@ -737,6 +785,13 @@ private struct DockControlSectionView<TerminalContent: View>: View {
             terminalContent()
                 .frame(height: terminalHeight)
                 .clipped()
+        }
+        .overlay {
+            if snapshot.isFocused {
+                Rectangle()
+                    .strokeBorder(dividerColor, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
         }
         .accessibilityIdentifier("DockControl.\(snapshot.id)")
     }
@@ -786,6 +841,8 @@ private struct DockControlSectionView<TerminalContent: View>: View {
 
 private struct DockTerminalView: View {
     let attachment: DockTerminalAttachment
+    let isFocused: Bool
+    let activePaneBoundaryColor: NSColor
     let onKeyboardFocusIntent: (NSWindow?) -> Void
     let onTriggerFlash: () -> Void
 
@@ -796,6 +853,8 @@ private struct DockTerminalView: View {
             isActive: true,
             isVisibleInUI: true,
             portalZPriority: 1,
+            showsActivePaneBoundary: isFocused,
+            activePaneBoundaryColor: activePaneBoundaryColor,
             searchState: attachment.searchState,
             reattachToken: attachment.reattachToken,
             onFocus: { _ in

@@ -70,6 +70,8 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
+                showsActivePaneBoundary: isFocused && isVisibleInUI,
+                activePaneBoundaryColor: appearance.dividerNSColor,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
@@ -252,6 +254,7 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let dividerNSColor: NSColor
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
@@ -278,13 +281,15 @@ struct PanelAppearance {
             backgroundColor: config.backgroundColor,
             opacity: config.backgroundOpacity
         )
+        let dividerColor = config.resolvedSplitDividerColor
         return PanelAppearance(
             backgroundColor: backgroundColor,
             foregroundColor: cmuxReadableForegroundNSColor(
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
-            dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
+            dividerNSColor: dividerColor,
+            dividerColor: Color(nsColor: dividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
             usesClearContentBackground: shouldUseClearContentBackground(

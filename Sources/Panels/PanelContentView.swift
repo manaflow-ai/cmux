@@ -25,6 +25,9 @@ struct PanelContentView: View {
     var body: some View {
         renderedPanel
             .overlay {
+                activePaneBoundaryOverlay
+            }
+            .overlay {
                 paneDropTargetOverlay
             }
     }
@@ -131,6 +134,15 @@ struct PanelContentView: View {
                 panelId: panel.id,
                 paneId: paneId
             ))
+        }
+    }
+
+    @ViewBuilder
+    private var activePaneBoundaryOverlay: some View {
+        if isFocused && isVisibleInUI {
+            Rectangle()
+                .strokeBorder(appearance.dividerColor, lineWidth: 2)
+                .allowsHitTesting(false)
         }
     }
 
