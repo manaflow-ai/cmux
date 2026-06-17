@@ -157,4 +157,29 @@ struct TerminalSurfaceRegistryTests {
         registry.unregister(surface)
         #expect(registry.surface(id: surface.id) == nil)
     }
+
+    @Test func diagnosticSnapshotDropsUnregisteredSurfacesAndRuntimePointers() throws {
+        let registry = TerminalSurfaceRegistry()
+        let retained = FakeSurface(focusPlacement: .workspace)
+        var closed: FakeSurface? = FakeSurface(focusPlacement: .rightSidebarDock)
+        let retainedRuntimeSurface = try #require(ghostty_surface_t(bitPattern: 0x1111))
+        let closedRuntimeSurface = try #require(ghostty_surface_t(bitPattern: 0x2222))
+
+        registry.register(retained)
+        registry.register(closed!)
+        registry.registerRuntimeSurface(retainedRuntimeSurface, ownerId: retained.id)
+        registry.registerRuntimeSurface(closedRuntimeSurface, ownerId: closed!.id)
+
+        registry.unregister(closed!)
+        registry.unregisterRuntimeSurface(closedRuntimeSurface, ownerId: closed!.id)
+        closed = nil
+
+        let snapshot = registry.diagnosticSnapshot()
+        #expect(snapshot.registeredSurfaceCount == 1)
+        #expect(snapshot.workspaceSurfaceCount == 1)
+        #expect(snapshot.rightSidebarDockSurfaceCount == 0)
+        #expect(snapshot.runtimeSurfaceCount == 1)
+        #expect(snapshot.payload()["registered_surface_count"] as? Int == 1)
+        #expect(snapshot.payload()["runtime_surface_count"] as? Int == 1)
+    }
 }

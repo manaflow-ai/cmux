@@ -101,6 +101,8 @@ jobs:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
     # Run on the macOS 15 host that carries the signing/notarization secrets.
+    # Import the Apple Developer ID intermediate chain into the build keychain
+    # below so signing does not depend on mutable runner login-keychain state.
     # The Swift app still selects an Xcode with the macOS 26 SDK so it adopts
     # Liquid Glass on Tahoe. The Ghostty CLI helper is built separately and
     # injected before signing, preferring a pre-26 SDK when the runner image has

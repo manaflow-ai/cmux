@@ -13,9 +13,17 @@ let package = Package(
             targets: ["CmuxSidebar"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxSwiftRender"),
+    ],
     targets: [
         .target(
             name: "CmuxSidebar",
+            dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -24,7 +32,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSidebarTests",
-            dependencies: ["CmuxSidebar"],
+            dependencies: [
+                "CmuxSidebar",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
