@@ -393,4 +393,34 @@ final class AgentUsageModelTests: XCTestCase {
         XCTAssertNil(snapshot.totalCostUSD)
         XCTAssertEqual(snapshot.totals.total, 200)
     }
+
+    // MARK: - No installed tools
+
+    func testScannerWithNoInstalledToolsProducesEmptySnapshot() throws {
+        // A home directory where none of Claude Code, Codex, or OpenCode have
+        // written anything: the scanner must find nothing and never throw.
+        let tempHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentusage-empty-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempHome) }
+
+        let scanner = AgentUsageScanner(homeDirectory: tempHome)
+        let raw = scanner.collectLocalUsage()
+        XCTAssertTrue(raw.events.isEmpty, "Missing tool directories must yield no events")
+        XCTAssertEqual(raw.scannedFileCount, 0)
+        XCTAssertNil(raw.codexRateLimits)
+
+        let snapshot = AgentUsageAggregator.aggregate(
+            events: raw.events,
+            codexRateLimits: raw.codexRateLimits,
+            scannedFileCount: raw.scannedFileCount
+        )
+        XCTAssertTrue(snapshot.days.isEmpty)
+        XCTAssertTrue(snapshot.modelTotals.isEmpty)
+        XCTAssertEqual(snapshot.totals.total, 0)
+        XCTAssertNil(snapshot.totalCostUSD)
+        XCTAssertTrue(snapshot.rateWindows.isEmpty)
+        XCTAssertTrue(snapshot.sourcesFound.isEmpty)
+        XCTAssertNil(snapshot.openRouterCredits, "No OpenRouter key means no balance")
+    }
 }
