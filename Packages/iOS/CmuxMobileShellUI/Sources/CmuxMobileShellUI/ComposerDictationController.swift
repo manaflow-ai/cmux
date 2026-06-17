@@ -52,15 +52,9 @@ final class ComposerDictationController {
     /// so partials append rather than overwrite.
     private var baseText: String = ""
 
-    /// Whether THIS controller actually activated the shared `AVAudioSession`
-    /// (i.e. `beginRecognition()` got past `setActive(true)`). Gates all engine /
-    /// session teardown so a teardown when dictation never ran is a true no-op.
-    ///
-    /// Without this guard, `stopEngineAndSession()` runs on every send/blur/cancel
-    /// even when the mic was never used: touching `audioEngine.inputNode` spins up
-    /// the input hardware and `setActive(false, .notifyOthersOnDeactivation)` pokes
-    /// the shared session, which interrupts other apps' audio (background music
-    /// pausing and resuming on every text submit). Only deactivate a session we own.
+    /// Whether THIS controller activated the shared `AVAudioSession` (`setActive`
+    /// in `beginRecognition()`). Gates teardown so a send/blur/cancel with no
+    /// dictation in flight never pokes the audio system. See ``stopEngineAndSession()``.
     private var didActivateSession = false
 
     /// The callback that writes merged text back into the composer. Held while
@@ -350,9 +344,7 @@ final class ComposerDictationController {
             // that enforce the documented restrictions.
             try session.setCategory(.record, mode: .measurement)
             try session.setActive(true)
-            // We now own the active session; teardown must deactivate it (and only
-            // then). Set before any further setup so a failure past this point
-            // still tears the session down on the failStart path.
+            // Set before later setup so a failure still deactivates on failStart.
             didActivateSession = true
         } catch {
             failStart()
@@ -471,11 +463,10 @@ final class ComposerDictationController {
     /// session. Shared by the graceful stop (which keeps the recognition task and
     /// callback alive) and the hard `teardown()`. Safe to call repeatedly.
     private func stopEngineAndSession() {
-        // No-op unless we actually activated the session. A send/blur/cancel with
-        // no dictation in flight must not touch the audio system at all: accessing
-        // `audioEngine.inputNode` powers up the mic input route and deactivating the
-        // shared session interrupts other apps' playback (background music pausing
-        // then resuming on every text submit). Only tear down a session we own.
+        // No-op unless we activated the session. Otherwise this would touch the
+        // audio system on every send/blur/cancel: accessing `audioEngine.inputNode`
+        // powers up the mic route and `setActive(false, .notifyOthersOnDeactivation)`
+        // interrupts other apps' playback (music pausing/resuming on every submit).
         guard didActivateSession else { return }
         didActivateSession = false
         if audioEngine.isRunning {
