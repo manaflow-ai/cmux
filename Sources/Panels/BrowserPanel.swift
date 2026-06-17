@@ -6854,7 +6854,7 @@ extension BrowserPanel {
         suppressAutoFocusUntilFocusGainOnExit: Bool = false
     ) -> Bool {
         let shouldActivate = !isBrowserFocusModeActive
-        setBrowserFocusModeActive(
+        return setBrowserFocusModeActive(
             shouldActivate,
             reason: reason,
             focusWebView: focusWebView,
