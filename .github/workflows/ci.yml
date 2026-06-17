@@ -96,6 +96,9 @@ jobs:
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
+      - name: Validate command timeout helper
+        run: python3 tests/test_ci_run_with_timeout.py
+
       - name: Validate XCTest shard argument helper
         run: python3 tests/test_ci_xctest_shard_args.py
 
@@ -467,6 +470,8 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_ALLOW_SOCKET_OVERRIDE: "1"
       CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-focused-${{ github.run_id }}-${{ github.run_attempt }}.sock"
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "900"
+      CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
@@ -548,7 +553,7 @@ jobs:
   xctest-shard:
     needs: [detect-changes, debug-app-build]
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ matrix.requires_display && (vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x') || (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -560,6 +565,8 @@ jobs:
       CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-xctest-${{ matrix.shard_index }}-${{ github.run_id }}-${{ github.run_attempt }}.sock"
       CMUX_XCTEST_SHARD_COUNT: "4"
       CMUX_XCTEST_SHARD_INDEX: ${{ matrix.shard_index }}
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "900"
+      CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout
@@ -696,24 +703,57 @@ jobs:
         include:
           - group: auth-remote
             packages: CMUXAuthCore CmuxCore CmuxRemoteDaemon CmuxRemoteWorkspace CmuxRemoteSession CmuxAuthRuntime
+            requires_display: false
           - group: app-core
             packages: CmuxControlSocket CmuxFileWatch CmuxFoundation CmuxGit CmuxProcess CmuxSettings CmuxSettingsUI CmuxSocketControl CmuxUpdater CMUXAgentLaunch
+            requires_display: false
           - group: command-palette
             packages: CmuxCommandPalette
+            requires_display: false
           - group: terminal-core
             packages: CmuxTerminal CmuxTerminalCore
+            requires_display: false
           - group: terminal-engine
             packages: CmuxTerminalEngine
+            requires_display: false
           - group: terminal-services
             packages: CmuxTerminalServices
+            requires_display: true
     env:
       CMUX_SWIFT_PACKAGES: ${{ matrix.packages }}
+      CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS: "900"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Validate display runner identity
+        if: ${{ matrix.requires_display }}
+        env:
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$REQUESTED_RUNNER" in
+            depot-*)
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              echo "Display runner is not Depot; skipping Depot identity guard"
+              ;;
+          esac
 
       - name: Select Xcode
         run: |
@@ -761,10 +801,73 @@ jobs:
           cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
           echo "CMUX_NUCLEO_FFI_LIB=$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib" >> "$GITHUB_ENV"
 
+      - name: Create virtual display for AppKit Swift package tests
+        if: ${{ matrix.requires_display }}
+        run: |
+          set -euo pipefail
+          LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+          eval "$LOCK_ENV"
+          export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
+          echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
+          echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
+          HELPER_PATH="$RUNNER_TEMP/create-virtual-display-swift-package"
+          VDISPLAY_READY="$RUNNER_TEMP/cmux-swift-package-vdisplay.ready"
+          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-swift-package-vdisplay.id"
+          VDISPLAY_LOG="$RUNNER_TEMP/cmux-swift-package-vdisplay.log"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+          "$HELPER_PATH" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            >"$VDISPLAY_LOG" 2>&1 &
+          VDISPLAY_PID=$!
+          scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PID"
+
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          echo "VDISPLAY_HELPER_PATH=$HELPER_PATH" >> "$GITHUB_ENV"
+          echo "VDISPLAY_READY=$VDISPLAY_READY" >> "$GITHUB_ENV"
+          echo "VDISPLAY_ID_PATH=$VDISPLAY_ID_PATH" >> "$GITHUB_ENV"
+          echo "VDISPLAY_LOG=$VDISPLAY_LOG" >> "$GITHUB_ENV"
+
+          for _ in $(seq 1 100); do
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+              cat "$VDISPLAY_LOG"
+              exit 0
+            fi
+            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+              echo "Virtual display helper exited before readiness" >&2
+              cat "$VDISPLAY_LOG" >&2 || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+
+          echo "Virtual display not ready" >&2
+          cat "$VDISPLAY_LOG" >&2 || true
+          exit 1
+
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
           ./scripts/ci/run_swift_package_tests.sh $CMUX_SWIFT_PACKAGES
+
+      - name: Cleanup Swift package virtual display
+        if: ${{ always() && matrix.requires_display }}
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
+          fi
+          scripts/ci/virtual-display-lock.sh release || true
+          rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   agent-session-web-resources:
     needs: detect-changes

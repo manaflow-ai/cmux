@@ -227,10 +227,12 @@ check_app_hosted_xctest_socket_isolation() {
 	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_idle_timeout=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"1"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
-	    END { exit !(saw_override && saw_socket && saw_retry_wrapper) }
+	    END { exit !(saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH, allow override, and run app-host tests through the retry wrapper"
+	    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH, allow override, longer app-host idle timeout, one attempt, and the app-host wrapper"
 	    exit 1
 	  fi
 
@@ -239,10 +241,12 @@ check_app_hosted_xctest_socket_isolation() {
 	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_idle_timeout=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"1"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
-	    END { exit !(saw_override && saw_socket && saw_retry_wrapper) }
+	    END { exit !(saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH, allow override, and run app-host tests through the retry wrapper"
+	    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH, allow override, longer app-host idle timeout, one attempt, and the app-host wrapper"
 	    exit 1
 	  fi
 
@@ -753,6 +757,35 @@ check_swift_package_tests_select_xcode() {
   echo "PASS: swift-package-tests selects Xcode before swift test"
 }
 
+check_swift_package_appkit_display_isolation() {
+  if ! grep -Fq "matrix.requires_display && (vars.MACOS_RUNNER_DISPLAY" "$CI_FILE"; then
+    echo "FAIL: swift-package-tests must route display-required package tests to the display runner"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  swift-package-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /group:[[:space:]]*terminal-services/ { in_terminal_services=1 }
+    in_terminal_services && /requires_display:[[:space:]]*true/ { saw_terminal_services_display=1; in_terminal_services=0 }
+    in_job && /CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_timeout=1 }
+    in_job && /- name: Create virtual display for AppKit Swift package tests/ { saw_vdisplay=1 }
+    in_job && /scripts\/ci\/virtual-display-lock\.sh acquire/ { saw_lock=1 }
+    in_job && /- name: Cleanup Swift package virtual display/ { saw_cleanup=1 }
+    END { exit !(saw_terminal_services_display && saw_timeout && saw_vdisplay && saw_lock && saw_cleanup) }
+  ' "$CI_FILE"; then
+    echo "FAIL: CmuxTerminalServices SwiftPM tests must use display isolation and a per-package timeout"
+    exit 1
+  fi
+
+  if ! grep -Fq "python3 tests/test_ci_run_with_timeout.py" "$CI_FILE"; then
+    echo "FAIL: workflow guards must validate the command timeout helper"
+    exit 1
+  fi
+
+  echo "PASS: AppKit SwiftPM package tests use display isolation and timeout guard"
+}
+
 check_daemon_detector_includes_release_asset_script() {
   if ! grep -Fq "scripts/build_remote_daemon_release_assets\\.sh$" "$CI_FILE"; then
     echo "FAIL: daemon-domain change detector must include scripts/build_remote_daemon_release_assets.sh"
@@ -825,6 +858,7 @@ check_app_detector_includes_ui_tests
 check_app_detector_includes_warning_budget
 check_app_detectors_include_root_entitlements
 check_swift_package_tests_select_xcode
+check_swift_package_appkit_display_isolation
 check_daemon_detector_includes_release_asset_script
 check_activation_benchmark_deflake
 check_tmux_terminal_nightly_isolation

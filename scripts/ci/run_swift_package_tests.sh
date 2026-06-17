@@ -6,6 +6,8 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+swift_test_timeout_seconds="${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}"
+
 for pkg in "$@"; do
   pkgdir=""
   for candidate in Packages/*/"$pkg"; do
@@ -25,7 +27,9 @@ for pkg in "$@"; do
     status=0
     output_file="$(mktemp)"
     set +e
-    swift test --package-path "$pkgdir" 2>&1 | tee "$output_file"
+    python3 scripts/ci/run_with_timeout.py \
+      --timeout "$swift_test_timeout_seconds" \
+      -- swift test --package-path "$pkgdir" 2>&1 | tee "$output_file"
     status=${PIPESTATUS[0]}
     set -e
     output="$(cat "$output_file")"
@@ -41,7 +45,9 @@ for pkg in "$@"; do
     fi
     ;;
   *)
-    swift test --package-path "$pkgdir"
+    python3 scripts/ci/run_with_timeout.py \
+      --timeout "$swift_test_timeout_seconds" \
+      -- swift test --package-path "$pkgdir"
     ;;
   esac
   echo "::endgroup::"
