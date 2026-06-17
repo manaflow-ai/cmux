@@ -18,8 +18,9 @@ ALLOWED_IGNORED_PREFIXES = (
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
-PACKAGE_PATH_DEPENDENCY_RE = re.compile(r'\.package\(\s*path:\s*"([^"]+)"')
-PACKAGE_URL_DEPENDENCY_RE = re.compile(r'\.package\(\s*url:\s*"[^"]+"')
+PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
+PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
+PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
 
 SKIPPED_DIRS = {
     ".build",
@@ -70,11 +71,17 @@ def package_graph(manifests: dict[str, Path]) -> dict[str, tuple[bool, list[str]
     for root, manifest in manifests.items():
         text = manifest.read_text(encoding="utf-8")
         path_dependencies: list[str] = []
-        for dependency in PACKAGE_PATH_DEPENDENCY_RE.findall(text):
-            dependency_root = (manifest.parent / dependency).resolve()
+        has_url_dependency = False
+        for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
+            if PACKAGE_URL_ARGUMENT_RE.search(dependency):
+                has_url_dependency = True
+            path_match = PACKAGE_PATH_ARGUMENT_RE.search(dependency)
+            if path_match is None:
+                continue
+            dependency_root = (manifest.parent / path_match.group(1)).resolve()
             if dependency_root in root_by_resolved_path:
                 path_dependencies.append(root_by_resolved_path[dependency_root])
-        graph[root] = (bool(PACKAGE_URL_DEPENDENCY_RE.search(text)), path_dependencies)
+        graph[root] = (has_url_dependency, path_dependencies)
 
     return graph
 
