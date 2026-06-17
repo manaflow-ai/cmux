@@ -880,6 +880,7 @@
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		CF0000000000000000000D02 /* VNCCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000000000000000000D01 /* VNCCredentialStore.swift */; };
 		CF0000000000000000000A02 /* VNCPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000000000000000000A01 /* VNCPanel.swift */; };
 		CF0000000000000000000B02 /* VNCPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000000000000000000B01 /* VNCPanelView.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
@@ -1819,6 +1820,7 @@
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		CF0000000000000000000D01 /* VNCCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/VNCCredentialStore.swift; sourceTree = "<group>"; };
 		CF0000000000000000000A01 /* VNCPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/VNCPanel.swift; sourceTree = "<group>"; };
 		CF0000000000000000000B01 /* VNCPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/VNCPanelView.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
@@ -2546,6 +2548,7 @@
 				A5007423 /* BrowserWebAuthnSupport.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				CF0000000000000000000A01 /* VNCPanel.swift */,
+				CF0000000000000000000D01 /* VNCCredentialStore.swift */,
 				CF0000000000000000000B01 /* VNCPanelView.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
@@ -3948,6 +3951,7 @@
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				CF0000000000000000000D02 /* VNCCredentialStore.swift in Sources */,
 				CF0000000000000000000A02 /* VNCPanel.swift in Sources */,
 				CF0000000000000000000B02 /* VNCPanelView.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,

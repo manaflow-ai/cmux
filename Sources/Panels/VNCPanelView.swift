@@ -28,6 +28,20 @@ struct VNCPanelView: View {
     @ViewBuilder
     private var statusOverlay: some View {
         switch panel.connectionState {
+        case .authenticating:
+            VStack(spacing: 10) {
+                Image(systemName: "touchid")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Color(red: 0.96, green: 0.36, blue: 0.36))
+                Text(String(localized: "vnc.status.authenticating", defaultValue: "Waiting for Touch ID…"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text(panel.endpoint.displayLabel)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(22)
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
         case .connecting:
             VStack(spacing: 10) {
                 ProgressView()
@@ -56,12 +70,30 @@ struct VNCPanelView: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 320)
                 }
-                Button {
-                    panel.reconnect()
-                } label: {
-                    Text(String(localized: "vnc.action.reconnect", defaultValue: "Reconnect"))
+                HStack(spacing: 10) {
+                    Button {
+                        panel.reconnect()
+                    } label: {
+                        if panel.hasSavedPassword {
+                            Label(
+                                String(localized: "vnc.action.unlock", defaultValue: "Unlock with Touch ID"),
+                                systemImage: "touchid"
+                            )
+                        } else {
+                            Text(String(localized: "vnc.action.reconnect", defaultValue: "Reconnect"))
+                        }
+                    }
+                    .controlSize(.regular)
+
+                    if panel.hasSavedPassword {
+                        Button {
+                            panel.forgetSavedPassword()
+                        } label: {
+                            Text(String(localized: "vnc.action.forgetPassword", defaultValue: "Forget Password"))
+                        }
+                        .controlSize(.regular)
+                    }
                 }
-                .controlSize(.regular)
             }
             .padding(24)
             .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
