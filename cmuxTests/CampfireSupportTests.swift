@@ -166,6 +166,40 @@ struct CampfireSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
+    @Test func directProcessDetectionClassifiesCampfireDistInvocation() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-dist-invocation-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let latest = try Self.writeSessionFile(
+            id: "campfire-dist-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "bun",
+            processPath: "/opt/homebrew/bin/bun",
+            arguments: [
+                "/opt/homebrew/bin/bun",
+                "/Users/example/campfire/packages/session/dist/campfire",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("campfire"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
     @Test func directProcessDetectionDoesNotTreatPlainCampfireArgumentAsAgent() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-plain-argument-")
         defer { try? FileManager.default.removeItem(at: root) }
