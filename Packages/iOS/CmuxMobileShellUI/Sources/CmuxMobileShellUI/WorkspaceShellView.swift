@@ -78,6 +78,7 @@ struct WorkspaceShellView: View {
                 selectedWorkspaceID: store.scopedSelectedWorkspaceID,
                 deviceNames: store.unifiedDeviceNames,
                 showsMacChips: store.unifiedMultiMacEnabled,
+                activatingDeviceID: store.activatingDeviceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
@@ -144,6 +145,7 @@ struct WorkspaceShellView: View {
                 selectedWorkspaceID: store.scopedSelectedWorkspaceID,
                 deviceNames: store.unifiedDeviceNames,
                 showsMacChips: store.unifiedMultiMacEnabled,
+                activatingDeviceID: store.activatingDeviceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
@@ -193,11 +195,23 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ scopedID: ScopedWorkspaceID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        // P2 keeps the store's authoritative selection on the bare workspace id
-        // against the heavy client; cross-Mac heavy-attach from a non-active scope
-        // lands in P3. The scope is preserved in the navigation path so the pushed
-        // workspace stays unambiguous across Macs.
-        store.scopedSelectedWorkspaceID = scopedID
+        // Lazy heavy-attach: when the tapped workspace's Mac is not the active
+        // heavy connection, `selectScopedWorkspace` switches the heavy client to
+        // it (via `activateMac`) before landing the bare selection, so the
+        // terminal that mounts streams from the correct Mac. When the Mac is
+        // already active (single-Mac, flag off, or re-tapping the live Mac) it is
+        // just a bare selection with no connection churn.
+        //
+        // The navigation push is keyed on the SCOPED id and happens immediately so
+        // the detail screen presents without waiting on the connect round-trip;
+        // the detail container resolves the concrete workspace once the activated
+        // Mac's `workspaces` arrive. A failed activation leaves the bare selection
+        // unchanged inside the store, and the navigation push surfaces the
+        // connection status/error in the detail chrome.
+        let store = store
+        Task { @MainActor in
+            await store.selectScopedWorkspace(scopedID)
+        }
         if usesCompactStack, compactNavigationPath.last != scopedID {
             compactNavigationPath = [scopedID]
         }

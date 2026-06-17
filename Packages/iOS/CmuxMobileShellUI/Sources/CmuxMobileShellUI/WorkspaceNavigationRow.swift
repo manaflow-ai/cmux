@@ -14,6 +14,10 @@ struct WorkspaceNavigationRow: View {
     /// The owning-Mac chip label, when this row is part of the unified multi-Mac
     /// list. `nil` (the default) hides the chip, preserving the single-Mac look.
     var macChipName: String? = nil
+    /// Whether this row's owning Mac is currently being switched to (the
+    /// destructive `activateMac` heavy-attach is in flight). Shows a small
+    /// spinner beside the chip; `false` (the default) renders the chip as-is.
+    var isConnecting: Bool = false
     let selectWorkspace: (ScopedWorkspaceID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -115,7 +119,8 @@ struct WorkspaceNavigationRow: View {
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
-            macChipName: macChipName
+            macChipName: macChipName,
+            isConnecting: isConnecting
         )
     }
 

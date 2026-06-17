@@ -24,6 +24,12 @@ struct WorkspaceListView: View {
     /// presentation, i.e. the unified multi-Mac mode. `false` (the default)
     /// preserves the single-Mac look exactly: no chips, and group sections honored.
     var showsMacChips: Bool = false
+    /// The device id of the Mac whose heavy connection is currently being
+    /// switched to (via `activateMac`), so its rows show a per-row connecting
+    /// state in the unified list. `nil` when no cross-Mac activation is running.
+    /// Passed as a value snapshot so no `@Observable` store crosses the `List`
+    /// boundary.
+    var activatingDeviceID: String? = nil
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
@@ -71,7 +77,6 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
-    @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
@@ -170,11 +175,6 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
-            if store != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    devicesButton
-                }
-            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter)
                 newWorkspaceButton
@@ -192,36 +192,21 @@ struct WorkspaceListView: View {
             TerminalShortcutsSettingsView()
         }
         .sheet(isPresented: $showingSettings) {
+            // The device tree ("Manage devices") now lives inside Settings rather
+            // than a top-left toolbar button: it is a secondary management surface,
+            // not the primary navigation (the unified workspace list is). The
+            // workspace-select closure is forwarded so opening a workspace from the
+            // tree dismisses Settings and the device sheet and reveals it.
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
                 signOut: signOut,
-                store: store
+                store: store,
+                selectWorkspace: selectWorkspace
             )
-        }
-        // Present the device tree at the workspace-list level (a single sheet,
-        // not nested under Settings), so selecting a workspace dismisses straight
-        // back to the workspace shell and reveals the opened workspace rather than
-        // leaving a parent sheet covering it.
-        .sheet(isPresented: $showingDeviceTree) {
-            if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
-            }
         }
         #endif
     }
-
-    #if os(iOS)
-    private var devicesButton: some View {
-        Button {
-            showingDeviceTree = true
-        } label: {
-            Image(systemName: "rectangle.stack")
-        }
-        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
-        .accessibilityIdentifier("MobileWorkspaceDevicesButton")
-    }
-    #endif
 
     /// Flat presentation: a pinned-first list with no group headers. Used when the
     /// Mac has no groups (or lacks the capability) or while searching.
@@ -279,6 +264,9 @@ struct WorkspaceListView: View {
             macChipName: showsMacChips
                 ? WorkspaceMacChip.label(forDeviceID: workspace.deviceId, names: deviceNames)
                 : nil,
+            isConnecting: showsMacChips
+                && !workspace.deviceId.isEmpty
+                && activatingDeviceID == workspace.deviceId,
             selectWorkspace: selectWorkspace,
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,
