@@ -311,16 +311,15 @@ check_sentry_cli_install_portability() {
   fi
 
   for needle in \
-    'https://sentry.io/get-cli/' \
     'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
-    'SENTRY_CLI_VERSION="${SENTRY_CLI_VERSION:-3.3.0}"' \
-    'INSTALLER_PATH="${RUNNER_TEMP:-/tmp}/sentry-cli-install.sh"' \
+    'SENTRY_CLI_ASSET="sentry-cli-Darwin-universal"' \
+    'SENTRY_CLI_SHA256="dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"' \
+    'https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/${SENTRY_CLI_ASSET}' \
+    'SENTRY_CLI_VERSION="3.3.0"' \
     '--connect-timeout 20' \
     '--max-time 120' \
-    '--output "$INSTALLER_PATH"' \
-    'unset SENTRY_AUTH_TOKEN' \
-    'SENTRY_CLI_VERSION="$SENTRY_CLI_VERSION" sh "$INSTALLER_PATH"' \
-    ') >&2'; do
+    'ACTUAL_SHA256="$(shasum -a 256 "$DOWNLOAD_PATH" | awk' \
+    'install -m 0755 "$DOWNLOAD_PATH" "$INSTALL_DIR/sentry-cli"'; do
     if ! grep -Fq -- "$needle" "$helper"; then
       echo "FAIL: sentry-cli helper must contain $needle"
       exit 1
