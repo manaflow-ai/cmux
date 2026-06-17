@@ -320,15 +320,9 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        // Stream the binary over the SSH channel itself instead of scp/sftp.
-        // scp/sftp sessions are commonly jailed/chrooted to a different root
-        // than the interactive shell — or disabled entirely — so the temp
-        // path that is valid for `ssh` exec is often invalid (or inaccessible)
-        // for scp, which is the root cause of the bootstrap upload failures in
-        // issue #6207. Piping the bytes through `cat > tempPath` over the same
-        // ssh transport guarantees identical path/permission semantics. `-T`
-        // disables PTY allocation so terminal line-discipline processing can
-        // not corrupt the binary stream.
+        // Stream the binary over the SSH channel (cat > tempPath) instead of
+        // scp/sftp, which is commonly jailed/chrooted or disabled (issue #6207);
+        // `-T` disables PTY allocation so it cannot corrupt the binary stream.
         let binaryData: Data
         do {
             binaryData = try Data(contentsOf: localBinary)

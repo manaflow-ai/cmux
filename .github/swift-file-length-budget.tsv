@@ -12,7 +12,7 @@
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7926	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
-7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7240	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6154	Sources/TabManager.swift
