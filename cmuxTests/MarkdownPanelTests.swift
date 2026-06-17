@@ -480,6 +480,87 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Document was healthy when the pane was dragged out of its column.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.handleViewLeftWindow()
+
+        // While detached, WebKit reclaimed the WebContent process and the
+        // in-place recovery budget was exhausted, leaving the panel blank.
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+    }
+
+    func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A payload that keeps crashing WebContent *while attached* exhausts
+        // the recovery budget and is intentionally left blank by the crash-loop
+        // guard — the shell was never healthy when detached.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Crashy\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Dragging the pane (detach while already blank) then re-entering must
+        // NOT grant the crashing payload a fresh budget or reload it.
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
