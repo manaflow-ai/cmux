@@ -111,6 +111,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case browserBack
     case browserForward
     case browserReload
+    /// Hard refreshes the focused browser pane, bypassing WebKit's cache.
+    case browserHardReload
     case browserZoomIn
     case browserZoomOut
     case browserZoomReset
@@ -191,7 +193,7 @@ extension ShortcutAction {
              .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
-             .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
+             .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
@@ -256,7 +258,7 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .browserBack, .browserForward, .browserReload,
+        case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
@@ -398,6 +400,7 @@ extension ShortcutAction {
         case .browserBack: return "Back"
         case .browserForward: return "Forward"
         case .browserReload: return "Reload Page"
+        case .browserHardReload: return String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")
         case .browserZoomIn: return "Zoom In"
         case .browserZoomOut: return "Zoom Out"
         case .browserZoomReset: return "Actual Size"

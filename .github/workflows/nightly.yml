@@ -701,14 +701,15 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
 
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
           # is either the old version or the new one, never missing.
-          aws s3 cp appcast.xml \
-            "s3://cmux-binaries/nightly/appcast.xml" \
+          python3 scripts/ci/upload-r2-object.py \
+            --file appcast.xml \
             --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key nightly/appcast.xml \
             --cache-control "no-cache, no-store, must-revalidate"
 
           echo "R2 appcast upload complete: https://files.cmux.com/nightly/appcast.xml"

@@ -1259,6 +1259,7 @@
               "browserBack",
               "browserForward",
               "browserReload",
+              "browserHardReload",
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
