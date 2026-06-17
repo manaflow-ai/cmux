@@ -936,6 +936,7 @@ struct BrowserPanelView: View {
 
     private func handleRenderWebViewChange() {
         refreshBrowserChromeStyle()
+        retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: "autoFocusMode.renderWebView")
         if panel.isShowingNewTabPage {
             refreshEmptyStateImportBrowsers()
         }
@@ -1024,6 +1025,20 @@ struct BrowserPanelView: View {
         autoFocusOmnibarIfBlank()
         // Skip auto-activation when the omnibar just claimed focus (blank tabs):
         // focus mode and address-bar focus are mutually exclusive states.
+        activateAutoFocusModeIfNeeded(reason: reason, isPanelFocused: isPanelFocused)
+    }
+
+    private func retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: String) {
+        guard BrowserAutoFocusModeActivation.shouldRetryAfterAddressBarBlur(
+            isPageRenderable: panel.shouldRenderWebView,
+            isContentBlank: isBrowserContentBlankForOmnibar()
+        ) else {
+            return
+        }
+        activateAutoFocusModeIfNeeded(reason: reason, isPanelFocused: isFocused)
+    }
+
+    private func activateAutoFocusModeIfNeeded(reason: String, isPanelFocused: Bool) {
         if BrowserAutoFocusModeActivation.shouldActivate(
             isEnabled: autoFocusModeEnabled,
             isPanelFocused: isPanelFocused,
@@ -1074,6 +1089,7 @@ struct BrowserPanelView: View {
                 applyOmnibarEffects(effects)
             }
             inlineCompletion = nil
+            retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: "autoFocusMode.addressBarBlur")
         }
         syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
 #if DEBUG

@@ -12041,6 +12041,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testAutoFocusModeAddressBarBlurRetryRequiresRenderableNonblankPage() {
+        XCTAssertTrue(
+            BrowserAutoFocusModeActivation.shouldRetryAfterAddressBarBlur(
+                isPageRenderable: true,
+                isContentBlank: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldRetryAfterAddressBarBlur(
+                isPageRenderable: false,
+                isContentBlank: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldRetryAfterAddressBarBlur(
+                isPageRenderable: true,
+                isContentBlank: true
+            )
+        )
+    }
+
     func testAutoFocusModePanelActivationUsesExistingFocusModePath() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }

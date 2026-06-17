@@ -204,6 +204,10 @@ enum BrowserAutoFocusModeActivation {
     ) -> Bool {
         isEnabled && isPanelFocused && !isBrowserFocusModeActive && !isAddressBarFocused
     }
+
+    static func shouldRetryAfterAddressBarBlur(isPageRenderable: Bool, isContentBlank: Bool) -> Bool {
+        isPageRenderable && !isContentBlank
+    }
 }
 
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
