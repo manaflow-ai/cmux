@@ -2037,6 +2037,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded(tabManager: tabManager, notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2061,6 +2062,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Starts the per-pane runaway-memory guardrail: a background timer that
+    /// attributes each pane's process-tree memory by controlling tty and warns
+    /// (sidebar badge + dismissible banner with a kill action) before a single
+    /// leaking pane can OOM-suspend the whole app (issue #6313).
+    private func startPaneMemoryGuardrailIfNeeded(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore
+    ) {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak tabManager] in
+            guard let tabManager else { return [] }
+            var descriptors: [PaneMemoryDescriptor] = []
+            for workspace in tabManager.tabs {
+                let workspaceTitle = workspace.title
+                let reportedTTYs = workspace.surfaceTTYNames
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    let surface = terminalPanel.surface
+                    guard surface.hasLiveSurface else { continue }
+                    // Prefer the shell-reported tty (reliable, socket `report_tty`);
+                    // fall back to the libghostty accessor.
+                    let ttyName = reportedTTYs[terminalPanel.id] ?? surface.controllingTTYName()
+                    guard let ttyName, !ttyName.isEmpty else { continue }
+                    descriptors.append(PaneMemoryDescriptor(
+                        workspaceId: workspace.id,
+                        panelId: terminalPanel.id,
+                        workspaceTitle: workspaceTitle,
+                        paneTitle: terminalPanel.displayTitle,
+                        ttyName: ttyName,
+                        foregroundPID: surface.foregroundProcessID()
+                    ))
+                }
+            }
+            return descriptors
+        }
+        guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
+            notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
+        }
+        guardrail.onRequestClosePane = { [weak tabManager] workspaceId, panelId in
+            _ = tabManager?.closeSurface(tabId: workspaceId, surfaceId: panelId)
+        }
+        guardrail.start()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
