@@ -766,6 +766,40 @@
         }
       }
     },
+    "mobile.composer.mic.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を開始"
+          }
+        }
+      }
+    },
+    "mobile.composer.mic.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を停止"
+          }
+        }
+      }
+    },
     "mobile.composer.placeholder": {
       "extractionState": "manual",
       "localizations": {
@@ -1435,13 +1469,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid pairing code."
+            "value": "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングコードが無効です。"
+            "value": "これはcmuxのペアリングQRコードではありません。Macの「iPhoneをペアリング」ウインドウに表示されているコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.unrecognizedVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR needs a newer version of cmux. Update the app and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このQRコードには新しいバージョンのcmuxが必要です。アプリを更新してからもう一度お試しください。"
           }
         }
       }
@@ -4621,6 +4672,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "両方の端末が同じcmuxアカウントでサインインしている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.updateApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux from the App Store (or TestFlight), then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store（またはTestFlight）でcmuxを更新してから、もう一度スキャンしてください。"
           }
         }
       }

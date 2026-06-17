@@ -1,22 +1,17 @@
 name: iOS TestFlight (beta)
 
 on:
-  # Publish to the beta lane on every iOS-affecting merge to main, so testers get
-  # changes immediately instead of waiting for the nightly. Path-filtered to the
-  # inputs that actually change the iOS app (the iOS target, the linked Swift
-  # packages, and GhosttyKit); macOS-only Sources/ changes don't rebuild the iOS
-  # app, so they don't trigger an upload. Push runs always build (the SHA gate is
-  # schedule-only); each merge is a new commit, so there's no duplicate upload.
-  push:
-    branches: [main]
-    paths:
-      - "ios/**"
-      - "Packages/**"
-      - "ghostty"
-      - "scripts/ensure-ghosttykit.sh"
-      - "scripts/install-zig-ci.sh"
-      - "scripts/ghosttykit-checksums.txt"
-      - ".github/workflows/ios-testflight.yml"
+  # No push trigger. A TestFlight upload is a release action: you only ever want
+  # the LATEST main state in beta, exactly once per change, never one upload per
+  # commit. Triggering on every iOS-affecting push forced a concurrency group to
+  # dedup concurrent uploads, and GitHub cancels the superseded *pending* runs in
+  # that group during merge bursts; those cancelled runs surface as red checks on
+  # the intermediate main commits, making main look like CI is failing. The
+  # schedule below already SHA-compares HEAD to the last uploaded commit (the
+  # `decide` job), which is the correct primitive for a beta lane: it uploads the
+  # current main only when it has actually advanced, and skips (green) otherwise.
+  # For an immediate beta, use workflow_dispatch; intentional cuts go through the
+  # release flow. See nightly.yml for the rolling dogfood lane.
   workflow_dispatch:
     inputs:
       build_number:
@@ -138,13 +133,15 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
       - name: Provision GhosttyKit
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize App Store Connect API key
