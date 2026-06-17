@@ -4784,6 +4784,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
 #endif
             guard editor?.hasMarkedText() != true else { return false }
+            // `performKeyEquivalent` runs across the whole window hierarchy, so
+            // this fires even when the WKWebView is first responder. Only claim
+            // Return/Escape/arrows while the omnibar owns a live field editor;
+            // otherwise an unfocused omnibar submits on a physical Return and
+            // hard-navigates the pane, aborting in-flight web work (#6250).
+            guard editor != nil else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             // When a non-Latin input source is active (Korean, Chinese, Japanese),
