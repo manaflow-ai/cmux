@@ -3060,7 +3060,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func restoreDiscardedWebViewIfNeeded(reason: String) -> Bool {
+    func restoreDiscardedWebViewIfNeeded(
+        reason: String,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) -> Bool {
         return hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason) {
             shouldRenderWebView = true
             guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
@@ -3070,7 +3073,8 @@ final class BrowserPanel: Panel, ObservableObject {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
                 recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
+                preserveRestoredSessionHistory: true,
+                cachePolicy: cachePolicy
             )
         }
     }
@@ -4674,7 +4678,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func recoverTerminatedWebContent(reason: String = "manual") -> Bool {
+    func recoverTerminatedWebContent(
+        reason: String = "manual",
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) -> Bool {
         guard hasRecoverableWebContentTermination else { return false }
         let recoveryURL = pendingWebContentRecoveryURL
         clearWebContentTerminationRecovery()
@@ -4691,7 +4698,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(
             to: recoveryURL,
             recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true
+            preserveRestoredSessionHistory: true,
+            cachePolicy: cachePolicy
         )
         return true
     }
@@ -5184,9 +5192,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private func navigateWithoutInsecureHTTPPrompt(
         to url: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool = false
+        preserveRestoredSessionHistory: Bool = false,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) {
-        let request = URLRequest(url: url)
+        let request = URLRequest(url: url, cachePolicy: cachePolicy)
         navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
@@ -5873,13 +5882,12 @@ extension BrowserPanel {
         bypassesRemoteWorkspaceProxy
     }
 
-    /// Reload the current page
-    func reload() {
-        if recoverTerminatedWebContent(reason: "reload") {
-            return
+    private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
+        if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+            return true
         }
-        if restoreDiscardedWebViewIfNeeded(reason: "reload") {
-            return
+        if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+            return true
         }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
@@ -5891,12 +5899,29 @@ extension BrowserPanel {
                 navigateWithoutInsecureHTTPPrompt(
                     to: fallbackURL,
                     recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: usesRestoredSessionHistory
+                    preserveRestoredSessionHistory: usesRestoredSessionHistory,
+                    cachePolicy: mode.recoveryCachePolicy
                 )
-                return
+                return true
             }
         }
+        return false
+    }
+
+    /// Reload the current page
+    func reload() {
+        if prepareForReload(reason: "reload", mode: .soft) {
+            return
+        }
         webView.reload()
+    }
+
+    /// Reload the current page, bypassing WebKit's cache.
+    func hardReload() {
+        if prepareForReload(reason: "hardReload", mode: .hard) {
+            return
+        }
+        webView.reloadFromOrigin()
     }
 
     /// Stop loading

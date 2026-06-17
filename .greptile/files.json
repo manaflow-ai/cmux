@@ -61,6 +61,11 @@
       "scope": ["**/*"]
     },
     {
+      "path": ".github/review-bot-rules/swiftpm-package-resolved.md",
+      "description": "Source-of-truth cmux review rule for SwiftPM Package.resolved lockfile policy.",
+      "scope": ["**/Package.swift", "**/Package.resolved", "**/.gitignore", "cmux.xcodeproj/**", ".github/workflows/**"]
+    },
+    {
       "path": "CLAUDE.md",
       "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
       "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]
