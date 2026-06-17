@@ -23,6 +23,7 @@ APP_PID=""
 PREEXISTING_PIDS="$(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)"
 DEBUG_LOGS="${CMUX_SMOKE_DEBUG_LOGS:-0}"
 ALLOW_UNSUPPORTED_GUI="${CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI:-0}"
+DIRECT_EXEC="${CMUX_SMOKE_DIRECT_EXEC:-0}"
 DISABLE_ICON_PERSISTENCE_KEY="cmuxDisableBundleIconPersistence"
 
 cleanup() {
@@ -75,14 +76,23 @@ echo "==> smoke launching $APP_PATH"
 # The Dock tile plugin can run in the Dock process, so seed the shared app
 # defaults domain before LaunchServices starts the app.
 /usr/bin/defaults write "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" -bool YES
-/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+if [[ "$DIRECT_EXEC" == "1" ]]; then
+  CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}" \
+    "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+else
+  /usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+fi
 OPEN_PID=$!
 
 # CI-only LaunchServices smoke: open returns before the app process is visible.
 # Use bounded polling to wait for registration, then a bounded liveness window.
 deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
 while (( SECONDS < deadline )); do
-  APP_PID="$(find_new_app_pid || true)"
+  if [[ "$DIRECT_EXEC" == "1" ]]; then
+    APP_PID="$OPEN_PID"
+  else
+    APP_PID="$(find_new_app_pid || true)"
+  fi
   if [[ -n "$APP_PID" ]]; then
     break
   fi

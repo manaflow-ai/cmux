@@ -306,6 +306,8 @@ check_gui_smoke_unsupported_launch_handling() {
   local helper="$ROOT_DIR/scripts/smoke-launch-macos-app.sh"
   for needle in \
     'ALLOW_UNSUPPORTED_GUI="${CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI:-0}"' \
+    'DIRECT_EXEC="${CMUX_SMOKE_DIRECT_EXEC:-0}"' \
+    'CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}"' \
     'open_log_indicates_unsupported_gui()' \
     "grep -Fq 'OSLaunchdErrorDomain Code=125'" \
     "grep -Fq 'Domain does not support specified action'" \
@@ -316,17 +318,22 @@ check_gui_smoke_unsupported_launch_handling() {
     fi
   done
 
+  if ! awk '
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw=1 }
+    END { exit !saw }
+  ' "$ROOT_DIR/.github/workflows/release.yml"; then
+    echo "FAIL: release signing smoke must use direct exec CI launch mode"
+    exit 1
+  fi
+
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if ! awk '
-      /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw=1 }
-      END { exit !saw }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") signing smoke must allow only explicit unsupported-GUI launch skips"
+    if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$file"; then
+      echo "FAIL: $(basename "$file") signing workflow must run launch smoke"
       exit 1
     fi
   done
 
-  echo "PASS: signing smoke handles unsupported GUI launch explicitly"
+  echo "PASS: signing smoke handles unsupported GUI launch and release direct exec explicitly"
 }
 
 check_no_ci_xctest_skips() {
