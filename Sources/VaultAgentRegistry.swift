@@ -147,7 +147,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             name: "Campfire",
             detect: CmuxVaultAgentDetectRule(
                 processName: "campfire",
-                alternateArgvContains: ["campfire"]
+                alternateArgvContains: ["packages/session/bin/campfire.ts"]
             ),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
