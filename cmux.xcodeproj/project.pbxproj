@@ -95,8 +95,8 @@
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
-		A5008373 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindJavaScript.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
+		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
 		7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */; };
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
@@ -180,6 +180,7 @@
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000C2 /* CmuxBrowser */; };
+		BC10A30000000000000000C3 /* CmuxBrowserImport in Frameworks */ = {isa = PBXBuildFile; productRef = BC10A30000000000000000C2 /* CmuxBrowserImport */; };
 		5E55100000000000000000B3 /* CmuxBrowserPanel in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55100000000000000000B2 /* CmuxBrowserPanel */; };
 		CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
@@ -221,6 +222,7 @@
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
 		E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */; };
+		C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */; };
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
@@ -313,6 +315,7 @@
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
 		D7C0DE00000000000000A101 /* CmuxWebView+ContextMenuLinkCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */; };
 		D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */; };
+		C6255D010000000000000001 /* CmuxWebView+ScriptedDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */; };
 		A5001500 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001510 /* CmuxWebView.swift */; };
 		D7C0DE00000000000000A103 /* CmuxWebViewContextMenuLinkCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */; };
 		D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */; };
@@ -939,6 +942,7 @@
 		EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */; };
 		44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
+		5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */; };
 		5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */; };
 		5659A0035659A0035659A003 /* WorkspaceSidebarObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
@@ -1113,8 +1117,8 @@
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
-		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
+		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFixtureInteractionUITests.swift; sourceTree = "<group>"; };
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
@@ -1222,6 +1226,7 @@
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNamedColorTests.swift; sourceTree = "<group>"; };
+		C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigStore+ConfigStoreReloading.swift"; sourceTree = "<group>"; };
 		C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
 		C0DEF0A10000000000000002 /* CmuxConfigUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigUI.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CmuxDockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1263,6 +1268,7 @@
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/CmuxWebView+ContextMenuLinkCapture.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/CmuxWebView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/CmuxWebView+ScriptedDownloads.swift"; sourceTree = "<group>"; };
 		A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
 		D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewContextMenuLinkCaptureTests.swift; sourceTree = "<group>"; };
 		D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewDragRoutingTests.swift; sourceTree = "<group>"; };
@@ -1871,6 +1877,7 @@
 		EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionHostAdapter.swift; sourceTree = "<group>"; };
 		92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift; sourceTree = "<group>"; };
 		9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
+		5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarLogEntryLimitProvider.swift; sourceTree = "<group>"; };
 		5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservation.swift; sourceTree = "<group>"; };
 		5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservationTests.swift; sourceTree = "<group>"; };
 		F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarScrollUITests.swift; sourceTree = "<group>"; };
@@ -1901,6 +1908,7 @@
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
 				E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */,
+				BC10A30000000000000000C3 /* CmuxBrowserImport in Frameworks */,
 				5E55100000000000000000B3 /* CmuxBrowserPanel in Frameworks */,
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
@@ -2317,6 +2325,7 @@
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
 				5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */,
+				5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */,
 				D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
@@ -2351,6 +2360,7 @@
 				B35750000000000000000001 /* VaultAgentRegistry.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
 				77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */,
+				C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */,
 				D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
 				D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */,
@@ -2454,7 +2464,7 @@
 				A5001301 /* SurfaceSearchOverlay.swift */,
 				C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */,
 				A5008370 /* BrowserSearchOverlay.swift */,
-				A5008372 /* BrowserFindJavaScript.swift */,
+				A5008372 /* BrowserFindWebViewEvaluator.swift */,
 				3865B0013865B0013865B001 /* SearchIndex.swift */,
 				3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */,
 				3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */,
@@ -2467,6 +2477,7 @@
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
+				C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
@@ -3047,6 +3058,7 @@
 				C5B6A10000000000000000A2 /* CmuxSidebarGit */,
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
+				BC10A30000000000000000C2 /* CmuxBrowserImport */,
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
 				E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
@@ -3242,6 +3254,7 @@
 				C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */,
 				E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */,
 				E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */,
+				BC10A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowserImport" */,
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
 				E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */,
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
@@ -3493,7 +3506,7 @@
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
-				A5008373 /* BrowserFindJavaScript.swift in Sources */,
+				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
 				A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */,
@@ -3533,6 +3546,7 @@
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
+				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
@@ -3564,6 +3578,7 @@
 				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
 				D7C0DE00000000000000A101 /* CmuxWebView+ContextMenuLinkCapture.swift in Sources */,
 				D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */,
+				C6255D010000000000000001 /* CmuxWebView+ScriptedDownloads.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
@@ -3965,6 +3980,7 @@
 				EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */,
 				44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
+				5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */,
 				5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */,
 				D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */,
 				C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */,
@@ -4709,7 +4725,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXMobileCore;
+			relativePath = Packages/Shared/CMUXMobileCore;
 		};
 		28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -4717,15 +4733,15 @@
 		};
 		3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXPasteboardFidelity;
+			relativePath = Packages/macOS/CMUXPasteboardFidelity;
 		};
 		40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXAuthCore;
+			relativePath = Packages/Shared/CMUXAuthCore;
 		};
 		53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxAuthRuntime;
+			relativePath = Packages/Shared/CmuxAuthRuntime;
 		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -4733,43 +4749,43 @@
 		};
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXDebugLog;
+			relativePath = Packages/macOS/CMUXDebugLog;
 		};
 		A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSocketControl;
+			relativePath = Packages/macOS/CmuxSocketControl;
 		};
 		CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxCanvas;
+			relativePath = Packages/macOS/CmuxCanvas;
 		};
 		CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxCanvasUI;
+			relativePath = Packages/macOS/CmuxCanvasUI;
 		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXAgentLaunch;
+			relativePath = Packages/macOS/CMUXAgentLaunch;
 		};
 		A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXProjectModel;
+			relativePath = Packages/macOS/CMUXProjectModel;
 		};
 		AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXWorkstream;
+			relativePath = Packages/macOS/CMUXWorkstream;
 		};
 		AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxAgentChat;
+			relativePath = Packages/Shared/CmuxAgentChat;
 		};
 		C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxExtensionKit;
+			relativePath = Packages/macOS/CmuxExtensionKit;
 		};
 		C0DE46000000000000000003 /* XCLocalSwiftPackageReference "CMUXExtensionHostSupport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXExtensionHostSupport;
+			relativePath = Packages/macOS/CMUXExtensionHostSupport;
 		};
 		C0DE49000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionSidebarExamples" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -4777,175 +4793,179 @@
 		};
 		C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSidebarProviderKit;
+			relativePath = Packages/macOS/CmuxSidebarProviderKit;
 		};
 		C52830000000000000000003 /* XCLocalSwiftPackageReference "CmuxTerminalCopyMode" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTerminalCopyMode;
+			relativePath = Packages/macOS/CmuxTerminalCopyMode;
 		};
 		C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSwiftRenderUI;
+			relativePath = Packages/macOS/CmuxSwiftRenderUI;
 		};
 		C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSidebarInterpreterService;
+			relativePath = Packages/macOS/CmuxSidebarInterpreterService;
 		};
 		C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSwiftRender;
+			relativePath = Packages/macOS/CmuxSwiftRender;
 		};
 		C19C5E0100000000000000A1 /* XCLocalSwiftPackageReference "CmuxIPCService" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxIPCService;
+			relativePath = Packages/macOS/CmuxIPCService;
 		};
 		5E55100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSession" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSession;
+			relativePath = Packages/macOS/CmuxSession;
 		};
 		5E55100000000000000000B1 /* XCLocalSwiftPackageReference "CmuxBrowserPanel" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxBrowserPanel;
+			relativePath = Packages/macOS/CmuxBrowserPanel;
 		};
 		5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxWindowing;
+			relativePath = Packages/macOS/CmuxWindowing;
 		};
 		5E55300000000000000000C1 /* XCLocalSwiftPackageReference "CmuxCommandPaletteUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxCommandPaletteUI;
+			relativePath = Packages/macOS/CmuxCommandPaletteUI;
 		};
 		5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxCommandPalette;
+			relativePath = Packages/macOS/CmuxCommandPalette;
 		};
 		C8000301C8000301C8000301 /* XCLocalSwiftPackageReference "CmuxProcess" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxProcess;
+			relativePath = Packages/macOS/CmuxProcess;
 		};
 		C8000311C8000311C8000311 /* XCLocalSwiftPackageReference "CmuxFileWatch" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxFileWatch;
+			relativePath = Packages/macOS/CmuxFileWatch;
 		};
 		C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxGit;
+			relativePath = Packages/macOS/CmuxGit;
 		};
 		C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSidebarGit;
+			relativePath = Packages/macOS/CmuxSidebarGit;
 		};
 		E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSidebar;
+			relativePath = Packages/macOS/CmuxSidebar;
 		};
 		E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxBrowser;
+			relativePath = Packages/macOS/CmuxBrowser;
+		};
+		BC10A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowserImport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxBrowserImport;
 		};
 		E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxNotifications;
+			relativePath = Packages/macOS/CmuxNotifications;
 		};
 		E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxWorkspaceNavigation;
+			relativePath = Packages/macOS/CmuxWorkspaceNavigation;
 		};
 		E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxPanes;
+			relativePath = Packages/macOS/CmuxPanes;
 		};
 		E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxWorkspaceCore;
+			relativePath = Packages/macOS/CmuxWorkspaceCore;
 		};
 		E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxWorkspaces;
+			relativePath = Packages/macOS/CmuxWorkspaces;
 		};
 		C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxControlSocket;
+			relativePath = Packages/macOS/CmuxControlSocket;
 		};
 		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxAppKitSupportUI;
+			relativePath = Packages/macOS/CmuxAppKitSupportUI;
 		};
 		C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxFeedback;
+			relativePath = Packages/macOS/CmuxFeedback;
 		};
 		C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxFeedbackUI;
+			relativePath = Packages/macOS/CmuxFeedbackUI;
 		};
 		C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTerminalCore;
+			relativePath = Packages/macOS/CmuxTerminalCore;
 		};
 		C750300000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalEngine" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTerminalEngine;
+			relativePath = Packages/macOS/CmuxTerminalEngine;
 		};
 		C750400000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalServices" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTerminalServices;
+			relativePath = Packages/macOS/CmuxTerminalServices;
 		};
 		C750400000000000000000D1 /* XCLocalSwiftPackageReference "CmuxWorkspaceWindow" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxWorkspaceWindow;
+			relativePath = Packages/macOS/CmuxWorkspaceWindow;
 		};
 		C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTerminal;
+			relativePath = Packages/macOS/CmuxTerminal;
 		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSettings;
+			relativePath = Packages/macOS/CmuxSettings;
 		};
 		CFF11E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFileOpen" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxFileOpen;
+			relativePath = Packages/macOS/CmuxFileOpen;
 		};
 		CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxTestSupport;
+			relativePath = Packages/macOS/CmuxTestSupport;
 		};
 		CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxSettingsUI;
+			relativePath = Packages/macOS/CmuxSettingsUI;
 		};
 		CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxUpdater;
+			relativePath = Packages/macOS/CmuxUpdater;
 		};
 		CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxUpdaterUI;
+			relativePath = Packages/macOS/CmuxUpdaterUI;
 		};
 		CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxCore;
+			relativePath = Packages/macOS/CmuxCore;
 		};
 		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxRemoteDaemon;
+			relativePath = Packages/macOS/CmuxRemoteDaemon;
 		};
 		CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxRemoteWorkspace;
+			relativePath = Packages/macOS/CmuxRemoteWorkspace;
 		};
 		CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxRemoteSession;
+			relativePath = Packages/macOS/CmuxRemoteSession;
 		};
 		CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxFoundation;
+			relativePath = Packages/macOS/CmuxFoundation;
 		};
 		F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CMUXAgentVault;
+			relativePath = Packages/macOS/CMUXAgentVault;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -5118,6 +5138,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */;
 			productName = CmuxBrowser;
+		};
+		BC10A30000000000000000C2 /* CmuxBrowserImport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BC10A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowserImport" */;
+			productName = CmuxBrowserImport;
 		};
 		E3B7A30000000000000000D2 /* CmuxNotifications */ = {
 			isa = XCSwiftPackageProductDependency;
