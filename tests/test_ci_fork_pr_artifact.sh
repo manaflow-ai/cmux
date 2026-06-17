@@ -72,6 +72,12 @@ fi
 grep -Eq 'uses:[[:space:]]*actions/cache/restore@' "$WF" \
   || fail "fork build must restore caches via actions/cache/restore@ (restore-only)"
 
+# 5c. The artifact must be release-equivalent: assert the app was built against
+#     the macOS 26 SDK (matches CI's release-build), so runner/Xcode drift
+#     cannot publish a non-release-equivalent fork artifact.
+grep -Fq '[[ "$SDK_VERSION" == 26.* ]]' "$WF" \
+  || fail "app validation must assert the macOS 26 SDK (SDK_VERSION == 26.*) like release-build"
+
 # 6. Both macOS jobs must run on a paid macOS runner, never a free GitHub runner.
 for job in ghostty-cli-helper build-app; do
   if ! awk -v job="$job" '

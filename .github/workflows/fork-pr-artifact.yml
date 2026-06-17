@@ -227,9 +227,15 @@ jobs:
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          # Match release-build: assert the app was compiled against the macOS 26
+          # SDK so a misrouted MACOS_RUNNER_26 or Xcode-selection drift cannot
+          # publish a fork artifact that is not release-equivalent.
+          SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+          echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          [[ "$SDK_VERSION" == 26.* ]]
 
       - name: Package unsigned app
         run: |
