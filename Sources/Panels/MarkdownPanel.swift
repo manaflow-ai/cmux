@@ -82,6 +82,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    /// Set when Cmd+F arrives while in preview mode; the find bar is presented
+    /// once the text editor attaches after switching to `.text` mode.
+    private var pendingFindAfterModeSwitch = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -235,6 +238,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
         applyPendingSearchNeedleIfPossible()
+        presentPendingFindBarIfPossible()
     }
 
     func unfocus() {
@@ -269,6 +273,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        presentPendingFindBarIfPossible()
     }
 
     func retryPendingFocus() {
@@ -418,6 +423,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingSearchNeedle = nil
     }
 
+    private func presentPendingFindBarIfPossible() {
+        guard pendingFindAfterModeSwitch,
+              displayMode == .text,
+              let textView else { return }
+        // Keep the request pending until the editor is in a window so a Cmd+F
+        // issued while switching modes still opens the find bar once attached.
+        if textView.cmuxPresentInlineFindBar() {
+            pendingFindAfterModeSwitch = false
+        }
+    }
+
     // MARK: - File watcher
 
     /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
@@ -448,5 +464,25 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+    }
+}
+
+extension MarkdownPanel: TextFindablePanel {
+    /// Presents the text editor's find bar. In preview mode this first switches
+    /// to the raw-markdown TextEdit mode (consistent with `applySearchNeedle`),
+    /// then opens the find bar once the editor attaches. Always claims the Find
+    /// action so Cmd+F is never silently dropped (#6050, #6049).
+    @discardableResult
+    func startTextFind() -> Bool {
+        pendingFindAfterModeSwitch = true
+        if displayMode != .text {
+            setDisplayMode(.text)
+        }
+        presentPendingFindBarIfPossible()
+        return true
+    }
+
+    var findBarTextView: NSTextView? {
+        displayMode == .text ? textView : nil
     }
 }

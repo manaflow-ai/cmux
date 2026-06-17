@@ -999,6 +999,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
+    /// Set when Cmd+F arrives before the text view is in a window; the find bar
+    /// is presented once the editor attaches (see ``presentPendingFindBarIfPossible()``).
+    fileprivate var pendingFindOnAttach = false
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
@@ -1053,6 +1056,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        presentPendingFindBarIfPossible()
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
@@ -1067,6 +1071,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
+        presentPendingFindBarIfPossible()
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
@@ -4463,5 +4468,35 @@ private final class FilePreviewPointerObserverView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+extension FilePreviewPanel: TextFindablePanel {
+    /// Presents the text editor's find bar. Find is only meaningful in `.text`
+    /// mode; other preview modes (PDF, image, media, Quick Look) report that
+    /// they do not own the Find action so the shortcut can fall through.
+    ///
+    /// If the text view is not yet attached to a window (e.g. Cmd+F arrives
+    /// during open/restore), the request is held and fulfilled once the editor
+    /// attaches via ``presentPendingFindBarIfPossible()``.
+    @discardableResult
+    func startTextFind() -> Bool {
+        guard previewMode == .text else { return false }
+        pendingFindOnAttach = true
+        presentPendingFindBarIfPossible()
+        return true
+    }
+
+    var findBarTextView: NSTextView? {
+        previewMode == .text ? textView : nil
+    }
+
+    fileprivate func presentPendingFindBarIfPossible() {
+        guard pendingFindOnAttach,
+              previewMode == .text,
+              let textView else { return }
+        if textView.cmuxPresentInlineFindBar() {
+            pendingFindOnAttach = false
+        }
     }
 }

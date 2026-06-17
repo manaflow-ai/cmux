@@ -826,9 +826,25 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        // Other focused panels (file preview text, markdown) host an NSTextView
+        // find bar. Without this, Cmd+F was silently swallowed (#6050, #6049).
+        if let findablePanel = focusedTextFindablePanel {
+            return findablePanel.startTextFind()
+        }
+        return false
+    }
+
+    /// The focused panel when it can present its own in-pane Find UI (file
+    /// preview text, markdown), excluding terminal and browser panels which
+    /// have their own dedicated find paths handled above.
+    private var focusedTextFindablePanel: TextFindablePanel? {
+        guard let workspace = selectedWorkspace,
+              let panelId = workspace.focusedPanelId else { return nil }
+        return workspace.panels[panelId] as? TextFindablePanel
     }
 
     func searchSelection() {
@@ -851,8 +867,11 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:next")
             return
         }
-
-        focusedBrowserPanel?.findNext()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findNext()
+            return
+        }
+        focusedTextFindablePanel?.findBarTextView?.cmuxPerformFindPanelAction(.next)
     }
 
     func findPrevious() {
@@ -860,8 +879,11 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:previous")
             return
         }
-
-        focusedBrowserPanel?.findPrevious()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findPrevious()
+            return
+        }
+        focusedTextFindablePanel?.findBarTextView?.cmuxPerformFindPanelAction(.previous)
     }
 
     @discardableResult
@@ -941,8 +963,11 @@ class TabManager: ObservableObject {
             panel.searchState = nil
             return
         }
-
-        focusedBrowserPanel?.hideFind()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.hideFind()
+            return
+        }
+        focusedTextFindablePanel?.findBarTextView?.cmuxHideFindBar()
     }
 
     func makeWorkspaceForCreation(
