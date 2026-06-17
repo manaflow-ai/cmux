@@ -164,6 +164,9 @@ struct CampfireSupportTests {
         #expect(detected.kind == RestorableAgentKind.custom("campfire"))
         #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
         #expect(detected.workingDirectory == workspace.path)
+        #expect(detected.launchCommand?.executablePath == "campfire")
+        #expect(detected.resumeCommand?.contains("'campfire' '--session'") == true)
+        #expect(detected.resumeCommand?.contains("/opt/homebrew/bin/bun") == false)
     }
 
     @Test func directProcessDetectionClassifiesCampfireDistInvocation() throws {

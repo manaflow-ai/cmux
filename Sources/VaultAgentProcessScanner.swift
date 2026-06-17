@@ -111,8 +111,13 @@ extension RestorableAgentSessionIndex {
                 continue
             }
 
-            let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
-            let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
+            let useDefaultExecutable = registration.detect.usesAlternateMatchWithoutPrimaryMatch(observed)
+            let executablePath = useDefaultExecutable
+                ? registration.defaultExecutable
+                : (normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable)
+            let arguments = useDefaultExecutable
+                ? [executablePath]
+                : (observed.arguments.isEmpty ? [executablePath] : observed.arguments)
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
@@ -813,19 +818,40 @@ private struct VaultObservedAgentProcess: Sendable {
 
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
+        let expectedNames = primaryProcessNames
+        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty else {
+            return false
+        }
+        return primaryMatches(process, expectedNames: expectedNames) || alternateMatches(process)
+    }
+
+    func usesAlternateMatchWithoutPrimaryMatch(_ process: VaultObservedAgentProcess) -> Bool {
+        let expectedNames = primaryProcessNames
+        return alternateMatches(process) && !primaryMatches(process, expectedNames: expectedNames)
+    }
+
+    private var primaryProcessNames: [String] {
         var expectedNames = processNames
         if let processName {
             expectedNames.append(processName)
         }
-        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty else {
-            return false
-        }
+        return expectedNames
+    }
+
+    private func primaryMatches(
+        _ process: VaultObservedAgentProcess,
+        expectedNames: [String]
+    ) -> Bool {
         let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
         }
         let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
+        return processNameMatch && argvContainsMatch
+    }
+
+    private func alternateMatches(_ process: VaultObservedAgentProcess) -> Bool {
         let alternateProcessNameMatch = alternateProcessNames.isEmpty || alternateProcessNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
@@ -837,7 +863,7 @@ private extension CmuxVaultAgentDetectRule {
         let alternateArgvContainsAnyMatch = !alternateArgvContainsAny.isEmpty
             && alternateProcessNameMatch
             && process.argumentsContainAny(alternateArgvContainsAny)
-        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch || alternateArgvContainsAnyMatch
+        return alternateArgvContainsMatch || alternateArgvContainsAnyMatch
     }
 }
 
