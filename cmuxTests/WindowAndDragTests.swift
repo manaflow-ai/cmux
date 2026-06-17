@@ -105,6 +105,34 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
     }
 
+    func testSuppressesNativeGlassTintOnMacOS27Plus() {
+        // macOS 27 composites NSGlassEffectView's tint as a solid dark fill, so
+        // cmux's terminal-derived tint must be suppressed there (issue #5860).
+        XCTAssertTrue(
+            WindowGlassEffect.suppressesNativeGlassTint(
+                operatingSystemVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+            )
+        )
+        XCTAssertTrue(
+            WindowGlassEffect.suppressesNativeGlassTint(
+                operatingSystemVersion: OperatingSystemVersion(majorVersion: 28, minorVersion: 1, patchVersion: 0)
+            )
+        )
+    }
+
+    func testKeepsNativeGlassTintOnMacOS26AndEarlier() {
+        XCTAssertFalse(
+            WindowGlassEffect.suppressesNativeGlassTint(
+                operatingSystemVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 9, patchVersion: 9)
+            )
+        )
+        XCTAssertFalse(
+            WindowGlassEffect.suppressesNativeGlassTint(
+                operatingSystemVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 7, patchVersion: 4)
+            )
+        )
+    }
+
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
         guard let contentView = window.contentView else { return false }
         let root = contentView.superview ?? contentView

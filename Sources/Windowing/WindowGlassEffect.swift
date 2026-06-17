@@ -354,15 +354,27 @@ enum WindowGlassEffect {
         }
     }
 
+    /// macOS 27 changed how `NSGlassEffectView` composites its tint color: a
+    /// near-opaque dark tint (a typical dark terminal background) now renders the
+    /// glass as a solid dark fill rather than a translucent material. Suppress
+    /// cmux's terminal-derived tint there so the native glass renders unmodified;
+    /// macOS 26 keeps the original tinted behavior. See issue #5860.
+    static func suppressesNativeGlassTint(
+        operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) -> Bool {
+        operatingSystemVersion.majorVersion >= 27
+    }
+
     private static func updateNativeGlassConfiguration(
         on glassView: NSView,
         color: NSColor?,
         style: Style?,
         cornerRadius: CGFloat?
     ) {
+        let effectiveColor = suppressesNativeGlassTint() ? nil : color
         let tintSelector = NSSelectorFromString("setTintColor:")
         if glassView.responds(to: tintSelector) {
-            glassView.perform(tintSelector, with: color)
+            glassView.perform(tintSelector, with: effectiveColor)
         }
 
         if let cornerRadius {
