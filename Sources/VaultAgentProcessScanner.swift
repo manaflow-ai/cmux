@@ -103,6 +103,7 @@ extension RestorableAgentSessionIndex {
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+                  registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionId = registration.sessionIdSource.sessionId(
                       from: observed,
                       registration: registration,
@@ -813,6 +814,13 @@ private struct VaultObservedAgentProcess: Sendable {
         default:
             return 0
         }
+    }
+}
+
+private extension CmuxVaultAgentRegistration {
+    func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
+        guard id == "campfire" else { return true }
+        return process.environment["CAMPFIRE_SESSION_ROLE"] == "host"
     }
 }
 

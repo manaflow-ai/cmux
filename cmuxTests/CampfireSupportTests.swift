@@ -293,6 +293,46 @@ struct CampfireSupportTests {
         #expect(detected == nil)
     }
 
+    @Test func directProcessDetectionSkipsNonHostCampfireRoles() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-joiner-role-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        _ = try Self.writeSessionFile(
+            id: "campfire-should-not-bind-joiner",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        for role in [nil, "joiner"] as [String?] {
+            var environment = [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+            if let role {
+                environment["CAMPFIRE_SESSION_ROLE"] = role
+            }
+
+            let detected = Self.detectedCampfireSnapshot(
+                processName: "campfire",
+                processPath: "/Users/example/.local/bin/campfire",
+                arguments: [
+                    "/Users/example/.local/bin/campfire",
+                    "--join",
+                    "https://campfire.example/invite/token",
+                ],
+                environment: environment,
+                defaultCampfireSessionRole: nil
+            )
+
+            #expect(detected == nil, "role \(role ?? "<missing>") must not produce a restorable Campfire snapshot")
+        }
+    }
+
     @Test func taskManagerClassifiesCampfireCompiledBinaryAndDevInvocation() throws {
         let compiled = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "campfire",
@@ -326,7 +366,8 @@ struct CampfireSupportTests {
         processPath: String? = "/Users/example/.local/bin/campfire",
         arguments: [String],
         environment: [String: String],
-        registration: CmuxVaultAgentRegistration = .builtInCampfire
+        registration: CmuxVaultAgentRegistration = .builtInCampfire,
+        defaultCampfireSessionRole: String? = "host"
     ) -> SessionRestorableAgentSnapshot? {
         let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let panelId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
@@ -354,6 +395,11 @@ struct CampfireSupportTests {
             sampledAt: Date(timeIntervalSince1970: 0),
             includesProcessDetails: true
         )
+        var processEnvironment = environment
+        if let defaultCampfireSessionRole,
+           processEnvironment["CAMPFIRE_SESSION_ROLE"] == nil {
+            processEnvironment["CAMPFIRE_SESSION_ROLE"] = defaultCampfireSessionRole
+        }
         return RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: CmuxVaultAgentRegistry(registrations: [registration]),
             fileManager: FileManager.default,
@@ -361,7 +407,7 @@ struct CampfireSupportTests {
             capturedAt: 42,
             processArgumentsProvider: { requestedProcessId in
                 guard requestedProcessId == processId else { return nil }
-                return CmuxTopProcessArguments(arguments: arguments, environment: environment)
+                return CmuxTopProcessArguments(arguments: arguments, environment: processEnvironment)
             }
         )[panelKey]?.snapshot
     }
