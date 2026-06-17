@@ -10070,6 +10070,11 @@ final class BrowserDataImportCoordinator {
 
     private var importInProgress = false
 
+    /// Held detector instance; the coordinator detects and summarizes installed
+    /// browsers through this rather than the former `BrowserInstalledBrowserDetector`
+    /// static namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
+
     private init() {}
 
     func presentImportDialog(
@@ -10100,10 +10105,10 @@ final class BrowserDataImportCoordinator {
         let environment = ProcessInfo.processInfo.environment
         let fixtureBrowsers = BrowserImportUITestFixtureLoader.browsers(from: environment)
         let fixtureDestinationProfiles = BrowserImportUITestFixtureLoader.destinationProfiles(from: environment)
-        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
 #else
         let fixtureDestinationProfiles: [BrowserProfileDefinition]? = nil
-        let browsers = prefilledBrowsers ?? BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = prefilledBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
 #endif
         guard !browsers.isEmpty else {
             let alert = NSAlert()
@@ -10304,6 +10309,9 @@ final class BrowserDataImportCoordinator {
         private let destinationProfiles: [BrowserProfileDefinition]
         private let initialDestinationProfileID: UUID
         private let defaultScope: BrowserImportScope?
+        /// Held detector instance used to summarize the detected browsers, rather
+        /// than the former `BrowserInstalledBrowserDetector` static namespace.
+        private let installedBrowserDetector = BrowserInstalledBrowserDetector()
 
         private var step: Step = .source
         private var didFinishModal = false
@@ -10649,7 +10657,7 @@ final class BrowserDataImportCoordinator {
             sourceRow.distribution = .fill
 
             let detectedLabel = NSTextField(
-                wrappingLabelWithString: BrowserInstalledBrowserDetector.summaryText(for: browsers)
+                wrappingLabelWithString: installedBrowserDetector.summaryText(for: browsers)
             )
             detectedLabel.font = NSFont.systemFont(ofSize: 11)
             detectedLabel.textColor = .secondaryLabelColor

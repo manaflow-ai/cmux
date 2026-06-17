@@ -1464,7 +1464,7 @@ class GhosttyApp {
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(
+        configDiscovery.shouldLoadLegacyGhosttyConfig(
             newConfigFileSize: newConfigFileSize,
             legacyConfigFileSize: legacyConfigFileSize
         )
@@ -1474,7 +1474,7 @@ class GhosttyApp {
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
+        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: newConfigFileSize,
             legacyConfigFileSize: legacyConfigFileSize
         )
