@@ -3,14 +3,16 @@ import Testing
 
 @Suite("Claude Teams policy isolation")
 struct ClaudeTeamsPolicyIsolationTests {
-    @Test("Drops equals-style tmux mode without preserving unsafe later flags")
-    func dropsEqualsStyleTmuxModeWithoutPreservingUnsafeLaterFlags() {
+    @Test("Drops equals-style tmux mode and preserves later flags")
+    func dropsEqualsStyleTmuxModeAndPreservesLaterFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
                     "--tmux=classic",
+                    "--remote-control-session-name-prefix",
+                    "cmux-team",
                     "--model",
                     "sonnet",
                     "--dangerously-skip-permissions",
@@ -20,14 +22,17 @@ struct ClaudeTeamsPolicyIsolationTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
+                "--remote-control-session-name-prefix",
+                "cmux-team",
                 "--model",
                 "sonnet",
+                "--dangerously-skip-permissions",
             ]
         )
     }
 
-    @Test("Drops split tmux mode without stopping later safe flags")
-    func dropsSplitTmuxModeWithoutStoppingLaterSafeFlags() {
+    @Test("Drops split tmux mode and preserves later flags")
+    func dropsSplitTmuxModeAndPreservesLaterFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -35,6 +40,10 @@ struct ClaudeTeamsPolicyIsolationTests {
                     "claude-teams",
                     "--tmux",
                     "classic",
+                    "--worktree",
+                    "/tmp/team",
+                    "--remote-control-session-name-prefix",
+                    "cmux-team",
                     "--model",
                     "sonnet",
                 ],
@@ -43,6 +52,10 @@ struct ClaudeTeamsPolicyIsolationTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
+                "--worktree",
+                "/tmp/team",
+                "--remote-control-session-name-prefix",
+                "cmux-team",
                 "--model",
                 "sonnet",
             ]

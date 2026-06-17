@@ -10,6 +10,10 @@ extension AgentLaunchSanitizer {
         result: inout [String]
     ) -> Bool? {
         guard promptBoundaryOption(arg, options: policy.promptBoundaryOptions) != nil else { return false }
+        if let modeEnd = promptBoundaryLaunchModeEnd(args, index: index) {
+            index = modeEnd
+            return true
+        }
         guard let recoveryStart = postBoundaryRecoveryStart(args, index: index) else {
             index = args.count
             return true
@@ -42,17 +46,23 @@ func isOptionToken(_ arg: String) -> Bool {
 
 private func postBoundaryRecoveryStart(_ args: [String], index: Int) -> Int? {
     let arg = args[index]
+    if arg.hasPrefix("--tmux=") { return nil }
+    guard arg == "--tmux", index + 1 < args.count else { return nil }
+    let value = args[index + 1]
+    if !value.hasPrefix("-") && value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+        return index + 2
+    }
+    return nil
+}
+
+private func promptBoundaryLaunchModeEnd(_ args: [String], index: Int) -> Int? {
+    let arg = args[index]
     if arg.hasPrefix("--tmux=") {
         let value = String(arg.dropFirst("--tmux=".count))
         return knownTmuxModeValues.contains(value) ? index + 1 : nil
     }
     guard arg == "--tmux", index + 1 < args.count else { return nil }
-    let value = args[index + 1]
-    if knownTmuxModeValues.contains(value)
-        || (!value.hasPrefix("-") && value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil) {
-        return index + 2
-    }
-    return nil
+    return knownTmuxModeValues.contains(args[index + 1]) ? index + 2 : nil
 }
 
 private func recoveredPostBoundaryOptionEnd(_ args: [String], index: Int) -> Int? {
