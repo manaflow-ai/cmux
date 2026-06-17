@@ -38,6 +38,7 @@ extension AgentLaunchSanitizer {
                 return true
             }
         }
+        result.append(contentsOf: recovered)
         index = args.count
         return true
     }
