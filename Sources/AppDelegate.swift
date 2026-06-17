@@ -15114,7 +15114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows && action != .globalSearch
+        action != .showHideAllWindows && action != .globalSearch && action != .clearScreenKeepScrollback
     }
 
     private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
