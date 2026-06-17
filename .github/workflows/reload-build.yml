@@ -30,17 +30,12 @@ on:
           - macos
           - ios
       runner:
-        description: macOS runner label to build on
+        description: >-
+          macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
+          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
         required: false
         default: blacksmith-6vcpu-macos-26
-        type: choice
-        options:
-          - blacksmith-6vcpu-macos-26
-          - blacksmith-6vcpu-macos-15
-          - blacksmith-6vcpu-macos-latest
-          - warp-macos-26-arm64-6x
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
+        type: string
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
         required: false
@@ -109,8 +104,11 @@ jobs:
         id: build_macos
         run: |
           set -euo pipefail
-          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee /tmp/reload.log
-          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' /tmp/reload.log)"
+          # Per-run log path: /tmp/reload.log collides across tenants on the
+          # multi-tenant self-hosted fleet Macs (tee: Permission denied).
+          log="$RUNNER_TEMP/reload.log"
+          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee "$log"
+          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
           mkdir -p artifact
