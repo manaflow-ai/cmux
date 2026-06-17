@@ -259,6 +259,7 @@ extension TerminalController {
             command: inputs.command,
             workingDirectory: inputs.workingDirectory,
             tmuxStartCommand: inputs.tmuxStartCommand,
+            startupEnvironment: inputs.startupEnvironment,
             focus: focus
         ) else {
             return .respawnFailed(surfaceId)

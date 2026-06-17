@@ -7320,6 +7320,7 @@ final class Workspace: Identifiable, ObservableObject {
         command: String,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
         focus: Bool? = nil
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
@@ -7331,7 +7332,10 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        template.waitAfterCommand = true
+        inheritedConfig = template
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId
@@ -7346,6 +7350,9 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
+        let inheritedOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         // Drop env this surface inherited from its (possibly previous) workspace,
         // then re-fold the current workspace's env below, so a terminal moved
         // between workspaces respawns with the destination's variables rather than
@@ -7354,9 +7361,10 @@ final class Workspace: Identifiable, ObservableObject {
         // shares a workspace key keeps its value. configureNewTerminalPanel
         // re-records the seeded env for the replacement panel against the current
         // workspace.
-        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
-        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+        // Merge the caller-supplied startup environment on top — keys passed
+        // through startup_environment (e.g. PATH, OPENCODE_PORT from the
+        // __tmux-compat respawn-pane shim) take precedence over inherited env.
+        let initialEnvironmentOverrides = inheritedOverrides.merging(startupEnvironment) { _, new in new }
         let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
