@@ -5538,6 +5538,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var isApplyingHostedInspectorLayout = false
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private var hostedInspectorSideDockPromotionWorkItem: DispatchWorkItem?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5550,6 +5551,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         deinit {
             hostedInspectorReapplyWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorSideDockPromotionWorkItem?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
@@ -6138,6 +6140,28 @@ struct WebViewRepresentable: NSViewRepresentable {
             return isHostedInspectorSideDockActive()
         }
 
+        /// Schedules `promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded`
+        /// for the next runloop tick when a promotion is actually pending, so the
+        /// hierarchy mutation it performs never runs inside the `layout()` pass
+        /// that observed the candidate (see the note in `layout()`). The candidate
+        /// lookup here is read-only; the deferred work re-validates all state
+        /// before mutating, so it is safe even if the layout changes in between.
+        private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
+            guard hostedInspectorSideDockPromotionWorkItem == nil else { return }
+            guard !isHostedInspectorSideDockActive(),
+                  let slotView = localInlineSlotView,
+                  hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
+                return
+            }
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.hostedInspectorSideDockPromotionWorkItem = nil
+                _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            }
+            hostedInspectorSideDockPromotionWorkItem = workItem
+            DispatchQueue.main.async(execute: workItem)
+        }
+
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
             guard let slotView,
                   let pageView = hostedInspectorSideDockPageView,
@@ -6340,7 +6364,18 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            // Promoting the hosted-inspector side-dock split mutates the view
+            // hierarchy (`addSubview` / `removeFromSuperview` + constraint
+            // activation). Performing that synchronously inside a layout pass
+            // re-enters AppKit's layout machinery and can crash: either Auto
+            // Layout constraint recursion surfaced as an uncaught exception
+            // (EXC_BREAKPOINT via `_postWindowNeedsUpdateConstraints`, #653) or
+            // a use-after-free when a view is freed mid-layout and then messaged
+            // (EXC_BAD_ACCESS in `objc_msgSend` from `___NSViewLayout_block_invoke`,
+            // #6150). Defer the promotion to the next runloop tick so the
+            // hierarchy mutation never runs inside `layout()`. The dock-config
+            // path already defers via `scheduleHostedInspectorDockConfigurationSync`.
+            scheduleHostedInspectorSideDockPromotionIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
