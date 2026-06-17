@@ -181,7 +181,7 @@ enum BrowserThemeSettings {
     }
 }
 
-nonisolated enum BrowserAutoFocusModeSettings {
+enum BrowserAutoFocusModeSettings {
     static let enabledKey = "browserAutoFocusModeEnabled"
     static let defaultEnabled = false
 
@@ -192,6 +192,12 @@ nonisolated enum BrowserAutoFocusModeSettings {
     static func isEnabled(defaults: UserDefaults) -> Bool {
         guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
         return defaults.bool(forKey: enabledKey)
+    }
+}
+
+enum BrowserAutoFocusModeActivation {
+    static func shouldActivate(isEnabled: Bool, isBrowserFocusModeActive: Bool, isAddressBarFocused: Bool) -> Bool {
+        isEnabled && !isBrowserFocusModeActive && !isAddressBarFocused
     }
 }
 

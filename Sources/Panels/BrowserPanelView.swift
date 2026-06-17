@@ -1004,7 +1004,11 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
             // Skip auto-activation when the omnibar just claimed focus (blank tabs):
             // focus mode and address-bar focus are mutually exclusive states.
-            if autoFocusModeEnabled && !panel.isBrowserFocusModeActive && !addressBarFocused {
+            if BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: autoFocusModeEnabled,
+                isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
+                isAddressBarFocused: addressBarFocused
+            ) {
                 panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
             }
         } else {

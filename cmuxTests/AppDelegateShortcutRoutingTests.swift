@@ -11998,11 +11998,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    // The autoFocusMode gate itself (`autoFocusModeEnabled && !isBrowserFocusModeActive`)
-    // lives in BrowserPanelView.handlePanelFocusChange, a private SwiftUI view method that
-    // is not reachable from unit tests. These tests cover the panel-level activation path
-    // it delegates to; the view wiring is validated manually in the dev build.
-    func testFocusModeActivationViaAutoFocusPath() {
+    func testAutoFocusModeActivationGateRequiresEnabledInactiveFocusModeAndPageFocus() {
+        XCTAssertTrue(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: true,
+                isBrowserFocusModeActive: false,
+                isAddressBarFocused: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: false,
+                isBrowserFocusModeActive: false,
+                isAddressBarFocused: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: true,
+                isBrowserFocusModeActive: true,
+                isAddressBarFocused: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: true,
+                isBrowserFocusModeActive: false,
+                isAddressBarFocused: true
+            )
+        )
+    }
+
+    func testAutoFocusModePanelActivationUsesExistingFocusModePath() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
