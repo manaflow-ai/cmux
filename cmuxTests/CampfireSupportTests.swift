@@ -248,7 +248,7 @@ struct CampfireSupportTests {
             processPath: "/opt/homebrew/bin/bun",
             arguments: [
                 "/opt/homebrew/bin/bun",
-                "/Users/example/monorepo/packages/session/scripts/seed.ts",
+                "/Users/example/campfire/packages/session/scripts/seed.ts",
             ],
             environment: [
                 "PWD": workspace.path,
