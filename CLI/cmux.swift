@@ -33372,7 +33372,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return "{}"
             }
-            if source == "antigravity" {
+            if source == "antigravity" || source == "grok" {
+                // Antigravity and Grok Build both honor a native PreToolUse
+                // blocking decision of the shape
+                // `{"decision":"allow"|"deny","reason":"…"}` — NOT Claude's
+                // `hookSpecificOutput.permissionDecision` / `"approve"` shape.
+                // Routing Grok through `nonClaudePreToolDecision` made every
+                // approved Write/Bash fall through unrecognized, so the hook
+                // only ever cleared via the 120s fail-open timeout
+                // (https://github.com/manaflow-ai/cmux/issues/6303).
                 let reason = mode == "deny"
                     ? "User denied permission via cmux Feed."
                     : "User approved via cmux Feed."

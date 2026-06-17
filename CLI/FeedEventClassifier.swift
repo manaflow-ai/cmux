@@ -261,6 +261,33 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Grok Build emits its own lowercase native tool names (`write`,
+    /// `search_replace`, `bash`, …) that are absent from ``sideEffectingTools``,
+    /// while its Cursor-compatible harness emits the capitalized `Write` /
+    /// `Bash` that already match. Without these aliases the same logical tool
+    /// classifies inconsistently depending on which harness emitted it. Matched
+    /// case-insensitively, but only for the `grok` source, so another agent's
+    /// lowercase tool name is never broadened into an approval prompt.
+    /// See https://github.com/manaflow-ai/cmux/issues/6303.
+    private static let grokSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "shell",
+        "terminal",
+        "run_command",
+        "run_terminal_cmd",
+        "write",
+        "edit",
+        "multiedit",
+        "str_replace",
+        "search_replace",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+        "create_file",
+        "delete_file",
+        "apply_patch",
+    ]
+
     /// Kiro emits lowercase / internal tool names (`fs_write`,
     /// `execute_bash`, `use_aws`, …) absent from ``sideEffectingTools``.
     /// Matched case-insensitively, but only for the `kiro` source, so another
@@ -292,10 +319,10 @@ struct FeedEventClassifier {
     ]
 
     /// Whether a tool mutates state and deserves an approval prompt. Exact
-    /// match against ``sideEffectingTools`` for every source; the `kiro`
-    /// source additionally matches its case-insensitive internal aliases.
-    /// Kept source-scoped so another agent's lowercase tool name is not
-    /// escalated into an approval.
+    /// match against ``sideEffectingTools`` for every source; the `kiro` and
+    /// `grok` sources additionally match their case-insensitive native
+    /// aliases. Kept source-scoped so another agent's lowercase tool name is
+    /// not escalated into an approval.
     static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
@@ -303,6 +330,9 @@ struct FeedEventClassifier {
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
+        }
+        if source == "grok" {
+            return grokSideEffectingToolAliases.contains(toolName.lowercased())
         }
         return false
     }

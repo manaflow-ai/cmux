@@ -155,4 +155,42 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+
+    // MARK: Grok (no dedicated approval event; native lowercase tool names)
+
+    /// Grok has no dedicated approval event, so its `PreToolUse` escalates
+    /// side-effecting tools to an approval. Its Cursor-compatible harness emits
+    /// the capitalized `Write` / `Bash` (already in `sideEffectingTools`) while
+    /// its native harness emits lowercase `write` / `search_replace` / `bash`.
+    /// Both spellings must classify identically, or the same logical tool
+    /// escalates inconsistently depending on harness.
+    /// https://github.com/manaflow-ai/cmux/issues/6303
+    @Test func grokPreToolUseEscalatesSideEffectingToolsBothSpellings() {
+        #expect(classify("grok", "PreToolUse", tool: "Write").name == "PermissionRequest")
+        #expect(classify("grok", "PreToolUse", tool: "Write").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "Bash").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "write").name == "PermissionRequest")
+        #expect(classify("grok", "PreToolUse", tool: "write").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "search_replace").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "bash").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "run_terminal_cmd").actionable == true)
+    }
+
+    /// Read-only Grok tools stay non-actionable telemetry so the Actionable
+    /// view is not flooded.
+    @Test func grokReadOnlyToolsStayTelemetry() {
+        #expect(classify("grok", "PreToolUse", tool: "read").actionable == false)
+        #expect(classify("grok", "PreToolUse", tool: "read").name == "PreToolUse")
+        #expect(classify("grok", "PreToolUse", tool: "grep").actionable == false)
+        #expect(classify("grok", "PreToolUse", tool: "list_dir").actionable == false)
+    }
+
+    /// Grok's case-insensitive native aliases must stay scoped to grok: another
+    /// agent emitting a lowercase `write` / `search_replace` must NOT be
+    /// escalated (mirrors the kiro alias-leak guard).
+    @Test func grokToolAliasesDoNotLeakToOtherAgents() {
+        #expect(classify("gemini", "PreToolUse", tool: "search_replace").actionable == false)
+        #expect(classify("gemini", "PreToolUse", tool: "run_terminal_cmd").actionable == false)
+        #expect(classify("copilot", "PreToolUse", tool: "search_replace").actionable == false)
+    }
 }
