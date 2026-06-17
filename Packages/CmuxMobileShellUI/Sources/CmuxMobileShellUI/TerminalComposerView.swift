@@ -284,9 +284,7 @@ struct TerminalComposerView: View {
                 .accessibilityIdentifier("MobileComposerAttach")
                 .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
 
-                micButton
-
-                // The field and its send button share ONE rounded glass container —
+                // The field and its trailing action share ONE rounded glass container —
                 // iMessage's layout, where the circular up-arrow lives INSIDE the
                 // field at the trailing edge. `.bottom` alignment pins the button to
                 // the field's last line as it grows, so a multi-line draft keeps the
@@ -325,25 +323,7 @@ struct TerminalComposerView: View {
                     .padding(.vertical, 3)
                     .accessibilityIdentifier("MobileComposerField")
 
-                    Button {
-                        send()
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(canSend ? .white : TerminalPalette.foreground.opacity(0.35))
-                            .frame(width: inlineSendDiameter, height: inlineSendDiameter)
-                            .background(
-                                Circle().fill(
-                                    canSend
-                                        ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
-                                )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .accessibilityIdentifier("MobileComposerSend")
-                    .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
+                    composerActionButton
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 6)
@@ -370,29 +350,52 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Mic button for on-device voice dictation, beside the attach button on the
-    /// leading side. Tapping toggles dictation; while listening it shows a filled,
-    /// tinted mic. Disabled when the recognizer is unavailable or permission was
-    /// denied so the user is never left tapping a dead control.
-    private var micButton: some View {
+    /// The single trailing (right-side) composer control, iMessage-style. It morphs
+    /// between three states with the SF Symbol replace animation:
+    /// - empty message, idle: a mic (tap to start dictation)
+    /// - message has text: an up-arrow Send (tap to send)
+    /// - dictation listening: a filled mic on a recording tint (tap to stop)
+    /// So the mic only shows when there is nothing to send, and turns into Send as
+    /// soon as the user has text (typed or dictated).
+    private var composerActionButton: some View {
         let listening = dictation.state.isListening
+        let icon = listening ? "mic.fill" : (canSend ? "arrow.up" : "mic")
+        let filled = listening || canSend
+        let background: AnyShapeStyle = listening
+            ? AnyShapeStyle(Color.red)
+            : (canSend
+                ? AnyShapeStyle(Color.accentColor)
+                : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12)))
         return Button {
-            toggleDictation()
+            if listening {
+                dictation.stop()
+            } else if canSend {
+                send()
+            } else {
+                toggleDictation()
+            }
         } label: {
-            Image(systemName: listening ? "mic.fill" : "mic")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: controlHeight, height: controlHeight)
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .contentTransition(.symbolEffect(.replace))
                 .symbolEffect(.pulse, isActive: listening)
+                .foregroundStyle(filled ? Color.white : TerminalPalette.foreground.opacity(0.6))
+                .frame(width: inlineSendDiameter, height: inlineSendDiameter)
+                .background(Circle().fill(background))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
-        .mobileGlassCircle()
-        .disabled(!dictation.isAvailable)
-        .accessibilityIdentifier("MobileComposerMic")
+        // Only dead when there is nothing to do: idle, empty, and dictation
+        // unavailable. Send (text present) and stop (listening) are always live.
+        .disabled(!listening && !canSend && !dictation.isAvailable)
+        .animation(.snappy(duration: 0.2), value: canSend)
+        .animation(.snappy(duration: 0.2), value: listening)
+        .accessibilityIdentifier(canSend ? "MobileComposerSend" : "MobileComposerMic")
         .accessibilityLabel(
             listening
                 ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop Dictation")
-                : L10n.string("mobile.composer.mic.start", defaultValue: "Dictate Message")
+                : (canSend
+                    ? L10n.string("mobile.composer.send", defaultValue: "Send")
+                    : L10n.string("mobile.composer.mic.start", defaultValue: "Dictate Message"))
         )
     }
 
