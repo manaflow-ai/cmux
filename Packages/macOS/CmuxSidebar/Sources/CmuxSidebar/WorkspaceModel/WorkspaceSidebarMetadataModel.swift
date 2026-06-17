@@ -1,6 +1,5 @@
 public import Combine
 public import Foundation
-public import Observation
 
 /// The per-workspace sidebar-metadata sub-model: owns the sidebar status
 /// entries, metadata blocks, log entries, progress, and git-branch /
@@ -13,17 +12,21 @@ public import Observation
 /// through a computed `get`/`set` pair, so every call site (`statusEntries[key]
 /// = …`, `logEntries.append(…)`, `workspace.progress`) stays byte-identical.
 ///
-/// Byte-identical observer parity: the legacy properties were `@Published`, and
-/// the sidebar observation publishers (`Workspace.sidebarObservationPublisher`)
-/// fused their `$projection`s through `CombineLatest` + `removeDuplicates()`.
-/// To preserve that exactly, each property here mirrors its value into a
-/// `CurrentValueSubject` in `didSet`; the matching `…Publisher` accessor
-/// replaces the former `$property`. `CombineLatest` over current-value subjects
-/// seeded with the initial values, then deduplicated, produces the identical
-/// sequence of distinct fused states the `@Published` projections did, so the
-/// debounced sidebar refresh fires at the same moments.
+/// Observation is a single mechanism: Combine. The legacy properties were
+/// `@Published`, and the sidebar observation publishers
+/// (`Workspace.sidebarObservationPublisher`) fused their `$projection`s through
+/// `CombineLatest` + `removeDuplicates()`. To preserve that exactly, each
+/// property here mirrors its value into a `CurrentValueSubject` in `didSet`; the
+/// matching `…Publisher` accessor replaces the former `$property`.
+///
+/// `makeSidebarObservationPublisher()` is the only observer of this model, and it
+/// subscribes through those publishers, so there is no `@Observable` macro here:
+/// a second Observation-tracked mechanism for the same state would be a redundant
+/// source of truth that nothing reads. `CombineLatest` over current-value subjects seeded with the
+/// initial values, then deduplicated, produces the identical sequence of distinct
+/// fused states the `@Published` projections did, so the debounced sidebar refresh
+/// fires at the same moments.
 @MainActor
-@Observable
 public final class WorkspaceSidebarMetadataModel {
     /// Sidebar status entries keyed by status key (legacy
     /// `Workspace.statusEntries`).
@@ -73,24 +76,15 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelPullRequestsSubject.send(panelPullRequests) }
     }
 
-    @ObservationIgnored
     private let limitProvider: any SidebarLogEntryLimitProviding
 
-    @ObservationIgnored
     private lazy var statusEntriesSubject = CurrentValueSubject<[String: SidebarStatusEntry], Never>(statusEntries)
-    @ObservationIgnored
     private lazy var metadataBlocksSubject = CurrentValueSubject<[String: SidebarMetadataBlock], Never>(metadataBlocks)
-    @ObservationIgnored
     private lazy var logEntriesSubject = CurrentValueSubject<[SidebarLogEntry], Never>(logEntries)
-    @ObservationIgnored
     private lazy var progressSubject = CurrentValueSubject<SidebarProgressState?, Never>(progress)
-    @ObservationIgnored
     private lazy var gitBranchSubject = CurrentValueSubject<SidebarGitBranchState?, Never>(gitBranch)
-    @ObservationIgnored
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
-    @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
-    @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
 
     /// Creates an empty sidebar-metadata model.
