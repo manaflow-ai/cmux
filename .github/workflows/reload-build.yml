@@ -30,17 +30,12 @@ on:
           - macos
           - ios
       runner:
-        description: macOS runner label to build on
+        description: >-
+          macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
+          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
         required: false
         default: blacksmith-6vcpu-macos-26
-        type: choice
-        options:
-          - blacksmith-6vcpu-macos-26
-          - blacksmith-6vcpu-macos-15
-          - blacksmith-6vcpu-macos-latest
-          - warp-macos-26-arm64-6x
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
+        type: string
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
         required: false
