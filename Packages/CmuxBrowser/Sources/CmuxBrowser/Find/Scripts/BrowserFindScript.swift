@@ -1,18 +1,31 @@
 import Foundation
 
-/// JavaScript snippets for find-in-page in WKWebView.
+/// A self-contained JavaScript snippet that drives find-in-page inside a `WKWebView`.
 ///
-/// Uses TreeWalker to scan text nodes and wraps matches with `<mark>` elements.
-/// The current match gets an additional `.current` class and is scrolled into view.
-enum BrowserFindJavaScript {
+/// Each script is an immediately-invoked function expression evaluated against the page.
+/// The search/next/previous variants scan visible text nodes with a `TreeWalker`, wrap matches
+/// in `<mark>` elements, scroll the current match into view, and evaluate to a JSON string of
+/// the shape `{"total":N,"current":M}`. The clear variant restores the DOM and removes the
+/// injected highlight stylesheet. Parse the evaluation result with ``BrowserFindMatchCount/parse(_:)``.
+public struct BrowserFindScript: Sendable, Equatable {
+    /// The JavaScript source to evaluate in the page.
+    public let source: String
 
-    // MARK: - Public API
+    /// Wraps an already-formed JavaScript source string.
+    /// - Parameter source: The JS source to evaluate.
+    public init(source: String) {
+        self.source = source
+    }
 
-    /// Returns JS that highlights all occurrences of `query` in the document body.
-    /// The script evaluates to a JSON string `{"total":N,"current":0}`.
-    static func searchScript(query: String) -> String {
+    /// A script that highlights every occurrence of `query` in the document body.
+    ///
+    /// Highlights are case-insensitive. Previous highlights are removed first. The first match
+    /// is marked current and scrolled to. Evaluates to `{"total":N,"current":0}`.
+    /// - Parameter query: The needle to search for. An empty query clears highlights and reports zero matches.
+    /// - Returns: The search script.
+    public static func search(query: String) -> BrowserFindScript {
         let escaped = jsStringEscape(query)
-        return """
+        return BrowserFindScript(source: """
         (() => {
           const MARK_CLASS = '__cmux-find';
           const CURRENT_CLASS = '__cmux-find-current';
@@ -100,12 +113,12 @@ enum BrowserFindJavaScript {
 
           return JSON.stringify({ total: matches.length, current: 0 });
         })()
-        """
+        """)
     }
 
-    /// Returns JS that moves to the next match. Evaluates to `{"total":N,"current":M}`.
-    static func nextScript() -> String {
-        """
+    /// A script that advances to the next match, wrapping past the end. Evaluates to `{"total":N,"current":M}`.
+    public static func next() -> BrowserFindScript {
+        BrowserFindScript(source: """
         (() => {
           const matches = window.__cmuxFindMatches || [];
           if (matches.length === 0) return JSON.stringify({ total: 0, current: 0 });
@@ -127,12 +140,12 @@ enum BrowserFindJavaScript {
           window.__cmuxFindIndex = idx;
           return JSON.stringify({ total: matches.length, current: idx });
         })()
-        """
+        """)
     }
 
-    /// Returns JS that moves to the previous match. Evaluates to `{"total":N,"current":M}`.
-    static func previousScript() -> String {
-        """
+    /// A script that moves to the previous match, wrapping past the start. Evaluates to `{"total":N,"current":M}`.
+    public static func previous() -> BrowserFindScript {
+        BrowserFindScript(source: """
         (() => {
           const matches = window.__cmuxFindMatches || [];
           if (matches.length === 0) return JSON.stringify({ total: 0, current: 0 });
@@ -154,12 +167,12 @@ enum BrowserFindJavaScript {
           window.__cmuxFindIndex = idx;
           return JSON.stringify({ total: matches.length, current: idx });
         })()
-        """
+        """)
     }
 
-    /// Returns JS that removes all find highlights and restores the DOM.
-    static func clearScript() -> String {
-        """
+    /// A script that removes all find highlights, drops the injected stylesheet, and restores the DOM.
+    public static func clear() -> BrowserFindScript {
+        BrowserFindScript(source: """
         (() => {
           \(clearBody)
           window.__cmuxFindMatches = [];
@@ -168,12 +181,10 @@ enum BrowserFindJavaScript {
           if (style) style.remove();
           return 'ok';
         })()
-        """
+        """)
     }
 
-    // MARK: - Internal
-
-    /// JS snippet (no wrapping IIFE) that removes existing mark highlights.
+    /// JS snippet (no wrapping IIFE) that removes existing mark highlights and re-normalizes parents.
     private static let clearBody = """
     document.querySelectorAll('mark.__cmux-find').forEach(mark => {
             const parent = mark.parentNode;
@@ -184,8 +195,12 @@ enum BrowserFindJavaScript {
           });
     """
 
-    /// Escape a Swift string for safe embedding inside a JS double-quoted string literal.
-    static func jsStringEscape(_ string: String) -> String {
+    /// Escapes a Swift string for safe embedding inside a JS double-quoted string literal.
+    ///
+    /// Backslashes, double quotes, and the control characters that would otherwise break out of
+    /// a JS string literal (including the line/paragraph separators `U+2028`/`U+2029`) are escaped.
+    /// The result does not include the surrounding quotes; the caller splices it between its own.
+    private static func jsStringEscape(_ string: String) -> String {
         var result = ""
         result.reserveCapacity(string.count)
         for scalar in string.unicodeScalars {

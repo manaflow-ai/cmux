@@ -10,6 +10,10 @@ extension AgentLaunchSanitizer {
         result: inout [String]
     ) -> Bool? {
         guard promptBoundaryOption(arg, options: policy.promptBoundaryOptions) != nil else { return false }
+        guard canRecoverPostPromptBoundaryOptions(result) else {
+            index = args.count
+            return true
+        }
         index += width
         if index < args.count, !isOptionToken(args[index]) {
             index += 1
@@ -48,6 +52,10 @@ private func promptBoundaryOption(_ arg: String, options: Set<String>) -> String
 
 func isOptionToken(_ arg: String) -> Bool {
     arg.hasPrefix("-") && arg.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
+}
+
+private func canRecoverPostPromptBoundaryOptions(_ preservedPrefix: [String]) -> Bool {
+    preservedPrefix.contains("--remote-control-session-name-prefix")
 }
 
 private func optionName(_ arg: String) -> String {

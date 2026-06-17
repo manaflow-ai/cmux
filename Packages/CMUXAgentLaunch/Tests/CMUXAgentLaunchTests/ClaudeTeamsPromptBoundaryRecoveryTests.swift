@@ -3,13 +3,15 @@ import Testing
 
 @Suite("Claude Teams prompt boundary recovery")
 struct ClaudeTeamsPromptBoundaryRecoveryTests {
-    @Test("Recovers restore-safe flags after tmux payload when followed by prompt")
-    func recoversRestoreSafeFlagsAfterTmuxPayloadWhenFollowedByPrompt() {
+    @Test("Recovers restore-safe flags after tmux payload for remote-control launches")
+    func recoversRestoreSafeFlagsAfterTmuxPayloadForRemoteControlLaunches() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
+                    "--remote-control-session-name-prefix",
+                    "cmux-team",
                     "--tmux",
                     "side effect should be dropped",
                     "--permission-mode",
@@ -21,6 +23,8 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
+                "--remote-control-session-name-prefix",
+                "cmux-team",
                 "--permission-mode",
                 "auto",
             ]

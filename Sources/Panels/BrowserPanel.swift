@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxBrowser
 import CmuxSettings
 import Combine
 import WebKit
@@ -285,40 +286,67 @@ enum BrowserImportHintSettings {
     }
 }
 
-struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
-    let id: UUID
-    var displayName: String
-    let createdAt: Date
-    let isBuiltInDefault: Bool
+// `BrowserProfileDefinition` and `BrowserProfileClearOutcome` now live in the
+// `CmuxBrowser` package (imported above); the call sites reference them
+// unqualified through that import.
 
-    var slug: String {
-        if isBuiltInDefault {
-            return "default"
-        }
+// Adapts `BrowserHistoryStore` to the `CmuxBrowser` history seams so the
+// profile repository can manage per-profile history stores without depending on
+// the app-target `BrowserHistoryStore` type.
+extension BrowserHistoryStore: BrowserProfileHistoryStore {}
 
-        let normalized = displayName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return normalized.isEmpty ? id.uuidString.lowercased() : normalized
+@MainActor
+private final class BrowserProfileHistoryAdapter: BrowserProfileHistoryProviding {
+    var sharedHistoryStore: any BrowserProfileHistoryStore { BrowserHistoryStore.shared }
+
+    func makeHistoryStore(fileURL: URL?) -> any BrowserProfileHistoryStore {
+        BrowserHistoryStore(fileURL: fileURL)
+    }
+
+    func defaultHistoryFileURLForCurrentBundle() -> URL? {
+        BrowserHistoryStore.defaultHistoryFileURLForCurrentBundle()
+    }
+
+    func normalizedBrowserHistoryNamespace(forBundleIdentifier bundleIdentifier: String) -> String {
+        BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleIdentifier)
+    }
+
+    func flushSharedHistoryPendingSaves() {
+        BrowserHistoryStore.shared.flushPendingSaves()
     }
 }
 
-struct BrowserProfileClearOutcome: Sendable {
-    let profile: BrowserProfileDefinition
-    let clearedWebsiteDataTypes: [String]
-    let clearedHistory: Bool
+// Adapts WebKit's `WKWebsiteDataStore` to the `CmuxBrowser` data-store
+// seam, mapping the built-in default profile to the default store and bridging
+// the legacy completion-handler wipe to `async`/`await` at this one boundary.
+@MainActor
+private final class BrowserProfileWebsiteDataStoreAdapter: BrowserProfileWebsiteDataStoreProviding {
+    var defaultWebsiteDataStore: AnyObject { WKWebsiteDataStore.default() }
 
-    var socketPayload: [String: Any] {
-        [
-            "id": profile.id.uuidString,
-            "name": profile.displayName,
-            "slug": profile.slug,
-            "built_in_default": profile.isBuiltInDefault,
-            "cleared_website_data_types": clearedWebsiteDataTypes,
-            "cleared_history": clearedHistory,
-        ]
+    func makeWebsiteDataStore(forProfileID profileID: UUID) -> AnyObject {
+        WKWebsiteDataStore(forIdentifier: profileID)
+    }
+
+    var allWebsiteDataTypes: [String] { Array(WKWebsiteDataStore.allWebsiteDataTypes()) }
+
+    func removeAllData(ofTypes dataTypes: [String], from store: AnyObject) async {
+        guard let store = store as? WKWebsiteDataStore else { return }
+        let types = Set(dataTypes)
+        await withCheckedContinuation { continuation in
+            store.removeData(ofTypes: types, modifiedSince: .distantPast) {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+// Removes profile-owned files via a detached utility task, matching the original
+// best-effort, ignore-errors deletion behavior.
+private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
+    func removeItemIfExists(at url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 }
 
@@ -326,232 +354,93 @@ struct BrowserProfileClearOutcome: Sendable {
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
 
-    private static let profilesDefaultsKey = "browserProfiles.v1"
-    private static let lastUsedProfileDefaultsKey = "browserProfiles.lastUsed"
-    private static let builtInDefaultProfileID = UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!
-
     @Published private(set) var profiles: [BrowserProfileDefinition] = []
-    @Published private(set) var lastUsedProfileID: UUID = builtInDefaultProfileID
+    @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
 
-    private let defaults: UserDefaults
-    private var dataStores: [UUID: WKWebsiteDataStore] = [:]
-    private var historyStores: [UUID: BrowserHistoryStore] = [:]
+    private let repository: BrowserProfileRepository
 
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        load()
+        repository = BrowserProfileRepository(
+            defaults: defaults,
+            historyProvider: BrowserProfileHistoryAdapter(),
+            websiteDataStoreProvider: BrowserProfileWebsiteDataStoreAdapter(),
+            fileRemover: BrowserProfileFileRemover(),
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "cmux",
+            defaultProfileDisplayName: String(localized: "browser.profile.default", defaultValue: "Default")
+        )
+        mirrorPublishedState()
+    }
+
+    private func mirrorPublishedState() {
+        profiles = repository.profiles
+        lastUsedProfileID = repository.lastUsedProfileID
     }
 
     var builtInDefaultProfileID: UUID {
-        Self.builtInDefaultProfileID
+        repository.builtInDefaultProfileID
     }
 
     var effectiveLastUsedProfileID: UUID {
-        profileDefinition(id: lastUsedProfileID) != nil ? lastUsedProfileID : Self.builtInDefaultProfileID
+        repository.effectiveLastUsedProfileID
     }
 
     func profileDefinition(id: UUID) -> BrowserProfileDefinition? {
-        profiles.first(where: { $0.id == id })
+        repository.profileDefinition(id: id)
     }
 
     func displayName(for id: UUID) -> String {
-        profileDefinition(id: id)?.displayName
-        ?? String(localized: "browser.profile.default", defaultValue: "Default")
+        repository.displayName(for: id)
     }
 
     func createProfile(named rawName: String) -> BrowserProfileDefinition? {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return nil }
-        let profile = BrowserProfileDefinition(
-            id: UUID(),
-            displayName: name,
-            createdAt: Date(),
-            isBuiltInDefault: false
-        )
-        profiles.append(profile)
-        profiles.sort {
-            if $0.isBuiltInDefault != $1.isBuiltInDefault {
-                return $0.isBuiltInDefault && !$1.isBuiltInDefault
-            }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-        persist()
-        noteUsed(profile.id)
-        return profile
+        let result = repository.createProfile(named: rawName)
+        mirrorPublishedState()
+        return result
     }
 
     func renameProfile(id: UUID, to rawName: String) -> Bool {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty,
-              let index = profiles.firstIndex(where: { $0.id == id }),
-              !profiles[index].isBuiltInDefault else {
-            return false
-        }
-        profiles[index].displayName = name
-        profiles.sort {
-            if $0.isBuiltInDefault != $1.isBuiltInDefault {
-                return $0.isBuiltInDefault && !$1.isBuiltInDefault
-            }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-        persist()
-        return true
+        let result = repository.renameProfile(id: id, to: rawName)
+        mirrorPublishedState()
+        return result
     }
 
     func canRenameProfile(id: UUID) -> Bool {
-        guard let profile = profileDefinition(id: id) else { return false }
-        return !profile.isBuiltInDefault
+        repository.canRenameProfile(id: id)
     }
 
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
-        guard let index = profiles.firstIndex(where: { $0.id == id }),
-              !profiles[index].isBuiltInDefault else {
-            return nil
-        }
-        let removed = profiles.remove(at: index)
-        let historyDirectoryURL = historyFileURL(for: id)?.deletingLastPathComponent()
-        historyStores[id]?.cancelPendingSaves()
-        dataStores.removeValue(forKey: id)
-        historyStores.removeValue(forKey: id)
-        if lastUsedProfileID == id {
-            lastUsedProfileID = Self.builtInDefaultProfileID
-            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
-        }
-        persist()
-        if let historyDirectoryURL {
-            Task.detached(priority: .utility) {
-                try? FileManager.default.removeItem(at: historyDirectoryURL)
-            }
-        }
-        return removed
+        let result = repository.deleteProfile(id: id)
+        mirrorPublishedState()
+        return result
     }
 
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
-        guard let profile = profileDefinition(id: id) else { return nil }
-        let store = websiteDataStore(for: id)
-        let historyURL = historyFileURL(for: id)
-        historyStore(for: id).clearHistoryWithoutLoadingPersistedFile()
-        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-        await withCheckedContinuation { continuation in
-            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-                continuation.resume()
-            }
-        }
-        if let historyURL {
-            await Self.removeItemIfExists(at: historyURL)
-        }
-        return BrowserProfileClearOutcome(
-            profile: profile,
-            clearedWebsiteDataTypes: Array(dataTypes).sorted(),
-            clearedHistory: true
-        )
-    }
-
-    @Sendable private nonisolated static func removeItemIfExists(at url: URL) async {
-        await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: url)
-        }.value
+        let result = await repository.clearProfileData(id: id)
+        mirrorPublishedState()
+        return result
     }
 
     func noteUsed(_ id: UUID) {
-        guard profileDefinition(id: id) != nil else { return }
-        if lastUsedProfileID != id {
-            lastUsedProfileID = id
-            defaults.set(id.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
-        }
+        repository.noteUsed(id)
+        mirrorPublishedState()
     }
 
     func websiteDataStore(for profileID: UUID) -> WKWebsiteDataStore {
-        if profileID == Self.builtInDefaultProfileID {
-            return .default()
-        }
-        if let existing = dataStores[profileID] {
-            return existing
-        }
-        let store = WKWebsiteDataStore(forIdentifier: profileID)
-        dataStores[profileID] = store
-        return store
+        // Safe force-cast: the adapter only ever vends `WKWebsiteDataStore` handles.
+        repository.websiteDataStore(for: profileID) as! WKWebsiteDataStore
     }
 
     func historyStore(for profileID: UUID) -> BrowserHistoryStore {
-        if profileID == Self.builtInDefaultProfileID {
-            return .shared
-        }
-        if let existing = historyStores[profileID] {
-            return existing
-        }
-        let store = BrowserHistoryStore(fileURL: historyFileURL(for: profileID))
-        historyStores[profileID] = store
-        return store
+        // Safe force-cast: the adapter only ever vends `BrowserHistoryStore` handles.
+        repository.historyStore(for: profileID) as! BrowserHistoryStore
     }
 
     func historyFileURL(for profileID: UUID) -> URL? {
-        if profileID == Self.builtInDefaultProfileID {
-            return BrowserHistoryStore.defaultHistoryFileURLForCurrentBundle()
-        }
-
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
-        let namespace = BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleId)
-        let profilesDir = appSupport
-            .appendingPathComponent(namespace, isDirectory: true)
-            .appendingPathComponent("browser_profiles", isDirectory: true)
-            .appendingPathComponent(profileID.uuidString.lowercased(), isDirectory: true)
-        return profilesDir.appendingPathComponent("browser_history.json", isDirectory: false)
+        repository.historyFileURL(for: profileID)
     }
 
     func flushPendingSaves() {
-        BrowserHistoryStore.shared.flushPendingSaves()
-        for store in historyStores.values {
-            store.flushPendingSaves()
-        }
-    }
-
-    private func load() {
-        let builtInDefaultProfile = BrowserProfileDefinition(
-            id: Self.builtInDefaultProfileID,
-            displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
-            createdAt: Date(timeIntervalSince1970: 0),
-            isBuiltInDefault: true
-        )
-
-        if let data = defaults.data(forKey: Self.profilesDefaultsKey),
-           let decoded = try? JSONDecoder().decode([BrowserProfileDefinition].self, from: data),
-           !decoded.isEmpty {
-            var resolvedProfiles = decoded.filter { $0.id != Self.builtInDefaultProfileID }
-            resolvedProfiles.append(builtInDefaultProfile)
-            profiles = sortedProfiles(resolvedProfiles)
-        } else {
-            profiles = [builtInDefaultProfile]
-            persist()
-        }
-
-        if let rawLastUsed = defaults.string(forKey: Self.lastUsedProfileDefaultsKey),
-           let parsed = UUID(uuidString: rawLastUsed),
-           profileDefinition(id: parsed) != nil {
-            lastUsedProfileID = parsed
-        } else {
-            lastUsedProfileID = Self.builtInDefaultProfileID
-            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
-        }
-    }
-
-    private func persist() {
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(profiles) else { return }
-        defaults.set(data, forKey: Self.profilesDefaultsKey)
-    }
-
-    private func sortedProfiles(_ profiles: [BrowserProfileDefinition]) -> [BrowserProfileDefinition] {
-        profiles.sorted {
-            if $0.isBuiltInDefault != $1.isBuiltInDefault {
-                return $0.isBuiltInDefault && !$1.isBuiltInDefault
-            }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
+        repository.flushPendingSaves()
     }
 }
 
@@ -1388,13 +1277,7 @@ enum BrowserUserAgentSettings {
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
-    if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
-        return "com.cmuxterm.app.debug"
-    }
-    if bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.") {
-        return "com.cmuxterm.app.staging"
-    }
-    return bundleIdentifier
+    BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
 }
 
 func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
@@ -1418,54 +1301,10 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
 
-    struct Entry: Codable, Identifiable, Hashable {
-        let id: UUID
-        var url: String
-        var title: String?
-        var lastVisited: Date
-        var visitCount: Int
-        var typedCount: Int
-        var lastTypedAt: Date?
-
-        private enum CodingKeys: String, CodingKey {
-            case id
-            case url
-            case title
-            case lastVisited
-            case visitCount
-            case typedCount
-            case lastTypedAt
-        }
-
-        init(
-            id: UUID,
-            url: String,
-            title: String?,
-            lastVisited: Date,
-            visitCount: Int,
-            typedCount: Int = 0,
-            lastTypedAt: Date? = nil
-        ) {
-            self.id = id
-            self.url = url
-            self.title = title
-            self.lastVisited = lastVisited
-            self.visitCount = visitCount
-            self.typedCount = typedCount
-            self.lastTypedAt = lastTypedAt
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decode(UUID.self, forKey: .id)
-            url = try container.decode(String.self, forKey: .url)
-            title = try container.decodeIfPresent(String.self, forKey: .title)
-            lastVisited = try container.decode(Date.self, forKey: .lastVisited)
-            visitCount = try container.decode(Int.self, forKey: .visitCount)
-            typedCount = try container.decodeIfPresent(Int.self, forKey: .typedCount) ?? 0
-            lastTypedAt = try container.decodeIfPresent(Date.self, forKey: .lastTypedAt)
-        }
-    }
+    /// Persisted history record. Owned by `CmuxBrowser`; this alias keeps
+    /// existing `BrowserHistoryStore.Entry` call sites byte-identical after the
+    /// value type moved into the package.
+    typealias Entry = BrowserHistoryEntry
 
     // Single source of truth for history. `private(set)` + `@MainActor` means
     // every mutation runs through this setter, so dropping the derived
@@ -1485,18 +1324,17 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
+    // Pure suggestion matching/scoring and persistence I/O live in
+    // `CmuxBrowser`; the store owns only the @Published entry list, the
+    // first-load lifecycle, and the debounced-save scheduling.
+    private let suggestionEngine = BrowserHistorySuggestionEngine()
+    private let fileRepository = BrowserHistoryFileRepository()
+
     var isLoaded: Bool {
         didLoad
     }
 
-    private struct SuggestionCandidate {
-        let entry: Entry
-        let urlLower: String
-        let urlSansSchemeLower: String
-        let hostLower: String
-        let pathAndQueryLower: String
-        let titleLower: String
-    }
+    private typealias SuggestionCandidate = BrowserHistorySuggestionCandidate
 
     private struct ScoredSuggestion {
         let entry: Entry
@@ -1519,7 +1357,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     private func suggestionCandidates() -> [SuggestionCandidate] {
         if let cached = cachedSuggestionCandidates { return cached }
-        let built = entries.map(makeSuggestionCandidate)
+        let built = entries.map(suggestionEngine.candidate(for:))
         cachedSuggestionCandidates = built
         return built
     }
@@ -1537,17 +1375,7 @@ final class BrowserHistoryStore: ObservableObject {
 
         // Load synchronously on first access so the first omnibar query can use
         // persisted history immediately (important for deterministic UI behavior).
-        let data: Data
-        do {
-            data = try Data(contentsOf: fileURL)
-        } catch {
-            return
-        }
-
-        let decoded: [Entry]
-        do {
-            decoded = try JSONDecoder().decode([Entry].self, from: data)
-        } catch {
+        guard let decoded = fileRepository.loadSnapshot(from: fileURL) else {
             return
         }
 
@@ -1582,11 +1410,11 @@ final class BrowserHistoryStore: ObservableObject {
 
         let urlString = url.absoluteString
         guard urlString != "about:blank" else { return }
-        let normalizedKey = normalizedHistoryKey(url: url)
+        let normalizedKey = suggestionEngine.normalizedHistoryKey(url: url)
 
         if let idx = entries.firstIndex(where: {
             if $0.url == urlString { return true }
-            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+            return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
         }) {
             entries[idx].lastVisited = Date()
             entries[idx].visitCount += 1
@@ -1630,10 +1458,10 @@ final class BrowserHistoryStore: ObservableObject {
         guard urlString != "about:blank" else { return }
 
         let now = Date()
-        let normalizedKey = normalizedHistoryKey(url: url)
+        let normalizedKey = suggestionEngine.normalizedHistoryKey(url: url)
         if let idx = entries.firstIndex(where: {
             if $0.url == urlString { return true }
-            return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+            return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
         }) {
             entries[idx].typedCount += 1
             entries[idx].lastTypedAt = now
@@ -1664,11 +1492,11 @@ final class BrowserHistoryStore: ObservableObject {
 
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return [] }
-        let queryTokens = tokenizeSuggestionQuery(q)
+        let queryTokens = suggestionEngine.tokenize(query: q)
         let now = Date()
 
         let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
-            guard let score = suggestionScore(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
+            guard let score = suggestionEngine.score(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
                 return nil
             }
             return ScoredSuggestion(entry: candidate.entry, score: score)
@@ -1722,7 +1550,7 @@ final class BrowserHistoryStore: ObservableObject {
 
             let urlString = parsedURL.absoluteString
             guard urlString != "about:blank" else { continue }
-            let normalizedKey = normalizedHistoryKey(url: parsedURL)
+            let normalizedKey = suggestionEngine.normalizedHistoryKey(url: parsedURL)
 
             let importedTitle = imported.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let importedLastVisited = imported.lastVisited
@@ -1733,7 +1561,7 @@ final class BrowserHistoryStore: ObservableObject {
             if let idx = entries.firstIndex(where: {
                 if $0.url == urlString { return true }
                 guard let normalizedKey else { return false }
-                return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+                return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
             }) {
                 var didMutate = false
                 if importedLastVisited > entries[idx].lastVisited {
@@ -1802,7 +1630,7 @@ final class BrowserHistoryStore: ObservableObject {
         saveTask = nil
         entries = []
         guard let fileURL else { return }
-        try? FileManager.default.removeItem(at: fileURL)
+        fileRepository.removeFile(at: fileURL)
     }
 
     func clearHistoryWithoutLoadingPersistedFile() {
@@ -1820,12 +1648,12 @@ final class BrowserHistoryStore: ObservableObject {
     @discardableResult
     func removeHistoryEntry(urlString: String) -> Bool {
         loadIfNeeded()
-        let normalized = normalizedHistoryKey(urlString: urlString)
+        let normalized = suggestionEngine.normalizedHistoryKey(urlString: urlString)
         let originalCount = entries.count
         entries.removeAll { entry in
             if entry.url == urlString { return true }
             guard let normalized else { return false }
-            return normalizedHistoryKey(urlString: entry.url) == normalized
+            return suggestionEngine.normalizedHistoryKey(urlString: entry.url) == normalized
         }
         let didRemove = entries.count != originalCount
         if didRemove {
@@ -1839,7 +1667,7 @@ final class BrowserHistoryStore: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         guard let fileURL else { return }
-        try? Self.persistSnapshot(entries, to: fileURL)
+        try? BrowserHistoryFileRepository.persist(entries, to: fileURL)
     }
 
     private func scheduleSave() {
@@ -1858,7 +1686,7 @@ final class BrowserHistoryStore: ObservableObject {
             if Task.isCancelled { return }
 
             do {
-                try Self.persistSnapshot(snapshot, to: fileURL)
+                try BrowserHistoryFileRepository.persist(snapshot, to: fileURL)
             } catch {
                 return
             }
@@ -1866,225 +1694,26 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     private func migrateLegacyTaggedHistoryFileIfNeeded(to targetURL: URL) {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: targetURL.path) else { return }
-        guard let legacyURL = Self.legacyTaggedHistoryFileURL(),
-              legacyURL != targetURL,
-              fm.fileExists(atPath: legacyURL.path) else {
-            return
-        }
-
-        do {
-            let dir = targetURL.deletingLastPathComponent()
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-            try fm.copyItem(at: legacyURL, to: targetURL)
-        } catch {
-            return
-        }
-    }
-
-    private func makeSuggestionCandidate(entry: Entry) -> SuggestionCandidate {
-        let urlLower = entry.url.lowercased()
-        let urlSansSchemeLower = stripHTTPSSchemePrefix(urlLower)
-        let components = URLComponents(string: entry.url)
-        let hostLower = components?.host?.lowercased() ?? ""
-        let path = (components?.percentEncodedPath ?? components?.path ?? "").lowercased()
-        let query = (components?.percentEncodedQuery ?? components?.query ?? "").lowercased()
-        let pathAndQueryLower: String
-        if query.isEmpty {
-            pathAndQueryLower = path
-        } else {
-            pathAndQueryLower = "\(path)?\(query)"
-        }
-        let titleLower = (entry.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return SuggestionCandidate(
-            entry: entry,
-            urlLower: urlLower,
-            urlSansSchemeLower: urlSansSchemeLower,
-            hostLower: hostLower,
-            pathAndQueryLower: pathAndQueryLower,
-            titleLower: titleLower
+        fileRepository.migrateLegacyFileIfNeeded(
+            legacyURL: Self.location()?.legacyTaggedHistoryFileURL,
+            to: targetURL
         )
     }
 
-    private func suggestionScore(
-        candidate: SuggestionCandidate,
-        query: String,
-        queryTokens: [String],
-        now: Date
-    ) -> Double? {
-        let queryIncludesScheme = query.hasPrefix("http://") || query.hasPrefix("https://")
-        let urlMatchValue = queryIncludesScheme ? candidate.urlLower : candidate.urlSansSchemeLower
-        let isSingleCharacterQuery = query.count == 1
-        if isSingleCharacterQuery {
-            let hasSingleCharStrongMatch =
-                candidate.hostLower.hasPrefix(query) ||
-                candidate.titleLower.hasPrefix(query) ||
-                urlMatchValue.hasPrefix(query)
-            guard hasSingleCharStrongMatch else { return nil }
-        }
-
-        let queryMatches =
-            urlMatchValue.contains(query) ||
-            candidate.hostLower.contains(query) ||
-            candidate.pathAndQueryLower.contains(query) ||
-            candidate.titleLower.contains(query)
-
-        let tokenMatches = !queryTokens.isEmpty && queryTokens.allSatisfy { token in
-            candidate.urlSansSchemeLower.contains(token) ||
-            candidate.hostLower.contains(token) ||
-            candidate.pathAndQueryLower.contains(token) ||
-            candidate.titleLower.contains(token)
-        }
-
-        guard queryMatches || tokenMatches else { return nil }
-
-        var score = 0.0
-
-        if urlMatchValue == query { score += 1200 }
-        if candidate.hostLower == query { score += 980 }
-        if candidate.hostLower.hasPrefix(query) { score += 680 }
-        if urlMatchValue.hasPrefix(query) { score += 560 }
-        if candidate.titleLower.hasPrefix(query) { score += 420 }
-        if candidate.pathAndQueryLower.hasPrefix(query) { score += 300 }
-
-        if candidate.hostLower.contains(query) { score += 210 }
-        if candidate.pathAndQueryLower.contains(query) { score += 165 }
-        if candidate.titleLower.contains(query) { score += 145 }
-
-        for token in queryTokens {
-            if candidate.hostLower == token { score += 260 }
-            else if candidate.hostLower.hasPrefix(token) { score += 170 }
-            else if candidate.hostLower.contains(token) { score += 110 }
-
-            if candidate.pathAndQueryLower.hasPrefix(token) { score += 80 }
-            else if candidate.pathAndQueryLower.contains(token) { score += 52 }
-
-            if candidate.titleLower.hasPrefix(token) { score += 74 }
-            else if candidate.titleLower.contains(token) { score += 48 }
-        }
-
-        // Blend recency and repeat visits so history feels closer to browser frecency.
-        let ageHours = max(0, now.timeIntervalSince(candidate.entry.lastVisited) / 3600)
-        let recencyScore = max(0, 110 - (ageHours / 3))
-        let frequencyScore = min(120, log1p(Double(max(1, candidate.entry.visitCount))) * 38)
-        let typedFrequencyScore = min(190, log1p(Double(max(0, candidate.entry.typedCount))) * 80)
-        let typedRecencyScore: Double
-        if let lastTypedAt = candidate.entry.lastTypedAt {
-            let typedAgeHours = max(0, now.timeIntervalSince(lastTypedAt) / 3600)
-            typedRecencyScore = max(0, 85 - (typedAgeHours / 4))
-        } else {
-            typedRecencyScore = 0
-        }
-        score += recencyScore + frequencyScore + typedFrequencyScore + typedRecencyScore
-
-        return score
-    }
-
-    private func stripHTTPSSchemePrefix(_ value: String) -> String {
-        if value.hasPrefix("https://") {
-            return String(value.dropFirst("https://".count))
-        }
-        if value.hasPrefix("http://") {
-            return String(value.dropFirst("http://".count))
-        }
-        return value
-    }
-
-    private func normalizedHistoryKey(url: URL) -> String? {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return nil }
-        return normalizedHistoryKey(components: &components)
-    }
-
-    private func normalizedHistoryKey(urlString: String) -> String? {
-        guard var components = URLComponents(string: urlString) else { return nil }
-        return normalizedHistoryKey(components: &components)
-    }
-
-    private func normalizedHistoryKey(components: inout URLComponents) -> String? {
-        guard let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              var host = components.host?.lowercased() else {
-            return nil
-        }
-
-        if host.hasPrefix("www.") {
-            host.removeFirst(4)
-        }
-
-        if (scheme == "http" && components.port == 80) ||
-            (scheme == "https" && components.port == 443) {
-            components.port = nil
-        }
-
-        let portPart: String
-        if let port = components.port {
-            portPart = ":\(port)"
-        } else {
-            portPart = ""
-        }
-
-        var path = components.percentEncodedPath
-        if path.isEmpty { path = "/" }
-        while path.count > 1, path.hasSuffix("/") {
-            path.removeLast()
-        }
-
-        let queryPart: String
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            queryPart = "?\(query.lowercased())"
-        } else {
-            queryPart = ""
-        }
-
-        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)"
-    }
-
-    private func tokenizeSuggestionQuery(_ query: String) -> [String] {
-        var tokens: [String] = []
-        var seen = Set<String>()
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
-        for raw in query.components(separatedBy: separators) {
-            let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else { continue }
-            guard !seen.contains(token) else { continue }
-            seen.insert(token)
-            tokens.append(token)
-        }
-        return tokens
-    }
-
-    nonisolated private static func defaultHistoryFileURL() -> URL? {
+    /// Builds the location resolver from the live Application Support directory
+    /// and process bundle identifier, or `nil` when Application Support is
+    /// unavailable (matching the prior `defaultHistoryFileURL` nil path).
+    nonisolated private static func location() -> BrowserHistoryLocation? {
         let fm = FileManager.default
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
         let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
-        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
-        let dir = appSupport.appendingPathComponent(namespace, isDirectory: true)
-        return dir.appendingPathComponent("browser_history.json", isDirectory: false)
+        return BrowserHistoryLocation(applicationSupportDirectory: appSupport, bundleIdentifier: bundleId)
     }
 
-    nonisolated private static func legacyTaggedHistoryFileURL() -> URL? {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
-        let namespace = normalizedBrowserHistoryNamespace(bundleIdentifier: bundleId)
-        guard namespace != bundleId else { return nil }
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
-        return dir.appendingPathComponent("browser_history.json", isDirectory: false)
-    }
-
-    nonisolated private static func persistSnapshot(_ snapshot: [Entry], to fileURL: URL) throws {
-        let dir = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        let data = try encoder.encode(snapshot)
-        try data.write(to: fileURL, options: [.atomic])
+    nonisolated private static func defaultHistoryFileURL() -> URL? {
+        location()?.historyFileURL
     }
 
     nonisolated static func defaultHistoryFileURLForCurrentBundle() -> URL? {
@@ -2092,7 +1721,7 @@ final class BrowserHistoryStore: ObservableObject {
     }
 
     nonisolated static func normalizedBrowserHistoryNamespaceForBundleIdentifier(_ bundleIdentifier: String) -> String {
-        normalizedBrowserHistoryNamespace(bundleIdentifier: bundleIdentifier)
+        BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
     }
 }
 
@@ -2867,230 +2496,18 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
-    private var addressBarFocusRestoreGeneration: UInt64 = 0
     private let blankURLString = "about:blank"
-    private static let addressBarFocusCaptureScript = """
-    (() => {
-      try {
-        const syncState = (state) => {
-          window.__cmuxAddressBarFocusState = state;
-          try {
-            if (window.top && window.top !== window) {
-              window.top.postMessage({ cmuxAddressBarFocusState: state }, "*");
-            } else if (window.top) {
-              window.top.__cmuxAddressBarFocusState = state;
-            }
-          } catch (_) {}
-        };
 
-        const active = document.activeElement;
-        if (!active) {
-          syncState(null);
-          return "cleared:none";
-        }
-
-        const tag = (active.tagName || "").toLowerCase();
-        const type = (active.type || "").toLowerCase();
-        const isEditable =
-          !!active.isContentEditable ||
-          tag === "textarea" ||
-          (tag === "input" && type !== "hidden");
-        if (!isEditable) {
-          syncState(null);
-          return "cleared:noneditable";
-        }
-
-        let id = active.getAttribute("data-cmux-addressbar-focus-id");
-        if (!id) {
-          id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-          active.setAttribute("data-cmux-addressbar-focus-id", id);
-        }
-
-        const state = { id, selectionStart: null, selectionEnd: null };
-        if (typeof active.selectionStart === "number" && typeof active.selectionEnd === "number") {
-          state.selectionStart = active.selectionStart;
-          state.selectionEnd = active.selectionEnd;
-        }
-        syncState(state);
-        return "captured:" + id;
-      } catch (_) {
-        return "error";
-      }
-    })();
-    """
-    private static let addressBarFocusTrackingBootstrapScript = """
-    (() => {
-      try {
-        if (window.__cmuxAddressBarFocusTrackerInstalled) return true;
-        window.__cmuxAddressBarFocusTrackerInstalled = true;
-
-        const syncState = (state) => {
-          window.__cmuxAddressBarFocusState = state;
-          try {
-            if (window.top && window.top !== window) {
-              window.top.postMessage({ cmuxAddressBarFocusState: state }, "*");
-            } else if (window.top) {
-              window.top.__cmuxAddressBarFocusState = state;
-            }
-          } catch (_) {}
-        };
-
-        if (window.top === window && !window.__cmuxAddressBarFocusMessageBridgeInstalled) {
-          window.__cmuxAddressBarFocusMessageBridgeInstalled = true;
-          window.addEventListener("message", (ev) => {
-            try {
-              const data = ev ? ev.data : null;
-              if (!data || !Object.prototype.hasOwnProperty.call(data, "cmuxAddressBarFocusState")) return;
-              window.__cmuxAddressBarFocusState = data.cmuxAddressBarFocusState || null;
-            } catch (_) {}
-          }, true);
-        }
-
-        const isEditable = (el) => {
-          if (!el) return false;
-          const tag = (el.tagName || "").toLowerCase();
-          const type = (el.type || "").toLowerCase();
-          return !!el.isContentEditable || tag === "textarea" || (tag === "input" && type !== "hidden");
-        };
-
-        const ensureFocusId = (el) => {
-          let id = el.getAttribute("data-cmux-addressbar-focus-id");
-          if (!id) {
-            id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-            el.setAttribute("data-cmux-addressbar-focus-id", id);
-          }
-          return id;
-        };
-
-        const snapshot = (el) => {
-          if (!isEditable(el)) {
-            syncState(null);
-            return;
-          }
-          const state = {
-            id: ensureFocusId(el),
-            selectionStart: null,
-            selectionEnd: null
-          };
-          if (typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
-            state.selectionStart = el.selectionStart;
-            state.selectionEnd = el.selectionEnd;
-          }
-          syncState(state);
-        };
-
-        document.addEventListener("focusin", (ev) => {
-          snapshot(ev && ev.target ? ev.target : document.activeElement);
-        }, true);
-        document.addEventListener("selectionchange", () => {
-          snapshot(document.activeElement);
-        }, true);
-        document.addEventListener("input", () => {
-          snapshot(document.activeElement);
-        }, true);
-        document.addEventListener("mousedown", (ev) => {
-          const target = ev && ev.target ? ev.target : null;
-          if (!isEditable(target)) {
-            syncState(null);
-          }
-        }, true);
-        window.addEventListener("beforeunload", () => {
-          syncState(null);
-        }, true);
-
-        snapshot(document.activeElement);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    })();
-    """
-    private static let addressBarFocusRestoreScript = """
-    (() => {
-      try {
-        const readState = () => {
-          let state = window.__cmuxAddressBarFocusState;
-          try {
-            if ((!state || typeof state.id !== "string" || !state.id) &&
-                window.top && window.top.__cmuxAddressBarFocusState) {
-              state = window.top.__cmuxAddressBarFocusState;
-            }
-          } catch (_) {}
-          return state;
-        };
-
-        const clearState = () => {
-          window.__cmuxAddressBarFocusState = null;
-          try {
-            if (window.top && window.top !== window) {
-              window.top.postMessage({ cmuxAddressBarFocusState: null }, "*");
-            } else if (window.top) {
-              window.top.__cmuxAddressBarFocusState = null;
-            }
-          } catch (_) {}
-        };
-
-        const state = readState();
-        if (!state || typeof state.id !== "string" || !state.id) {
-          return "no_state";
-        }
-
-        const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
-        const findTarget = (doc) => {
-          if (!doc) return null;
-          const direct = doc.querySelector(selector);
-          if (direct && direct.isConnected) return direct;
-          const frames = doc.querySelectorAll("iframe,frame");
-          for (let i = 0; i < frames.length; i += 1) {
-            const frame = frames[i];
-            try {
-              const childDoc = frame.contentDocument;
-              if (!childDoc) continue;
-              const nested = findTarget(childDoc);
-              if (nested) return nested;
-            } catch (_) {}
-          }
-          return null;
-        };
-
-        const target = findTarget(document);
-        if (!target) {
-          clearState();
-          return "missing_target";
-        }
-
-        try {
-          target.focus({ preventScroll: true });
-        } catch (_) {
-          try { target.focus(); } catch (_) {}
-        }
-
-        let focused = false;
-        try {
-          focused =
-            target === target.ownerDocument.activeElement ||
-            (typeof target.matches === "function" && target.matches(":focus"));
-        } catch (_) {}
-        if (!focused) {
-          return "not_focused";
-        }
-
-        if (
-          typeof state.selectionStart === "number" &&
-          typeof state.selectionEnd === "number" &&
-          typeof target.setSelectionRange === "function"
-        ) {
-          try {
-            target.setSelectionRange(state.selectionStart, state.selectionEnd);
-          } catch (_) {}
-        }
-        clearState();
-        return "restored";
-      } catch (_) {
-        return "error";
-      }
-    })();
-    """
+    /// Owns the address-bar page-focus capture/restore subsystem.
+    ///
+    /// The repository (in `CmuxBrowser`) runs the capture/restore scripts
+    /// through ``BrowserOmnibarPageFocusAdapter``, which reaches back to this
+    /// panel's current `webView` weakly so the panel and repository do not retain
+    /// each other.
+    private lazy var omnibarPageFocusRepository = BrowserOmnibarPageFocusRepository(
+        evaluator: BrowserOmnibarPageFocusAdapter(panel: self),
+        logSink: Self.omnibarPageFocusLogSink
+    )
 
     /// Published URL being displayed
     @Published private(set) var currentURL: URL? {
@@ -3178,10 +2595,23 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var nativeCanGoBack: Bool = false
     private var nativeCanGoForward: Bool = false
-    private var usesRestoredSessionHistory: Bool = false
-    private var restoredBackHistoryStack: [URL] = []
-    private var restoredForwardHistoryStack: [URL] = []
-    private var restoredHistoryCurrentURL: URL?
+
+    /// The replayable back/forward session history this surface restores from a
+    /// prior launch. The pure stack state machine lives in `CmuxBrowser`;
+    /// this surface owns the instance, feeds it the resolved live current URL,
+    /// and performs the `WKWebView` calls its decisions return. The temporary-URL
+    /// classification (diff viewer + remote loopback proxy alias) is inverted into
+    /// the injected sanitizer seam.
+    private var restoredSessionHistory = RestoredSessionHistory(
+        sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
+    )
+
+    private var usesRestoredSessionHistory: Bool {
+        restoredSessionHistory.usesRestoredSessionHistory
+    }
+    private var restoredHistoryCurrentURL: URL? {
+        restoredSessionHistory.current
+    }
     private var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
@@ -3257,6 +2687,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     @Published private(set) var isElementFullscreenActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
+
+    /// Find-in-page search execution: generates the find scripts, evaluates them against the
+    /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
+    /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
+    /// this service owns only the script generation and result parsing.
+    private lazy var findService = BrowserFindService(
+        evaluator: BrowserFindWebViewEvaluator(panel: self)
+    )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLease {
         let hostId: ObjectIdentifier
@@ -3904,7 +3342,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: Self.addressBarFocusTrackingBootstrapScript,
+                source: BrowserOmnibarPageFocusRepository.trackingBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -4673,31 +4111,12 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-        let nativeBack = webView.backForwardList.backList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
-        }
-        let nativeForward = webView.backForwardList.forwardList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
-        }
-
-        if usesRestoredSessionHistory {
-            let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
-            // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
-            let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
-                Self.serializableSessionHistoryURLString($0)
-            }
-
-            if isLiveSessionHistoryAlignedWithRestoredCurrent {
-                return (
-                    back,
-                    restoredForward.isEmpty ? nativeForward : restoredForward
-                )
-            }
-
-            return (back + nativeBack, nativeForward)
-        }
-
-        return (nativeBack, nativeForward)
+        let snapshot = restoredSessionHistory.snapshot(
+            nativeBackURLs: webView.backForwardList.backList.map { $0.url },
+            nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
+            isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
+        )
+        return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
@@ -4713,67 +4132,24 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
-        let liveCurrent = Self.serializableSessionHistoryURLString(resolvedLiveSessionHistoryURL())
-        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
-        guard let liveCurrent, let restoredCurrent else { return true }
-        return liveCurrent == restoredCurrent
+        restoredSessionHistory.isLiveAligned(withLiveCurrentURL: resolvedLiveSessionHistoryURL())
     }
 
     private func realignRestoredSessionHistoryToLiveCurrentIfPossible() {
-        guard usesRestoredSessionHistory else { return }
-        guard let liveCurrent = resolvedLiveSessionHistoryURL(),
-              let liveCurrentString = Self.serializableSessionHistoryURLString(liveCurrent) else {
+        switch restoredSessionHistory.realign(toLiveCurrentURL: resolvedLiveSessionHistoryURL()) {
+        case .noChange:
             return
-        }
-        guard Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL) != liveCurrentString else {
-            return
-        }
-
-        let restoredBack = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
-        let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
-            Self.serializableSessionHistoryURLString($0)
-        }
-        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
-
-        if let backIndex = restoredBack.lastIndex(of: liveCurrentString) {
-            let newBack = Array(restoredBack[..<backIndex])
-            var newForward = Array(restoredBack[(backIndex + 1)...])
-            if let restoredCurrent {
-                newForward.append(restoredCurrent)
-            }
-            newForward.append(contentsOf: restoredForward)
-
-            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
-            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
-            restoredHistoryCurrentURL = liveCurrent
+        case .rebalanced:
             refreshNavigationAvailability()
-            return
-        }
-
-        if let forwardIndex = restoredForward.firstIndex(of: liveCurrentString) {
-            var newBack = restoredBack
-            if let restoredCurrent {
-                newBack.append(restoredCurrent)
-            }
-            newBack.append(contentsOf: restoredForward[..<forwardIndex])
-            let newForward = Array(restoredForward[(forwardIndex + 1)...])
-
-            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
-            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
-            restoredHistoryCurrentURL = liveCurrent
-            refreshNavigationAvailability()
-            return
-        }
-
-        guard !restoredForwardHistoryStack.isEmpty else { return }
+        case .clearedForward(let liveCurrentString):
 #if DEBUG
-        cmuxDebugLog(
-            "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
-            "current=\(liveCurrentString)"
-        )
+            cmuxDebugLog(
+                "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
+                "current=\(liveCurrentString)"
+            )
 #endif
-        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
-        refreshNavigationAvailability()
+            refreshNavigationAvailability()
+        }
     }
 
     func restoreSessionNavigationHistory(
@@ -4781,16 +4157,12 @@ final class BrowserPanel: Panel, ObservableObject {
         forwardHistoryURLStrings: [String],
         currentURLString: String?
     ) {
-        let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
-        let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
-        let restoredCurrent = Self.sanitizedSessionHistoryURL(currentURLString)
-        guard !restoredBack.isEmpty || !restoredForward.isEmpty || restoredCurrent != nil else { return }
-
-        usesRestoredSessionHistory = true
-        restoredBackHistoryStack = restoredBack
-        // Store nearest-forward entries at the end to make stack pop operations trivial.
-        restoredForwardHistoryStack = Array(restoredForward.reversed())
-        restoredHistoryCurrentURL = restoredCurrent
+        let activated = restoredSessionHistory.restore(
+            backHistoryURLStrings: backHistoryURLStrings,
+            forwardHistoryURLStrings: forwardHistoryURLStrings,
+            currentURLString: currentURLString
+        )
+        guard activated else { return }
         refreshNavigationAvailability()
     }
 
@@ -6159,9 +5531,7 @@ extension BrowserPanel {
         isBrowserFocusModeExitArmed ||
         nativeCanGoBack ||
         nativeCanGoForward ||
-        restoredHistoryCurrentURL != nil ||
-        !restoredBackHistoryStack.isEmpty ||
-        !restoredForwardHistoryStack.isEmpty ||
+        restoredSessionHistory.hasRestoredState ||
         estimatedProgress > 0 ||
         isLoading ||
         isDownloading ||
@@ -6365,27 +5735,24 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack),
-               let targetURL = restoredBackHistoryStack.popLast() {
-                if let current = resolvedCurrentSessionHistoryURL() {
-                    restoredForwardHistoryStack.append(current)
-                }
-                restoredHistoryCurrentURL = targetURL
+            let decision = restoredSessionHistory.decideGoBack(
+                isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent,
+                nativeCanGoBack: nativeCanGoBack,
+                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
+            )
+            switch decision {
+            case .navigate(let targetURL):
                 refreshNavigationAvailability()
                 navigateWithoutInsecureHTTPPrompt(
                     to: targetURL,
                     recordTypedNavigation: false,
                     preserveRestoredSessionHistory: true
                 )
-                return
-            }
-
-            if nativeCanGoBack {
+            case .nativeGoBack:
                 webView.goBack()
-                return
+            case .nativeGoForward, .refreshOnly:
+                refreshNavigationAvailability()
             }
-
-            refreshNavigationAvailability()
             return
         }
 
@@ -6400,25 +5767,23 @@ extension BrowserPanel {
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
-            if nativeCanGoForward {
-                webView.goForward()
-                return
-            }
-
-            guard let targetURL = restoredForwardHistoryStack.popLast() else {
-                refreshNavigationAvailability()
-                return
-            }
-            if let current = resolvedCurrentSessionHistoryURL() {
-                restoredBackHistoryStack.append(current)
-            }
-            restoredHistoryCurrentURL = targetURL
-            refreshNavigationAvailability()
-            navigateWithoutInsecureHTTPPrompt(
-                to: targetURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
+            let decision = restoredSessionHistory.decideGoForward(
+                nativeCanGoForward: nativeCanGoForward,
+                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
             )
+            switch decision {
+            case .nativeGoForward:
+                webView.goForward()
+            case .navigate(let targetURL):
+                refreshNavigationAvailability()
+                navigateWithoutInsecureHTTPPrompt(
+                    to: targetURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
+            case .nativeGoBack, .refreshOnly:
+                refreshNavigationAvailability()
+            }
             return
         }
 
@@ -7415,16 +6780,14 @@ extension BrowserPanel {
     func findNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
-            self.parseFindResult(result)
+            self.applyFindMatchCount(await self.findService.next())
         }
     }
 
     func findPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
-            self.parseFindResult(result)
+            self.applyFindMatchCount(await self.findService.previous())
         }
     }
 
@@ -7615,38 +6978,21 @@ extension BrowserPanel {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let js = BrowserFindJavaScript.searchScript(query: needle)
-            do {
-                let result = try await self.webView.evaluateJavaScript(js)
-                self.parseFindResult(result)
-            } catch {
-                NSLog("Find: browser JS search error: %@", error.localizedDescription)
-            }
+            self.applyFindMatchCount(await self.findService.search(needle: needle))
         }
     }
 
     private func executeFindClear() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
-            } catch {
-                NSLog("Find: browser JS clear error: %@", error.localizedDescription)
-            }
+            await self.findService.clear()
         }
     }
 
-    private func parseFindResult(_ result: Any?) {
-        guard let jsonString = result as? String,
-              let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let total = json["total"] as? Int,
-              let current = json["current"] as? Int,
-              total >= 0, current >= 0 else {
-            return
-        }
-        searchState?.total = UInt(total)
-        searchState?.selected = total > 0 ? UInt(current) : nil
+    private func applyFindMatchCount(_ count: BrowserFindMatchCount?) {
+        guard let count else { return }
+        searchState?.total = count.total
+        searchState?.selected = count.selected
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
@@ -8002,135 +7348,18 @@ extension BrowserPanel {
     }
 
     private func captureAddressBarPageFocusIfNeeded() {
-        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
-#if DEBUG
-            guard let self else { return }
-            if let error {
-                cmuxDebugLog(
-                    "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
-                    "result=error message=\(error.localizedDescription)"
-                )
-                return
-            }
-            let resultValue = (result as? String) ?? "unknown"
-            cmuxDebugLog(
-                "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
-                "result=\(resultValue)"
-            )
-#else
-            _ = self
-            _ = result
-            _ = error
-#endif
-        }
-    }
-
-    private enum AddressBarPageFocusRestoreStatus: String {
-        case restored
-        case noState = "no_state"
-        case missingTarget = "missing_target"
-        case notFocused = "not_focused"
-        case error
-    }
-
-    private static func addressBarPageFocusRestoreStatus(
-        from result: Any?,
-        error: Error?
-    ) -> AddressBarPageFocusRestoreStatus {
-        if error != nil { return .error }
-        guard let raw = result as? String else { return .error }
-        return AddressBarPageFocusRestoreStatus(rawValue: raw) ?? .error
+        omnibarPageFocusRepository.captureIfNeeded(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
     func invalidateAddressBarPageFocusRestoreAttempts() {
-        addressBarFocusRestoreGeneration &+= 1
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.addressBar.restore.invalidate panel=\(id.uuidString.prefix(5)) " +
-            "generation=\(addressBarFocusRestoreGeneration)"
-        )
-#endif
+        omnibarPageFocusRepository.invalidateRestoreAttempts(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
-    func restoreAddressBarPageFocusIfNeeded(completion: @escaping (Bool) -> Void) {
-        addressBarFocusRestoreGeneration &+= 1
-        let generation = addressBarFocusRestoreGeneration
-        let delays: [TimeInterval] = [0.0, 0.03, 0.09, 0.2]
-        restoreAddressBarPageFocusAttemptIfNeeded(
-            attempt: 0,
-            delays: delays,
-            generation: generation,
+    func restoreAddressBarPageFocusIfNeeded(completion: @escaping @MainActor @Sendable (Bool) -> Void) {
+        omnibarPageFocusRepository.restoreIfNeeded(
+            panelDebugID: String(id.uuidString.prefix(5)),
             completion: completion
         )
-    }
-
-    private func restoreAddressBarPageFocusAttemptIfNeeded(
-        attempt: Int,
-        delays: [TimeInterval],
-        generation: UInt64,
-        completion: @escaping (Bool) -> Void
-    ) {
-        guard generation == addressBarFocusRestoreGeneration else {
-            completion(false)
-            return
-        }
-        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
-            guard let self else {
-                completion(false)
-                return
-            }
-            guard generation == self.addressBarFocusRestoreGeneration else {
-                completion(false)
-                return
-            }
-
-            let status = Self.addressBarPageFocusRestoreStatus(from: result, error: error)
-            let canRetry = (status == .notFocused || status == .error)
-            let hasNextAttempt = attempt + 1 < delays.count
-
-#if DEBUG
-            if let error {
-                cmuxDebugLog(
-                    "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
-                    "attempt=\(attempt) status=\(status.rawValue) " +
-                    "message=\(error.localizedDescription)"
-                )
-            } else {
-                cmuxDebugLog(
-                    "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
-                    "attempt=\(attempt) status=\(status.rawValue)"
-                )
-            }
-#endif
-
-            if status == .restored {
-                completion(true)
-                return
-            }
-
-            if canRetry && hasNextAttempt {
-                let delay = delays[attempt + 1]
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self else {
-                        completion(false)
-                        return
-                    }
-                    guard generation == self.addressBarFocusRestoreGeneration else {
-                        completion(false)
-                        return
-                    }
-                    self.restoreAddressBarPageFocusAttemptIfNeeded(
-                        attempt: attempt + 1,
-                        delays: delays,
-                        generation: generation,
-                        completion: completion
-                    )
-                }
-                return
-            }
-
-            completion(false)
-        }
     }
 
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
@@ -8166,58 +7395,44 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
-        let resolvedCanGoBack: Bool
-        let resolvedCanGoForward: Bool
-        if usesRestoredSessionHistory {
-            resolvedCanGoBack = nativeCanGoBack || !restoredBackHistoryStack.isEmpty
-            resolvedCanGoForward = nativeCanGoForward || !restoredForwardHistoryStack.isEmpty
-        } else {
-            resolvedCanGoBack = nativeCanGoBack
-            resolvedCanGoForward = nativeCanGoForward
-        }
+        let availability = restoredSessionHistory.availability(
+            nativeCanGoBack: nativeCanGoBack,
+            nativeCanGoForward: nativeCanGoForward
+        )
 
-        if canGoBack != resolvedCanGoBack {
-            canGoBack = resolvedCanGoBack
+        if canGoBack != availability.canGoBack {
+            canGoBack = availability.canGoBack
         }
-        if canGoForward != resolvedCanGoForward {
-            canGoForward = resolvedCanGoForward
+        if canGoForward != availability.canGoForward {
+            canGoForward = availability.canGoForward
         }
     }
 
     private func abandonRestoredSessionHistoryIfNeeded() {
-        guard usesRestoredSessionHistory else { return }
-        usesRestoredSessionHistory = false
-        restoredBackHistoryStack.removeAll(keepingCapacity: false)
-        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
-        restoredHistoryCurrentURL = nil
+        guard restoredSessionHistory.abandon() else { return }
         refreshNavigationAvailability()
     }
 
+    /// Shared sanitizer mirroring the restored-session-history URL rules, used by
+    /// the surface's WebKit-touching resolution helpers.
+    private static let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
+        browserIsTemporaryHistoryURL($0)
+    }
+
     private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
-        guard let url else { return nil }
-        guard !isTemporarySessionHistoryURL(url) else { return nil }
-        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != "about:blank" else { return nil }
-        return value
+        sessionHistoryURLSanitizer.serializableSessionHistoryURLString(url)
     }
 
     private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
-        guard let url = URL(string: trimmed),
-              !isTemporarySessionHistoryURL(url) else {
-            return nil
-        }
-        return url
+        sessionHistoryURLSanitizer.sanitizedSessionHistoryURL(raw)
     }
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
-        values.compactMap { sanitizedSessionHistoryURL($0) }
+        sessionHistoryURLSanitizer.sanitizedSessionHistoryURLs(values)
     }
 
     private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        browserIsTemporaryHistoryURL(url)
+        sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(url)
     }
 
 }
@@ -9140,6 +8355,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+
         // Cmd+click and middle-click on regular links should always open in a new tab.
         if shouldOpenInNewTab,
            let requestURL = navigationAction.request.url {
@@ -9206,25 +8426,16 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
               responseURL, mime, canShow ? 1 : 0,
               navigationResponse.isForMainFrame ? 1 : 0)
 
-        // Check if this response should be treated as a download.
-        // Criteria: explicit Content-Disposition: attachment, or a MIME type
-        // that WebKit cannot render inline.
-        if let response = navigationResponse.response as? HTTPURLResponse {
-            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
-            if contentDisposition.lowercased().hasPrefix("attachment") {
-                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
-                #if DEBUG
-                cmuxDebugLog("download.policy=download reason=content-disposition mime=\(mime)")
-                #endif
-                decisionHandler(.download)
-                return
-            }
-        }
-
-        if !canShow {
-            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")
+        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: mime,
+            canShowMIMEType: canShow,
+            contentDisposition: contentDisposition
+        ) {
+            NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
             #if DEBUG
-            cmuxDebugLog("download.policy=download reason=cannotShowMIME mime=\(mime)")
+            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
             #endif
             decisionHandler(.download)
             return
@@ -13354,5 +12565,49 @@ final class BrowserDataImportCoordinator {
         alert.informativeText = lines.joined(separator: "\n")
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
+    }
+}
+
+extension BrowserPanel {
+    /// Debug-log sink handed to `BrowserOmnibarPageFocusRepository`.
+    ///
+    /// In release builds this is `nil`, so the repository emits no logging and
+    /// the former `#if DEBUG`-guarded `cmuxDebugLog` calls stay compiled out.
+    static var omnibarPageFocusLogSink: (@MainActor @Sendable (String) -> Void)? {
+#if DEBUG
+        return { message in cmuxDebugLog(message) }
+#else
+        return nil
+#endif
+    }
+}
+
+/// Bridges `BrowserOmnibarPageFocusRepository` to a panel's live `WKWebView`.
+///
+/// Holds the panel weakly so the panel (which owns the repository, which owns
+/// this adapter) does not form a retain cycle. Always reads `panel.webView` at
+/// call time because the panel reassigns its web view across navigations and
+/// profile switches.
+@MainActor
+private final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
+    private weak var panel: BrowserPanel?
+
+    init(panel: BrowserPanel) {
+        self.panel = panel
+    }
+
+    func evaluateOmnibarPageFocusScript(
+        _ script: String,
+        completion: @escaping @MainActor (Any?, (any Error)?) -> Void
+    ) {
+        guard let panel else {
+            completion(nil, nil)
+            return
+        }
+        panel.webView.evaluateJavaScript(script) { result, error in
+            MainActor.assumeIsolated {
+                completion(result, error)
+            }
+        }
     }
 }
