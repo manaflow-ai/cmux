@@ -64,8 +64,14 @@ struct FeedEventClassifier {
         case promptSubmit
         /// The agent finished responding. Telemetry only.
         case response
+        /// A subagent started. Telemetry only.
+        case subagentStart
         /// A subagent finished responding. Telemetry only.
         case subagentResponse
+        /// Context compaction is about to run. Telemetry only.
+        case preCompact
+        /// Context compaction finished. Telemetry only.
+        case postCompact
         case sessionStart
         case sessionEnd
         /// A generic status/notification event. Telemetry only — real
@@ -130,8 +136,14 @@ struct FeedEventClassifier {
             return ("UserPromptSubmit", false)
         case .response:
             return ("Stop", false)
+        case .subagentStart:
+            return ("SubagentStart", false)
         case .subagentResponse:
             return ("SubagentStop", false)
+        case .preCompact:
+            return ("PreCompact", false)
+        case .postCompact:
+            return ("PostCompact", false)
         case .sessionStart:
             return ("SessionStart", false)
         case .sessionEnd:
@@ -180,6 +192,11 @@ struct FeedEventClassifier {
             "SessionStart": .sessionStart,
             "SessionEnd": .sessionEnd,
             "Stop": .response,
+            // Compaction + subagent lifecycle telemetry each keeps its own
+            // wire name instead of collapsing into a generic lifecycle event.
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
+            "SubagentStart": .subagentStart,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
         ],

@@ -120,6 +120,38 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("Expanded Codex telemetry ingests as non-actionable, name-preserving items")
+    func expandedCodexTelemetryIsNonActionable() {
+        let store = WorkstreamStore(ringCapacity: 16)
+        let events: [(WorkstreamEvent.HookEventName, String)] = [
+            (.postToolUse, "PostToolUse"),
+            (.preCompact, "PreCompact"),
+            (.postCompact, "PostCompact"),
+            (.subagentStart, "SubagentStart"),
+        ]
+        for (hookEvent, label) in events {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-s",
+                hookEventName: hookEvent,
+                source: "codex",
+                toolName: "shell"
+            ))
+            let item = store.items.last
+            #expect(item?.kind == .toolResult)
+            #expect(item?.kind.isActionable == false)
+            if case .toolResult(let toolName, _, _) = item?.payload {
+                // PostToolUse carries the emitted tool name; the synthetic
+                // lifecycle events carry their own hook event name so they stay
+                // distinguishable rather than collapsing together.
+                let expectedName = hookEvent == .postToolUse ? "shell" : label
+                #expect(toolName == expectedName)
+            } else {
+                Issue.record("expected toolResult payload for \(label)")
+            }
+        }
+        #expect(store.pending.isEmpty)
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)

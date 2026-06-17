@@ -315,8 +315,14 @@ public final class WorkstreamStore {
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
             return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
-        case .notification:
-            return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
+        case .subagentStart, .preCompact, .postCompact, .notification:
+            // Lifecycle telemetry without a dedicated payload kind. Each keeps
+            // its own hook event name as the synthetic tool name so the events
+            // stay distinguishable in Feed instead of collapsing together.
+            let label = event.hookEventName == .notification
+                ? "notification"
+                : event.hookEventName.rawValue
+            return (.toolResult, .toolResult(toolName: label, resultJSON: toolInput, isError: false))
         }
     }
 

@@ -29004,6 +29004,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "PostToolUse",
         "PreCompact",
         "PostCompact",
+        "SubagentStart",
+        "SubagentStop",
         "SessionStart",
         "UserPromptSubmit",
         "Stop",
@@ -29016,6 +29018,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "PostToolUse": return "post_tool_use"
         case "PreCompact": return "pre_compact"
         case "PostCompact": return "post_compact"
+        case "SubagentStart": return "subagent_start"
+        case "SubagentStop": return "subagent_stop"
         case "SessionStart": return "session_start"
         case "UserPromptSubmit": return "user_prompt_submit"
         case "Stop": return "stop"
