@@ -480,6 +480,49 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Simulate the WebContent process being reclaimed while the pane was
+        // detached during a drag, exhausting the in-place recovery budget so
+        // the panel is left permanently blank.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())

@@ -721,6 +721,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             )
         }
 
+        /// Called when the host `MarkdownWebView` re-enters a window after
+        /// having been detached (e.g. a pane drag re-parents the hosting
+        /// views via `removeFromSuperview` → `addSubview`). While detached
+        /// from the window WebKit can reclaim the WebContent process,
+        /// leaving the panel permanently blank with no user-facing reload.
+        func handleViewReenteredWindow() {
+            // Intentionally empty until the fix commit.
+        }
+
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
             guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
 #if DEBUG
