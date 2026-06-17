@@ -830,61 +830,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
     }
 
-    func testCampfirePermissionNotificationLocalizesAndMarksNeedsInput() throws {
-        let context = try makeClaudeHookContext(name: "campfire-permission-lifecycle")
-        defer { context.cleanup() }
-
-        let sessionId = "campfire-permission-session"
-        let launchEnvironment = agentLaunchEnvironment(
-            context: context,
-            kind: "campfire",
-            executable: "/usr/local/bin/campfire"
-        )
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
-
-        let prompt = runAgentHook(
-            context: context,
-            agent: "campfire",
-            subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
-            extraEnvironment: launchEnvironment
-        )
-        XCTAssertFalse(prompt.timedOut, prompt.stderr)
-        XCTAssertEqual(prompt.status, 0, prompt.stderr)
-
-        let notificationStart = context.state.commands.count
-        let notification = runAgentHook(
-            context: context,
-            agent: "campfire",
-            subcommand: "notification",
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","campfire_event_type":"permission.asked","display_name":"Alice","capability":"shell:exec"}"#,
-            extraEnvironment: launchEnvironment
-        )
-        XCTAssertFalse(notification.timedOut, notification.stderr)
-        XCTAssertEqual(notification.status, 0, notification.stderr)
-
-        let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
-        XCTAssertTrue(
-            notificationCommands.contains {
-                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Campfire|Permission|Alice asked for permission to run a shell command")
-            },
-            "Campfire permission notification should be localized in Swift, saw \(notificationCommands)"
-        )
-        XCTAssertTrue(
-            notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle campfire needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
-            },
-            "Campfire permission notification must mark the surface as needing input, saw \(notificationCommands)"
-        )
-
-        let stateURL = context.root.appendingPathComponent("campfire-hook-sessions.json")
-        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
-        let record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
-    }
-
     func testGenericAgentStaleIdleStopDoesNotOverwriteNewerRunningLifecycle() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-idle-stop-lifecycle")
         defer { context.cleanup() }

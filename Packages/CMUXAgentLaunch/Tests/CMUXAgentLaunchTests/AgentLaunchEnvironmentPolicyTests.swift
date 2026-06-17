@@ -5,7 +5,7 @@ import Testing
 struct AgentLaunchEnvironmentPolicyTests {
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
-        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: [
                 "OPENAI_API_KEY": "secret-should-not-persist",
                 "PI_CODING_AGENT_DIR": "/tmp/omp-agent",
@@ -22,7 +22,7 @@ struct AgentLaunchEnvironmentPolicyTests {
 
     @Test("Preserves Campfire config roots and drops its self-managed package dir")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
-        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: [
                 "OPENAI_API_KEY": "secret-should-not-persist",
                 "CAMPFIRE_CODING_AGENT_DIR": "/tmp/campfire-agent",
@@ -45,13 +45,13 @@ struct AgentLaunchEnvironmentPolicyTests {
 
     @Test("Keeps PI_PACKAGE_DIR for pi and omp resumes")
     func keepsPiPackageDirForPiKinds() {
-        let selectedPi = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+        let selectedPi = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: ["PI_PACKAGE_DIR": "/nix/store/pi-package"],
             kind: "pi"
         )
         #expect(selectedPi["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
 
-        let selectedOmp = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+        let selectedOmp = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: ["PI_PACKAGE_DIR": "/nix/store/pi-package"],
             kind: "omp"
         )
