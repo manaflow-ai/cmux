@@ -9797,7 +9797,13 @@ final class GhosttySurfaceScrollView: NSView {
         guard isActive, surfaceView.desiredFocus, surfaceView.isVisibleInUI else { return }
         guard currentTerminalSurfaceOwnsFirstResponder() else { return }
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
-        guard !isHiddenForFocus, bounds.width > 1, bounds.height > 1 else { return }
+        guard !isHiddenForFocus,
+              bounds.width > 1,
+              bounds.height > 1,
+              surfaceView.bounds.width > 1,
+              surfaceView.bounds.height > 1 else {
+            return
+        }
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
@@ -9918,16 +9924,22 @@ final class GhosttySurfaceScrollView: NSView {
             let size = bounds.size
             return size.width > 1 && size.height > 1
         }()
+        let hasUsableSurfaceGeometry: Bool = {
+            let size = surfaceView.bounds.size
+            return size.width > 1 && size.height > 1
+        }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
-        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+        guard !isHiddenForFocus, hasUsablePortalGeometry, hasUsableSurfaceGeometry else {
 #if DEBUG
             cmuxDebugLog(
                 "focus.apply.skip surface=\(surfaceShort) " +
-                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceView.bounds.width, surfaceView.bounds.height))"
             )
 #endif
             return
