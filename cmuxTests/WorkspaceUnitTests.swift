@@ -4877,8 +4877,19 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
     func testHiddenTinyFirstResponderReappliesGhosttyFocusAfterGeometrySettles() throws {
 #if DEBUG
-        let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId,
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalTabManager = appDelegate.tabManager
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
               let panel = workspace.terminalPanel(for: panelId) else {
             XCTFail("Expected initial terminal panel")
             return
