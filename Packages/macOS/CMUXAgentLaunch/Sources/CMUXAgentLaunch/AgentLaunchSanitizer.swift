@@ -11,7 +11,6 @@ public enum AgentLaunchSanitizer {
         "hooks",
         "preferredNotifChannel",
     ]
-
     private enum ClaudeHookSettingsReplacement {
         case drop
         case settings(String)
@@ -19,17 +18,17 @@ public enum AgentLaunchSanitizer {
 
     struct Policy {
         var valueOptions: Set<String>
-        var optionalValueOptions: Set<String> = []
+        var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
+        var promptBoundaryOptions: Set<String> = []
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
-
     public static func sanitizedLaunchArguments(
         _ arguments: [String],
         launcher: String,
@@ -43,7 +42,7 @@ public enum AgentLaunchSanitizer {
             if tail.first == "claude-teams" {
                 tail.removeFirst()
             }
-            guard let preserved = preservedArguments(kind: "claude", args: tail) else { return nil }
+            guard let preserved = preservedClaudeTeamsLaunchArguments(args: tail) else { return nil }
             return [executable, "claude-teams"] + preserved
         case "codexTeams":
             if tail.first == "codex-teams" {
@@ -162,6 +161,8 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
+    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
@@ -226,7 +227,7 @@ public enum AgentLaunchSanitizer {
             if arg == "--" {
                 return nil
             }
-            if !arg.hasPrefix("-") || arg == "-" {
+            if !isOptionToken(arg) || arg == "-" {
                 guard arg == "fork",
                       let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
                     return nil
@@ -342,7 +343,8 @@ public enum AgentLaunchSanitizer {
                 index += width
                 continue
             }
-
+            guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
+            if consumedPromptBoundary { continue }
             result.append(contentsOf: args[index..<min(args.count, index + width)])
             index += width
         }
@@ -442,18 +444,16 @@ public enum AgentLaunchSanitizer {
             return 1
         }
         if policy.optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count,
-                  looksLikeOptionalValue(
-                    args[index + 1],
-                    following: index + 2 < args.count ? args[index + 2] : nil
-                  ) else {
-                return 1
-            }
+            guard index + 1 < args.count else { return 1 }
+            let value = args[index + 1]
+            if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
+            let following = index + 2 < args.count ? args[index + 2] : nil
+            if policy.greedyOptionalValueOptions.contains(arg),
+               looksLikeGreedyOptionalValue(value) { return 2 }
+            guard looksLikeOptionalValue(value, following: following) else { return 1 }
             return 2
         }
-        guard policy.valueOptions.contains(arg), index + 1 < args.count else {
-            return 1
-        }
+        guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
             while end < args.count,
