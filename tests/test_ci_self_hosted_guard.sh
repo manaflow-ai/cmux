@@ -712,6 +712,41 @@ check_app_detectors_include_root_entitlements() {
   echo "PASS: app/runtime change detectors include root entitlement files"
 }
 
+check_pr_file_api_cap_fails_open() {
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "app=true"/ { saw_app=1 }
+    /echo "daemon=true"/ { saw_daemon=1 }
+    /echo "web=true"/ { saw_web=1 }
+    /echo "webviews=true"/ { saw_webviews=1 }
+    END { exit !(saw_cap && saw_app && saw_daemon && saw_web && saw_webviews) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ci.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "should_run=true"/ { saw_run=1 }
+    END { exit !(saw_cap && saw_run) }
+  ' "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "should_run=true"/ { saw_run=1 }
+    /echo "should_lint=true"/ { saw_lint=1 }
+    END { exit !(saw_cap && saw_run && saw_lint) }
+  ' "$ROOT_DIR/.github/workflows/test-ios.yml"; then
+    echo "FAIL: test-ios.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  echo "PASS: PR file detectors fail open at the GitHub API cap"
+}
+
 check_activation_benchmark_deflake() {
   check_macos_runner "$PERF_ACTIVATION_FILE" "activation-session"
 
@@ -859,6 +894,7 @@ check_agent_session_resources_gate
 check_app_detector_includes_ui_tests
 check_app_detector_includes_warning_budget
 check_app_detectors_include_root_entitlements
+check_pr_file_api_cap_fails_open
 check_swift_package_tests_select_xcode
 check_swift_package_appkit_display_isolation
 check_daemon_detector_includes_release_asset_script

@@ -45,6 +45,17 @@ jobs:
           gh api --paginate \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             --jq '.[].filename' > /tmp/changed-files.txt
+          changed_count="$(wc -l < /tmp/changed-files.txt | tr -d ' ')"
+          if [ "$changed_count" -ge 3000 ]; then
+            echo "PR file list reached GitHub API cap; running all CI domains to avoid false skips."
+            {
+              echo "app=true"
+              echo "daemon=true"
+              echo "web=true"
+              echo "webviews=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           domain_changed() {
             local name="$1"
