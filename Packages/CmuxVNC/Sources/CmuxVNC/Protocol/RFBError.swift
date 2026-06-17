@@ -16,6 +16,9 @@ public enum RFBError: Error, Equatable, Sendable {
     case protocolViolation(String)
     /// A password was required but none was supplied.
     case passwordRequired
+    /// The server requires Apple authentication, which needs both a user name
+    /// and password (e.g. `vnc://user:password@host`).
+    case credentialsRequired
 }
 
 extension RFBError: LocalizedError {
@@ -35,6 +38,8 @@ extension RFBError: LocalizedError {
             return "Protocol error: \(detail)"
         case .passwordRequired:
             return "A password is required to connect."
+        case .credentialsRequired:
+            return "This server requires a user name and password (vnc://user:password@host)."
         }
     }
 }

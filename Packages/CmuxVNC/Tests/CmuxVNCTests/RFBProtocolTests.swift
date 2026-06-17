@@ -164,6 +164,48 @@ final class RFBProtocolTests: XCTestCase {
         }
     }
 
+    func testHandshakeSelectsAppleDHAndAuthenticates() async throws {
+        // keyLength = 1 (p=23, g=5, serverPub=8); SecurityResult OK, then ServerInit.
+        var stream = Array("RFB 003.889\n".utf8)
+        stream.append(contentsOf: [4, 30, 33, 35, 36])  // 4 types, Apple-only
+        stream.append(contentsOf: [0, 5])               // generator = 5 (u16)
+        stream.append(contentsOf: [0, 1])               // key length = 1 (u16)
+        stream.append(23)                               // prime
+        stream.append(8)                                // server public key
+        stream.append(contentsOf: [0, 0, 0, 0])         // SecurityResult OK
+        stream.append(contentsOf: makeServerInitBytes(width: 1440, height: 900, name: "mac"))
+
+        let source = InMemoryByteSource(stream)
+        let sink = InMemoryByteSink()
+        let info = try await RFBHandshake().negotiate(
+            source: source, sink: sink, password: "pw", username: "bob"
+        )
+        XCTAssertEqual(info.width, 1440)
+        XCTAssertEqual(info.name, "mac")
+
+        let written = await sink.contents()
+        // version reply (12) + selection byte 30 + 128-byte ciphertext + 1-byte
+        // client public key + ClientInit shared flag.
+        XCTAssertEqual(written.count, 12 + 1 + 128 + 1 + 1)
+        XCTAssertEqual(written[12], 30, "selected Apple DH")
+        XCTAssertEqual(written.last, 1, "ClientInit shared")
+    }
+
+    func testHandshakeCredentialsRequiredWhenOnlyAppleOffered() async {
+        var stream = Array("RFB 003.889\n".utf8)
+        stream.append(contentsOf: [1, 30]) // only Apple DH
+        let source = InMemoryByteSource(stream)
+        let sink = InMemoryByteSink()
+        do {
+            _ = try await RFBHandshake().negotiate(source: source, sink: sink, password: "pw", username: nil)
+            XCTFail("expected credentialsRequired")
+        } catch let error as RFBError {
+            XCTAssertEqual(error, .credentialsRequired)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
     func testHandshakePasswordRequiredWhenOnlyVNCOffered() async {
         var stream = Array("RFB 003.008\n".utf8)
         stream.append(contentsOf: [1, 2]) // only VNC auth offered

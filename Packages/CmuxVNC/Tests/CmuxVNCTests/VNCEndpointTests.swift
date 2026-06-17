@@ -30,6 +30,19 @@ final class VNCEndpointTests: XCTestCase {
         )
     }
 
+    func testUsernameAndPassword() {
+        XCTAssertEqual(
+            VNCEndpoint(string: "vnc://bob:secret@10.0.0.5:5901"),
+            VNCEndpoint(host: "10.0.0.5", port: 5901, password: "secret", username: "bob")
+        )
+    }
+
+    func testPasswordOnlyHasNoUsername() {
+        let ep = VNCEndpoint(string: "vnc://secret@host")
+        XCTAssertEqual(ep?.password, "secret")
+        XCTAssertNil(ep?.username)
+    }
+
     func testIPv6Literal() {
         XCTAssertEqual(VNCEndpoint(string: "[::1]:5902"), VNCEndpoint(host: "::1", port: 5902))
         XCTAssertEqual(VNCEndpoint(string: "[fe80::1]"), VNCEndpoint(host: "fe80::1", port: 5900))

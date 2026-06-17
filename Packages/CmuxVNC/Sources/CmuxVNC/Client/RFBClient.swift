@@ -102,7 +102,8 @@ public actor RFBClient {
             let serverInit = try await RFBHandshake().negotiate(
                 source: transport,
                 sink: transport,
-                password: endpoint.password
+                password: endpoint.password,
+                username: endpoint.username
             )
             framebuffer = Framebuffer(width: serverInit.width, height: serverInit.height)
 

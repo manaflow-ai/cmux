@@ -24,12 +24,14 @@ public struct RFBHandshake {
 
     private static let none: UInt8 = 1
     private static let vncAuth: UInt8 = 2
+    private static let appleDH: UInt8 = 30
 
     /// Negotiates and returns `ServerInit`. Throws ``RFBError`` on any failure.
     public func negotiate(
         source: any RFBByteSource,
         sink: any RFBByteSink,
         password: String?,
+        username: String? = nil,
         shared: Bool = true
     ) async throws -> RFBServerInit {
         let serverMinor = try await readProtocolVersion(source)
@@ -40,16 +42,19 @@ public struct RFBHandshake {
             source: source,
             sink: sink,
             agreedMinor: agreedMinor,
-            password: password
+            password: password,
+            username: username
         )
 
         if chosen == Self.vncAuth {
             try await performVNCAuth(source: source, sink: sink, password: password)
+        } else if chosen == Self.appleDH {
+            try await performAppleDHAuth(source: source, sink: sink, username: username, password: password)
         }
 
-        // SecurityResult: always for 3.8; for VNC auth on any version; never for
-        // None on < 3.8.
-        if agreedMinor >= 8 || chosen == Self.vncAuth {
+        // SecurityResult: always for 3.8; for any real auth on any version;
+        // never for None on < 3.8.
+        if agreedMinor >= 8 || chosen == Self.vncAuth || chosen == Self.appleDH {
             try await readSecurityResult(source, includeReason: agreedMinor >= 8)
         }
 
@@ -75,7 +80,8 @@ public struct RFBHandshake {
         source: any RFBByteSource,
         sink: any RFBByteSink,
         agreedMinor: Int,
-        password: String?
+        password: String?,
+        username: String?
     ) async throws -> UInt8 {
         let offered: [UInt8]
         if agreedMinor >= 7 {
@@ -94,35 +100,32 @@ public struct RFBHandshake {
             }
             offered = [UInt8(truncatingIfNeeded: type)]
             // No client selection byte is sent in 3.3.
-            try validateSelectable(offered, password: password)
-            return offered.contains(Self.vncAuth) && password != nil ? Self.vncAuth : Self.none
+            return try preferredSecurity(from: offered, password: password, username: username)
         }
 
-        let chosen = try preferredSecurity(from: offered, password: password)
+        let chosen = try preferredSecurity(from: offered, password: password, username: username)
         try await sink.write([chosen])
         return chosen
     }
 
-    private func preferredSecurity(from offered: [UInt8], password: String?) throws -> UInt8 {
-        // Prefer VNC auth when a password is available; otherwise None.
-        if password != nil, offered.contains(Self.vncAuth) {
+    private func preferredSecurity(from offered: [UInt8], password: String?, username: String?) throws -> UInt8 {
+        // Prefer Apple DH (most secure, needs user+password), then VNC auth,
+        // then None.
+        if offered.contains(Self.appleDH), username != nil, password != nil {
+            return Self.appleDH
+        }
+        if offered.contains(Self.vncAuth), password != nil {
             return Self.vncAuth
         }
         if offered.contains(Self.none) {
             return Self.none
         }
-        if offered.contains(Self.vncAuth) {
-            // Server requires auth but we have no password.
-            throw RFBError.passwordRequired
+        // Nothing we can satisfy with the supplied credentials.
+        if offered.contains(Self.appleDH) {
+            throw RFBError.credentialsRequired
         }
-        throw RFBError.noSupportedSecurityType(offered)
-    }
-
-    private func validateSelectable(_ offered: [UInt8], password: String?) throws {
-        if offered.contains(Self.none) { return }
         if offered.contains(Self.vncAuth) {
-            if password == nil { throw RFBError.passwordRequired }
-            return
+            throw RFBError.passwordRequired
         }
         throw RFBError.noSupportedSecurityType(offered)
     }
@@ -139,6 +142,38 @@ public struct RFBHandshake {
             throw RFBError.authenticationFailed("Failed to compute authentication response.")
         }
         try await sink.write(response)
+    }
+
+    private func performAppleDHAuth(
+        source: any RFBByteSource,
+        sink: any RFBByteSink,
+        username: String?,
+        password: String?
+    ) async throws {
+        guard let username, let password else { throw RFBError.credentialsRequired }
+        let generator = try await source.readUInt16()
+        let keyLength = Int(try await source.readUInt16())
+        guard keyLength > 0, keyLength <= 1024 else {
+            throw RFBError.protocolViolation("invalid Apple DH key length \(keyLength)")
+        }
+        let prime = try await source.readExactly(keyLength)
+        let serverPublicKey = try await source.readExactly(keyLength)
+
+        let params = AppleDHAuthentication.ServerParams(
+            generator: generator,
+            keyLength: keyLength,
+            prime: prime,
+            serverPublicKey: serverPublicKey
+        )
+        guard let response = AppleDHAuthentication.response(
+            params: params,
+            username: username,
+            password: password
+        ) else {
+            throw RFBError.authenticationFailed("Failed to compute Apple DH response.")
+        }
+        try await sink.write(response.encryptedCredentials)
+        try await sink.write(response.clientPublicKey)
     }
 
     private func readSecurityResult(_ source: any RFBByteSource, includeReason: Bool) async throws {
