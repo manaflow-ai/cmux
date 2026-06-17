@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxFileWatch
+@testable import CmuxFoundation
 
 /// A clock whose `sleep(for:)` suspends until the test releases it, so the
 /// watcher's coalescing throttle can be advanced with no real waiting.

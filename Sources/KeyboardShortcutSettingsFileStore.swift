@@ -1,5 +1,5 @@
 import Combine
-import CmuxFileWatch
+import CmuxFoundation
 import CmuxSettings
 import CmuxSocketControl
 import Foundation

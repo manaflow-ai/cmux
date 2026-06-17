@@ -5,11 +5,9 @@ import SwiftUI
 import Foundation
 import Bonsplit
 import CmuxBrowser
-import CmuxFileWatch
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
-import CmuxProcess
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit

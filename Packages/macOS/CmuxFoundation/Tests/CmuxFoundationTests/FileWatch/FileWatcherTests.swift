@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxFileWatch
+@testable import CmuxFoundation
 
 @Suite struct FileWatcherTests {
     /// Awaits the watcher's first event, bounded so a broken watcher fails the

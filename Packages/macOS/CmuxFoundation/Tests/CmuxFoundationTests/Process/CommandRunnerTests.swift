@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxProcess
+@testable import CmuxFoundation
 
 @Suite struct CommandRunnerTests {
     private let runner = CommandRunner()
