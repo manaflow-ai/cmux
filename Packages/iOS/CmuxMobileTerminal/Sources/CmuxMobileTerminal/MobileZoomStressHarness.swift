@@ -11,8 +11,8 @@ import UIKit
 ///   1. Output bytes streaming into `processOutput` (as the Mac does).
 ///   2. The cross-device viewport feedback: `didResize` → an async
 ///      `applyViewSize` echo (mimicking the Mac's `mobile.terminal.viewport`
-///      response), which pins an `effectiveGrid` and drives the
-///      `setSurfaceSizeAtLeastGrid` letterbox-fitting path.
+///      response), which records the remote effective grid without shrinking
+///      the local iOS render area.
 ///   3. Rapid font zoom on a timer.
 ///
 /// Enable with `CMUX_ZOOM_STRESS=1`; see `cmuxApp`. DEBUG-only.
@@ -90,9 +90,9 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
         // (2) Mimic the Mac's viewport response: echo back a slightly smaller
-        // grid asynchronously so an effectiveGrid is pinned and the
-        // letterbox-fitting path runs, exactly like the real app's
-        // didResize → updateTerminalViewport → applyViewSize cascade.
+        // grid asynchronously, exactly like the real app's
+        // didResize → updateTerminalViewport → applyViewSize cascade. The
+        // response must not shrink the local iOS render area.
         //
         // (2b) AND emit a heavy zsh-style prompt-redraw burst on every resize.
         // On a real paired Mac each PTY resize makes zsh redraw its big

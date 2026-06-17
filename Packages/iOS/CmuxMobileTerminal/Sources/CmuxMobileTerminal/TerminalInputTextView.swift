@@ -108,12 +108,11 @@ final class TerminalInputTextView: UITextView {
     /// the composer host. It is the tallest control (the arrow nub,
     /// ``dockedNubSize``) plus ``dockedBottomPadding`` below it. The controls are
     /// pinned to the BOTTOM of this band (minus the padding) instead of the top:
-    /// when the surface-hosted container grows taller than this band (a
-    /// letterbox/resize pushes the rendered terminal's bottom up), the buttons stay
-    /// glued to the keyboard top and only the slack ABOVE them grows, so the
-    /// control row never rides up off the keyboard. In the composer host the frame
-    /// is exactly this height (no slack), so bottom-pinning is identical to
-    /// top-pinning there.
+    /// when the surface-hosted container grows slightly taller than this band
+    /// to absorb the terminal grid's sub-cell remainder, the buttons stay glued
+    /// to the keyboard top and only the slack ABOVE them grows. In the composer
+    /// host the frame is exactly this height (no slack), so bottom-pinning is
+    /// identical to top-pinning there.
     static let dockedButtonRowHeight: CGFloat = dockedNubSize + dockedBottomPadding
     /// Minimum (not fixed) button width. Text buttons (Tab, Esc, ^C, ^D) size to
     /// their intrinsic content width and only floor here so they hug their label
@@ -212,14 +211,13 @@ final class TerminalInputTextView: UITextView {
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The docked container
         // can be TALLER than this strip, because the host
-        // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP to the
-        // rendered terminal's bottom and its BOTTOM to the keyboard top, so a
-        // letterbox/resize that pushes the rendered terminal up grows the container
-        // upward. Bottom-pinning the controls keeps them glued to the keyboard top
-        // (the container's bottom edge) with the slack absorbed ABOVE them; a
-        // top-pin would let the controls ride UP off the keyboard whenever the
-        // terminal was letterboxed. `dockedBottomPadding` lifts the strip off the
-        // very bottom edge so the controls have breathing room.
+        // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP at the
+        // rendered terminal's bottom and its BOTTOM at the keyboard top, so the
+        // container can absorb the small sub-cell remainder below the terminal
+        // grid. Bottom-pinning the controls keeps them glued to the keyboard top
+        // (the container's bottom edge) with that slack absorbed ABOVE them.
+        // `dockedBottomPadding` lifts the strip off the very bottom edge so the
+        // controls have breathing room.
         let buttonRow = UILayoutGuide()
         container.addLayoutGuide(buttonRow)
 

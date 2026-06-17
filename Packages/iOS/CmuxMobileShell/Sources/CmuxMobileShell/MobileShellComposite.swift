@@ -4974,9 +4974,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
-    /// devices, capped to the Mac pane). The caller pins its libghostty surface
-    /// to that grid so every device renders the same cols×rows with a viewport
-    /// border around the live area (tmux-style shared resize).
+    /// devices, capped to the Mac pane). The caller records the response for
+    /// convergence/diagnostics while keeping the iOS render area full-height.
     public func updateTerminalViewport(
         surfaceID: String,
         columns: Int,

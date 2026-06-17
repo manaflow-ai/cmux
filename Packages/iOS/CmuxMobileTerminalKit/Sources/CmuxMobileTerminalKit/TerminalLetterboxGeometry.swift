@@ -1,14 +1,11 @@
 public import CoreGraphics
 import Foundation
 
-/// Pure letterbox-fit math for the terminal surface.
+/// Pure viewport math for the iOS terminal surface.
 ///
 /// Absorbs the pixel arithmetic previously inlined in the iOS surface view's
-/// `syncSurfaceGeometry` and `fitSurfaceToGrid` (the parts that do not call
-/// libghostty): the container pixel size, the request box for an effective
-/// grid pin, and the decision of whether to letterbox and at what point size.
-/// The arithmetic is byte-for-byte identical to the legacy path so the surface
-/// converges on the exact same grid; this layer just makes it testable.
+/// `syncSurfaceGeometry` (the parts that do not call libghostty): the bottom
+/// chrome reservation, keyboard/safe-area occupancy, and pixel/point conversion.
 public struct TerminalLetterboxGeometry {
     private init() {}
 
@@ -133,11 +130,11 @@ public struct TerminalLetterboxGeometry {
         return (w, h)
     }
 
-    /// The initial requested pixel box to fit a `cols × rows` grid.
+    /// Legacy requested pixel box to fit a `cols × rows` grid.
     ///
     /// Floors `cols * cellWidth` / `rows * cellHeight` and clamps to at least 1
-    /// pixel each, matching the start of the legacy `fitSurfaceToGrid` before
-    /// its libghostty refinement loop.
+    /// pixel each, matching the removed effective-grid pinning path. Kept as
+    /// pure arithmetic coverage for callers that need the same conversion.
     ///
     /// - Parameters:
     ///   - cols: The target column count.
@@ -150,13 +147,12 @@ public struct TerminalLetterboxGeometry {
         return (w, h)
     }
 
-    /// Whether the surface should be letterbox-pinned to `effective` inside the
-    /// container, and the candidate pinned point size when it should.
+    /// Legacy effective-grid pinning decision for the iOS render box.
     ///
-    /// Reproduces the legacy guard exactly: skip pinning when the effective grid
-    /// already fills (or is within one cell of) the measured natural grid, or
-    /// when the pinned box would not be meaningfully smaller than the container
-    /// (the `+ 0.5` point tolerance on either axis).
+    /// iOS no longer letterboxes the local terminal to a smaller daemon
+    /// effective grid. The phone still reports its natural grid upstream, but
+    /// the render surface always fills the local container (minus keyboard and
+    /// chrome), so this compatibility helper always returns `nil`.
     ///
     /// - Parameters:
     ///   - effective: The daemon-authoritative `(cols, rows)` grid.
@@ -165,8 +161,7 @@ public struct TerminalLetterboxGeometry {
     ///   - cell: The measured cell size in device pixels.
     ///   - scale: The screen scale factor.
     ///   - container: The drawable container size in points.
-    /// - Returns: `nil` when the surface should fill the container, otherwise
-    ///   the candidate pinned size in points (pre-libghostty-refinement).
+    /// - Returns: Always `nil`; the surface should fill the container.
     public static func pinnedPointSize(
         effective: (cols: Int, rows: Int),
         measuredColumns: Int,
@@ -175,22 +170,12 @@ public struct TerminalLetterboxGeometry {
         scale: CGFloat,
         container: CGSize
     ) -> CGSize? {
-        guard effective.cols > 0, effective.rows > 0, cell.width > 0, cell.height > 0 else { return nil }
-        let fillsNaturalGrid = effective.cols >= measuredColumns && effective.rows >= measuredRows
-        let withinOneCell = (measuredColumns - effective.cols) <= 1 && (measuredRows - effective.rows) <= 1
-        let pinnedW = CGFloat(effective.cols) * cell.width / scale
-        let pinnedH = CGFloat(effective.rows) * cell.height / scale
-        guard !fillsNaturalGrid, !withinOneCell,
-              pinnedW + 0.5 < container.width || pinnedH + 0.5 < container.height else {
-            return nil
-        }
-        return CGSize(width: pinnedW, height: pinnedH)
+        nil
     }
 
-    /// Clamps a libghostty-refined pixel box back into point space, bounded by
-    /// the container.
+    /// Clamps a pixel box back into point space, bounded by the container.
     ///
-    /// Matches the legacy final `pinnedSize` assignment:
+    /// Matches the legacy pinning path's final point conversion:
     /// `min(actualPx / scale, containerPoints)` per axis.
     ///
     /// - Parameters:
