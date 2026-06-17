@@ -99,3 +99,42 @@ struct ComposerDictationTextMerger {
         return base + " " + trimmedTranscript
     }
 }
+
+/// Tracks whether the dictation controller currently owns an active shared
+/// `AVAudioSession`, gating teardown so it only touches the engine/session when
+/// there is actually something to tear down. Factored out of the iOS-only
+/// controller so the ownership lifecycle is host-testable without AVFoundation.
+///
+/// This exists because teardown is otherwise destructive even from idle. The
+/// composer hard-cancels dictation on every disappear, terminal switch, focus
+/// loss, and send (so the mic is never left hot), and most of those happen when
+/// the user never dictated at all. Touching `AVAudioEngine.inputNode` (to remove
+/// the tap) instantiates the input audio unit and forces the shared audio
+/// session active, and `setActive(false, .notifyOthersOnDeactivation)` perturbs
+/// it again; either momentarily interrupts other apps' audio (a 1-2s music
+/// pause) even though nothing was ever recorded. Gating on real ownership makes
+/// a teardown-from-idle a true no-op, which is what those call sites always
+/// assumed it was.
+struct DictationAudioSessionOwnership {
+    /// Whether the controller activated the shared audio session and has not yet
+    /// torn it down.
+    private(set) var isActive = false
+
+    init() {}
+
+    /// Record that the controller just activated the shared audio session
+    /// (`setActive(true)` succeeded). From here a teardown must run.
+    mutating func markActivated() {
+        isActive = true
+    }
+
+    /// Claim ownership for a single teardown: returns `true` exactly once after a
+    /// `markActivated()`, clearing the flag so repeated teardowns and any
+    /// teardown that never activated a session are no-ops. The caller only
+    /// touches `AVAudioEngine` / `AVAudioSession` when this returns `true`.
+    mutating func takeForTeardown() -> Bool {
+        guard isActive else { return false }
+        isActive = false
+        return true
+    }
+}

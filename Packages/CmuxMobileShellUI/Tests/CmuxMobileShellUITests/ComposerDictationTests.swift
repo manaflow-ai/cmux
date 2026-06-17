@@ -194,6 +194,46 @@ import Testing
         }
     }
 
+    // MARK: - Audio session ownership (no music interruption from idle)
+
+    @Test func teardownFromIdleNeverTouchesAudioSession() {
+        // The regression: the composer hard-cancels dictation on every disappear,
+        // terminal switch, focus loss, and send, almost always while the user
+        // never dictated. If teardown ran the engine/session path then, it would
+        // poke the shared AVAudioSession and briefly pause other apps' music. With
+        // no prior activation, the teardown must claim nothing.
+        var ownership = DictationAudioSessionOwnership()
+        #expect(!ownership.isActive)
+        #expect(!ownership.takeForTeardown())
+        #expect(!ownership.takeForTeardown())
+    }
+
+    @Test func teardownAfterActivationRunsExactlyOnce() {
+        // A real dictation session activates, then the first teardown deactivates
+        // and clears ownership; any later teardown (a cancel racing a graceful
+        // stop, or a send right after) is a no-op so the session is never
+        // double-deactivated.
+        var ownership = DictationAudioSessionOwnership()
+        ownership.markActivated()
+        #expect(ownership.isActive)
+        #expect(ownership.takeForTeardown())
+        #expect(!ownership.isActive)
+        #expect(!ownership.takeForTeardown())
+    }
+
+    @Test func reactivationAfterTeardownIsOwnedAgain() {
+        // Starting dictation a second time (start → stop → start) re-arms
+        // ownership so the second session's teardown runs, while still leaving an
+        // idle controller's teardown a no-op.
+        var ownership = DictationAudioSessionOwnership()
+        ownership.markActivated()
+        #expect(ownership.takeForTeardown())
+        #expect(!ownership.takeForTeardown())
+        ownership.markActivated()
+        #expect(ownership.takeForTeardown())
+        #expect(!ownership.takeForTeardown())
+    }
+
     @Test func gracefulStopFinalizesOnlyFromListening() {
         // Mirrors the controller's `stop()` branch: a graceful stop finalizes from
         // `.listening` and otherwise falls back to a hard cancel (which finalizes

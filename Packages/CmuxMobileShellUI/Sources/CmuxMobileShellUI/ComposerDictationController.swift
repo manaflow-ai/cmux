@@ -42,6 +42,14 @@ final class ComposerDictationController {
     /// every teardown.
     private let audioEngine = AVAudioEngine()
 
+    /// Tracks whether this controller owns an active shared audio session, so
+    /// teardown only touches the engine/session when dictation actually started.
+    /// A hard cancel from idle (composer disappear, terminal switch, focus loss,
+    /// send) must NOT touch `AVAudioEngine.inputNode` or call `setActive(false)`:
+    /// either one perturbs the shared audio session and briefly interrupts other
+    /// apps' audio even though nothing was recorded.
+    private var audioSession = DictationAudioSessionOwnership()
+
     /// The in-flight recognition request, fed audio buffers from the engine tap.
     private var request: SFSpeechAudioBufferRecognitionRequest?
 
@@ -271,6 +279,11 @@ final class ComposerDictationController {
             // documented restrictions and would permanently disable the mic.
             try session.setCategory(.record, mode: .measurement)
             try session.setActive(true)
+            // From here we own an active session: a later teardown must stop the
+            // engine and deactivate. Recorded only after `setActive(true)` so a
+            // failure above (which never activated anything) tears down as a
+            // no-op and does not poke the shared session.
+            audioSession.markActivated()
         } catch {
             failStart()
             return
@@ -364,6 +377,14 @@ final class ComposerDictationController {
     /// session. Shared by the graceful stop (which keeps the recognition task and
     /// callback alive) and the hard `teardown()`. Safe to call repeatedly.
     private func stopEngineAndSession() {
+        // Only touch the engine/session when we actually activated one. A
+        // teardown from idle (composer disappear, terminal switch, focus loss, or
+        // send while dictation never ran) must be a true no-op: merely accessing
+        // `audioEngine.inputNode` instantiates the input audio unit and forces
+        // the shared `AVAudioSession` active, and `setActive(false, ...)` perturbs
+        // it again — either momentarily interrupts other apps' music (~1-2s)
+        // despite nothing being recorded. The guard makes those calls harmless.
+        guard audioSession.takeForTeardown() else { return }
         if audioEngine.isRunning {
             audioEngine.stop()
         }
