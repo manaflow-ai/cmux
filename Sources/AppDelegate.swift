@@ -2038,6 +2038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded(tabManager: tabManager, notificationStore: notificationStore)
+        startBrowserMediaActivityIndicator(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2106,6 +2107,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = tabManager?.closeSurface(tabId: workspaceId, surfaceId: panelId)
         }
         guardrail.start()
+    }
+
+    /// Mirrors per-workspace browser media activity (audio / mic / camera) from
+    /// `BrowserMediaActivityCenter` into `SidebarUnreadModel` so the workspace
+    /// sidebar can render a media-activity indicator (#6100). Panes push their
+    /// state into the shared center; this only forwards the coalesced aggregate.
+    private func startBrowserMediaActivityIndicator(notificationStore: TerminalNotificationStore) {
+        BrowserMediaActivityCenter.shared.onActivityChanged = { [weak notificationStore] activity in
+            notificationStore?.sidebarUnread.setMediaActivity(activity)
+        }
+        // Flush any state that accumulated before the callback was wired.
+        BrowserMediaActivityCenter.shared.flush()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

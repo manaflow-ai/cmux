@@ -12148,6 +12148,7 @@ struct VerticalTabsSidebar: View {
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
         let liveHasMemoryWarning = sidebarUnread.hasMemoryWarning(forWorkspaceId: tab.id)
+        let liveWorkspaceMediaActivity = sidebarUnread.mediaActivity(forWorkspaceId: tab.id)
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
@@ -12220,6 +12221,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             hasMemoryWarning: liveHasMemoryWarning,
+            workspaceMediaActivity: liveWorkspaceMediaActivity,
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
@@ -13021,6 +13023,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
+        lhs.workspaceMediaActivity == rhs.workspaceMediaActivity &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
@@ -13053,6 +13056,7 @@ struct TabItemView: View, Equatable {
     /// threshold. Precomputed snapshot value (snapshot-boundary rule); drives
     /// the orange warning badge alongside the unread badge.
     let hasMemoryWarning: Bool
+    let workspaceMediaActivity: WorkspaceMediaActivity
     let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
@@ -13413,6 +13417,9 @@ struct TabItemView: View, Equatable {
         let closeButtonTooltip = workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
             : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
+        let audioPlayingTooltip = String(localized: "sidebar.mediaActivity.audio.tooltip", defaultValue: "Playing audio")
+        let microphoneInUseTooltip = String(localized: "sidebar.mediaActivity.microphone.tooltip", defaultValue: "Microphone in use")
+        let cameraInUseTooltip = String(localized: "sidebar.mediaActivity.camera.tooltip", defaultValue: "Camera in use")
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
@@ -13468,6 +13475,35 @@ struct TabItemView: View, Equatable {
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                // Media-activity indicators (camera > mic > audio), styled like
+                // the pinned glyph. Tinted to match the macOS privacy convention
+                // (green camera / orange mic) so a background pane producing
+                // audio or capturing the camera/mic is findable in the sidebar
+                // (#6100).
+                if workspaceMediaActivity.isUsingCamera {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.green)
+                        .safeHelp(cameraInUseTooltip)
+                        .accessibilityLabel(cameraInUseTooltip)
+                }
+
+                if workspaceMediaActivity.isUsingMicrophone {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.orange)
+                        .safeHelp(microphoneInUseTooltip)
+                        .accessibilityLabel(microphoneInUseTooltip)
+                }
+
+                if workspaceMediaActivity.isPlayingAudio {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(audioPlayingTooltip)
+                        .accessibilityLabel(audioPlayingTooltip)
                 }
 
                 Text(displayedTitle)

@@ -2188,6 +2188,22 @@ final class SidebarUnreadModel: ObservableObject {
         memoryWarningWorkspaceIds.contains(id)
     }
 
+    /// Per-workspace browser media activity (audio / mic / camera), driven by
+    /// `BrowserMediaActivityCenter`. Mirrored here so the sidebar re-renders the
+    /// media-activity glyph through the same coalesced observation path as
+    /// unread/memory state (snapshot-boundary rule, #6100 / #2586).
+    @Published private(set) var mediaActivityByWorkspaceId: [UUID: WorkspaceMediaActivity] = [:]
+
+    func setMediaActivity(_ activity: [UUID: WorkspaceMediaActivity]) {
+        if mediaActivityByWorkspaceId != activity {
+            mediaActivityByWorkspaceId = activity
+        }
+    }
+
+    func mediaActivity(forWorkspaceId id: UUID) -> WorkspaceMediaActivity {
+        mediaActivityByWorkspaceId[id] ?? .none
+    }
+
     func apply(
         totalUnreadCount: Int,
         summaries: [UUID: SidebarWorkspaceUnreadSummary],

@@ -51,12 +51,25 @@ extension BrowserPanel {
           return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
         })();
 
-        let lastReported = null;
+        let lastPlaying = null;
+        let lastAudible = null;
         let mediaObserver = null;
 
         const isElementPlaying = (el) => {
           try {
             return !!el && !el.paused && !el.ended;
+          } catch (_) {
+            return false;
+          }
+        };
+
+        // Audible = playing AND not element-muted AND non-zero volume. This is
+        // the "is this pane making sound" signal that drives the sidebar audio
+        // indicator (#6100); muted autoplay video (very common) is playing but
+        // not audible, so it must not light the speaker glyph.
+        const isElementAudible = (el) => {
+          try {
+            return isElementPlaying(el) && !el.muted && el.volume > 0;
           } catch (_) {
             return false;
           }
@@ -72,11 +85,22 @@ extension BrowserPanel {
           return false;
         };
 
-        const post = (playing) => {
+        const anyAudible = () => {
+          try {
+            const media = document.querySelectorAll("video, audio");
+            for (let i = 0; i < media.length; i++) {
+              if (isElementAudible(media[i])) return true;
+            }
+          } catch (_) {}
+          return false;
+        };
+
+        const post = (playing, audible) => {
           try {
             window.webkit.messageHandlers["\(mediaPlaybackMessageHandlerName)"].postMessage({
               frameID: frameID,
-              playing: playing
+              playing: playing,
+              audible: audible
             });
           } catch (_) {}
         };
@@ -134,10 +158,12 @@ extension BrowserPanel {
 
         function report() {
           const playing = anyPlaying();
+          const audible = anyAudible();
           syncObserver(playing);
-          if (playing === lastReported) return;
-          lastReported = playing;
-          post(playing);
+          if (playing === lastPlaying && audible === lastAudible) return;
+          lastPlaying = playing;
+          lastAudible = audible;
+          post(playing, audible);
         }
 
         // Media events do not bubble, but capture-phase listeners on `document`
@@ -152,9 +178,10 @@ extension BrowserPanel {
 
         window.addEventListener("pagehide", () => {
           disconnectObserver();
-          if (lastReported === false) return;
-          lastReported = false;
-          post(false);
+          if (lastPlaying === false && lastAudible === false) return;
+          lastPlaying = false;
+          lastAudible = false;
+          post(false, false);
         }, true);
 
         document.addEventListener("DOMContentLoaded", report, true);
@@ -195,12 +222,17 @@ extension BrowserPanel {
         fromWebViewInstanceID instanceID: UUID
     ) {
         guard instanceID == webViewInstanceID else { return }
-        applyMediaPlaybackReport(frameID: report.frameID, isPlaying: report.isPlaying)
+        applyMediaPlaybackReport(
+            frameID: report.frameID,
+            isPlaying: report.isPlaying,
+            isAudible: report.isAudible
+        )
 #if DEBUG
         cmuxDebugLog(
             "browser.media.playback panel=\(id.uuidString.prefix(5)) " +
             "frame=\(report.frameID.prefix(5)) playing=\(report.isPlaying ? 1 : 0) " +
-            "anyPlaying=\(isPlayingMedia ? 1 : 0)"
+            "audible=\(report.isAudible ? 1 : 0) anyPlaying=\(isPlayingMedia ? 1 : 0) " +
+            "anyAudible=\(isProducingAudibleMedia ? 1 : 0)"
         )
 #endif
     }
