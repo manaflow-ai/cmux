@@ -1,11 +1,10 @@
 import XCTest
-import CmuxTerminalServices
+import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
 @testable import CmuxSettingsUI
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
