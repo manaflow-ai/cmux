@@ -212,6 +212,7 @@ jobs:
           import json
           import os
           import subprocess
+          import sys
 
           def simctl_json(*args):
               return json.loads(subprocess.check_output(["xcrun", "simctl", *args], text=True))
@@ -219,6 +220,36 @@ jobs:
           def version_key(runtime):
               parts = str(runtime.get("version", "")).split(".")
               return tuple(int(part) if part.isdigit() else 0 for part in parts)
+
+          def version_number(version):
+              parts = [int(part) if part.isdigit() else 0 for part in str(version).split(".")]
+              major = parts[0] if len(parts) > 0 else 0
+              minor = parts[1] if len(parts) > 1 else 0
+              patch = parts[2] if len(parts) > 2 else 0
+              return (major << 16) + (minor << 8) + patch
+
+          def is_ios_runtime(runtime):
+              return (
+                  runtime.get("platform") == "iOS"
+                  or runtime.get("name", "").startswith("iOS")
+                  or ".iOS-" in runtime.get("identifier", "")
+              )
+
+          def is_family_device_type(device_type, prefix):
+              return (
+                  device_type.get("productFamily") == prefix
+                  or device_type.get("name", "").startswith(prefix)
+                  or f".{prefix}" in device_type.get("identifier", "")
+              )
+
+          def compatible_with_runtime(device_type, runtime):
+              runtime_version = version_number(runtime.get("version", ""))
+              min_version = int(device_type.get("minRuntimeVersion", 0))
+              max_version = int(device_type.get("maxRuntimeVersion", 2**32 - 1))
+              return min_version <= runtime_version <= max_version
+
+          def pick_preferred(device_types, preferred):
+              return next((d for name in preferred for d in device_types if d.get("name") == name), None)
 
           family = os.environ["DEVICE_FAMILY"]
           data = simctl_json("list", "devices", "available", "-j")
@@ -229,45 +260,82 @@ jobs:
               if device.get("isAvailable", True)
           ]
           prefix = "iPad" if family == "ipad" else "iPhone"
-          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
+          preferred = (
+              [
+                  "iPad Pro 13-inch (M5)",
+                  "iPad Pro 13-inch (M4)",
+                  "iPad Air 13-inch (M4)",
+                  "iPad Air 13-inch (M3)",
+                  "iPad (A16)",
+              ]
+              if family == "ipad"
+              else ["iPhone 17", "iPhone 16"]
+          )
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
           selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
           if selected is None:
               runtimes = [
                   runtime
                   for runtime in simctl_json("list", "runtimes", "-j").get("runtimes", [])
-                  if runtime.get("isAvailable", True)
-                  and (
-                      runtime.get("platform") == "iOS"
-                      or runtime.get("name", "").startswith("iOS")
-                      or ".iOS-" in runtime.get("identifier", "")
-                  )
+                  if runtime.get("isAvailable", True) and is_ios_runtime(runtime)
               ]
-              device_types = [
+              all_device_types = [
                   device_type
                   for device_type in simctl_json("list", "devicetypes", "-j").get("devicetypes", [])
-                  if device_type.get("name", "").startswith(prefix)
+                  if is_family_device_type(device_type, prefix)
               ]
-              runtime = max(runtimes, key=version_key, default=None)
-              device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
-              device_type = device_type or (device_types[0] if device_types else None)
+              runtime = None
+              device_type = None
+              for candidate_runtime in sorted(runtimes, key=version_key, reverse=True):
+                  supported = [
+                      d
+                      for d in candidate_runtime.get("supportedDeviceTypes", [])
+                      if is_family_device_type(d, prefix)
+                  ]
+                  compatible = supported or [
+                      d
+                      for d in all_device_types
+                      if compatible_with_runtime(d, candidate_runtime)
+                  ]
+                  candidate_device_type = pick_preferred(compatible, preferred)
+                  candidate_device_type = candidate_device_type or (compatible[0] if compatible else None)
+                  if candidate_device_type is not None:
+                      runtime = candidate_runtime
+                      device_type = candidate_device_type
+                      break
               if runtime is None or device_type is None:
-                  raise SystemExit(f"No usable {prefix} simulator runtime/device type found")
+                  runtime_names = ", ".join(r.get("name") or r.get("identifier", "") for r in runtimes) or "none"
+                  device_type_names = ", ".join(d.get("name", "") for d in all_device_types) or "none"
+                  print(f"No usable {prefix} simulator runtime/device type found", file=sys.stderr)
+                  print(f"Available iOS runtimes: {runtime_names}", file=sys.stderr)
+                  print(f"Available {prefix} device types: {device_type_names}", file=sys.stderr)
+                  print("IOS_SIMULATOR_SKIP=true")
+                  print(f"SIMULATOR_SKIP_REASON=No usable {prefix} simulator runtime/device type found")
+                  raise SystemExit(0)
               name = f"cmux CI {device_type['name']}"
               udid = subprocess.check_output(
                   ["xcrun", "simctl", "create", name, device_type["identifier"], runtime["identifier"]],
                   text=True,
               ).strip()
               selected = {"udid": udid, "name": name}
+          print("IOS_SIMULATOR_SKIP=false")
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
           cat "$simulator_env"
           cat "$simulator_env" >> "$GITHUB_ENV"
+          if grep -q '^IOS_SIMULATOR_SKIP=true$' "$simulator_env"; then
+            echo "::notice title=iOS simulator tests::Skipping $DEVICE_FAMILY simulator tests: $(grep '^SIMULATOR_SKIP_REASON=' "$simulator_env" | cut -d= -f2-)"
+          fi
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
+          set -euo pipefail
+          if [ "${IOS_SIMULATOR_SKIP:-false}" = "true" ]; then
+            echo "Skipping package resolution: ${SIMULATOR_SKIP_REASON:-no simulator available}"
+            exit 0
+          fi
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -280,6 +348,10 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
+          if [ "${IOS_SIMULATOR_SKIP:-false}" = "true" ]; then
+            echo "Skipping iOS simulator tests: ${SIMULATOR_SKIP_REASON:-no simulator available}"
+            exit 0
+          fi
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
