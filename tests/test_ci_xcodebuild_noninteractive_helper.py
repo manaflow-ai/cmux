@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -86,6 +87,31 @@ def main() -> int:
         print(timeout_result.stderr, end="", file=sys.stderr)
         print("FAIL: helper did not report idle timeout")
         return 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = Path(tmp) / "helper.log"
+        log_child = "print('child-log-line', flush=True)"
+        log_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", log_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH": str(log_path),
+            },
+        )
+        if log_result.returncode != 0:
+            print(log_result.stdout, end="")
+            print(log_result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: expected log child exit 0, got {log_result.returncode}")
+            return 1
+        if "child-log-line" not in log_path.read_text():
+            print(log_result.stdout, end="")
+            print(log_result.stderr, end="", file=sys.stderr)
+            print("FAIL: helper did not write child output to log path")
+            return 1
 
     print("PASS: xcodebuild noninteractive helper dismisses crash prompts and idle-times out stuck children")
     return 0

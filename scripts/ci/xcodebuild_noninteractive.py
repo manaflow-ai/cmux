@@ -9,6 +9,7 @@ import select
 import signal
 import sys
 import time
+from typing import BinaryIO
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
@@ -74,6 +75,20 @@ def terminate_child(pid: int) -> None:
             return
 
 
+def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
+    if log_file is not None:
+        log_file.write(chunk)
+        log_file.flush()
+
+    try:
+        os.write(stdout_fd, chunk)
+    except BlockingIOError:
+        # GitHub log streaming can apply backpressure during very noisy
+        # xcodebuild phases. Keep the timeout loop moving; the full output is
+        # still persisted to the per-attempt log file.
+        return
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(
@@ -84,6 +99,15 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     deadline = time.monotonic() + timeout if timeout else None
+    log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
+    log_file: BinaryIO | None = None
+    if log_path:
+        log_file = open(log_path, "ab", buffering=0)
+    stdout_fd = sys.stdout.fileno()
+    try:
+        os.set_blocking(stdout_fd, False)
+    except OSError:
+        pass
 
     pid, fd = pty.fork()
     if pid == 0:
@@ -120,7 +144,7 @@ def main() -> int:
         if not chunk:
             break
 
-        os.write(sys.stdout.fileno(), chunk)
+        write_child_output(chunk, log_file, stdout_fd)
         if timeout:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
@@ -133,10 +157,17 @@ def main() -> int:
     if timed_out:
         assert timeout is not None
         print(f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
+        if log_file is not None:
+            log_file.write(
+                f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}\n".encode()
+            )
+            log_file.close()
         terminate_child(pid)
         return TIMEOUT_EXIT_CODE
 
     _, status = os.waitpid(pid, 0)
+    if log_file is not None:
+        log_file.close()
     return child_exit_code(status)
 
 

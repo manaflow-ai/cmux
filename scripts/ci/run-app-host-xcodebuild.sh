@@ -14,9 +14,11 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
+  : >"$log_path"
   set +e
-  scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@" 2>&1 | tee "$log_path"
-  status=${PIPESTATUS[0]}
+  CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
+    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
+  status=$?
   set -e
 
   if grep -Fq 'path = "/tmp/cmux-debug.sock"' "$log_path"; then
