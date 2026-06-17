@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 final class NotificationAuthorizationDeliveryTests {
     @Test func deniedAuthorizationSuppressesFocusedTerminalExternalFeedback() throws {
         guard let appDelegate = AppDelegate.shared else {
