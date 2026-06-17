@@ -47,6 +47,7 @@ public struct SettingsDefaultsTextFieldRow: View {
             }
         }
         .task {
+            model.startObserving()
             if !loaded {
                 draft = model.current
                 loaded = true
