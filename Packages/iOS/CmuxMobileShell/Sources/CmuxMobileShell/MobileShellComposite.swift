@@ -202,6 +202,100 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+
+    /// The cmux device UUID of the Mac the heavy connection is bound to.
+    ///
+    /// Set on every successful heavy ``connect(ticket:allowsStackAuthFallback:)``
+    /// from the active ticket's resolved real device id, and cleared when the
+    /// connection context is torn down. Every preview the heavy client reports
+    /// is tagged with this in ``applyRemoteWorkspaceList`` so the unified list
+    /// can tell the active Mac's workspaces apart from the aggregator's slices.
+    /// `nil` while disconnected or when no real device id can be correlated.
+    public private(set) var activeDeviceID: String?
+
+    /// The lightweight aggregator that fetches *other* online Macs' workspace
+    /// lists for the unified multi-Mac list. Inert (never refreshed) while the
+    /// ``unifiedMultiMacEnabled`` flag is off, so FLAG OFF stays byte-identical
+    /// to single-Mac behavior.
+    public let multiMacAggregator: MultiMacWorkspaceAggregator
+
+    /// Whether the unified multi-Mac workspace list is enabled for this process
+    /// (see ``MobileUnifiedMultiMacFlag``). Resolved once at init so a single
+    /// run has one consistent answer.
+    public let unifiedMultiMacEnabled: Bool
+
+    /// The workspaces shown in the (unified) list.
+    ///
+    /// FLAG OFF: byte-identical to ``workspaces`` with each entry tagged with
+    /// ``activeDeviceID`` — the aggregator is never consulted, so this is the
+    /// single connected Mac's list exactly as today.
+    ///
+    /// FLAG ON: the heavy client's live ``workspaces`` (tagged
+    /// ``activeDeviceID``) merged with the aggregator's per-device slices,
+    /// gated by ``presenceMap`` online state (a device whose presence says it
+    /// is offline contributes nothing), ordered pinned-first then
+    /// `lastActivityAt` descending.
+    public var unifiedWorkspaces: [MobileWorkspacePreview] {
+        let active = workspaces.map { workspace -> MobileWorkspacePreview in
+            guard let activeDeviceID, workspace.deviceId.isEmpty else { return workspace }
+            var tagged = workspace
+            tagged.deviceId = activeDeviceID
+            tagged.terminals = tagged.terminals.map { terminal in
+                guard terminal.deviceId.isEmpty else { return terminal }
+                var terminal = terminal
+                terminal.deviceId = activeDeviceID
+                return terminal
+            }
+            return tagged
+        }
+        guard unifiedMultiMacEnabled else { return active }
+
+        var merged = active
+        for (deviceID, slice) in multiMacAggregator.perDeviceWorkspaces {
+            // The active Mac is served by the heavy client above; never
+            // double-list it from a stale aggregator slice.
+            if let activeDeviceID, deviceID == activeDeviceID { continue }
+            // Presence gating: only an online device contributes. A device the
+            // presence service has never seen (nil summary) is treated as not
+            // online for the unified list (it is reachable only through an
+            // explicit reconnect, not a passive merge).
+            guard presenceMap.deviceSummary(deviceId: deviceID)?.online == true else { continue }
+            merged.append(contentsOf: slice)
+        }
+        return Self.orderedForUnifiedList(merged)
+    }
+
+    /// Order the unified list: pinned workspaces first, then by `lastActivityAt`
+    /// descending (most recent first), with a stable id tiebreak so the order
+    /// is deterministic across Macs and refreshes. Workspaces with no
+    /// `lastActivityAt` sort after those that have one.
+    static func orderedForUnifiedList(
+        _ workspaces: [MobileWorkspacePreview]
+    ) -> [MobileWorkspacePreview] {
+        workspaces.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned && !rhs.isPinned
+            }
+            let lhsActivity = lhs.lastActivityAt
+            let rhsActivity = rhs.lastActivityAt
+            switch (lhsActivity, rhsActivity) {
+            case let (l?, r?) where l != r:
+                return l > r
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            default:
+                break
+            }
+            // Deterministic tiebreak: device id, then workspace id, so two Macs
+            // with colliding bare ids still sort stably.
+            if lhs.deviceId != rhs.deviceId {
+                return lhs.deviceId < rhs.deviceId
+            }
+            return lhs.id.rawValue < rhs.id.rawValue
+        }
+    }
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
@@ -662,10 +756,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        unifiedMultiMacEnabled: Bool? = nil
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        let unifiedFlag = unifiedMultiMacEnabled ?? MobileUnifiedMultiMacFlag.isEnabled()
+        self.unifiedMultiMacEnabled = unifiedFlag
+        self.multiMacAggregator = MultiMacWorkspaceAggregator(runtime: runtime)
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -748,11 +846,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
+    public static func preview(
+        runtime: (any MobileSyncRuntime)? = nil,
+        unifiedMultiMacEnabled: Bool? = nil
+    ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            unifiedMultiMacEnabled: unifiedMultiMacEnabled
         )
     }
 
@@ -836,6 +938,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
+        // Drop the unified multi-Mac slices and the active-device binding so the
+        // next account never sees the previous user's other Macs' workspaces.
+        activeDeviceID = nil
+        multiMacAggregator.reset()
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -2456,6 +2562,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Build a short-lived RPC client for a single (deviceId, host, port)
+    /// target, used by ``MultiMacWorkspaceAggregator`` to fetch one *other*
+    /// Mac's `mobile.workspace.list` and then idle.
+    ///
+    /// This factors out only the lightweight client-construction the heavy
+    /// ``connect(ticket:allowsStackAuthFallback:)`` path also performs — a
+    /// synthetic mac-scoped ticket plus a route-appropriate Stack-auth policy —
+    /// without any of connect's destructive session work (it does not touch
+    /// `remoteClient`, the render-grid stream, the liveness watchdog, terminal
+    /// byte streams, or any persisted paired-Mac state). The ticket carries no
+    /// attach token, so the workspace-list request authorizes purely through
+    /// the Stack account token on trusted routes, exactly as the heavy connect's
+    /// `workspace.list` does.
+    /// - Parameters:
+    ///   - runtime: The DI runtime supplying transport/timeouts/clock.
+    ///   - deviceId: The target Mac's cmux device UUID, stamped on the ticket so
+    ///     a later identity check can correlate it.
+    ///   - displayName: A human label for the synthetic ticket.
+    ///   - route: The attach route to dial.
+    /// - Returns: A ready-to-use client, or `nil` when the route is not
+    ///   Stack-auth trusted (a `mobile.workspace.list` over it could never
+    ///   authorize, so there is no point opening a transport).
+    static func makeMacListClient(
+        runtime: any MobileSyncRuntime,
+        deviceId: String,
+        displayName: String,
+        route: CmxAttachRoute
+    ) -> MobileCoreRPCClient? {
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            return nil
+        }
+        guard let ticket = try? manualHostTicket(
+            displayName: displayName,
+            macDeviceID: deviceId,
+            route: route
+        ) else {
+            return nil
+        }
+        return MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+    }
+
     private func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String
@@ -3350,9 +3502,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
+                    connectionState = .connected
+                    // Bind the heavy connection to its real device id so the
+                    // unified list tags this Mac's workspaces and the aggregator
+                    // never double-lists it. `connectedMacDeviceID` resolves the
+                    // ticket id (or the active paired Mac for manual tickets), and
+                    // requires `.connected`, so it is read after the state flip.
+                    activeDeviceID = connectedMacDeviceID
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
-                    connectionState = .connected
                     markMacConnectionHealthy()
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
@@ -3510,6 +3668,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearActiveConnectionContext() {
         activeTicket = nil
         activeRoute = nil
+        activeDeviceID = nil
         connectedHostName = ""
     }
 
@@ -5339,8 +5498,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func remoteWorkspacesPreservingSnapshots(
         from response: MobileSyncWorkspaceListResponse
     ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
+        // Every workspace the heavy client reports belongs to the active Mac,
+        // so stamp `activeDeviceID` onto it (and its terminals) here. This is
+        // the single point the active Mac's previews are tagged; the unified
+        // list relies on it to tell the active Mac apart from aggregator slices
+        // and to scope selection/routing. When `activeDeviceID` is nil (preview
+        // host, or a manual ticket with no correlatable device id) the tag stays
+        // empty, which is the unscoped/single-Mac case.
+        let deviceID = activeDeviceID ?? ""
+        return response.workspaces.map { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
+            workspace.deviceId = deviceID
+            workspace.terminals = workspace.terminals.map { remoteTerminal in
+                var terminal = remoteTerminal
+                terminal.deviceId = deviceID
+                return terminal
+            }
             guard let existingWorkspace = workspaces.first(where: { $0.id == workspace.id }) else {
                 return workspace
             }
@@ -5556,3 +5729,20 @@ private extension MobileShellComposite {
         return ""
     }
 }
+
+#if DEBUG
+extension MobileShellComposite {
+    /// Test-only seam to bind the active heavy-connection device id without a
+    /// real connect, so the ``unifiedWorkspaces`` merge can be exercised in
+    /// isolation.
+    public func debugSetActiveDeviceID(_ deviceID: String?) {
+        activeDeviceID = deviceID
+    }
+
+    /// Test-only seam to apply a presence update to ``presenceMap`` without a
+    /// live subscription, so unified-list presence gating can be exercised.
+    public func debugApplyPresence(_ update: PresenceUpdate) {
+        presenceMap.apply(update)
+    }
+}
+#endif
