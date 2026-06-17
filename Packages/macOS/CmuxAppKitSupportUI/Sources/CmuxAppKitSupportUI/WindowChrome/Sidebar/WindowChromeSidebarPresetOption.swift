@@ -1,3 +1,5 @@
+import Foundation
+
 /// Sidebar appearance preset values persisted in `sidebarPreset`.
 public enum WindowChromeSidebarPresetOption: String, CaseIterable, Identifiable, Sendable {
     /// Native sidebar style.
