@@ -320,26 +320,32 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-            scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+        // Stream the binary over the SSH channel itself instead of scp/sftp.
+        // scp/sftp sessions are commonly jailed/chrooted to a different root
+        // than the interactive shell — or disabled entirely — so the temp
+        // path that is valid for `ssh` exec is often invalid (or inaccessible)
+        // for scp, which is the root cause of the bootstrap upload failures in
+        // issue #6207. Piping the bytes through `cat > tempPath` over the same
+        // ssh transport guarantees identical path/permission semantics. `-T`
+        // disables PTY allocation so terminal line-discipline processing can
+        // not corrupt the binary stream.
+        let binaryData: Data
+        do {
+            binaryData = try Data(contentsOf: localBinary)
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
+                NSLocalizedDescriptionKey: "failed to read cmuxd-remote for upload: \(error.localizedDescription)",
+            ])
         }
-        scpArgs += ["-o", "ControlMaster=no"]
-        if let port = configuration.port {
-            scpArgs += ["-P", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            scpArgs += ["-i", identityFile]
-        }
-        for option in scpSSHOptions {
-            scpArgs += ["-o", option]
-        }
-        scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
-        let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
-        guard scpResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
+        let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
+        let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
+        let uploadResult = try sshExec(
+            arguments: sshCommonArguments(batchMode: true) + ["-T", configuration.destination, uploadCommand],
+            stdin: binaryData,
+            timeout: 45
+        )
+        guard uploadResult.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: uploadResult.stderr, stdout: uploadResult.stdout) ?? "ssh exited \(uploadResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
             ])
