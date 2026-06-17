@@ -276,7 +276,6 @@ struct WorkspaceShellView: View {
         #endif
     }
 
-    @ViewBuilder
     /// Count of workspaces with unread activity, excluding the one currently
     /// open (you are looking at it, so it should not count toward "waiting back
     /// in the list"). Drives the back-button unread badge.
@@ -284,6 +283,7 @@ struct WorkspaceShellView: View {
         store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
     }
 
+    @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
