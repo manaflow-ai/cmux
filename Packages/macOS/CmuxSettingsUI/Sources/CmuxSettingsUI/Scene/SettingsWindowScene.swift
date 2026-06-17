@@ -34,9 +34,11 @@ public struct SettingsWindowScene: Scene {
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
+    private let searchIndex: SettingsSearchIndex // `SettingsRuntime.catalog` is immutable for this scene lifetime.
 
     public init(runtime: SettingsRuntime) {
         self.runtime = runtime
+        self.searchIndex = SettingsSearchIndex(catalog: runtime.catalog)
     }
 
     @State private var searchText: String = ""
@@ -85,10 +87,6 @@ public struct SettingsWindowRoot: View {
     private var catalog: SettingCatalog { runtime.catalog }
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
-
-    private var searchIndex: SettingsSearchIndex {
-        SettingsSearchIndex(catalog: catalog)
-    }
 
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
@@ -243,7 +241,7 @@ public struct SettingsWindowRoot: View {
         if selectedSectionRaw != section.rawValue {
             selectedSectionRaw = section.rawValue
         }
-        postNavigationRequest(target: section, anchorID: entry.id, highlight: isSearching)
+        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
     }
 
     /// Maps a resolved search-index entry to its target section,
@@ -348,12 +346,12 @@ public struct SettingsWindowRoot: View {
                     // the last-viewed pane rather than always at Account.
                     // Posting through the navigation notification keeps a
                     // single scroll path (legacy `applySettingsNavigation`)
-                    // and lets the SceneStorage-restored sidebar entry
-                    // drive a deep scroll if it was a setting hit.
+                    // while restored setting hits resolve through the
+                    // immutable index. Fallback hits collapse to sections.
                     let section = selectedSection
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)
-                        : selectedSidebarEntryID
+                        : searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
                     postNavigationRequest(
                         target: section,
                         anchorID: anchor,

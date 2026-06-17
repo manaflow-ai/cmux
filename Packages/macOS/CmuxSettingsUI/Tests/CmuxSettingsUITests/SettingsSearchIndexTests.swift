@@ -31,6 +31,63 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test(arguments: [
+        ("naming", "setting:automation:workspace-auto-naming"),
+        ("nmaing", "setting:automation:workspace-auto-naming"),
+        ("auto name", "setting:automation:workspace-auto-naming"),
+        ("rename workspace", "setting:automation:workspace-auto-naming"),
+        ("option as alt", "setting:app:terminal-config"),
+        ("option", "setting:app:terminal-config"),
+        ("environment variables", "setting:app:notification-command"),
+    ])
+    func searchesFindRealSettingsRows(query: String, expectedID: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match(query)
+        #expect(
+            result.contains { $0.id == expectedID },
+            "Expected settings search for '\(query)' to include \(expectedID), got \(result.map(\.id))"
+        )
+    }
+
+    @Test(arguments: [
+        ("browser settings", [
+            "setting:browser:search-engine",
+            "setting:browser:terminal-links",
+            "setting:browser:http-allowlist",
+        ]),
+        ("notification settings", [
+            "setting:app:dock-badge",
+            "setting:app:desktop-notifications",
+            "setting:app:notification-sound",
+            "setting:app:notification-command",
+        ]),
+        ("shortcut split right", [
+            "setting:keyboardShortcuts:shortcuts",
+        ]),
+        ("browzer lniks", [
+            "setting:browser:terminal-links",
+        ]),
+        ("canvas", [
+            "setting:app:canvas-pane-gap",
+            "setting:app:canvas-snapping",
+            "setting:keyboardShortcuts:shortcuts",
+        ]),
+    ])
+    func fuzzyKeywordQueriesSurfaceRelatedSettings(query: String, expectedIDs: [String]) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let resultIDs = Set(index.match(query).map(\.id))
+        #expect(
+            expectedIDs.allSatisfy { resultIDs.contains($0) },
+            "Expected settings search for '\(query)' to include \(expectedIDs), got \(resultIDs.sorted())"
+        )
+    }
+
+    @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(try #require(index.match("Terminal Config").first).id == "setting:app:terminal-config")
+        #expect(try #require(index.match("copy on select").first).id == "setting:terminal:copy-on-select")
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")
@@ -47,6 +104,37 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = index.anchorID(forSettingsPath: "sidebar.showBranchDirectory")
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
+    }
+
+    @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        let hit = try #require(index.match("naming agent").first {
+            $0.id == "setting:automation:workspace-auto-naming"
+        })
+        #expect(hit.anchorID == "setting:automation:workspace-auto-naming")
+    }
+
+    @Test(arguments: [
+        ("welcome shown", "Welcome Shown"),
+        ("selected team id", "Selected Team ID"),
+        ("import hint dismissed", "Import Hint Dismissed"),
+        ("dev window display", "Dev Window Display"),
+        ("notification hooks", "Hooks"),
+        ("notification hooks mode", "Hooks Mode"),
+    ])
+    func rawCatalogOnlyKeysDoNotSurfaceAsSettingsRows(query: String, hiddenTitle: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let hiddenHits = index.match(query).filter { entry in
+            if case .setting = entry.kind {
+                return entry.title == hiddenTitle
+            }
+            return false
+        }
+        #expect(
+            hiddenHits.isEmpty,
+            "Expected settings search for '\(query)' not to surface hidden catalog key '\(hiddenTitle)'"
+        )
     }
 
     /// A resolved anchor must correspond to a real indexed entry,
