@@ -3,18 +3,18 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34475	CLI/cmux.swift
 17628	Sources/AppDelegate.swift
-16602	Sources/ContentView.swift
+15944	Sources/ContentView.swift
 14225	Sources/TerminalController.swift
-12645	Sources/Workspace.swift
+12646	Sources/Workspace.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11718	Sources/GhosttyTerminalView.swift
-11387	Sources/Panels/BrowserPanel.swift
+11731	Sources/GhosttyTerminalView.swift
+11388	Sources/Panels/BrowserPanel.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7966	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
-6222	cmuxTests/GhosttyConfigTests.swift
+6223	cmuxTests/GhosttyConfigTests.swift
 6154	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
@@ -24,10 +24,10 @@
 4516	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
-4227	Sources/BrowserWindowPortal.swift
+4225	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
-3903	cmuxTests/WindowAndDragTests.swift
+3896	cmuxTests/WindowAndDragTests.swift
 3734	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
@@ -42,7 +42,7 @@
 2395	Sources/Mobile/MobileHostService.swift
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2259	Sources/TerminalWindowPortal.swift
+2257	Sources/TerminalWindowPortal.swift
 2251	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
@@ -185,7 +185,6 @@
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 556	Sources/Panels/BrowserAutomation.swift
 551	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
-547	Sources/Windowing/WindowGlassEffect.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
