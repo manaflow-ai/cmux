@@ -95,30 +95,62 @@ def package_dependency_calls(text: str) -> list[str]:
     return [" ".join(dependency.split()) for dependency in PACKAGE_DEPENDENCY_RE.findall(text)]
 
 
-def package_roots_requiring_lockfiles() -> set[str]:
-    all_manifests = tracked_package_manifests(include_allowed_vendor=True)
-    cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
-    graph = package_graph(all_manifests)
-    memo: dict[str, bool] = {}
+def dependency_calls_include_url(calls: list[str]) -> bool:
+    return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
 
-    def has_remote_dependency(root: str, visiting: set[str]) -> bool:
-        if root in memo:
-            return memo[root]
-        if root in visiting:
-            return False
-        has_url_dependency, path_dependencies = graph.get(root, (False, []))
-        visiting.add(root)
-        needs_lockfile = has_url_dependency or any(
-            has_remote_dependency(dependency, visiting)
-            for dependency in path_dependencies
-        )
-        visiting.remove(root)
-        memo[root] = needs_lockfile
-        return needs_lockfile
+
+def has_remote_dependency(
+    root: str,
+    graph: dict[str, tuple[bool, list[str]]],
+    memo: dict[str, bool],
+    visiting: set[str],
+) -> bool:
+    if root in memo:
+        return memo[root]
+    if root in visiting:
+        return False
+    has_url_dependency, path_dependencies = graph.get(root, (False, []))
+    visiting.add(root)
+    needs_lockfile = has_url_dependency or any(
+        has_remote_dependency(dependency, graph, memo, visiting)
+        for dependency in path_dependencies
+    )
+    visiting.remove(root)
+    memo[root] = needs_lockfile
+    return needs_lockfile
+
+
+def package_dependency_closure(
+    root: str,
+    graph: dict[str, tuple[bool, list[str]]],
+) -> set[str]:
+    closure: set[str] = set()
+
+    def visit(current: str) -> None:
+        if current in closure:
+            return
+        closure.add(current)
+        _has_url_dependency, path_dependencies = graph.get(current, (False, []))
+        for dependency in path_dependencies:
+            visit(dependency)
+
+    visit(root)
+    return closure
+
+
+def package_roots_requiring_lockfiles(
+    cmux_manifests: dict[str, Path] | None = None,
+    graph: dict[str, tuple[bool, list[str]]] | None = None,
+) -> set[str]:
+    if cmux_manifests is None or graph is None:
+        all_manifests = tracked_package_manifests(include_allowed_vendor=True)
+        cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
+        graph = package_graph(all_manifests)
+    memo: dict[str, bool] = {}
 
     return {
         root for root in cmux_manifests
-        if has_remote_dependency(root, set())
+        if has_remote_dependency(root, graph, memo, set())
     }
 
 
@@ -160,12 +192,6 @@ def file_text_at(ref: str, path: str) -> str:
         return ""
 
 
-def package_dependency_calls_changed(manifest: Path, merge_base: str) -> bool:
-    current = package_dependency_calls(manifest.read_text(encoding="utf-8"))
-    previous = package_dependency_calls(file_text_at(merge_base, manifest.as_posix()))
-    return current != previous
-
-
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile == XCODE_PACKAGE_RESOLVED:
         return True
@@ -195,12 +221,38 @@ def ignores_package_resolved(gitignore: Path) -> bool:
 
 def main() -> int:
     errors: list[str] = []
-    cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
+    all_manifests = tracked_package_manifests(include_allowed_vendor=True)
+    cmux_manifests = {
+        root: manifest for root, manifest in all_manifests.items()
+        if not is_allowed_vendor_path(manifest.as_posix())
+    }
+    graph = package_graph(all_manifests)
     roots = set(cmux_manifests)
     tracked_lockfiles = set(git_ls_files("*Package.resolved"))
-    required_lockfile_roots = package_roots_requiring_lockfiles()
+    required_lockfile_roots = package_roots_requiring_lockfiles(cmux_manifests, graph)
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
+    changed_dependency_roots: set[str] = set()
+
+    if merge_base is not None:
+        remote_memo: dict[str, bool] = {}
+        for root, manifest in all_manifests.items():
+            if manifest.as_posix() not in changed_files:
+                continue
+            current_calls = package_dependency_calls(
+                manifest.read_text(encoding="utf-8")
+            )
+            previous_calls = package_dependency_calls(
+                file_text_at(merge_base, manifest.as_posix())
+            )
+            if current_calls == previous_calls:
+                continue
+            if (
+                root in cmux_manifests
+                or dependency_calls_include_url(current_calls + previous_calls)
+                or has_remote_dependency(root, graph, remote_memo, set())
+            ):
+                changed_dependency_roots.add(root)
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
         rel = gitignore.as_posix()
@@ -225,20 +277,25 @@ def main() -> int:
         )
 
     for root, manifest in sorted(cmux_manifests.items()):
-        if merge_base is None or manifest.as_posix() not in changed_files:
-            continue
         expected_lockfile = package_lockfile_path(root)
         has_or_requires_lockfile = (
             root in required_lockfile_roots or expected_lockfile in tracked_lockfiles
         )
         if not has_or_requires_lockfile:
             continue
-        if not package_dependency_calls_changed(manifest, merge_base):
+        affected_dependency_roots = (
+            package_dependency_closure(root, graph) & changed_dependency_roots
+        )
+        if not affected_dependency_roots:
             continue
         if expected_lockfile in changed_files:
             continue
+        changed_manifests = ", ".join(
+            all_manifests[changed_root].as_posix()
+            for changed_root in sorted(affected_dependency_roots)
+        )
         errors.append(
-            f"{manifest.as_posix()} changed SwiftPM package dependencies without "
+            f"{changed_manifests} changed SwiftPM package dependencies without "
             f"matching Package.resolved diff: {expected_lockfile}"
         )
 
