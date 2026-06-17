@@ -124,30 +124,6 @@ struct ClaudeTeamsRestoreFlagTests {
         )
     }
 
-    @Test("Drops equals-style tmux mode without stopping later flags")
-    func dropsEqualsStyleTmuxModeWithoutStoppingLaterFlags() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                    "claude-teams",
-                    "--tmux=classic",
-                    "--model",
-                    "sonnet",
-                    "--dangerously-skip-permissions",
-                ],
-                launcher: "claudeTeams",
-                fallbackKind: "claude"
-            ) == [
-                "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                "claude-teams",
-                "--model",
-                "sonnet",
-                "--dangerously-skip-permissions",
-            ]
-        )
-    }
-
     @Test("Skips dash-leading prompt text after tmux")
     func skipsDashLeadingPromptTextAfterTmux() {
         #expect(

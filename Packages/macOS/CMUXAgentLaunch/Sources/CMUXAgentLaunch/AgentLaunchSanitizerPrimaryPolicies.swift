@@ -36,17 +36,14 @@ extension AgentLaunchSanitizer {
             "--settings",
             "--system-prompt",
             "--teammate-mode",
-            "--tools"
-        ],
-        optionalValueOptions: [
-            "--debug",
-            "--prompt-suggestions",
-            "--remote-control",
+            "--tmux",
+            "--tools",
             "--worktree",
             "-w"
         ],
-        optionalValueChoices: ["--prompt-suggestions": ["true", "false"]],
-        greedyOptionalValueOptions: ["--remote-control", "--worktree", "-w"],
+        optionalValueOptions: [
+            "--debug"
+        ],
         variadicOptions: [
             "--add-dir",
             "--allowedTools",
@@ -83,7 +80,10 @@ extension AgentLaunchSanitizer {
             "--from-pr",
             "--resume",
             "-r",
-            "--session-id"
+            "--session-id",
+            "--tmux",
+            "--worktree",
+            "-w"
         ],
         droppedOptionPrefixes: [
             "--file=",
@@ -91,14 +91,14 @@ extension AgentLaunchSanitizer {
             "--from-pr=",
             "--resume=",
             "--session-id=",
-            "--tmux="
+            "--tmux=",
+            "--worktree="
         ],
         rejectOptions: [
             "--print",
             "-p",
             "--no-session-persistence"
         ],
-        promptBoundaryOptions: ["--tmux"],
         skipClaudeHookSettings: true
     )
 
