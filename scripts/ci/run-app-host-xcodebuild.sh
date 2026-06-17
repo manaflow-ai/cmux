@@ -8,7 +8,8 @@ fi
 log_dir="${RUNNER_TEMP:-/tmp}"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-2}"
-export CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-900}"
+export CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}"
+echo "App-host xcodebuild timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
