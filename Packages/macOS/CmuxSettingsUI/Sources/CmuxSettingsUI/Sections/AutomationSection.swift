@@ -17,6 +17,7 @@ public struct AutomationSection: View {
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
+    @State private var autoNamingLanguageModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
@@ -56,6 +57,7 @@ public struct AutomationSection: View {
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
+        _autoNamingLanguageModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingLanguage))
         // Internal status (not a user setting), observed reactively via an
         // inline key so a failure reported mid-session updates the line live.
         _autoNamingStatusModel = State(initialValue: DefaultsValueModel(
@@ -300,6 +302,28 @@ public struct AutomationSection: View {
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("SettingsAutoNamingAgentPicker")
                 }
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .json("automation.autoNamingLanguage"),
+                    String(localized: "settings.automation.autoNamingLanguage", defaultValue: "Title Language"),
+                    subtitle: autoNamingLanguageSubtitle,
+                    controlWidth: Self.columnWidth
+                ) {
+                    Picker("", selection: Binding(get: { autoNamingLanguageModel.current }, set: { autoNamingLanguageModel.set($0) })) {
+                        Text(String(localized: "settings.automation.autoNamingLanguage.auto", defaultValue: "Conversation language"))
+                            .tag(AutoNamingLanguage.autoValue)
+                        Text(String(localized: "settings.automation.autoNamingLanguage.system", defaultValue: "System language"))
+                            .tag(AutoNamingLanguage.systemValue)
+                        Section(String(localized: "settings.automation.autoNamingLanguage.section.languages", defaultValue: "Languages")) {
+                            ForEach(AutoNamingLanguage.commonTags, id: \.self) { tag in
+                                Text(autoNamingLanguageDisplayName(tag)).tag(tag)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SettingsAutoNamingLanguagePicker")
+                }
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
@@ -322,6 +346,29 @@ public struct AutomationSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
+    }
+
+    /// Localized display name for a BCP-47 tag, falling back to the raw tag for
+    /// values cmux's locale data does not recognize.
+    private func autoNamingLanguageDisplayName(_ tag: String) -> String {
+        Locale.current.localizedString(forIdentifier: tag)
+            ?? Locale.current.localizedString(forLanguageCode: tag)
+            ?? tag
+    }
+
+    /// Subtitle under the Title Language row describing the current selection.
+    private var autoNamingLanguageSubtitle: String {
+        let value = autoNamingLanguageModel.current
+        if value == AutoNamingLanguage.autoValue {
+            return String(localized: "settings.automation.autoNamingLanguage.subtitle.auto", defaultValue: "Titles match each conversation's own language.")
+        }
+        if value == AutoNamingLanguage.systemValue {
+            return String(localized: "settings.automation.autoNamingLanguage.subtitle.system", defaultValue: "Titles use your macOS preferred language.")
+        }
+        return String(
+            format: String(localized: "settings.automation.autoNamingLanguage.subtitle.fixed", defaultValue: "Titles are always written in %@."),
+            autoNamingLanguageDisplayName(value)
+        )
     }
 
     private var currentAutoNamingStatus: AutoNamingStatus? {

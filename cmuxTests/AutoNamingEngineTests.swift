@@ -215,6 +215,34 @@ import Testing
         #expect(!untitled.contains("current title"))
     }
 
+    @Test func promptDefaultsToUserSideLanguage() {
+        // With no override the summarizer must follow the user's side, not the
+        // English-dominated tool/code/log noise (manaflow-ai/cmux#6239).
+        let prompt = engine.buildPrompt(currentTitle: nil, context: "user: ログインのバグを直して")
+        #expect(prompt.contains("language the user writes in"))
+        #expect(!prompt.contains("Japanese"))
+    }
+
+    @Test func promptPinsOutputLanguageWhenOverridden() {
+        // A BCP-47 override pins the title to that language regardless of the
+        // (English) excerpt — the deterministic fix for English-only titles.
+        let japanese = engine.buildPrompt(currentTitle: nil, context: "user: fix the login bug", languageTag: "ja")
+        #expect(japanese.contains("Japanese (ja)"))
+        #expect(japanese.contains("regardless of the language"))
+
+        let chinese = engine.buildPrompt(currentTitle: nil, context: "user: fix the login bug", languageTag: "zh-Hans")
+        #expect(chinese.contains("(zh-Hans)"))
+
+        // An unrecognized tag still produces a usable directive (falls back to
+        // naming the raw tag) rather than crashing or dropping the instruction.
+        let unknown = engine.buildPrompt(currentTitle: nil, context: "user: hi", languageTag: "xx-FAKE")
+        #expect(unknown.contains("xx-FAKE"))
+
+        // Blank/whitespace override behaves like "auto".
+        let blank = engine.buildPrompt(currentTitle: nil, context: "user: hi", languageTag: "  ")
+        #expect(blank.contains("language the user writes in"))
+    }
+
     // MARK: - Sanitization
 
     @Test func sanitizationNormalizesUsableResponses() {

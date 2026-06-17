@@ -6,9 +6,21 @@ Off by default. Enable it in **Settings > Automation > Workspace Auto-Naming** o
 
 ## What it does
 
-- At the end of an agent turn, cmux summarizes the session's recent conversation into a 2-5 word title (in the conversation's language) and applies it to the workspace. When a workspace has multiple tabs, the agent's own tab is named too.
+- At the end of an agent turn, cmux summarizes the session's recent conversation into a 2-5 word title (in the conversation's language by default — see [Title language](#title-language)) and applies it to the workspace. When a workspace has multiple tabs, the agent's own tab is named too.
 - Names refresh when the topic shifts, throttled by transcript growth and a minimum interval, so quiet or single-topic sessions converge to a stable name without repeated summarization calls.
 - Summarization runs through your own agent binary: `claude -p` for Claude Code sessions (model from `ANTHROPIC_SMALL_FAST_MODEL` when set, the fast default otherwise; Vertex/Bedrock backend selection is preserved), `codex exec` for Codex sessions, and each supported hook agent's own non-interactive CLI for its sessions. Each agent names itself, so the calls use the account you already authenticated, and a machine without another agent installed simply skips that adapter.
+
+## Title language
+
+By default (`automation.autoNamingLanguage: "auto"`) the title is written in the conversation's own language. Because a coding excerpt is usually dominated by English tool output, code, file paths, and logs even when you write in another language, the summarizer is explicitly told to follow **your** side of the conversation (the `user:` lines) rather than the whole excerpt, so a Japanese-only turn produces a Japanese title.
+
+To pin the output language regardless of excerpt content, set `automation.autoNamingLanguage` (Settings > Automation > Workspace Auto-Naming > **Title Language**):
+
+- `"auto"` (default): follow the conversation's language.
+- `"system"`: derive the language from your macOS preferred languages.
+- A BCP-47 tag (`"ja"`, `"en"`, `"zh-Hans"`, …): always emit the title in that language, for both the Claude/Codex path and the generic-adapter (grok/opencode/pi/omp) path.
+
+Unknown values are passed to the summarizer as a language tag, so a typo degrades to current behavior rather than breaking naming.
 
 ## Precedence: manual names always win
 

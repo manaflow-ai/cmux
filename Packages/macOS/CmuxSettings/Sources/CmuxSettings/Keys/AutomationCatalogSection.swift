@@ -46,6 +46,19 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "autoNamingAgent"
     )
 
+    /// Output language for auto-generated titles. ``AutoNamingLanguage/autoValue``
+    /// ("auto", the default) follows the conversation's own language;
+    /// ``AutoNamingLanguage/systemValue`` ("system") derives it from the macOS
+    /// preferred languages; any BCP-47 tag ("ja", "en", "zh-Hans", …) pins the
+    /// title to that language regardless of the transcript. Unknown values are
+    /// passed through to the summarizer as a tag, so a bad value never breaks
+    /// naming.
+    public let autoNamingLanguage = DefaultsKey<String>(
+        id: "automation.autoNamingLanguage",
+        defaultValue: AutoNamingLanguage.autoValue,
+        userDefaultsKey: "autoNamingLanguage"
+    )
+
     public let ripgrepBinaryPath = DefaultsKey<String>(
         id: "automation.ripgrepBinaryPath",
         defaultValue: "",

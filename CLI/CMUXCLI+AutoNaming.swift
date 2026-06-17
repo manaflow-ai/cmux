@@ -345,11 +345,16 @@ struct AutoNamingEngine: Sendable {
 
     // MARK: - Prompt and response
 
-    func buildPrompt(currentTitle: String?, context: String) -> String {
+    /// Builds the summarizer prompt. `languageTag` is the resolved
+    /// `automation.autoNamingLanguage` override (a BCP-47 tag) or `nil` to
+    /// follow the conversation. See ``languageInstruction(for:)`` for the
+    /// language directive that fixes English-only titles on non-English turns.
+    func buildPrompt(currentTitle: String?, context: String, languageTag: String? = nil) -> String {
         var lines: [String] = [
             "You name terminal workspace tabs for a developer running coding agents.",
             "Given a conversation excerpt, output ONLY a short title: 2-5 words,",
-            "in the same language as the conversation, no quotes, no trailing punctuation.",
+            "no quotes, no trailing punctuation.",
+            Self.languageInstruction(for: languageTag),
             ""
         ]
         if let currentTitle, !currentTitle.isEmpty {
@@ -360,6 +365,33 @@ struct AutoNamingEngine: Sendable {
         lines.append("Conversation excerpt:")
         lines.append(context)
         return lines.joined(separator: "\n")
+    }
+
+    /// The output-language directive for the summarizer prompt.
+    ///
+    /// With no override (`languageTag == nil`, i.e. `autoNamingLanguage:
+    /// "auto"`), the model is told to follow the *user's* side of the
+    /// conversation rather than the whole excerpt. A coding excerpt is usually
+    /// dominated by English tool output, code, paths, and logs even when the
+    /// human writes in Japanese, so "same language as the conversation" used to
+    /// resolve to English; anchoring on the `user:` lines makes the documented
+    /// "conversation's language" behavior reliable (manaflow-ai/cmux#6239).
+    ///
+    /// With an override, the title is pinned to that language regardless of the
+    /// excerpt. The language name is resolved in English so the instruction is
+    /// stable no matter which locale the summarizer process runs under.
+    static func languageInstruction(for languageTag: String?) -> String {
+        guard let tag = languageTag?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tag.isEmpty else {
+            return "Write the title in the language the user writes in (the lines starting with \"user:\"), not the language of tool output, code, file paths, or logs."
+        }
+        let english = Locale(identifier: "en_US")
+        let name = english.localizedString(forIdentifier: tag)
+            ?? english.localizedString(forLanguageCode: tag)
+        if let name, !name.isEmpty, name.caseInsensitiveCompare(tag) != .orderedSame {
+            return "Always write the title in \(name) (\(tag)), regardless of the language used in the conversation excerpt below."
+        }
+        return "Always write the title in the language identified by the BCP-47 tag \"\(tag)\", regardless of the language used in the conversation excerpt below."
     }
 
     /// Normalizes a summarizer response into a usable title, or `nil` when
