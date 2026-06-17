@@ -7312,10 +7312,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
-        let shouldShowLocalInlineActivePaneBoundary =
-            showsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
-        coordinator.desiredShowsActivePaneBoundary = shouldShowLocalInlineActivePaneBoundary
-        coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
+        coordinator.desiredShowsActivePaneBoundary = false
+        coordinator.desiredActivePaneBoundaryColor = .clear
         coordinator.attachGeneration += 1
 
         if panel.releasePortalHostIfOwned(
@@ -7338,7 +7336,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Never let that off-window host steal the live page + inspector hierarchy away
             // from the currently visible local host.
             host.setLocalInlineSlotHidden(true)
-            slotView.setActivePaneBoundary(visible: false, color: activePaneBoundaryColor)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
 #if DEBUG
@@ -7400,10 +7397,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         slotView.isHidden = false
-        slotView.setActivePaneBoundary(
-            visible: shouldShowLocalInlineActivePaneBoundary,
-            color: activePaneBoundaryColor
-        )
         host.pinHostedWebView(
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)

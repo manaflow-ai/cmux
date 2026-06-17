@@ -10,7 +10,7 @@
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11782	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7982	Sources/Panels/BrowserPanelView.swift
+7975	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
