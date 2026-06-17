@@ -296,6 +296,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return lhs.id.rawValue < rhs.id.rawValue
         }
     }
+
+    /// A `deviceId -> human display name` map for resolving the per-row Mac chip
+    /// label in the unified list, returned as an immutable value snapshot so no
+    /// `@Observable` store crosses the `List` boundary.
+    ///
+    /// Sources, most-authoritative last (later writes win): the registry's
+    /// `RegistryDevice.title`, then each paired Mac's `displayName`, then the
+    /// active Mac's live ``connectedHostName`` (the freshest, user-visible name
+    /// for the Mac actually connected). A device whose name is unknown is simply
+    /// absent from the map; the chip then falls back to the short device id at
+    /// the view layer. Always non-empty values; empty/whitespace names are
+    /// skipped so they cannot shadow a better source.
+    public var unifiedDeviceNames: [String: String] {
+        var names: [String: String] = [:]
+        func record(_ deviceID: String, _ name: String?) {
+            guard !deviceID.isEmpty else { return }
+            guard let name else { return }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            names[deviceID] = trimmed
+        }
+        for device in registryDevices {
+            record(device.deviceId, device.displayName)
+        }
+        for mac in pairedMacs {
+            record(mac.macDeviceID, mac.displayName)
+        }
+        if let activeDeviceID {
+            record(activeDeviceID, connectedHostName)
+        }
+        return names
+    }
+
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
@@ -464,6 +497,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
+        }
+    }
+
+    /// The current selection scoped to the owning Mac, for the unified list's
+    /// scoped navigation.
+    ///
+    /// P2 (unified list UI) threads selection through ``ScopedWorkspaceID`` so the
+    /// list and navigation stack are keyed on `(deviceId, workspaceID)` and two
+    /// Macs with colliding bare workspace ids stay distinguishable. The store's
+    /// authoritative selection is still the bare ``selectedWorkspaceID`` targeting
+    /// the heavy client; the `deviceId` carried here is the active Mac's
+    /// ``activeDeviceID`` (or `""` when unscoped). Cross-Mac heavy-attach routing
+    /// from a scoped selection lands in P3; until then setting a non-active Mac's
+    /// scope only updates the bare workspace id against the active client.
+    public var scopedSelectedWorkspaceID: ScopedWorkspaceID? {
+        get {
+            guard let selectedWorkspaceID else { return nil }
+            return ScopedWorkspaceID(deviceId: activeDeviceID ?? "", workspaceID: selectedWorkspaceID)
+        }
+        set {
+            selectedWorkspaceID = newValue?.workspaceID
         }
     }
     /// The terminal whose surface (and composer draft) is currently shown.
@@ -5743,6 +5797,24 @@ extension MobileShellComposite {
     /// live subscription, so unified-list presence gating can be exercised.
     public func debugApplyPresence(_ update: PresenceUpdate) {
         presenceMap.apply(update)
+    }
+
+    /// Test-only seam to set the live host name without a real connect, so the
+    /// ``unifiedDeviceNames`` active-Mac source can be exercised.
+    public func debugSetConnectedHostName(_ name: String) {
+        connectedHostName = name
+    }
+
+    /// Test-only seam to seed paired Macs without persistence, so
+    /// ``unifiedDeviceNames`` resolution can be exercised.
+    public func debugSetPairedMacs(_ macs: [MobilePairedMac]) {
+        pairedMacs = macs
+    }
+
+    /// Test-only seam to seed registry devices without a registry fetch, so
+    /// ``unifiedDeviceNames`` resolution can be exercised.
+    public func debugSetRegistryDevices(_ devices: [RegistryDevice]) {
+        registryDevices = devices
     }
 }
 #endif

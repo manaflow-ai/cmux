@@ -13,6 +13,9 @@ struct WorkspaceRow: View {
     /// "Preview Lines" setting; 2 is the default). Space is reserved so rows
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
+    /// The owning-Mac chip label in the unified multi-Mac list. `nil` hides the
+    /// chip, preserving the single-Mac row layout exactly.
+    var macChipName: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -60,6 +63,11 @@ struct WorkspaceRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+
+                    if let macChipName {
+                        Spacer(minLength: 8)
+                        WorkspaceMacChip(name: macChipName)
+                    }
                 }
             }
         }

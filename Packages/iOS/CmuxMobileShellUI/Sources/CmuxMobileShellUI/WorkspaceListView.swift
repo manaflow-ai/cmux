@@ -14,7 +14,16 @@ struct WorkspaceListView: View {
     /// groups; the list then renders flat. Passed as value snapshots so no
     /// `@Observable` store crosses the `List` boundary.
     var groups: [MobileWorkspaceGroupPreview] = []
-    let selectedWorkspaceID: MobileWorkspacePreview.ID?
+    let selectedWorkspaceID: ScopedWorkspaceID?
+    /// `deviceId -> Mac display name` map for resolving each row's Mac chip in the
+    /// unified multi-Mac list. Passed as an immutable value snapshot so no
+    /// `@Observable` store crosses the `List` boundary. Empty (the default) in the
+    /// single-Mac / preview case.
+    var deviceNames: [String: String] = [:]
+    /// Whether to render the per-row Mac chip and force flat (ungrouped)
+    /// presentation, i.e. the unified multi-Mac mode. `false` (the default)
+    /// preserves the single-Mac look exactly: no chips, and group sections honored.
+    var showsMacChips: Bool = false
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
@@ -25,7 +34,7 @@ struct WorkspaceListView: View {
     /// How many lines each row's activity preview shows (1 or 2). Passed in as
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    let selectWorkspace: (ScopedWorkspaceID) -> Void
     let createWorkspace: () -> Void
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
@@ -86,7 +95,12 @@ struct WorkspaceListView: View {
     /// group is acceptable while filtering. An active row filter (Unread)
     /// flattens the same way, for the same reason.
     private var rendersGroupedSections: Bool {
-        !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
+        // The unified multi-Mac list is always flat: group sections are a
+        // single-Mac sidebar concept and do not compose across Macs (two Macs can
+        // have unrelated groups), so chips replace grouping as the per-row Mac
+        // dimension. Flag off ⇒ `showsMacChips` is false and grouping is honored
+        // exactly as before.
+        !showsMacChips && !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
@@ -230,7 +244,8 @@ struct WorkspaceListView: View {
                     hasUnread: hasUnread,
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
-                        && selectedWorkspaceID == group.anchorWorkspaceID,
+                        && selectedWorkspaceID?.workspaceID == group.anchorWorkspaceID,
+                    anchorScopedID: anchorScopedID(for: group),
                     selectWorkspace: selectWorkspace,
                     toggleCollapsed: toggleGroupCollapsed
                 )
@@ -242,15 +257,28 @@ struct WorkspaceListView: View {
         }
     }
 
+    /// The scoped identity of a group's anchor workspace. Groups render only in
+    /// the single-Mac (flag-off) presentation, so the anchor's `deviceId` is
+    /// resolved from the matching workspace in ``workspaces`` (the active Mac),
+    /// falling back to unscoped (`""`) if the anchor is not present.
+    private func anchorScopedID(for group: MobileWorkspaceGroupPreview) -> ScopedWorkspaceID {
+        let deviceId = workspaces.first { $0.id == group.anchorWorkspaceID }?.deviceId ?? ""
+        return ScopedWorkspaceID(deviceId: deviceId, workspaceID: group.anchorWorkspaceID)
+    }
+
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
         WorkspaceNavigationRow(
             workspace: workspace,
             connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
+            isSelected: navigationStyle == .sidebar
+                && selectedWorkspaceID == ScopedWorkspaceID(workspace),
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
+            macChipName: showsMacChips
+                ? WorkspaceMacChip.label(forDeviceID: workspace.deviceId, names: deviceNames)
+                : nil,
             selectWorkspace: selectWorkspace,
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,
