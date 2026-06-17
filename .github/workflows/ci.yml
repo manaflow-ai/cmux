@@ -114,6 +114,9 @@ jobs:
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
 
+      - name: Validate SwiftPM lockfile policy
+        run: python3 scripts/check-package-resolved-policy.py
+
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
