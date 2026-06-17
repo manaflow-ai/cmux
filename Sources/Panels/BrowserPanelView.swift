@@ -744,6 +744,20 @@ struct BrowserPanelView: View {
         panel.reload()
     }
 
+    private func handleReloadButtonContextMenuAction() {
+#if DEBUG
+        cmuxDebugLog("browser.reload.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.reload()
+    }
+
+    private func handleHardRefreshButtonAction() {
+#if DEBUG
+        cmuxDebugLog("browser.hardRefresh.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.hardReload()
+    }
+
     private func handleScreenshotPageButtonAction() {
         guard !screenshotPageCaptureInProgress else { return }
         screenshotPageCaptureInProgress = true
@@ -1343,6 +1357,14 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
+            .contextMenu {
+                Button(String(localized: "browser.reload", defaultValue: "Reload")) {
+                    handleReloadButtonContextMenuAction()
+                }
+                Button(String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")) {
+                    handleHardRefreshButtonAction()
+                }
+            }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
