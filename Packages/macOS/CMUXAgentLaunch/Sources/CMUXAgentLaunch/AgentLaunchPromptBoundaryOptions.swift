@@ -16,10 +16,7 @@ extension AgentLaunchSanitizer {
 }
 
 private func promptBoundaryOption(_ arg: String, options: Set<String>) -> String? {
-    if options.contains(arg) { return arg }
-    guard let equals = arg.firstIndex(of: "=") else { return nil }
-    let option = String(arg[..<equals])
-    return options.contains(option) ? option : nil
+    options.contains(arg) ? arg : nil
 }
 
 func isOptionToken(_ arg: String) -> Bool {

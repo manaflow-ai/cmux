@@ -124,14 +124,14 @@ struct ClaudeTeamsRestoreFlagTests {
         )
     }
 
-    @Test("Drops equals-style tmux prompt and later prompt text")
-    func dropsEqualsStyleTmuxPromptAndLaterPromptText() {
+    @Test("Drops equals-style tmux mode without stopping later flags")
+    func dropsEqualsStyleTmuxModeWithoutStoppingLaterFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "claude-teams",
-                    "--tmux=fix-bug",
+                    "--tmux=classic",
                     "--model",
                     "sonnet",
                     "--dangerously-skip-permissions",
@@ -141,6 +141,9 @@ struct ClaudeTeamsRestoreFlagTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
+                "--model",
+                "sonnet",
+                "--dangerously-skip-permissions",
             ]
         )
     }

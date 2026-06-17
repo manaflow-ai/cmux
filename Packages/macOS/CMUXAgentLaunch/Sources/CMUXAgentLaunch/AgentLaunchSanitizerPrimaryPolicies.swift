@@ -90,7 +90,8 @@ extension AgentLaunchSanitizer {
             "--fork-session=",
             "--from-pr=",
             "--resume=",
-            "--session-id="
+            "--session-id=",
+            "--tmux="
         ],
         rejectOptions: [
             "--print",
