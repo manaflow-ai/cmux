@@ -99,6 +99,7 @@ extension RightSidebarMode {
         guard event.type == .keyDown else { return false }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         return !flags.isDisjoint(with: shortcutRelevantModifiers)
+            || ShortcutStroke.isRecordableDirectKeyCodeEvent(event)
     }
 
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {

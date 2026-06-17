@@ -380,15 +380,20 @@ final class GhosttyTitleNotificationDispatcher {
     }
 }
 
-private struct GhosttyDesktopNotificationTarget: Sendable {
+struct GhosttyDesktopNotificationTarget: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
 }
 
-private enum GhosttyDesktopNotificationRoute: Sendable {
+enum GhosttyDesktopNotificationRoute: Sendable {
     case deliver(GhosttyDesktopNotificationTarget)
     case suppress
     case fallThrough
+}
+
+struct GhosttyDesktopNotificationCallbackPlan: Equatable, Sendable {
+    let handlesNotification: Bool
+    let shouldDeliverAfterRouteRefresh: Bool
 }
 
 private final class GhosttyRenderedFrameNotificationDemandGate: RenderDemandGating {
@@ -3057,6 +3062,23 @@ class GhosttyApp {
         appDesktopNotificationRouteLock.unlock()
     }
 
+    static func appDesktopNotificationCallbackPlan(
+        cachedRoute: GhosttyDesktopNotificationRoute
+    ) -> GhosttyDesktopNotificationCallbackPlan {
+        switch cachedRoute {
+        case .deliver, .suppress:
+            return GhosttyDesktopNotificationCallbackPlan(
+                handlesNotification: true,
+                shouldDeliverAfterRouteRefresh: true
+            )
+        case .fallThrough:
+            return GhosttyDesktopNotificationCallbackPlan(
+                handlesNotification: false,
+                shouldDeliverAfterRouteRefresh: false
+            )
+        }
+    }
+
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
@@ -3221,16 +3243,12 @@ class GhosttyApp {
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 let route = cachedAppDesktopNotificationRouteForCallback()
-                guard case .deliver = route else {
-                    if case .fallThrough = route {
-                        return false
-                    }
-                    return true
-                }
-                Task { @MainActor [weak self, actionTitle, actionBody] in
+                let plan = Self.appDesktopNotificationCallbackPlan(cachedRoute: route)
+                Task { @MainActor [weak self, actionTitle, actionBody, plan] in
                     let currentRoute = Self.appDesktopNotificationRoute()
                     self?.setCachedAppDesktopNotificationRoute(currentRoute)
-                    guard case .deliver(let notificationTarget) = currentRoute else {
+                    guard plan.shouldDeliverAfterRouteRefresh,
+                          case let .deliver(notificationTarget) = currentRoute else {
                         return
                     }
                     let command = actionTitle.isEmpty
@@ -3244,7 +3262,7 @@ class GhosttyApp {
                         body: actionBody
                     )
                 }
-                return true
+                return plan.handlesNotification
             }
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {

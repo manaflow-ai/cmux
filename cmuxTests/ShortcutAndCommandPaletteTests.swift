@@ -1262,6 +1262,39 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
+    func testModeShortcutSupportsModifierlessDirectKeyConfiguredBinding() {
+        let f5 = String(UnicodeScalar(NSF5FunctionKey)!)
+        let f5Shortcut = StoredShortcut(
+            key: "f5",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 96
+        )
+        KeyboardShortcutSettings.setShortcut(f5Shortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: f5, modifiers: [], keyCode: 96)),
+            .files
+        )
+
+        let spaceShortcut = StoredShortcut(
+            key: "space",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 49
+        )
+        KeyboardShortcutSettings.setShortcut(spaceShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: " ", modifiers: [], keyCode: 49)),
+            .files
+        )
+    }
+
     func testModeShortcutUsesConfiguredBindings() {
         let customFilesShortcut = StoredShortcut(
             key: "4",
