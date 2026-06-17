@@ -871,10 +871,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
+    // TODO(de-singletonize): move SidebarWorkspaceDragRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
     #if DEBUG
     /// Debug-only registry mapping each mounted sidebar's window id to its live
     /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
+    // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
@@ -12360,7 +12362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tag: tag,
             modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
         )
-        guard let shortcut = Self.ghosttyTriggerShortcutDecoder.decode(input) else { return nil }
+        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
         return StoredShortcut(
             key: shortcut.key,
             command: shortcut.command,
@@ -12369,8 +12371,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             control: shortcut.control
         )
     }
-
-    private static let ghosttyTriggerShortcutDecoder = GhosttyTriggerShortcutDecoder()
 
     private func handleQuitShortcutWarning() -> Bool {
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
