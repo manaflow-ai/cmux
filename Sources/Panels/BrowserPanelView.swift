@@ -1157,6 +1157,7 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(browserSwiftUIActivePaneBoundaryOverlay)
+        .overlay(browserChromeActivePaneBoundaryOverlay)
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
@@ -1169,6 +1170,24 @@ struct BrowserPanelView: View {
                 .strokeBorder(Color(nsColor: activePaneBoundaryColor), lineWidth: 2)
                 .allowsHitTesting(false)
         }
+    }
+
+    @ViewBuilder
+    private var browserChromeActivePaneBoundaryOverlay: some View {
+        if shouldShowBrowserChromeActivePaneBoundary {
+            ActivePaneChromeBoundaryOverlay(
+                color: Color(nsColor: activePaneBoundaryColor),
+                height: addressBarHeight
+            )
+        }
+    }
+
+    private var shouldShowBrowserChromeActivePaneBoundary: Bool {
+        isFocused &&
+            isVisibleInUI &&
+            panel.shouldRenderWebView &&
+            panel.isOmnibarVisible &&
+            addressBarHeight > 0
     }
 
     private var browserPanelLifecycleView: some View {

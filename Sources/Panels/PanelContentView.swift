@@ -168,6 +168,29 @@ struct PanelContentView: View {
     }
 }
 
+struct ActivePaneChromeBoundaryOverlay: View {
+    let color: Color
+    let height: CGFloat
+
+    private let lineWidth: CGFloat = 2
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                color.frame(height: lineWidth)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 0) {
+                color.frame(width: lineWidth, height: height)
+                Spacer(minLength: 0)
+                color.frame(width: lineWidth, height: height)
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 struct PanelFilePathHeader<TrailingContent: View>: View {
     let iconSystemName: String
     let filePath: String

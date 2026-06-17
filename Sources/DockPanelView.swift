@@ -717,6 +717,7 @@ private struct DockControlsLayoutView: View {
                             snapshot: snapshot,
                             ordinal: index + 1,
                             terminalHeight: heights[index],
+                            activePaneBoundaryColor: dividerColor,
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
                             terminalContent: {
@@ -788,9 +789,12 @@ private struct DockControlSectionView<TerminalContent: View>: View {
     let snapshot: DockControlSnapshot
     let ordinal: Int
     let terminalHeight: CGFloat
+    let activePaneBoundaryColor: Color
     let onFocus: () -> Void
     let onRestart: () -> Void
     @ViewBuilder let terminalContent: () -> TerminalContent
+
+    private let headerHeight: CGFloat = 30
 
     var body: some View {
         VStack(spacing: 0) {
@@ -799,7 +803,18 @@ private struct DockControlSectionView<TerminalContent: View>: View {
                 .frame(height: terminalHeight)
                 .clipped()
         }
+        .overlay(headerActivePaneBoundaryOverlay)
         .accessibilityIdentifier("DockControl.\(snapshot.id)")
+    }
+
+    @ViewBuilder
+    private var headerActivePaneBoundaryOverlay: some View {
+        if snapshot.isFocused {
+            ActivePaneChromeBoundaryOverlay(
+                color: activePaneBoundaryColor,
+                height: headerHeight
+            )
+        }
     }
 
     private var header: some View {
