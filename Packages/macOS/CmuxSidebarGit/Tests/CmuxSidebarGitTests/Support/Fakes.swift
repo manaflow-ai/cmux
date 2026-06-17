@@ -46,26 +46,33 @@ final class RecordingPullRequestProbing: PullRequestProbing {
     private(set) var scheduledRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
     private(set) var clearedTrackingKeys: [(workspaceId: UUID, panelId: UUID)] = []
     private(set) var clearedTrackingWorkspaceIds: [UUID] = []
+    var trackedPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
     private(set) var resetCount = 0
 
     func attach(host: any SidebarGitHosting) {}
     func scheduleWorkspacePullRequestRefresh(workspaceId: UUID, panelId: UUID, reason: String) {
         scheduledRefreshes.append((workspaceId, panelId, reason))
+        trackedPanelIdsByWorkspace[workspaceId, default: []].insert(panelId)
     }
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {}
     func sidebarPullRequestPollingSettingsDidChange() {}
     func handleWorkspacePullRequestCommandHint(workspaceId: UUID, panelId: UUID, action: String, target: String?) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID, panelId: UUID) {
         clearedTrackingKeys.append((workspaceId, panelId))
+        trackedPanelIdsByWorkspace[workspaceId]?.remove(panelId)
     }
     func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID) {
         clearedTrackingWorkspaceIds.append(workspaceId)
+        trackedPanelIdsByWorkspace[workspaceId] = []
     }
     func resetWorkspacePullRequestRefreshState() {
         resetCount += 1
+        trackedPanelIdsByWorkspace.removeAll()
     }
-    func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> { [] }
+    func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> {
+        trackedPanelIdsByWorkspace[workspaceId] ?? []
+    }
 }
 
 /// A `CommandRunning` that fails the test if any subprocess is spawned.
