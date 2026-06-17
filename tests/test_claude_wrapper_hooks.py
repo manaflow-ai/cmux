@@ -8,7 +8,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shlex
 import shutil
 import socket
 import subprocess
@@ -18,26 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
-
-
-def resolve_node_binary() -> Path | None:
-    resolved = shutil.which("node")
-    if resolved:
-        return Path(resolved)
-
-    for candidate in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
-        path = Path(candidate)
-        if path.is_file() and os.access(path, os.X_OK):
-            return path
-
-    return None
-
-
-def require_node_binary() -> Path:
-    node = resolve_node_binary()
-    if node is None:
-        raise RuntimeError("test_claude_wrapper_hooks.py requires Node.js to verify NODE_OPTIONS restore behavior")
-    return node
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -76,7 +55,6 @@ def run_wrapper(
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         real_dir.mkdir(parents=True, exist_ok=True)
         bundled_dir.mkdir(parents=True, exist_ok=True)
-        real_node = require_node_binary()
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -94,8 +72,30 @@ def run_wrapper(
 
         make_executable(
             real_dir / "node",
-            f"""#!/usr/bin/env bash
-exec {shlex.quote(str(real_node))} "$@"
+            """#!/usr/bin/env python3
+import os
+import sys
+
+def current_node_options() -> str:
+    return os.environ.get("NODE_OPTIONS", "__UNSET__")
+
+def restored_node_options() -> str:
+    node_options = os.environ.get("NODE_OPTIONS")
+    if not node_options or "--require=" not in node_options:
+        return current_node_options()
+    if os.environ.get("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT") == "1":
+        return os.environ.get("CMUX_ORIGINAL_NODE_OPTIONS", "")
+    return "__UNSET__"
+
+if len(sys.argv) >= 2 and sys.argv[1] == "-e":
+    sys.stdout.write(restored_node_options())
+    raise SystemExit(0)
+
+runtime = restored_node_options()
+with open(os.environ["FAKE_REAL_RUNTIME_NODE_OPTIONS_LOG"], "w", encoding="utf-8") as handle:
+    handle.write(f"{runtime}\\n")
+with open(os.environ["FAKE_REAL_CHILD_NODE_OPTIONS_LOG"], "w", encoding="utf-8") as handle:
+    handle.write(f"{runtime}\\n")
 """,
         )
 
