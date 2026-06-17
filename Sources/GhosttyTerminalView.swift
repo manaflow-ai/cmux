@@ -2786,31 +2786,20 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                if Thread.isMainThread {
-                    return MainActor.assumeIsolated {
-                        let currentRoute = Self.appDesktopNotificationRoute()
-                        Self.deliverAppDesktopNotificationIfNeeded(
-                            route: currentRoute,
-                            actionTitle: actionTitle,
-                            actionBody: actionBody
-                        )
-                        switch currentRoute {
-                        case .deliver, .suppress:
-                            return true
-                        case .fallThrough:
-                            return false
-                        }
-                    }
-                }
-                Task { @MainActor [actionTitle, actionBody] in
+                return performOnMain {
                     let currentRoute = Self.appDesktopNotificationRoute()
                     Self.deliverAppDesktopNotificationIfNeeded(
                         route: currentRoute,
                         actionTitle: actionTitle,
                         actionBody: actionBody
                     )
+                    switch currentRoute {
+                    case .deliver, .suppress:
+                        return true
+                    case .fallThrough:
+                        return false
+                    }
                 }
-                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {

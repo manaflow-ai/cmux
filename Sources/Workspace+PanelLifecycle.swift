@@ -364,7 +364,7 @@ extension Workspace {
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
-        restoredUnreadPanelIndicators.removeValue(forKey: panelId)
+        clearRestoredUnreadIndicator(panelId: panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
