@@ -33,12 +33,26 @@ public final class VNCSurfaceView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.contentsGravity = .resizeAspect
-        layer?.magnificationFilter = .nearest // crisp pixels when scaled up
+        // Remote desktops are usually shown smaller than their native size
+        // (downscaled). Default `.linear` minification without mipmaps looks
+        // soft/blurry; trilinear (mipmapped) keeps text crisp when shrinking,
+        // and nearest keeps it sharp when enlarging.
+        layer?.minificationFilter = .trilinear
+        layer?.magnificationFilter = .nearest
         startInputPump()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+    /// Keep the layer's backing resolution matched to the screen so the
+    /// framebuffer is rasterised at native Retina density, not upscaled from 1x.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor {
+            layer?.contentsScale = scale
+        }
+    }
 
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
@@ -211,6 +225,9 @@ public final class VNCSurfaceView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
+        if let scale = window?.backingScaleFactor {
+            layer?.contentsScale = scale
+        }
     }
 
     // MARK: Keyboard
