@@ -36,13 +36,18 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        // Backstop for DEV/staging builds: decline Sparkle's silent install-on-quit so the public
-        // release can never be installed over a locally-built app. Returning false tells Sparkle
-        // not to handle the installation itself.
+        // Backstop for DEV/staging builds: veto Sparkle's silent install-on-quit so the public
+        // release can never be installed over a locally-built app.
+        //
+        // Sparkle's contract: returning YES means the delegate OWNS the installation, NO hands
+        // responsibility back to Sparkle (which then installs on quit). So to actually suppress
+        // the install we must return `true` and simply drop the update on the floor — never
+        // invoking `immediateInstallHandler` and never resuming it — instead of returning `false`.
         if suppressesPublicUpdates {
-            log.append("declining silent install-on-quit on dev/staging build: \(item.displayVersionString)")
+            log.append("vetoing silent install-on-quit on dev/staging build: \(item.displayVersionString)")
             model.clearDetectedUpdate()
-            return false
+            model.setState(.idle)
+            return true
         }
         model.clearDetectedUpdate()
         model.setState(.installing(.init(
