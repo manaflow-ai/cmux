@@ -794,7 +794,7 @@ authenticated, team-scoped transport:
   rev-filtering + concurrent-delete-during-paging, gc-floor forced resync,
   tombstone GC, and derivation idempotency (a `seen` tick and an online↔offline
   flip do NOT bump rev; a routes/identity/membership change does).
-- iOS: new `Packages/CmuxSyncStore` raw-SQLite3 package mirroring
+- iOS: new `Packages/Shared/CmuxSyncStore` raw-SQLite3 package mirroring
   `MobilePairedMacStore` (actor, `CmuxSyncStoring` protocol, `CmuxSyncStoreError`
   enum, `PRAGMA user_version` migrations, generic `sync_records`/`sync_cursors`);
   a generic `SyncClient` that speaks `sync/v1` over the presence WS; a `devices`
