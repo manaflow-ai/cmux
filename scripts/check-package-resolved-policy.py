@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -14,7 +15,11 @@ ALLOWED_IGNORED_PREFIXES = (
     "ghostty/",
 )
 
-XCODE_PACKAGE_RESOLVED = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+XCODE_PACKAGE_RESOLVED = (
+    "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
+PACKAGE_PATH_DEPENDENCY_RE = re.compile(r'\.package\(\s*path:\s*"([^"]+)"')
+PACKAGE_URL_DEPENDENCY_RE = re.compile(r'\.package\(\s*url:\s*"[^"]+"')
 
 SKIPPED_DIRS = {
     ".build",
@@ -44,13 +49,67 @@ def has_skipped_part(path: str) -> bool:
     return any(part in SKIPPED_DIRS for part in Path(path).parts)
 
 
-def package_roots() -> set[str]:
-    roots: set[str] = set()
+def tracked_package_manifests(*, include_allowed_vendor: bool) -> dict[str, Path]:
+    manifests: dict[str, Path] = {}
     for manifest in git_ls_files("*Package.swift"):
-        if is_allowed_vendor_path(manifest) or has_skipped_part(manifest):
+        if has_skipped_part(manifest):
             continue
-        roots.add(Path(manifest).parent.as_posix())
-    return roots
+        if not include_allowed_vendor and is_allowed_vendor_path(manifest):
+            continue
+        path = Path(manifest)
+        manifests[path.parent.as_posix()] = path
+    return manifests
+
+
+def package_graph(manifests: dict[str, Path]) -> dict[str, tuple[bool, list[str]]]:
+    root_by_resolved_path = {
+        manifest.parent.resolve(): root for root, manifest in manifests.items()
+    }
+    graph: dict[str, tuple[bool, list[str]]] = {}
+
+    for root, manifest in manifests.items():
+        text = manifest.read_text(encoding="utf-8")
+        path_dependencies: list[str] = []
+        for dependency in PACKAGE_PATH_DEPENDENCY_RE.findall(text):
+            dependency_root = (manifest.parent / dependency).resolve()
+            if dependency_root in root_by_resolved_path:
+                path_dependencies.append(root_by_resolved_path[dependency_root])
+        graph[root] = (bool(PACKAGE_URL_DEPENDENCY_RE.search(text)), path_dependencies)
+
+    return graph
+
+
+def package_roots_requiring_lockfiles() -> set[str]:
+    all_manifests = tracked_package_manifests(include_allowed_vendor=True)
+    cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
+    graph = package_graph(all_manifests)
+    memo: dict[str, bool] = {}
+
+    def has_remote_dependency(root: str, visiting: set[str]) -> bool:
+        if root in memo:
+            return memo[root]
+        if root in visiting:
+            return False
+        has_url_dependency, path_dependencies = graph.get(root, (False, []))
+        visiting.add(root)
+        needs_lockfile = has_url_dependency or any(
+            has_remote_dependency(dependency, visiting)
+            for dependency in path_dependencies
+        )
+        visiting.remove(root)
+        memo[root] = needs_lockfile
+        return needs_lockfile
+
+    return {
+        root for root in cmux_manifests
+        if has_remote_dependency(root, set())
+    }
+
+
+def package_lockfile_path(root: str) -> str:
+    if root == ".":
+        return "Package.resolved"
+    return f"{root}/Package.resolved"
 
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
@@ -82,7 +141,8 @@ def ignores_package_resolved(gitignore: Path) -> bool:
 
 def main() -> int:
     errors: list[str] = []
-    roots = package_roots()
+    roots = set(tracked_package_manifests(include_allowed_vendor=False))
+    tracked_lockfiles = set(git_ls_files("*Package.resolved"))
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
         rel = gitignore.as_posix()
@@ -98,7 +158,15 @@ def main() -> int:
             f"{rel} ignores Package.resolved. cmux-owned SwiftPM lockfiles must be tracked."
         )
 
-    for lockfile in git_ls_files("*Package.resolved"):
+    for expected_root in sorted(package_roots_requiring_lockfiles()):
+        expected_lockfile = package_lockfile_path(expected_root)
+        if expected_lockfile in tracked_lockfiles:
+            continue
+        errors.append(
+            f"Missing Package.resolved for SwiftPM package with remote pins: {expected_lockfile}"
+        )
+
+    for lockfile in tracked_lockfiles:
         if is_allowed_vendor_path(lockfile):
             continue
         if is_expected_lockfile_path(lockfile, roots):
