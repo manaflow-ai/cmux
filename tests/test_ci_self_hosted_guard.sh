@@ -216,6 +216,93 @@ check_signing_intermediate_imports() {
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }
 
+check_signing_intermediate_helper_behavior() {
+  local helper="$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh"
+  local tmp_dir bin_dir curl_log security_log keychain
+  tmp_dir="$(mktemp -d)"
+  bin_dir="$tmp_dir/bin"
+  curl_log="$tmp_dir/curl.log"
+  security_log="$tmp_dir/security.log"
+  keychain="$tmp_dir/build.keychain"
+  mkdir -p "$bin_dir"
+  touch "$keychain" "$curl_log" "$security_log"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+for ((i = 1; i <= $#; i++)); do
+  arg="${!i}"
+  if [[ "$arg" == "--output" ]]; then
+    next=$((i + 1))
+    output="${!next}"
+  fi
+done
+if [[ -z "$output" ]]; then
+  echo "curl stub missing --output" >&2
+  exit 1
+fi
+printf '%s\n' "$*" >> "$CMUX_STUB_CURL_LOG"
+printf 'fake certificate\n' > "$output"
+EOF
+  chmod +x "$bin_dir/curl"
+
+  cat > "$bin_dir/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  add-certificates)
+    printf '%s\n' "$*" >> "$CMUX_STUB_SECURITY_LOG"
+    ;;
+  find-certificate)
+    added_count="$(grep -c '^add-certificates ' "$CMUX_STUB_SECURITY_LOG" 2>/dev/null || true)"
+    if [[ "${CMUX_STUB_CERT_COUNT_OVERRIDE:-}" != "" ]]; then
+      added_count="$CMUX_STUB_CERT_COUNT_OVERRIDE"
+    fi
+    for ((i = 0; i < added_count; i++)); do
+      printf '%s\n' '-----END CERTIFICATE-----'
+    done
+    ;;
+  *)
+    echo "unexpected security command: $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$bin_dir/security"
+
+  if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" "$helper" "$keychain" >"$tmp_dir/success.out" 2>"$tmp_dir/success.err"; then
+    echo "FAIL: signing helper behavior test should import both intermediates"
+    cat "$tmp_dir/success.err" >&2 || true
+    exit 1
+  fi
+
+  for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$curl_log"; then
+      echo "FAIL: signing helper behavior test did not download $cert"
+      exit 1
+    fi
+  done
+
+  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper behavior test did not add both certificates to the requested keychain"
+    exit 1
+  fi
+
+  if PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" CMUX_STUB_CERT_COUNT_OVERRIDE=1 "$helper" "$keychain" >"$tmp_dir/fail.out" 2>"$tmp_dir/fail.err"; then
+    echo "FAIL: signing helper behavior test should fail when fewer than two intermediates are visible"
+    exit 1
+  fi
+
+  if ! grep -Fq "Expected both Developer ID intermediate certificates" "$tmp_dir/fail.err"; then
+    echo "FAIL: signing helper behavior test missing count failure diagnostic"
+    exit 1
+  fi
+
+  rm -rf "$tmp_dir"
+  echo "PASS: signing helper downloads, imports, and verifies Developer ID intermediates"
+}
+
 check_sentry_cli_install_portability() {
   local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
   if [[ ! -x "$helper" ]]; then
@@ -255,6 +342,64 @@ check_sentry_cli_install_portability() {
   done
 
   echo "PASS: dSYM upload installs sentry-cli without requiring Homebrew"
+}
+
+check_sentry_cli_helper_behavior() {
+  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
+  local tmp_dir bin_dir runner_temp stdout stderr expected_path
+  tmp_dir="$(mktemp -d)"
+  bin_dir="$tmp_dir/bin"
+  runner_temp="$tmp_dir/runner-temp"
+  stdout="$tmp_dir/stdout"
+  stderr="$tmp_dir/stderr"
+  expected_path="$runner_temp/sentry-cli-bin/sentry-cli"
+  mkdir -p "$bin_dir" "$runner_temp"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "$CMUX_STUB_CURL_LOG"
+cat <<'INSTALLER'
+#!/usr/bin/env sh
+set -eu
+mkdir -p "$INSTALL_DIR"
+cat > "$INSTALL_DIR/sentry-cli" <<'CLI'
+#!/usr/bin/env sh
+echo "sentry-cli 3.3.0"
+CLI
+chmod +x "$INSTALL_DIR/sentry-cli"
+INSTALLER
+EOF
+  chmod +x "$bin_dir/curl"
+
+  if ! PATH="$bin_dir:/usr/bin:/bin" RUNNER_TEMP="$runner_temp" CMUX_STUB_CURL_LOG="$tmp_dir/curl.log" "$helper" >"$stdout" 2>"$stderr"; then
+    echo "FAIL: sentry-cli helper behavior test should install a stub CLI"
+    cat "$stderr" >&2 || true
+    exit 1
+  fi
+
+  if [[ "$(cat "$stdout")" != "$expected_path" ]]; then
+    echo "FAIL: sentry-cli helper must print only the installed executable path on stdout"
+    exit 1
+  fi
+
+  if [[ ! -x "$expected_path" ]]; then
+    echo "FAIL: sentry-cli helper did not create an executable in RUNNER_TEMP"
+    exit 1
+  fi
+
+  if ! grep -Fq -- '--connect-timeout 20 --max-time 120 https://sentry.io/get-cli/' "$tmp_dir/curl.log"; then
+    echo "FAIL: sentry-cli helper behavior test did not call curl with bounded timeouts"
+    exit 1
+  fi
+
+  if ! grep -Fq 'Installing sentry-cli 3.3.0' "$stderr" || ! grep -Fq 'sentry-cli 3.3.0' "$stderr"; then
+    echo "FAIL: sentry-cli helper must keep installer chatter and version output on stderr"
+    exit 1
+  fi
+
+  rm -rf "$tmp_dir"
+  echo "PASS: sentry-cli helper installs into RUNNER_TEMP and keeps stdout machine-readable"
 }
 
 check_dmg_signing_uses_build_keychain() {
@@ -428,7 +573,9 @@ check_xcode_selection
 check_release_build_signal
 check_release_helper_upload_retry
 check_signing_intermediate_imports
+check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
+check_sentry_cli_helper_behavior
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
