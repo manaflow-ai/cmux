@@ -160,7 +160,8 @@ public struct GhosttyConfig {
         return Self.defaultSplitDividerColor(for: backgroundColor)
     }
 
-    private static func defaultSplitDividerColor(for backgroundColor: NSColor) -> NSColor {
+    /// Returns cmux's high-contrast default split-divider color for a terminal background.
+    public static func defaultSplitDividerColor(for backgroundColor: NSColor) -> NSColor {
         let color = backgroundColor.usingColorSpace(.sRGB) ?? backgroundColor
         var red: CGFloat = 0
         var green: CGFloat = 0

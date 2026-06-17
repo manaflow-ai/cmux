@@ -142,6 +142,9 @@ final class MainWindowFocusController {
         if mode != .feed {
             feedSelectedItemId = nil
         }
+        if mode != .dock {
+            dockHost?.applyKeyboardFocusOwnership(responder: nil)
+        }
         publishFeedFocusSnapshot()
     }
 
@@ -160,6 +163,7 @@ final class MainWindowFocusController {
     func noteMainPanelInteraction(workspaceId: UUID, panelId: UUID) {
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspaceId, panelId: panelId)
+        dockHost?.applyKeyboardFocusOwnership(responder: nil)
         publishFeedFocusSnapshot()
     }
 
@@ -323,6 +327,7 @@ final class MainWindowFocusController {
 #endif
 
     private func syncAfterResponderChange(responder: NSResponder?) {
+        dockHost?.applyKeyboardFocusOwnership(responder: responder)
         guard let responder else {
             publishFeedFocusSnapshot()
             return
@@ -513,6 +518,7 @@ final class MainWindowFocusController {
         guard let terminalPanel else { return false }
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
+        dockHost?.applyKeyboardFocusOwnership(responder: nil)
         publishFeedFocusSnapshot()
         workspace.focusPanel(terminalPanel.id)
         terminalPanel.hostedView.ensureFocus(
@@ -586,6 +592,7 @@ final class MainWindowFocusController {
         if clearUnavailableIntent, case .rightSidebar = intent {
             intent = nil
         }
+        dockHost?.applyKeyboardFocusOwnership(responder: nil)
         publishFeedFocusSnapshot()
         return false
     }

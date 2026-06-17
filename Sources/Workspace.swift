@@ -2644,9 +2644,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let splitDividerColor {
             return splitDividerColor
         }
-        var config = GhosttyConfig()
-        config.backgroundColor = backgroundColor
-        return config.resolvedSplitDividerColor
+        return GhosttyConfig.defaultSplitDividerColor(for: backgroundColor)
     }
 
     nonisolated static func bonsplitChromeColors(

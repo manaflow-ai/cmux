@@ -5,12 +5,12 @@
 17562	Sources/AppDelegate.swift
 16713	Sources/ContentView.swift
 14542	Sources/TerminalController.swift
-12641	Sources/Workspace.swift
+12639	Sources/Workspace.swift
 12613	Sources/Panels/BrowserPanel.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11782	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7925	Sources/Panels/BrowserPanelView.swift
+7946	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
@@ -24,7 +24,7 @@
 4921	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
-4227	Sources/BrowserWindowPortal.swift
+4321	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3903	cmuxTests/WindowAndDragTests.swift
@@ -70,7 +70,7 @@
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1366	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
-1309	Packages/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
+1310	Packages/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1276	cmuxTests/MobileHostAuthorizationTests.swift
 1257	Sources/Feed/FeedCoordinator.swift
@@ -86,9 +86,9 @@
 1087	Packages/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1038	Sources/RemoteTmuxController.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
+1006	Sources/DockPanelView.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
-985	Sources/DockPanelView.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
@@ -110,9 +110,9 @@
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
+780	Sources/MainWindowFocusController.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
-773	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift

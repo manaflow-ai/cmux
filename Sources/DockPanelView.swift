@@ -370,6 +370,15 @@ final class DockControlsStore: ObservableObject {
         control.focus()
     }
 
+    func applyKeyboardFocusedSurface(id surfaceId: UUID?) {
+        guard let surfaceId,
+              let control = controls.first(where: { $0.panel.id == surfaceId }) else {
+            focusedControlId = nil
+            return
+        }
+        focusedControlId = control.id
+    }
+
     func restartControl(id: String) {
         guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
         let oldControl = controls[index]
@@ -709,8 +718,6 @@ private struct DockControlsLayoutView: View {
                                 if let attachment = terminalAttachment(snapshot.id) {
                                     DockTerminalView(
                                         attachment: attachment,
-                                        isFocused: snapshot.isFocused,
-                                        activePaneBoundaryColor: dividerNSColor,
                                         onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
                                         onTriggerFlash: { onTriggerFlash(snapshot.id) }
                                     )
@@ -841,8 +848,6 @@ private struct DockControlSectionView<TerminalContent: View>: View {
 
 private struct DockTerminalView: View {
     let attachment: DockTerminalAttachment
-    let isFocused: Bool
-    let activePaneBoundaryColor: NSColor
     let onKeyboardFocusIntent: (NSWindow?) -> Void
     let onTriggerFlash: () -> Void
 
@@ -853,8 +858,6 @@ private struct DockTerminalView: View {
             isActive: true,
             isVisibleInUI: true,
             portalZPriority: 1,
-            showsActivePaneBoundary: isFocused,
-            activePaneBoundaryColor: activePaneBoundaryColor,
             searchState: attachment.searchState,
             reattachToken: attachment.reattachToken,
             onFocus: { _ in
@@ -934,12 +937,16 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
+        nsView.applyFocusedSurfaceId = { [weak store] surfaceId in
+            store?.applyKeyboardFocusedSurface(id: surfaceId)
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
+    var applyFocusedSurfaceId: ((UUID?) -> Void)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -948,12 +955,26 @@ final class DockKeyboardFocusView: NSView {
     func registerWithKeyboardFocusCoordinatorIfNeeded() { if let window { AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self) } }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        if responder === self { return true }
+        responder === self || rightSidebarDockSurfaceId(for: responder) != nil
+    }
+
+    func applyKeyboardFocusOwnership(responder: NSResponder?) {
+        guard let responder else {
+            applyFocusedSurfaceId?(nil)
+            return
+        }
+        applyFocusedSurfaceId?(rightSidebarDockSurfaceId(for: responder))
+    }
+
+    private func rightSidebarDockSurfaceId(for responder: NSResponder) -> UUID? {
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
-            return false
+            return nil
         }
-        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
+        guard GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId) else {
+            return nil
+        }
+        return surfaceId
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }

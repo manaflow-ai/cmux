@@ -61,6 +61,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    activePaneBoundaryColor: appearance.dividerNSColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
