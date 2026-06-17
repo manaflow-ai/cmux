@@ -16,12 +16,36 @@
   --cmux-diff-line-height: 20px;
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
-  --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-toolbar-bg: var(--cmux-diff-bg);
-  --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
-  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  --cmux-diff-hairline: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  --cmux-diff-chrome-bg: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 96%, var(--cmux-diff-fg)),
+    color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg))
+  );
+  --cmux-diff-toolbar-bg: color-mix(in lab, var(--cmux-diff-chrome-bg) 94%, transparent);
+  --cmux-diff-sidebar-bg: color-mix(in lab, var(--cmux-diff-chrome-bg) 96%, transparent);
+  --cmux-diff-card-bg: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg)),
+    color-mix(in lab, var(--cmux-diff-bg) 96%, var(--cmux-diff-fg))
+  );
+  --cmux-diff-card-header-bg: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg)),
+    color-mix(in lab, var(--cmux-diff-bg) 88%, var(--cmux-diff-fg))
+  );
+  --cmux-diff-card-border: color-mix(in lab, var(--cmux-diff-fg) 15%, transparent);
+  --cmux-diff-card-shadow: light-dark(
+    color-mix(in lab, #000 9%, transparent),
+    color-mix(in lab, #000 30%, transparent)
+  );
+  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  --cmux-diff-control-bg: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+  --cmux-diff-control-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  --cmux-diff-page-bg: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 94%, #6f7b8a),
+    color-mix(in lab, var(--cmux-diff-bg) 89%, #9aa6b5)
+  );
+  --cmux-diff-accent: light-dark(#667489, #aeb8c5);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
   /* Page fill for the diff surface. Opaque themes (background-opacity 1) paint
@@ -109,17 +133,19 @@ body {
   padding: 0;
   border-bottom: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-toolbar-bg);
+  box-shadow: 0 1px 0 color-mix(in lab, #fff 20%, transparent) inset;
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
+  backdrop-filter: saturate(160%) blur(18px);
 }
 #review-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   min-height: 38px;
-  padding: 6px 8px 4px 10px;
-  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  padding: 6px 8px 4px 9px;
+  border-bottom: 1px solid var(--cmux-diff-hairline);
   overflow: hidden;
 }
 .review-tab,
@@ -128,7 +154,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
   border-radius: 8px;
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
@@ -146,12 +172,15 @@ body {
   max-width: min(320px, 34vw);
 }
 .review-tab[aria-selected="true"] {
-  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  background: var(--cmux-diff-card-bg);
+  box-shadow: 0 1px 2px color-mix(in lab, #000 8%, transparent);
   color: var(--cmux-diff-fg);
 }
 .review-tab:hover,
 .review-tab-icon:hover {
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .review-tab span {
@@ -168,9 +197,9 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto minmax(132px, 0.6fr) auto;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 36px;
-  padding: 4px 6px 5px 10px;
+  padding: 4px 7px 5px 10px;
 }
 .toolbar-left,
 .toolbar-middle,
@@ -198,16 +227,16 @@ body {
 #base-select,
 #jump-select {
   appearance: none;
-  height: 24px;
+  height: 25px;
   min-width: 0;
   max-width: 100%;
   padding: 0 24px 0 9px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   border-radius: 6px;
   background:
     linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
     linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
-    color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+    var(--cmux-diff-control-bg);
   color: inherit;
   font: inherit;
 }
@@ -218,8 +247,8 @@ body {
 #repo-select:hover,
 #base-select:hover,
 #jump-select:hover {
-  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-  background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 17%, transparent);
+  background-color: var(--cmux-diff-control-hover-bg);
 }
 #source-select[hidden],
 #repo-select[hidden],
@@ -284,12 +313,12 @@ body {
   }
 }
 .toolbar-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
   border-radius: 6px;
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
@@ -298,8 +327,8 @@ body {
 }
 .toolbar-icon:hover,
 .toolbar-icon[aria-expanded="true"] {
-  border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 15%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .toolbar-icon[aria-pressed="true"] {
@@ -358,9 +387,9 @@ body {
 }
 #checks-status {
   padding-inline: 8px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
   border-radius: 7px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 4%, transparent);
+  background: var(--cmux-diff-control-bg);
   font-size: 12px;
 }
 .checks-dot {
@@ -387,9 +416,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
   border-radius: 8px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 4%, transparent);
+  background: var(--cmux-diff-control-bg);
   color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
   font: inherit;
   font-size: 13px;
@@ -398,12 +427,13 @@ body {
   white-space: nowrap;
 }
 .git-action-button-primary {
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-accent) 14%, var(--cmux-diff-control-bg));
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 20%, transparent);
   color: var(--cmux-diff-fg);
 }
 .git-action-button:hover:not(:disabled) {
   border-color: color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
 }
 .git-action-button:disabled {
   cursor: default;
@@ -416,10 +446,10 @@ body {
   right: 10px;
   min-width: 246px;
   padding: 8px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border: 1px solid var(--cmux-diff-card-border);
   border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  background: var(--cmux-diff-card-bg);
+  box-shadow: 0 16px 34px color-mix(in lab, #000 24%, transparent), 0 0 0 1px color-mix(in lab, #fff 12%, transparent) inset;
   z-index: 100;
 }
 #options-menu[hidden] {
@@ -428,7 +458,7 @@ body {
 .menu-separator {
   height: 1px;
   margin: 7px 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  background: var(--cmux-diff-hairline);
 }
 .menu-item {
   width: 100%;
@@ -446,7 +476,7 @@ body {
   padding: 0 7px;
 }
 .menu-item:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .menu-segment {
@@ -478,7 +508,7 @@ body {
 }
 .segment-button:hover,
 .segment-button[aria-pressed="true"] {
-  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .menu-item:disabled {
@@ -526,6 +556,8 @@ body[data-status-only="true"] #content {
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-sidebar-bg);
+  box-shadow: 1px 0 0 color-mix(in lab, #fff 16%, transparent) inset;
+  backdrop-filter: saturate(150%) blur(16px);
   contain: strict;
   opacity: 1;
   transition: opacity 100ms ease, visibility 0s linear 0s;
@@ -552,7 +584,7 @@ body[data-status-only="true"] #content {
   left: 0;
   width: 1px;
   content: "";
-  background: transparent;
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
 }
 body[data-files-hidden="true"] #files-sidebar {
   opacity: 0;
@@ -571,8 +603,8 @@ body[data-status-only="true"] #files-sidebar {
   justify-content: space-between;
   min-height: 30px;
   gap: 8px;
-  padding: 0 7px 0 10px;
-  border-bottom: 1px solid var(--cmux-diff-border);
+  padding: 0 7px 0 11px;
+  border-bottom: 1px solid var(--cmux-diff-hairline);
   background: var(--cmux-diff-sidebar-bg);
   color: var(--cmux-diff-text-muted);
 }
@@ -603,7 +635,7 @@ body[data-status-only="true"] #files-sidebar {
 }
 #file-search-toggle:hover,
 #file-search-toggle[aria-pressed="true"] {
-  background: var(--cmux-diff-hover-bg);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 #file-search-toggle svg {
@@ -620,25 +652,25 @@ body[data-status-only="true"] #files-sidebar {
   min-height: 0;
   overflow: hidden;
   background: var(--cmux-diff-sidebar-bg);
-  padding: 6px 4px 6px 6px;
+  padding: 7px 5px 7px 7px;
   --trees-bg-override: var(--cmux-diff-sidebar-bg);
   --trees-fg-override: var(--cmux-diff-text-subtle);
   --trees-fg-muted-override: var(--cmux-diff-text-muted);
-  --trees-bg-muted-override: var(--cmux-diff-hover-bg);
-  --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  --trees-bg-muted-override: var(--cmux-diff-control-hover-bg);
+  --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-accent) 13%, var(--cmux-diff-control-bg));
   --trees-selected-fg-override: var(--cmux-diff-fg);
-  --trees-selected-focused-border-color-override: transparent;
-  --trees-border-color-override: var(--cmux-diff-border);
+  --trees-selected-focused-border-color-override: color-mix(in lab, var(--cmux-diff-accent) 28%, transparent);
+  --trees-border-color-override: var(--cmux-diff-hairline);
   --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
   --trees-font-family-override: var(--cmux-diff-ui-font-family);
   --trees-font-size-override: var(--cmux-diff-ui-font-size);
   --trees-font-weight-semibold-override: 500;
   --trees-density-override: 0.78;
-  --trees-border-radius-override: 5px;
-  --trees-item-padding-x-override: 7px;
+  --trees-border-radius-override: 6px;
+  --trees-item-padding-x-override: 8px;
   --trees-item-margin-x-override: 0;
   --trees-padding-inline-override: 8px;
-  --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  --trees-search-bg-override: var(--cmux-diff-card-bg);
   --trees-status-added-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
   --trees-status-modified-override: var(--cmux-diff-accent);
   --trees-status-renamed-override: light-dark(#a26300, #ffd166);
@@ -673,7 +705,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 }
 .file-entry:hover,
 .file-entry[aria-current="true"] {
-  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
 }
 .file-status {
   width: 17px;
@@ -721,7 +753,12 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   overflow-anchor: none;
   contain: strict;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: transparent;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in lab, var(--cmux-diff-page-bg) 96%, var(--cmux-diff-bg)),
+      var(--cmux-diff-page-bg)
+    );
 }
 .code-view-root {
   width: 100%;
@@ -739,7 +776,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
      full-bleed slabs. The virtualizer lays items out as in-flow blocks with
      `width: 100%`, so horizontal padding on the scroller insets every card
      without touching the vertical height measurement it relies on. */
-  padding-inline: 10px;
+  padding-inline: 14px;
+  padding-block-start: 2px;
 }
 @media (max-width: 520px) {
   #content,
@@ -770,7 +808,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
   min-width: 0;
   height: 30px;
@@ -792,7 +830,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   color: inherit;
   cursor: pointer;
   font: inherit;
-  padding: 0 4px 0 0;
+  padding: 0 5px 0 0;
   text-align: left;
 }
 .cmux-fileheader-toggle:hover {
@@ -824,6 +862,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   justify-content: center;
   border-radius: 5px;
   color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
 }
 .cmux-fileheader-caret svg {
   transition: transform 100ms ease;
@@ -895,7 +934,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   letter-spacing: 0;
   padding: 1.5px 6px;
   border-radius: 5px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
 }
 .cmux-fileheader-add {
   color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
@@ -920,7 +960,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 }
 .cmux-fileheader-open:hover,
 .cmux-fileheader-open:focus-visible {
-  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
   outline: none;
 }
@@ -942,7 +982,10 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
      between cards comes from the renderer layout (see pierre-options.ts), which
      leaves room for the 1px outset ring. */
   border-radius: 8px;
-  box-shadow: 0 0 0 1px color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
+  background: var(--cmux-diff-card-bg);
+  box-shadow:
+    0 0 0 1px var(--cmux-diff-card-border),
+    0 8px 22px var(--cmux-diff-card-shadow);
   overflow: clip;
   contain: layout paint style;
 }
@@ -977,9 +1020,10 @@ body[data-status-only="true"] #loading-layer {
   gap: 10px;
   max-width: calc(100% - 24px);
   padding: 8px 12px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border: 1px solid var(--cmux-diff-card-border);
   border-radius: 7px;
-  background: var(--cmux-diff-bg);
+  background: var(--cmux-diff-card-bg);
+  box-shadow: 0 8px 20px var(--cmux-diff-card-shadow);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
   line-height: var(--cmux-diff-ui-line-height);
@@ -1029,8 +1073,9 @@ body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  background: var(--cmux-diff-card-bg);
+  border: 1px solid var(--cmux-diff-card-border);
+  box-shadow: 0 8px 20px var(--cmux-diff-card-shadow);
 }
 body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
   content: "";
@@ -1073,7 +1118,7 @@ body[data-loading="true"] #status::before {
   flex-direction: column;
   min-height: 0;
   max-height: 40%;
-  border-top: 1px solid var(--cmux-diff-border);
+  border-top: 1px solid var(--cmux-diff-hairline);
   background: var(--cmux-diff-sidebar-bg);
 }
 #comments-header {
@@ -1112,7 +1157,7 @@ body[data-loading="true"] #status::before {
   cursor: pointer;
 }
 .comment-entry:hover {
-  background: var(--cmux-diff-hover-bg);
+  background: var(--cmux-diff-control-hover-bg);
 }
 .comment-entry-header {
   display: flex;
@@ -1151,11 +1196,8 @@ body[data-loading="true"] #status::before {
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 8px;
-  background: light-dark(
-    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
-    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
-  );
-  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
+  background: var(--cmux-diff-card-bg);
+  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 8px 18px color-mix(in lab, #000 7%, transparent);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
@@ -1203,7 +1245,7 @@ body[data-loading="true"] #status::before {
   cursor: pointer;
 }
 .comment-button:hover:not(:disabled) {
-  background: var(--cmux-diff-hover-bg);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .comment-button:disabled {
@@ -1251,7 +1293,7 @@ body[data-loading="true"] #status::before {
   cursor: pointer;
 }
 .comment-card-action:hover {
-  background: var(--cmux-diff-hover-bg);
+  background: var(--cmux-diff-control-hover-bg);
   color: var(--cmux-diff-fg);
 }
 .comment-card-message {

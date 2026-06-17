@@ -6,12 +6,11 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
 
   expect(css).toContain("--diffs-light-bg: var(--cmux-diff-bg)");
   expect(css).toContain("--diffs-dark-bg: var(--cmux-diff-bg)");
-  expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent)");
-  expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-bg)");
-  expect(css).toContain("--diffs-bg-context-gutter-override: var(--cmux-diff-bg)");
-  expect(css).toContain("background-color: var(--cmux-diff-bg)");
-  expect(css).toContain("--cmux-diff-surface-bg: light-dark(");
-  expect(css).toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
+  expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 10%, transparent)");
+  expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-card-bg)");
+  expect(css).toContain("--diffs-bg-context-gutter-override: color-mix(in lab, var(--cmux-diff-card-bg) 94%, var(--cmux-diff-fg))");
+  expect(css).toContain("background-color: var(--cmux-diff-card-bg)");
+  expect(css).toContain("--cmux-diff-surface-bg: var(--cmux-diff-card-header-bg)");
   expect(css).not.toContain("[data-diffs-header][data-sticky]");
   // Soft, desaturated full-line tints (Graphite-style translucent fills).
   expect(css).toContain("--diffs-bg-addition-override: light-dark(");
@@ -20,8 +19,8 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   // edited tokens stand out, not weaker (the library default is inverted).
   expect(css).toContain("--diffs-bg-addition-emphasis-override: light-dark(");
   expect(css).toContain("--diffs-bg-deletion-emphasis-override: light-dark(");
-  expect(css).toContain("color-mix(in srgb, var(--diffs-addition-base) 42%, transparent)");
-  expect(css).toContain("color-mix(in srgb, var(--diffs-deletion-base) 42%, transparent)");
+  expect(css).toContain("color-mix(in lab, var(--diffs-addition-base) 52%, transparent)");
+  expect(css).toContain("color-mix(in lab, var(--diffs-deletion-base) 52%, transparent)");
   // Muted, low-contrast line-number gutter.
   expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
@@ -30,7 +29,7 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
   // layout does not drift, and the divider is a non-layout-affecting inset
   // shadow (a real border-bottom would add a pixel the metric does not know).
   expect(css).toContain("height: 44px");
-  expect(css).toContain("box-shadow: inset 0 -1px 0 var(--cmux-diff-border)");
+  expect(css).toContain("box-shadow: inset 0 -1px 0 var(--cmux-diff-hairline)");
   expect(css).not.toContain("border-bottom: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
   // The custom header band flex-centers the projected slot (the header itself is

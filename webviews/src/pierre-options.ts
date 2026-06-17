@@ -75,14 +75,11 @@ export function codeViewUnsafeCSS(): string {
     :host {
       --diffs-light-bg: var(--cmux-diff-bg);
       --diffs-dark-bg: var(--cmux-diff-bg);
-      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-      --diffs-bg-context-override: var(--cmux-diff-bg);
-      --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
-      --cmux-diff-surface-bg: light-dark(
-        color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
-        color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
-      );
-      --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
+      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 10%, transparent);
+      --diffs-bg-context-override: var(--cmux-diff-card-bg);
+      --diffs-bg-context-gutter-override: color-mix(in lab, var(--cmux-diff-card-bg) 94%, var(--cmux-diff-fg));
+      --cmux-diff-surface-bg: var(--cmux-diff-card-header-bg);
+      --diffs-bg-separator-override: color-mix(in lab, var(--cmux-diff-card-bg) 96%, var(--cmux-diff-fg));
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -99,26 +96,26 @@ export function codeViewUnsafeCSS(): string {
          translucent diff fills. The library default makes the emphasis tint
          *weaker* than the line tint; invert that so changed tokens stand out. */
       --diffs-bg-addition-override: light-dark(
-        color-mix(in srgb, var(--diffs-addition-base) 15%, transparent),
-        color-mix(in srgb, var(--diffs-addition-base) 20%, transparent)
+        color-mix(in lab, var(--diffs-addition-base) 18%, transparent),
+        color-mix(in lab, var(--diffs-addition-base) 24%, transparent)
       );
       --diffs-bg-deletion-override: light-dark(
-        color-mix(in srgb, var(--diffs-deletion-base) 15%, transparent),
-        color-mix(in srgb, var(--diffs-deletion-base) 20%, transparent)
+        color-mix(in lab, var(--diffs-deletion-base) 18%, transparent),
+        color-mix(in lab, var(--diffs-deletion-base) 24%, transparent)
       );
       --diffs-bg-addition-emphasis-override: light-dark(
-        color-mix(in srgb, var(--diffs-addition-base) 38%, transparent),
-        color-mix(in srgb, var(--diffs-addition-base) 42%, transparent)
+        color-mix(in lab, var(--diffs-addition-base) 44%, transparent),
+        color-mix(in lab, var(--diffs-addition-base) 52%, transparent)
       );
       --diffs-bg-deletion-emphasis-override: light-dark(
-        color-mix(in srgb, var(--diffs-deletion-base) 38%, transparent),
-        color-mix(in srgb, var(--diffs-deletion-base) 42%, transparent)
+        color-mix(in lab, var(--diffs-deletion-base) 44%, transparent),
+        color-mix(in lab, var(--diffs-deletion-base) 52%, transparent)
       );
     }
     :host,
     pre,
     code {
-      background-color: var(--cmux-diff-bg);
+      background-color: var(--cmux-diff-card-bg);
     }
     [data-diffs-header] {
       container-type: scroll-state;
@@ -135,7 +132,7 @@ export function codeViewUnsafeCSS(): string {
       display: flex;
       align-items: center;
       background-color: var(--cmux-diff-surface-bg) !important;
-      box-shadow: inset 0 -1px 0 var(--cmux-diff-border);
+      box-shadow: inset 0 -1px 0 var(--cmux-diff-hairline);
     }
     /* The custom header (renderDiffFileHeader) is projected through this slot
        wrapper, which @pierre/diffs creates in the *light* DOM — so the wrapper
@@ -162,6 +159,10 @@ export function codeViewUnsafeCSS(): string {
         var(--diffs-bg-buffer) 4.242px,
         var(--diffs-bg-buffer) 5.656px
       );
+    }
+    [data-line-type='change-addition'] [data-column-number],
+    [data-line-type='change-deletion'] [data-column-number] {
+      font-weight: 500;
     }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
