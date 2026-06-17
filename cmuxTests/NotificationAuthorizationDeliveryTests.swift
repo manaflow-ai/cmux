@@ -153,4 +153,48 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(deliveredNotificationIDs.isEmpty)
         #expect(localFeedbackNotificationIDs.isEmpty)
     }
+
+    @Test func staleDeniedAuthorizationSuppressesRecordlessNonDesktopFeedback() async {
+        let store = TerminalNotificationStore.shared
+        let originalAuthorizationState = store.authorizationState
+        var statusProviderCalls = 0
+        var effects = TerminalNotificationPolicyEffects()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.desktop = false
+        effects.sound = true
+        effects.command = true
+        effects.paneFlash = false
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Recordless",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+
+        store.setAuthorizationStateForTesting(.unknown)
+        store.configureNotificationAuthorizationStatusProviderForTesting { completion in
+            statusProviderCalls += 1
+            completion(.denied)
+        }
+        defer {
+            store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.setAuthorizationStateForTesting(originalAuthorizationState)
+        }
+
+        store.scheduleUserNotificationForTesting(notification, effects: effects)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        #expect(statusProviderCalls == 1)
+        #expect(store.authorizationState == .denied)
+    }
 }

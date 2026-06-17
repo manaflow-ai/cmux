@@ -1766,12 +1766,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects
     ) {
         guard effects.desktop else {
-            playLocalNotificationFeedback(
-                title: resolvedNotificationTitle(for: notification),
-                subtitle: notification.subtitle,
-                body: notification.body,
-                effects: effects
-            )
+            playSuppressedNotificationFeedback(for: notification, effects: effects)
             return
         }
 
@@ -2242,6 +2237,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func setAuthorizationStateForTesting(_ state: NotificationAuthorizationState) { authorizationState = state }
+
+    func scheduleUserNotificationForTesting(_ notification: TerminalNotification, effects: TerminalNotificationPolicyEffects) {
+        scheduleUserNotification(notification, effects: effects)
+    }
 
     func promptToEnableNotificationsForTesting() {
         promptToEnableNotifications()
