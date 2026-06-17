@@ -8,17 +8,17 @@
 12651	Sources/Workspace.swift
 12613	Sources/Panels/BrowserPanel.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12000	Sources/GhosttyTerminalView.swift
+12012	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7925	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6216	cmuxTests/GhosttyConfigTests.swift
-6155	Sources/TabManager.swift
+6156	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
-5941	cmuxTests/TerminalAndGhosttyTests.swift
+5950	cmuxTests/TerminalAndGhosttyTests.swift
 5558	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4516	Sources/cmuxApp.swift
@@ -122,6 +122,7 @@
 749	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
 746	Sources/App/MenuBarExtraController.swift
 739	Sources/RightSidebarPanelView.swift
+739	cmuxTests/TerminalNotificationClearAllTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
@@ -132,7 +133,6 @@
 710	Sources/TerminalSSHSessionDetector.swift
 707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
-699	cmuxTests/TerminalNotificationClearAllTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	Sources/NotificationSoundSettings.swift
