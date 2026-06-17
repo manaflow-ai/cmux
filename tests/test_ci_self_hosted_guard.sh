@@ -713,6 +713,13 @@ check_app_detectors_include_root_entitlements() {
 }
 
 check_pr_file_api_cap_fails_open() {
+  for file in "$CI_FILE" "$PERF_ACTIVATION_FILE" "$ROOT_DIR/.github/workflows/test-ios.yml"; do
+    if ! grep -Fq '(.previous_filename // "")' "$file" || ! grep -Fq 'changed-file-rows.tsv' "$file"; then
+      echo "FAIL: $(basename "$file") PR file detector must include previous_filename while preserving one row per GitHub file object"
+      exit 1
+    fi
+  done
+
   if ! awk '
     /PR file list reached GitHub API cap/ { saw_cap=1 }
     /echo "app=true"/ { saw_app=1 }
@@ -744,7 +751,7 @@ check_pr_file_api_cap_fails_open() {
     exit 1
   fi
 
-  echo "PASS: PR file detectors fail open at the GitHub API cap"
+  echo "PASS: PR file detectors include rename sources and fail open at the GitHub API cap"
 }
 
 check_activation_benchmark_deflake() {
