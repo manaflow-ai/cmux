@@ -21,6 +21,7 @@ def main() -> int:
         f"""
         import sys
         import termios
+        import time
         import tty
 
         prompt = {PROMPT!r}
@@ -31,7 +32,10 @@ def main() -> int:
             for _ in range(2):
                 print(prompt, flush=True)
                 ch = sys.stdin.read(1)
+                while ch in ("\\n", "\\r"):
+                    ch = sys.stdin.read(1)
                 print('received=' + ch, flush=True)
+                time.sleep(0.05)
                 termios.tcflush(fd, termios.TCIFLUSH)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -54,6 +58,39 @@ def main() -> int:
     if result.stdout.count("received=q") != 2:
         print(result.stdout, end="")
         print("FAIL: helper did not answer each crash prompt with q")
+        return 1
+
+    line_buffered_child = textwrap.dedent(
+        f"""
+        import sys
+
+        prompt = {PROMPT!r}
+        print(prompt, flush=True)
+        line = sys.stdin.readline()
+        print('line_received=' + line.strip(), flush=True)
+        raise SystemExit(9)
+        """
+    )
+    line_buffered_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", line_buffered_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "1",
+        },
+    )
+    if line_buffered_result.returncode != 9:
+        print(line_buffered_result.stdout, end="")
+        print(line_buffered_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: expected line-buffered prompt child exit 9, got {line_buffered_result.returncode}")
+        return 1
+    if "line_received=q" not in line_buffered_result.stdout:
+        print(line_buffered_result.stdout, end="")
+        print("FAIL: helper did not answer a line-buffered crash prompt with q")
         return 1
 
     timeout_child = textwrap.dedent(

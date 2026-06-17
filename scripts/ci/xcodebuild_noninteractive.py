@@ -160,7 +160,7 @@ def main() -> int:
         if SWIFT_CRASH_PROMPT in prompt_window:
             # The Swift crash backtracer asks for one key. Send q to choose the
             # noninteractive quit path and let xcodebuild continue reporting.
-            os.write(fd, b"q")
+            os.write(fd, b"q\n")
             prompt_window = b""
 
     if timed_out:

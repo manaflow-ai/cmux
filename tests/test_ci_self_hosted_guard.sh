@@ -229,11 +229,11 @@ check_app_hosted_xctest_socket_isolation() {
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
 	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"360"/ { saw_idle_timeout=1 }
-	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"2"/ { saw_attempts=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"3"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
 	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-focused-regressions must use the app Xcode runner, unique CMUX_SOCKET_PATH, override, bounded app-host idle timeout, two attempts, and the app-host wrapper"
+	    echo "FAIL: xctest-focused-regressions must use the app Xcode runner, unique CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, and the app-host wrapper"
 	    exit 1
 	  fi
 
@@ -244,11 +244,11 @@ check_app_hosted_xctest_socket_isolation() {
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
 	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"360"/ { saw_idle_timeout=1 }
-	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"2"/ { saw_attempts=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"3"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
 	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-shard must use the app Xcode runner, per-shard CMUX_SOCKET_PATH, override, bounded app-host idle timeout, two attempts, and the app-host wrapper"
+	    echo "FAIL: xctest-shard must use the app Xcode runner, per-shard CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, and the app-host wrapper"
 	    exit 1
 	  fi
 
