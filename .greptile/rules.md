@@ -21,6 +21,7 @@ Review production Swift and runtime changes for:
 - Expensive synchronous index/disk/syscall loads (such as `RestorableAgentSessionIndex.load()`) on the main actor or interactive paths instead of the off-main cached accessor.
 - Substituting a cached value for a fresh authoritative read in persistence/history/undo paths without handling cold and stale caches.
 - Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
+- SwiftPM dependency changes that ignore or omit cmux-owned `Package.resolved` lockfiles.
 
 ## Runtime No Hacky Sleeps
 
@@ -57,3 +58,9 @@ Pass for tiny fixed-size collections, tests, benchmark harnesses, existing ineff
 For every changed path, flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason.
 
 Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.
+
+## SwiftPM Package.resolved
+
+For SwiftPM package, Xcode project, `.gitignore`, workflow, and dependency changes, flag cmux-owned package `.gitignore` files that ignore `Package.resolved`, external dependency resolution changes that omit the relevant package-local `Package.resolved` diff, or Xcode project package-reference changes that omit the root Xcode `Package.resolved` diff.
+
+The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.
