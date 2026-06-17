@@ -11,6 +11,15 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWindowPortalRegistryNotificationTests {
+    private final class CountingContentView: NSView {
+        var layoutPassCount = 0
+
+        override func layout() {
+            layoutPassCount += 1
+            super.layout()
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -87,6 +96,70 @@ struct BrowserWindowPortalRegistryNotificationTests {
         #expect(
             notificationCount == 3,
             "A repeated hide after state and presentation are already hidden should not notify"
+        )
+    }
+
+    @Test func unchangedPortalVisibilityDoesNotDriveWorkspaceLayoutFollowUp() throws {
+        let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let window = NSWindow(
+            contentRect: contentView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        contentView.layoutPassCount = 0
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        let layoutObserver = NotificationCenter.default.addObserver(
+            forName: .browserPortalRegistryDidChange,
+            object: webView,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                contentView.needsLayout = true
+                workspace.debugBeginReparentFocusSuppressionForTesting(
+                    panel.hostedView,
+                    reason: "workspace.browserPortalLayoutHotpathTest"
+                )
+                workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(layoutObserver) }
+
+        NotificationCenter.default.post(name: .browserPortalRegistryDidChange, object: webView)
+        #expect(
+            contentView.layoutPassCount == 1,
+            "A browser portal registry notification should drive a Workspace layout follow-up pass"
+        )
+
+        let layoutCountBeforeNoOpBurst = contentView.layoutPassCount
+        for _ in 0..<50 {
+            BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        }
+        advanceAnimations()
+        #expect(
+            contentView.layoutPassCount == layoutCountBeforeNoOpBurst,
+            "Reapplying unchanged browser portal visibility snapshots must not force Workspace layout passes"
+        )
+
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
+        #expect(
+            contentView.layoutPassCount == layoutCountBeforeNoOpBurst + 1,
+            "A real browser portal visibility change should still wake Workspace layout follow-up"
         )
     }
 }
