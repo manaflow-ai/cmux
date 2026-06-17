@@ -21,6 +21,11 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    /// Invoked when the view leaves its window (the detach half of a pane
+    /// re-parent). Lets the renderer coordinator record whether the document
+    /// was healthy at detach time so re-entry recovery can tell a detach
+    /// artifact apart from an attached crash loop.
+    var onLeaveWindow: (() -> Void)?
     /// Invoked when the view re-enters a window after being detached. Lets the
     /// renderer coordinator recover content WebKit dropped while the view was
     /// out of the window (e.g. a pane drag re-parented the hosting views).
@@ -46,6 +51,7 @@ final class MarkdownWebView: WKWebView {
             needsRenderingReattach = true
             callVoidSelectorIfAvailable("viewDidHide")
             callVoidSelectorIfAvailable("_exitInWindow")
+            onLeaveWindow?()
         } else {
             reattachRenderingState()
             onReenterWindow?()
