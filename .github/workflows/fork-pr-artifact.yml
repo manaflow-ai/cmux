@@ -18,7 +18,19 @@ name: Fork PR artifact
 # a bare object, never a mutable ref), so a contributor cannot swap in different
 # code after approval. The build runs unsigned (CODE_SIGNING_ALLOWED=NO) with no
 # release secrets, and checkout uses `persist-credentials: false` so the
-# fork-authored build scripts never see the workflow token.
+# fork-authored build scripts never see the git credential.
+#
+# Cache isolation: this workflow uses NO Actions cache (not even restore-only).
+# ACTIONS_RUNTIME_TOKEN is present in any job that uploads artifacts, and a job
+# step can read it, so fork-authored build code could otherwise call the cache
+# API directly to write attacker-controlled entries into a cache scope that
+# trusted CI/release builds restore (spm-*, zig-packages-*, ghosttykit-*). By
+# never touching the shared cache namespace, this workflow's runs cannot seed
+# those caches; the build just runs cold. The residual exposure — that fork code
+# runs at all with a runtime token in the trusted repo context — is inherent to
+# building any code in Actions and is controlled by the mandatory maintainer
+# review of the exact approved SHA (including build scripts and Package.swift)
+# before dispatch.
 
 on:
   workflow_dispatch:
@@ -94,17 +106,13 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      # Restore-only: this workflow runs fork-authored build scripts, so it must
-      # never SAVE caches. A save step would persist attacker-controllable cache
-      # contents under keys that trusted CI/release builds later restore (cache
-      # poisoning). Reading existing trusted caches is safe; writing is not.
-      - name: Restore Zig packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
-
+      # No Actions cache: this job runs fork-authored build scripts. Even a
+      # restore-only cache action is not enough, because ACTIONS_RUNTIME_TOKEN is
+      # present in the job (artifact upload needs it) and fork code could call
+      # the cache API directly to write attacker-controlled entries into a cache
+      # scope that trusted CI/release builds restore (e.g. spm-*, zig-packages-*,
+      # ghosttykit-*). So this workflow never touches the shared cache namespace
+      # at all and rebuilds cold. See SECURITY note at the top of this file.
       - name: Build universal Ghostty CLI helper
         run: |
           set -euo pipefail
@@ -162,37 +170,16 @@ jobs:
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Restore-only (see Zig cache note above): never save fork-built caches
-      # under keys trusted builds restore.
-      - name: Restore GhosttyKit.xcframework
-        id: cache-ghosttykit-release
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
-
+      # No Actions cache here either (see the cache note in the helper job and
+      # the SECURITY note at the top): always download the pre-built framework
+      # fresh rather than restoring it from the shared cache namespace.
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
-
-      # Restore-only (see Zig cache note above): never save fork-built caches
-      # under keys trusted builds restore.
-      - name: Restore Swift packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .spm-cache
-          key: spm-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: |
-            spm-release-
-            spm-
-
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Build universal app (Release)
         run: |

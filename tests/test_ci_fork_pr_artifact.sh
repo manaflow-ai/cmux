@@ -63,14 +63,15 @@ fi
 grep -Fq 'CODE_SIGNING_ALLOWED=NO' "$WF" \
   || fail "app build must stay unsigned (CODE_SIGNING_ALLOWED=NO)"
 
-# 5b. Caches must be restore-only. The save-capable actions/cache@ action would
-#     persist fork-built cache contents under keys trusted CI/release builds
-#     restore (cache poisoning). This workflow must use actions/cache/restore@.
-if grep -Eq 'uses:[[:space:]]*actions/cache@' "$WF"; then
-  fail "fork build must not use the save-capable actions/cache@; use actions/cache/restore@ (restore-only)"
+# 5b. No Actions cache at all. ACTIONS_RUNTIME_TOKEN is present in any job that
+#     uploads artifacts, so even a restore-only cache action is not enough —
+#     fork-authored build code could call the cache API directly and poison a
+#     cache scope that trusted CI/release builds restore (spm-*, zig-packages-*,
+#     ghosttykit-*). This workflow must never reference the shared cache
+#     namespace; it rebuilds cold instead.
+if grep -Eq 'uses:[[:space:]]*actions/cache' "$WF"; then
+  fail "fork build must not use any actions/cache action (cache poisoning risk); build cold instead"
 fi
-grep -Eq 'uses:[[:space:]]*actions/cache/restore@' "$WF" \
-  || fail "fork build must restore caches via actions/cache/restore@ (restore-only)"
 
 # 5c. The artifact must be release-equivalent: assert the app was built against
 #     the macOS 26 SDK (matches CI's release-build), so runner/Xcode drift
