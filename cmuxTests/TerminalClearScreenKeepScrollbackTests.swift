@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import Testing
 import CmuxTerminal
@@ -27,6 +28,21 @@ struct TerminalClearScreenKeepScrollbackTests {
         let window: NSWindow
         let hostedView: GhosttySurfaceScrollView
         let surfaceView: GhosttyNSView
+    }
+
+    @Test
+    func remappedDefaultShortcutDoesNotTriggerStaleMenuSuppression() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let event = try #require(makeKeyDownEvent(
+            key: "k",
+            modifiers: [.command, .shift],
+            keyCode: UInt16(kVK_ANSI_K),
+            windowNumber: 0
+        ))
+
+        withTemporaryShortcut(action: .clearScreenKeepScrollback, shortcut: .unbound) {
+            #expect(!appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event))
+        }
     }
 
     @Test
@@ -189,5 +205,43 @@ struct TerminalClearScreenKeepScrollbackTests {
 
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        windowNumber: Int
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+
+    private func withTemporaryShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut? = nil,
+        _ body: () -> Void
+    ) {
+        let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: action)
+            }
+        }
+        KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        body()
     }
 }
