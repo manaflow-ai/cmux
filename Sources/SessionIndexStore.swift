@@ -150,6 +150,8 @@ struct SectionKey: Hashable {
 
     static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
+
+    var isDirectory: Bool { raw.hasPrefix("dir:") }
 }
 
 struct IndexSection: Identifiable, Equatable {
@@ -159,6 +161,11 @@ struct IndexSection: Identifiable, Equatable {
     let entries: [SessionEntry]
 
     var id: SectionKey { key }
+
+    /// Whether to render the "Show more" affordance for this section.
+    func shouldOfferShowMore(rowLimit: Int) -> Bool {
+        entries.count > rowLimit
+    }
 }
 
 enum SectionIcon: Equatable {
