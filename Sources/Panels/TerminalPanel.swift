@@ -4,6 +4,7 @@ import Combine
 import AppKit
 import Bonsplit
 import CmuxTerminal
+import CmuxWorkspaceWindow
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot

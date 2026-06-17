@@ -7,14 +7,6 @@ import Foundation
 /// `chat.message` events to subscribed mobile clients.
 @MainActor
 final class AgentChatTranscriptService {
-    /// Process-wide instance, mirroring the sibling mobile host services
-    /// (`MobileHostService.shared`, `MobileTerminalRenderObserver.shared`)
-    /// that the socket dispatch reaches statically. lint:allow
-    static let shared = AgentChatTranscriptService(
-        registry: AgentChatSessionRegistry(),
-        resolver: AgentChatTranscriptResolver()
-    )
-
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
 
@@ -32,17 +24,25 @@ final class AgentChatTranscriptService {
     /// title-detected claude has not yet written its transcript; a successful
     /// adoption removes the entry.
     private var detectionScanAt: [String: Date] = [:]
+    private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
     private static let detectionScanThrottle: TimeInterval = 4
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
-    /// Creates the service.
+    /// Creates the service with a hook-store-backed registry.
+    ///
+    /// - Parameter resolver: Transcript path resolver.
+    convenience init(resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()) {
+        self.init(registry: AgentChatSessionRegistry(), resolver: resolver)
+    }
+
+    /// Creates the service with explicit dependencies.
     ///
     /// - Parameters:
-    ///   - registry: Session registry; defaults to a hook-store-backed one.
+    ///   - registry: Session registry.
     ///   - resolver: Transcript path resolver.
     init(
         registry: AgentChatSessionRegistry,
-        resolver: AgentChatTranscriptResolver
+        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
     ) {
         self.registry = registry
         self.resolver = resolver
@@ -53,9 +53,13 @@ final class AgentChatTranscriptService {
 
     /// Seeds the session registry from the on-disk hook stores. Call once
     /// at app startup.
-    func start() {
+    ///
+    /// - Parameter adoptDetectedAgentSessions: Composition-root callback that
+    ///   adopts a title-detected agent for the workspace whose title changed.
+    func start(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
+        guard ghosttyTitleSubscription == nil else { return }
         registry.seedFromHookStores()
-        observeAgentTitleChanges()
+        observeAgentTitleChanges(adoptDetectedAgentSessions: adoptDetectedAgentSessions)
     }
 
     /// Watches terminal title changes so a coding agent launched without a
@@ -63,20 +67,12 @@ final class AgentChatTranscriptService {
     /// adopted the instant its terminal title becomes the agent's (e.g.
     /// "✳ Claude Code"), not only when the workspace is next opened. Adoption
     /// emits a descriptor change, which pushes the toggle to listening phones.
-    private func observeAgentTitleChanges() {
-        NotificationCenter.default.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  let title = notification.userInfo?[GhosttyNotificationKey.title] as? String,
-                  title.lowercased().contains("claude") else {
+    private func observeAgentTitleChanges(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
+        ghosttyTitleSubscription = GhosttyTitleChangeSubscription { change in
+            guard change.title.lowercased().contains("claude") else {
                 return
             }
-            MainActor.assumeIsolated {
-                TerminalController.shared.adoptDetectedAgentSessions(workspaceID: tabId.uuidString)
-            }
+            adoptDetectedAgentSessions(change.tabId.uuidString)
         }
     }
 
