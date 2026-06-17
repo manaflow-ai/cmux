@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 @MainActor
 extension WindowGlassEffect {
