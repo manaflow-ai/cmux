@@ -152,8 +152,11 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Agent-chat toggle stays a top-level button (shown only when the
+                // visible tab has a session), sitting where New Workspace used to
+                // be — next to the terminal picker. New Workspace moved into the
+                // picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -249,8 +252,11 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Agent-chat toggle stays a top-level button (shown only when the
+                // visible tab has a session), sitting where New Workspace used to
+                // be — next to the terminal picker. New Workspace moved into the
+                // picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -362,8 +368,11 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Agent-chat toggle stays a top-level button (shown only when the
+                // visible tab has a session), sitting where New Workspace used to
+                // be — next to the terminal picker. New Workspace moved into the
+                // picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -462,6 +471,23 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        // Mark the current workspace read/unread from the terminal-icon menu,
+        // mirroring the workspace list's swipe action. Only when the Mac supports
+        // read-state actions, so it stays hidden on older Macs.
+        if store.supportsWorkspaceReadStateActions {
+            Section {
+                Button(action: toggleWorkspaceReadStateFromMenu) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
+            }
         }
 
         if closeWorkspace != nil {
@@ -684,6 +710,17 @@ struct WorkspaceDetailView: View {
 
     private func confirmCloseWorkspaceFromMenu() {
         closeWorkspace?(workspace.id)
+    }
+
+    /// Toggle the current workspace's read state on the Mac from the picker menu.
+    /// Flips relative to the workspace's current `hasUnread`; the authoritative
+    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
+    /// count.
+    private func toggleWorkspaceReadStateFromMenu() {
+        let store = store
+        let id = workspace.id
+        let markUnread = !workspace.hasUnread
+        Task { await store.setWorkspaceUnread(id: id, markUnread) }
     }
 
     private func createTerminalFromToolbar() {
