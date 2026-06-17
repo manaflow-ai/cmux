@@ -278,9 +278,10 @@ final class AgentChatSessionRegistry {
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
-        case .subagentStop:
-            // A Task subagent finishing says nothing about the parent
-            // session's activity; keep the current state.
+        case .subagentStart, .subagentStop, .preCompact, .postCompact:
+            // Subagent lifecycle and context-compaction telemetry say nothing
+            // definitive about the parent session's own activity; keep the
+            // current state rather than flipping it.
             return previous
         case .sessionEnd:
             return .ended

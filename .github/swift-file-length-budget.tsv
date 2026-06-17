@@ -1,9 +1,9 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34475	CLI/cmux.swift
-17583	Sources/AppDelegate.swift
-15920	Sources/ContentView.swift
+34479	CLI/cmux.swift
+17628	Sources/AppDelegate.swift
+15944	Sources/ContentView.swift
 14225	Sources/TerminalController.swift
 12646	Sources/Workspace.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -43,7 +43,7 @@
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2257	Sources/TerminalWindowPortal.swift
-2236	Sources/TerminalNotificationStore.swift
+2251	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2082	Sources/SessionPersistence.swift
@@ -127,10 +127,10 @@
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 725	Sources/RightSidebarPanelView.swift
 722	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
+721	CLI/CMUXCLI+AgentHookDefinitions.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
-707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
@@ -212,6 +212,7 @@
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
+505	Packages/macOS/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamStore.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift

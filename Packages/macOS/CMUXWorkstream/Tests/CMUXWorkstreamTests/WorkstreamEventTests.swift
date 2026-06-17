@@ -78,6 +78,25 @@ struct WorkstreamEventTests {
         #expect(back.context?.permissionMode == "plan")
     }
 
+    @Test("Decodes the expanded Codex telemetry hook event names")
+    func decodesExpandedCodexTelemetryEvents() throws {
+        let expected: [(String, WorkstreamEvent.HookEventName)] = [
+            ("PostToolUse", .postToolUse),
+            ("PreCompact", .preCompact),
+            ("PostCompact", .postCompact),
+            ("SubagentStart", .subagentStart),
+            ("SubagentStop", .subagentStop),
+        ]
+        for (wireName, hookEvent) in expected {
+            let json = """
+            {"session_id": "codex-s", "hook_event_name": "\(wireName)", "_source": "codex"}
+            """.data(using: .utf8)!
+            let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+            #expect(event.hookEventName == hookEvent)
+            #expect(event.source == "codex")
+        }
+    }
+
     @Test("Missing optional fields decode as nil")
     func missingOptionals() throws {
         let json = """

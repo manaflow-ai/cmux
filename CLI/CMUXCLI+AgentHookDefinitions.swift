@@ -164,7 +164,21 @@ extension CMUXCLI {
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
             ],
-            feedHookEvents: ["PreToolUse", "PermissionRequest"],
+            // Mirror the upstream Codex CLI hook event surface so Feed sees
+            // tool completion, compaction, and subagent telemetry — not just
+            // the pre-tool / permission events. `PermissionRequest` stays
+            // non-blocking telemetry (the upstream approval reviewer still
+            // owns allow/deny); each event keeps its own hook event name in
+            // Feed rather than collapsing into a single lifecycle event.
+            feedHookEvents: [
+                "PreToolUse",
+                "PermissionRequest",
+                "PostToolUse",
+                "PreCompact",
+                "PostCompact",
+                "SubagentStart",
+                "SubagentStop",
+            ],
             postInstallAction: .codexConfigToml
         ),
         AgentHookDef(
