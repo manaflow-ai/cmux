@@ -4465,3 +4465,15 @@ private final class FilePreviewPointerObserverView: NSView {
         nil
     }
 }
+
+extension FilePreviewPanel: TextFindablePanel {
+    /// Presents the text editor's find bar. Find is only meaningful in `.text`
+    /// mode; other preview modes (PDF, image, media, Quick Look) report that
+    /// they do not own the Find action so the shortcut can fall through.
+    @discardableResult
+    func startTextFind() -> Bool {
+        guard previewMode == .text else { return false }
+        textView?.cmuxPresentInlineFindBar()
+        return true
+    }
+}

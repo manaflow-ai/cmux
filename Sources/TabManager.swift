@@ -826,9 +826,25 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        // Other focused panels (file preview text, markdown) host an NSTextView
+        // find bar. Without this, Cmd+F was silently swallowed (#6050, #6049).
+        if let findablePanel = focusedTextFindablePanel {
+            return findablePanel.startTextFind()
+        }
+        return false
+    }
+
+    /// The focused panel when it can present its own in-pane Find UI (file
+    /// preview text, markdown), excluding terminal and browser panels which
+    /// have their own dedicated find paths handled above.
+    private var focusedTextFindablePanel: TextFindablePanel? {
+        guard let workspace = selectedWorkspace,
+              let panelId = workspace.focusedPanelId else { return nil }
+        return workspace.panels[panelId] as? TextFindablePanel
     }
 
     func searchSelection() {
