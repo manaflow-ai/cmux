@@ -86,7 +86,7 @@ struct PaneMemoryGuardrailBanner: View {
                 } message: {
                     Text(String(
                         localized: "paneMemoryGuardrail.confirm.message",
-                        defaultValue: "This sends SIGTERM then SIGKILL to the foreground process group in the pane. The shell stays open."
+                        defaultValue: "This sends SIGTERM then SIGKILL to the pane's runaway process group(s). The pane and its shell stay open."
                     ))
                 }
 

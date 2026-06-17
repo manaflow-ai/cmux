@@ -32,8 +32,10 @@ struct PaneMemorySample: Sendable {
     let memoryBytes: Int64
     /// Resident bytes summed across the same process set (informational).
     let residentBytes: Int64
-    /// Foreground process-group ids under the pane's tty, used as the kill target.
-    let foregroundProcessGroupIDs: [Int]
+    /// Process-group ids of the pane's dominant memory consumers — the kill
+    /// target. Derived from the highest-footprint processes on the tty (not
+    /// merely the foreground group) so a background leak is killed correctly.
+    let runawayProcessGroupIDs: [Int]
     let foregroundCommand: String?
 
     var key: PaneMemoryPaneKey { descriptor.key }
@@ -259,23 +261,59 @@ final class PaneMemoryGuardrail: ObservableObject {
                     descriptor: descriptor,
                     memoryBytes: 0,
                     residentBytes: 0,
-                    foregroundProcessGroupIDs: [],
+                    runawayProcessGroupIDs: [],
                     foregroundCommand: nil
                 )
             }
             let pids = snapshot.pids(forTTYName: ttyName)
             let summary = snapshot.summary(for: pids)
-            let pgids = snapshot.foregroundProcessGroupIDs(for: pids).sorted()
+            let memoryByPGID: [(memoryBytes: Int64, processGroupID: Int?)] = pids.map { pid in
+                let process = snapshot.process(pid: pid)
+                return (process?.memoryBytes ?? 0, process?.processGroupID)
+            }
+            let killTargets = Self.killTargetProcessGroupIDs(
+                processes: memoryByPGID,
+                totalMemoryBytes: summary.memoryBytes
+            )
             let foregroundCommand = descriptor.foregroundPID
                 .flatMap { snapshot.process(pid: $0)?.name }
             return PaneMemorySample(
                 descriptor: descriptor,
                 memoryBytes: summary.memoryBytes,
                 residentBytes: summary.residentBytes,
-                foregroundProcessGroupIDs: pgids,
+                runawayProcessGroupIDs: killTargets,
                 foregroundCommand: foregroundCommand
             )
         }
+    }
+
+    /// The process group(s) to terminate for a runaway pane: every group whose
+    /// largest process holds a dominant share of the pane's memory (≥ 25% of the
+    /// total, and at least a small floor), so a background leak is targeted, not
+    /// just whatever happens to be in the foreground. Falls back to the single
+    /// highest-memory process's group when nothing clears the dominance bar.
+    /// Pure and snapshot-free so it is unit-testable.
+    nonisolated static func killTargetProcessGroupIDs(
+        processes: [(memoryBytes: Int64, processGroupID: Int?)],
+        totalMemoryBytes: Int64
+    ) -> [Int] {
+        let floor: Int64 = 256 * 1024 * 1024
+        let dominanceThreshold = max(floor, totalMemoryBytes / 4)
+        var targets = Set<Int>()
+        var largest: (memoryBytes: Int64, processGroupID: Int)?
+        for process in processes {
+            guard let pgid = process.processGroupID, pgid > 1 else { continue }
+            if process.memoryBytes >= dominanceThreshold {
+                targets.insert(pgid)
+            }
+            if largest == nil || process.memoryBytes > largest!.memoryBytes {
+                largest = (process.memoryBytes, pgid)
+            }
+        }
+        if targets.isEmpty, let largest {
+            targets.insert(largest.processGroupID)
+        }
+        return targets.sorted()
     }
 
     private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
@@ -295,7 +333,9 @@ final class PaneMemoryGuardrail: ObservableObject {
         // Banner lifecycle.
         if let active = activeBanner {
             let activeKey = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-            if output.clearedPanes.contains(activeKey) {
+            if output.clearedPanes.contains(activeKey) || lastSamplesByKey[activeKey] == nil {
+                // Cleared below the hysteresis floor, or the pane vanished
+                // (closed/killed) while other panes kept the scan non-empty.
                 activeBanner = nil
             } else if let refreshed = lastSamplesByKey[activeKey], refreshed.memoryBytes >= thresholdBytes {
                 // Keep the on-screen memory figure current while it stays high.
@@ -326,7 +366,7 @@ final class PaneMemoryGuardrail: ObservableObject {
     func killActivePaneProcess() {
         guard let active = activeBanner else { return }
         let key = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-        let pgids = lastSamplesByKey[key]?.foregroundProcessGroupIDs ?? []
+        let pgids = lastSamplesByKey[key]?.runawayProcessGroupIDs ?? []
         if pgids.isEmpty {
             onRequestClosePane?(active.workspaceId, active.panelId)
         } else {

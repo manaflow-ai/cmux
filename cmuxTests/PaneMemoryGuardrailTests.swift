@@ -30,7 +30,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             descriptor: descriptor,
             memoryBytes: bytes,
             residentBytes: bytes,
-            foregroundProcessGroupIDs: pgids,
+            runawayProcessGroupIDs: pgids,
             foregroundCommand: command
         )
     }
@@ -155,5 +155,49 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         // pgid == terminal pgid. The shell (pgid 100 != tpgid 200) is excluded.
         let pgids = snapshot.foregroundProcessGroupIDs(for: panePIDs)
         XCTAssertEqual(pgids, [200])
+    }
+
+    // MARK: - kill-target selection (must catch a BACKGROUND leak, not the shell)
+
+    func testKillTargetPicksDominantBackgroundGroupNotForeground() {
+        // Shell is foreground (pgid 100) but tiny; the leak is a backgrounded
+        // job in group 200. The kill target must be 200, not the shell.
+        let processes: [(memoryBytes: Int64, processGroupID: Int?)] = [
+            (5_000_000, 100),          // shell (foreground)
+            (12_000_000_000, 200),     // backgrounded leak
+            (3_000_000, 200)           // a child of the leak's group
+        ]
+        let targets = PaneMemoryGuardrail.killTargetProcessGroupIDs(
+            processes: processes,
+            totalMemoryBytes: 12_008_000_000
+        )
+        XCTAssertEqual(targets, [200])
+    }
+
+    func testKillTargetFallsBackToLargestProcessGroup() {
+        // No group clears the 25% dominance bar individually, so fall back to
+        // the single largest process's group rather than killing nothing.
+        let processes: [(memoryBytes: Int64, processGroupID: Int?)] = [
+            (200_000_000, 100),
+            (210_000_000, 300),
+            (190_000_000, 400)
+        ]
+        let targets = PaneMemoryGuardrail.killTargetProcessGroupIDs(
+            processes: processes,
+            totalMemoryBytes: 600_000_000
+        )
+        XCTAssertEqual(targets, [300])
+    }
+
+    func testKillTargetIgnoresInitAndSessionGroups() {
+        let processes: [(memoryBytes: Int64, processGroupID: Int?)] = [
+            (9_000_000_000, 1),   // pgid 1 must never be a target
+            (9_000_000_000, nil)  // unknown group must never be a target
+        ]
+        let targets = PaneMemoryGuardrail.killTargetProcessGroupIDs(
+            processes: processes,
+            totalMemoryBytes: 18_000_000_000
+        )
+        XCTAssertTrue(targets.isEmpty)
     }
 }
