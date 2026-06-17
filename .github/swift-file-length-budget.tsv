@@ -51,7 +51,7 @@
 1941	Sources/KeyboardShortcutSettingsFileStore.swift
 1880	Sources/RestorableAgentSession.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
-1794	Sources/SessionIndexStore.swift
+1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -158,7 +158,7 @@
 620	cmuxTests/TerminalNotificationQueueTests.swift
 615	cmuxTests/RemoteTmuxControlParserTests.swift
 614	Sources/PortScanner.swift
-614	cmuxTests/SessionIndexViewTests.swift
+663	cmuxTests/SessionIndexViewTests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
