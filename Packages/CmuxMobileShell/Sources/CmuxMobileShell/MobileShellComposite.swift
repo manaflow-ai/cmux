@@ -216,10 +216,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
-    /// Whether the connected Mac advertises mobile delete support for
-    /// workspace/terminal rows (the mobile close wrappers swipe-delete routes
-    /// through). `false` until host status is read, and for older Macs that do
-    /// not expose the wrappers, so the UI can hide the swipe action.
+    /// Whether the connected Mac advertises the mobile terminal-delete wrapper.
+    /// Workspace delete can use `workspace.close.v1`; terminal delete needs the
+    /// mobile `surface.close` wrapper exposed by this capability.
     public var supportsDeleteActions: Bool { supportedHostCapabilities.contains(Self.deleteActionsCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }

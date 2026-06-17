@@ -722,6 +722,129 @@ struct MobileHostAuthorizationTests {
         #expect(error?.code == "forbidden")
     }
 
+    @Test func testWorkspaceCloseScopeHelperRejectsTerminalScopedAttachTicket() async throws {
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let payload = try await service.createAttachTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let error = service.workspaceCloseTicketAuthorizationError(
+            auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil),
+            workspaceID: "workspace"
+        )
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testMobileWorkspaceCloseHandlerProtectsTerminalScopedAttachTicket() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let payload = try await service.createAttachTicket(
+            workspaceID: workspace.id.uuidString,
+            terminalID: terminal.id.uuidString,
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-close",
+                method: "workspace.close",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil)
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            return #expect(Bool(false), "Terminal-scoped workspace.close should be protected")
+        }
+        #expect(error.code == "protected")
+        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    @Test func testMobileLastSurfaceCloseHandlerProtectsTerminalScopedWorkspaceTeardown() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let payload = try await service.createAttachTicket(
+            workspaceID: workspace.id.uuidString,
+            terminalID: terminal.id.uuidString,
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "surface-close",
+                method: "surface.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminal.id.uuidString,
+                ],
+                auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil)
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            return #expect(Bool(false), "Last-terminal surface.close should not tear down a terminal-scoped workspace")
+        }
+        #expect(error.code == "protected")
+        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
+        #expect(workspace.terminalPanel(for: terminal.id) != nil)
+    }
+
     @Test func testTerminalScopedAttachTicketAcceptsSurfaceCloseForNamedTerminal() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
@@ -1191,8 +1314,8 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
-        // iOS gates swipe-delete on `mobile.delete.v1`; the single host-status
-        // capability list is what makes the feature visible to a supporting Mac.
+        // iOS gates terminal swipe-delete on `mobile.delete.v1`; workspace
+        // swipe-delete can also use `workspace.close.v1` for older compatible Macs.
         #expect(capabilities.contains("mobile.delete.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
     }

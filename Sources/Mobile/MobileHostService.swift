@@ -1343,6 +1343,24 @@ final class MobileHostService {
         }
     }
 
+    func workspaceCloseTicketAuthorizationError(
+        auth: MobileHostRPCAuth?,
+        workspaceID: String
+    ) -> MobileHostRPCError? {
+        guard let authorization = ticketStore.validAuthorization(authToken: auth?.attachToken) else {
+            return nil
+        }
+        return Self.ticketAuthorizationError(
+            authorization: authorization,
+            request: MobileHostRPCRequest(
+                id: nil,
+                method: "workspace.close",
+                params: ["workspace_id": workspaceID],
+                auth: auth
+            )
+        )
+    }
+
     private static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest

@@ -13547,11 +13547,11 @@ class TerminalController {
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case "surface.close":
-            result = v2MobileSurfaceClose(params: request.params)
+            result = v2MobileSurfaceClose(request: request)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.close":
-            result = v2MobileWorkspaceClose(params: request.params)
+            result = v2MobileWorkspaceClose(request: request)
         case "workspace.group.collapse":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
@@ -13816,9 +13816,10 @@ class TerminalController {
         let status = MobileHostService.shared.statusSnapshot()
         // Single source of truth shared with the mobile listener's public-status
         // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler) and
-        // mobile.delete.v1 (workspace/surface close wrappers), which the iOS
-        // client uses to show or hide row actions.
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler),
+        // workspace.close.v1 (workspace row delete), and mobile.delete.v1 (the
+        // terminal row surface-close wrapper), which the iOS client uses to show
+        // or hide row actions.
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
@@ -14196,7 +14197,8 @@ class TerminalController {
         )
     }
 
-    private func v2MobileSurfaceClose(params: [String: Any]) -> V2CallResult {
+    private func v2MobileSurfaceClose(request: MobileHostRPCRequest) -> V2CallResult {
+        let params = request.params
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -14220,7 +14222,13 @@ class TerminalController {
         if resolved.workspace.panels.count <= 1 {
             var closeWorkspaceParams = params
             closeWorkspaceParams["workspace_id"] = resolved.workspace.id.uuidString
-            return v2MobileWorkspaceClose(params: closeWorkspaceParams)
+            let closeWorkspaceRequest = MobileHostRPCRequest(
+                id: request.id,
+                method: "workspace.close",
+                params: closeWorkspaceParams,
+                auth: request.auth
+            )
+            return v2MobileWorkspaceClose(request: closeWorkspaceRequest)
         }
 
         // `mobileHostHandleRPC` already runs on the main actor and the surface is

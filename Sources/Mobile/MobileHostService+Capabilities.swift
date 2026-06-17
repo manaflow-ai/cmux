@@ -26,8 +26,8 @@ extension MobileHostService {
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
-            // Swipe-delete for workspace/terminal rows routes through the Mac's
-            // workspace.close/surface.close wrappers; iOS gates the action on this.
+            // Swipe-delete for terminal rows routes through the Mac's mobile
+            // surface-close wrapper; workspace rows can also use workspace.close.v1.
             "mobile.delete.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
