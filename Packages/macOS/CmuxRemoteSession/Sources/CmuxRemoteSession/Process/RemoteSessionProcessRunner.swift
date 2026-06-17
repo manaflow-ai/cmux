@@ -179,8 +179,19 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
-            pipe.fileHandleForWriting.write(stdin)
-            try? pipe.fileHandleForWriting.close()
+            // Write stdin on a background queue so a large or stalled payload
+            // (e.g. the cmuxd-remote upload streamed over ssh) cannot block this
+            // thread before the timeout/termination path below is armed: if the
+            // timeout fires or the op is cancelled, the process is terminated,
+            // the pipe breaks, and this write fails harmlessly instead of
+            // wedging the caller's serial queue. F_SETNOSIGPIPE turns a broken
+            // pipe into an EPIPE error rather than a process-killing SIGPIPE.
+            let writeHandle = pipe.fileHandleForWriting
+            _ = fcntl(writeHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global(qos: .utility).async {
+                try? writeHandle.write(contentsOf: stdin)
+                try? writeHandle.close()
+            }
         }
 
         func terminateProcessAndWait() {
