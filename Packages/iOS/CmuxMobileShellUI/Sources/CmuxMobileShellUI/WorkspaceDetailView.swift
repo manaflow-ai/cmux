@@ -248,6 +248,9 @@ struct WorkspaceDetailView: View {
         .navigationTitle(browser.title ?? workspace.name)
         .mobileTerminalNavigationChrome()
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                glassTitle(browser.title ?? workspace.name)
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
                 newWorkspaceToolbarButton
@@ -374,6 +377,9 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
+            ToolbarItem(placement: .principal) {
+                glassTitle(workspace.name)
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
                 newWorkspaceToolbarButton
@@ -404,6 +410,20 @@ struct WorkspaceDetailView: View {
         newWorkspaceToolbarButton
         terminalPickerToolbarButton
     }
+
+    #if os(iOS)
+    /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
+    /// readable over the pane showing through the cleared header bar. On iOS 18
+    /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
+    /// no-op and this renders as plain text.
+    private func glassTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.headline)
+            .lineLimit(1)
+            .foregroundStyle(TerminalPalette.foreground)
+            .mobileGlassNavigationTitle()
+    }
+    #endif
 
     private var newWorkspaceToolbarButton: some View {
         Button(action: createWorkspaceFromToolbar) {
