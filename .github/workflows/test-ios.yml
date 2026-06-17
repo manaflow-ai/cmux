@@ -4,11 +4,8 @@ on:
   pull_request:
     paths:
       - "ios/**"
-      - "Packages/CMUXAuthCore/**"
-      - "Packages/CMUXMobileCore/**"
-      - "Packages/CmuxAuthRuntime/**"
-      - "Packages/CmuxMobile*/**"
-      - "Packages/CMUXMobile*/**"
+      - "Packages/Shared/**"
+      - "Packages/iOS/**"
       - "Sources/Mobile/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The namespace-type convention rule scans every package, so any package
@@ -71,7 +68,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -142,13 +139,13 @@ jobs:
 
       - name: Run CMUXMobileCore package tests
         run: |
-          swift test --package-path Packages/CMUXMobileCore
+          swift test --package-path Packages/Shared/CMUXMobileCore
 
       - name: Run CmuxSyncStore package tests
         run: |
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
-          swift test --package-path Packages/CmuxSyncStore
+          swift test --package-path Packages/Shared/CmuxSyncStore
 
   ios-simulator:
     needs: detect-ios-changes
@@ -191,6 +188,10 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Install zig
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: ./scripts/install-zig-ci.sh
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -198,7 +199,6 @@ jobs:
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
       - name: Pick simulator
