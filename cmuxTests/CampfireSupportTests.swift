@@ -228,6 +228,37 @@ struct CampfireSupportTests {
         #expect(detected == nil)
     }
 
+    @Test func directProcessDetectionDoesNotTreatUnrelatedPackagesSessionArgumentAsAgent() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-packages-session-argument-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        _ = try Self.writeSessionFile(
+            id: "campfire-should-not-bind-packages-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = Self.detectedCampfireSnapshot(
+            processName: "bun",
+            processPath: "/opt/homebrew/bin/bun",
+            arguments: [
+                "/opt/homebrew/bin/bun",
+                "/Users/example/monorepo/packages/session/scripts/seed.ts",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        )
+
+        #expect(detected == nil)
+    }
+
     @Test func taskManagerClassifiesCampfireCompiledBinaryAndDevInvocation() throws {
         let compiled = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "campfire",

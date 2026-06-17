@@ -467,8 +467,11 @@ await new Promise((resolve) => setTimeout(resolve, 300));
         if '"prompt":"hello campfire"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
             return 1
-        if '"message":"alice is waiting to join the campfire session"' not in stdin_log:
-            print(f"FAIL: extension did not bridge the join request notification, got {stdin_log!r}")
+        if (
+            '"campfire_event_type":"join.requested"' not in stdin_log
+            or '"display_name":"alice"' not in stdin_log
+        ):
+            print(f"FAIL: extension did not bridge the structured join request notification, got {stdin_log!r}")
             return 1
         if '"presence.changed"' in stdin_log:
             print(f"FAIL: extension forwarded a non-actionable observer event, got {stdin_log!r}")
