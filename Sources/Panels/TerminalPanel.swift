@@ -716,6 +716,12 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.performBindingAction(action)
     }
 
+    @discardableResult
+    func clearScreenKeepingScrollback() -> Bool {
+        resumeForExplicitInputIfNeeded()
+        return surface.clearScreenKeepingScrollback()
+    }
+
     private func resumeForExplicitInputIfNeeded() {
         guard isAgentHibernated else { return }
         _ = requestAgentHibernationResume(focus: false)
