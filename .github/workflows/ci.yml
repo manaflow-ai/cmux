@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
 
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -30,6 +32,14 @@ jobs:
 
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Set up Python 3.9 for nightly prune compatibility
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.9"
+
+      - name: Validate nightly prune Python compatibility
+        run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
       - name: Validate activation benchmark scrollback sizing
         run: python3 tests/test_perf_activation_scrollback_sizing.py
@@ -42,6 +52,12 @@ jobs:
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
+
+      - name: Validate app-host xcodebuild retry guard
+        run: ./tests/test_ci_app_host_xcodebuild_retry.sh
+
+      - name: Validate app-host xcodebuild attempt budget
+        run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
@@ -73,6 +89,12 @@ jobs:
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
+      - name: Validate Python R2 appcast upload guard
+        run: ./tests/test_ci_r2_upload_python.sh
+
+      - name: Validate release-build timeout guard
+        run: ./tests/test_ci_release_build_timeout.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -93,6 +115,9 @@ jobs:
 
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
+
+      - name: Validate SwiftPM lockfile policy
+        run: python3 scripts/check-package-resolved-policy.py
 
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
@@ -345,7 +370,8 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
@@ -367,7 +393,8 @@ jobs:
           # unconditional gate.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
@@ -386,7 +413,8 @@ jobs:
           # regression an unconditional gate.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
@@ -968,7 +996,7 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     # Cold cache saves can add several minutes after the Release build and
     # artifact validation have already passed.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

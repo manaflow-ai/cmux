@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
@@ -1463,7 +1464,7 @@ class GhosttyApp {
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(
+        configDiscovery.shouldLoadLegacyGhosttyConfig(
             newConfigFileSize: newConfigFileSize,
             legacyConfigFileSize: legacyConfigFileSize
         )
@@ -1473,7 +1474,7 @@ class GhosttyApp {
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
+        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: newConfigFileSize,
             legacyConfigFileSize: legacyConfigFileSize
         )
@@ -3221,11 +3222,16 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
-        let plan = snapshot.backdropPlan()
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        let windowChrome = AppWindowChromeComposition()
+        let snapshot = windowChrome.appearanceSnapshotFromUserDefaults(app: self)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if backgroundLogEnabled {
             logBackground(
                 "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
@@ -3716,6 +3722,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    @MainActor
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
         let appDelegate = AppDelegate.shared
@@ -3731,12 +3738,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
-        let windowRoot = WindowAppearanceSnapshot
-            .currentFromUserDefaults(app: GhosttyApp.shared)
+        let windowChrome = AppWindowChromeComposition()
+        let windowRoot = windowChrome
+            .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
             .windowRootBackdropResolution(surfaceBackgroundColor: backgroundColor)
-        let plan = windowRoot.snapshot.backdropPlan()
+        let plan = windowRoot.snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
         let color = windowRoot.snapshot.compositedTerminalBackgroundColor
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
@@ -7499,7 +7510,9 @@ private final class TerminalViewportBorderOverlayView: NSView {
         // sidebar trailing edge, and tab-bar separators (one source of truth), so the
         // iOS-connected viewport border is pixel-identical to every other border in the
         // app instead of the previous hardcoded near-white separator stroke.
-        WindowChromeSeparatorColor.current().setStroke()
+        WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+            .setStroke()
         path.stroke()
     }
 }
