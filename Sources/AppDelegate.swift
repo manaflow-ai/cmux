@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxBrowser
 import CmuxBrowserPanel
 import CmuxCommandPalette
 import CmuxCommandPaletteUI
@@ -29,6 +30,7 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxSidebar
 import CmuxSession
 import CmuxTerminal
 
@@ -505,7 +507,7 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -815,6 +817,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
+    /// Orchestrates per-window cmux config-store reloads + window-title refresh.
+    /// Holds `self` weakly through the environment seam to avoid a retain cycle.
+    private lazy var configStoreReloadCoordinator: CmuxConfigStoreReloadCoordinator = {
+        CmuxConfigStoreReloadCoordinator(environment: self) { source, storeCount in
+#if DEBUG
+            cmuxDebugLog("cmuxConfig.reload source=\(source) stores=\(storeCount)")
+#endif
+        }
+    }()
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -831,16 +842,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
-    private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
-    private var browserOmnibarRepeatPanelId: UUID?
-    private var browserOmnibarRepeatKeyCode: UInt16?
-    private var browserOmnibarRepeatDelta: Int = 0
+    /// Owns the browser omnibar selection-repeat state machine, extracted into
+    /// `CmuxBrowser`. The app delegate is the composition root: it injects
+    /// the `NotificationCenter` selection-move sink and the debug-trace sink.
+    private lazy var browserOmnibarSelectionRepeat: BrowserOmnibarSelectionRepeatCoordinator = {
+        let debugLog: BrowserOmnibarSelectionRepeatCoordinator.DebugLog?
+#if DEBUG
+        debugLog = { line in cmuxDebugLog(line) }
+#else
+        debugLog = nil
+#endif
+        return BrowserOmnibarSelectionRepeatCoordinator(
+            selectionMove: { panelId, delta in
+                NotificationCenter.default.post(
+                    name: .browserMoveOmnibarSelection,
+                    object: panelId,
+                    userInfo: ["delta": delta]
+                )
+            },
+            debugLog: debugLog
+        )
+    }()
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
+    /// Process-wide identity of the workspace currently being sidebar-dragged in
+    /// any window. Owned here (the composition root) and injected into every
+    /// window's `SidebarDragState` so cross-window drops resolve a single drag.
+    let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
+    #if DEBUG
+    /// Debug-only registry mapping each mounted sidebar's window id to its live
+    /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
+    let sidebarDragStateRegistry = SidebarDragStateRegistry()
+    #endif
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
@@ -1418,6 +1454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installShortcutDefaultsObserver()
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
+            sentryStartMemoryContextRefresh()
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
@@ -1932,6 +1969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
@@ -12271,17 +12309,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func reloadCmuxConfigStores(source: String) {
-        var seenStores = Set<ObjectIdentifier>()
-        for context in mainWindowContexts.values {
-            guard let store = context.cmuxConfigStore else { continue }
-            let identifier = ObjectIdentifier(store)
-            guard seenStores.insert(identifier).inserted else { continue }
-            store.loadAll()
-        }
+        configStoreReloadCoordinator.reload(source: source)
+    }
+
+    var reloadableConfigStores: [any CmuxConfigStoreReloading] {
+        mainWindowContexts.values.compactMap { $0.cmuxConfigStore }
+    }
+
+    func refreshWindowTitlesAfterConfigReload() {
         refreshWindowTitlesAcrossMainWindows()
-#if DEBUG
-        cmuxDebugLog("cmuxConfig.reload source=\(source) stores=\(seenStores.count)")
-#endif
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
@@ -12308,90 +12344,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let key: String
+        let tag: GhosttyTriggerInput.Tag
         switch trigger.tag {
         case GHOSTTY_TRIGGER_PHYSICAL:
-            switch trigger.key.physical {
-            case GHOSTTY_KEY_ARROW_LEFT:
-                key = "←"
-            case GHOSTTY_KEY_ARROW_RIGHT:
-                key = "→"
-            case GHOSTTY_KEY_ARROW_UP:
-                key = "↑"
-            case GHOSTTY_KEY_ARROW_DOWN:
-                key = "↓"
-            case GHOSTTY_KEY_A: key = "a"
-            case GHOSTTY_KEY_B: key = "b"
-            case GHOSTTY_KEY_C: key = "c"
-            case GHOSTTY_KEY_D: key = "d"
-            case GHOSTTY_KEY_E: key = "e"
-            case GHOSTTY_KEY_F: key = "f"
-            case GHOSTTY_KEY_G: key = "g"
-            case GHOSTTY_KEY_H: key = "h"
-            case GHOSTTY_KEY_I: key = "i"
-            case GHOSTTY_KEY_J: key = "j"
-            case GHOSTTY_KEY_K: key = "k"
-            case GHOSTTY_KEY_L: key = "l"
-            case GHOSTTY_KEY_M: key = "m"
-            case GHOSTTY_KEY_N: key = "n"
-            case GHOSTTY_KEY_O: key = "o"
-            case GHOSTTY_KEY_P: key = "p"
-            case GHOSTTY_KEY_Q: key = "q"
-            case GHOSTTY_KEY_R: key = "r"
-            case GHOSTTY_KEY_S: key = "s"
-            case GHOSTTY_KEY_T: key = "t"
-            case GHOSTTY_KEY_U: key = "u"
-            case GHOSTTY_KEY_V: key = "v"
-            case GHOSTTY_KEY_W: key = "w"
-            case GHOSTTY_KEY_X: key = "x"
-            case GHOSTTY_KEY_Y: key = "y"
-            case GHOSTTY_KEY_Z: key = "z"
-            case GHOSTTY_KEY_DIGIT_0: key = "0"
-            case GHOSTTY_KEY_DIGIT_1: key = "1"
-            case GHOSTTY_KEY_DIGIT_2: key = "2"
-            case GHOSTTY_KEY_DIGIT_3: key = "3"
-            case GHOSTTY_KEY_DIGIT_4: key = "4"
-            case GHOSTTY_KEY_DIGIT_5: key = "5"
-            case GHOSTTY_KEY_DIGIT_6: key = "6"
-            case GHOSTTY_KEY_DIGIT_7: key = "7"
-            case GHOSTTY_KEY_DIGIT_8: key = "8"
-            case GHOSTTY_KEY_DIGIT_9: key = "9"
-            case GHOSTTY_KEY_BRACKET_LEFT: key = "["
-            case GHOSTTY_KEY_BRACKET_RIGHT: key = "]"
-            case GHOSTTY_KEY_MINUS: key = "-"
-            case GHOSTTY_KEY_EQUAL: key = "="
-            case GHOSTTY_KEY_COMMA: key = ","
-            case GHOSTTY_KEY_PERIOD: key = "."
-            case GHOSTTY_KEY_SLASH: key = "/"
-            case GHOSTTY_KEY_SEMICOLON: key = ";"
-            case GHOSTTY_KEY_QUOTE: key = "'"
-            case GHOSTTY_KEY_BACKQUOTE: key = "`"
-            case GHOSTTY_KEY_BACKSLASH: key = "\\"
-            default:
-                return nil
-            }
+            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
         case GHOSTTY_TRIGGER_UNICODE:
-            guard let scalar = UnicodeScalar(trigger.key.unicode) else { return nil }
-            key = String(Character(scalar)).lowercased()
+            tag = .unicode(UnicodeScalar(trigger.key.unicode))
         case GHOSTTY_TRIGGER_CATCH_ALL:
-            return nil
+            tag = .catchAll
         default:
             return nil
         }
 
-        let mods = trigger.mods.rawValue
-        let command = (mods & GHOSTTY_MODS_SUPER.rawValue) != 0
-        let shift = (mods & GHOSTTY_MODS_SHIFT.rawValue) != 0
-        let option = (mods & GHOSTTY_MODS_ALT.rawValue) != 0
-        let control = (mods & GHOSTTY_MODS_CTRL.rawValue) != 0
-
-        // Ignore bogus empty triggers.
-        if key.isEmpty || (!command && !shift && !option && !control) {
-            return nil
-        }
-
-        return StoredShortcut(key: key, command: command, shift: shift, option: option, control: control)
+        let input = GhosttyTriggerInput(
+            tag: tag,
+            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
+        )
+        guard let shortcut = Self.ghosttyTriggerShortcutDecoder.decode(input) else { return nil }
+        return StoredShortcut(
+            key: shortcut.key,
+            command: shortcut.command,
+            shift: shortcut.shift,
+            option: shortcut.option,
+            control: shortcut.control
+        )
     }
+
+    private static let ghosttyTriggerShortcutDecoder = GhosttyTriggerShortcutDecoder()
 
     private func handleQuitShortcutWarning() -> Bool {
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
@@ -14170,128 +14149,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func dispatchBrowserOmnibarSelectionMove(panelId: UUID, delta: Int) {
-        guard delta != 0 else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
-        )
-#endif
-        NotificationCenter.default.post(
-            name: .browserMoveOmnibarSelection,
-            object: panelId,
-            userInfo: ["delta": delta]
-        )
+        browserOmnibarSelectionRepeat.dispatchSelectionMove(panelID: panelId, delta: delta)
     }
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(panelId: UUID, keyCode: UInt16, delta: Int) {
-        guard delta != 0 else { return }
-
-        if browserOmnibarRepeatPanelId == panelId,
-           browserOmnibarRepeatKeyCode == keyCode,
-           browserOmnibarRepeatDelta == delta {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-                "key=\(keyCode) delta=\(delta) result=reuse"
-            )
-#endif
-            return
-        }
-
-        stopBrowserOmnibarSelectionRepeat()
-        browserOmnibarRepeatPanelId = panelId
-        browserOmnibarRepeatKeyCode = keyCode
-        browserOmnibarRepeatDelta = delta
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
-            "key=\(keyCode) delta=\(delta) result=armed"
-        )
-#endif
-
-        let start = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatStartWorkItem = start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: start)
-    }
-
-    private func scheduleBrowserOmnibarSelectionRepeatTick() {
-        browserOmnibarRepeatStartWorkItem = nil
-        guard let panelId = browserOmnibarRepeatPanelId else {
-#if DEBUG
-            cmuxDebugLog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
-#endif
-            stopBrowserOmnibarSelectionRepeat()
-            return
-        }
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
-            "delta=\(browserOmnibarRepeatDelta)"
-        )
-#endif
-        dispatchBrowserOmnibarSelectionMove(panelId: panelId, delta: browserOmnibarRepeatDelta)
-
-        let tick = DispatchWorkItem { [weak self] in
-            self?.scheduleBrowserOmnibarSelectionRepeatTick()
-        }
-        browserOmnibarRepeatTickWorkItem = tick
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055, execute: tick)
+        browserOmnibarSelectionRepeat.startRepeatIfNeeded(panelID: panelId, keyCode: keyCode, delta: delta)
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
-#if DEBUG
-        let previousPanelId = browserOmnibarRepeatPanelId
-        let previousKeyCode = browserOmnibarRepeatKeyCode
-        let previousDelta = browserOmnibarRepeatDelta
-#endif
-        browserOmnibarRepeatStartWorkItem?.cancel()
-        browserOmnibarRepeatTickWorkItem?.cancel()
-        browserOmnibarRepeatStartWorkItem = nil
-        browserOmnibarRepeatTickWorkItem = nil
-        browserOmnibarRepeatPanelId = nil
-        browserOmnibarRepeatKeyCode = nil
-        browserOmnibarRepeatDelta = 0
-#if DEBUG
-        if previousKeyCode != nil || previousDelta != 0 {
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.stop panel=\(previousPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-                "key=\(previousKeyCode.map(String.init) ?? "nil") " +
-                "delta=\(previousDelta)"
-            )
-        }
-#endif
+        browserOmnibarSelectionRepeat.stopRepeat()
     }
 
     private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
-        guard browserOmnibarRepeatKeyCode != nil else { return }
-
         switch event.type {
         case .keyUp:
-            if event.keyCode == browserOmnibarRepeatKeyCode {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
-                    "action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteKeyUp(keyCode: event.keyCode)
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
-                    "flags=\(flags.rawValue) action=stop"
-                )
-#endif
-                stopBrowserOmnibarSelectionRepeat()
-            }
+            browserOmnibarSelectionRepeat.noteFlagsChanged(
+                shouldContinue: browserOmnibarShouldContinueControlNavigationRepeat(flags: flags),
+                flagsRawValue: flags.rawValue
+            )
         default:
             break
         }
