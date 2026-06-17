@@ -63,6 +63,17 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        // Backstop for DEV/staging builds: even if Sparkle's own scheduler (or a probe started
+        // before the launch gate landed) surfaces a public-release update, never present the
+        // install UI. Decline the update and stay idle so a local build can't install the
+        // public release. The controller already blocks our explicit check entry points.
+        if UpdateController.isDevLikeBundleIdentifier(bundleIdentifier) {
+            log.append("declining found update on dev/staging build: \(appcastItem.displayVersionString)")
+            reply(.dismiss)
+            model.clearDetectedUpdate()
+            setState(.idle)
+            return
+        }
         log.append("show update found: \(appcastItem.displayVersionString)")
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
     }

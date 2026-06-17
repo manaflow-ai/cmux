@@ -246,6 +246,19 @@ public final class UpdateController {
 
     /// Check for updates once the updater reports it can.
     private func checkForUpdatesWhenReady() {
+        // DEV/staging builds are off the public release train: never query the public appcast,
+        // even from a manual "Check for Updates" / custom-UI / attempt-install path. Report
+        // "up to date" and bail before starting the updater so the public release can never be
+        // surfaced or installed over a locally-built app.
+        if Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier) {
+            cancelReadinessRetry()
+            recheckTask?.cancel()
+            isForceInstalling = false
+            model.clearDetectedUpdate()
+            log.append("update check skipped (dev/staging build)")
+            model.setState(.notFound(.init(acknowledgement: {})))
+            return
+        }
         cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
