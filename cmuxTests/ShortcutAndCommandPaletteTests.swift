@@ -1175,6 +1175,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         for action in touchedShortcutActions {
             if case let .some(.some(data)) = savedShortcutData[action] {
                 UserDefaults.standard.set(data, forKey: action.defaultsKey)
@@ -1218,6 +1221,77 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+    }
+
+    func testPlainTypingDoesNotLookUpModeShortcutBindings() throws {
+        #if DEBUG
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0))
+        )
+        XCTAssertTrue(
+            observedActions.isEmpty,
+            "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "A", modifiers: [.shift], keyCode: 0))
+        )
+        #else
+        throw XCTSkip("shortcutLookupObserver is only available in DEBUG builds")
+        #endif
+    }
+
+    func testModeShortcutSupportsShiftOnlyConfiguredBinding() {
+        let customFilesShortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: true,
+            option: false,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.shift], keyCode: 18)),
+            .files
+        )
+    }
+
+    func testModeShortcutSupportsModifierlessDirectKeyConfiguredBinding() {
+        let f5 = String(UnicodeScalar(NSF5FunctionKey)!)
+        let f5Shortcut = StoredShortcut(
+            key: "f5",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 96
+        )
+        KeyboardShortcutSettings.setShortcut(f5Shortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: f5, modifiers: [], keyCode: 96)),
+            .files
+        )
+
+        let spaceShortcut = StoredShortcut(
+            key: "space",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 49
+        )
+        KeyboardShortcutSettings.setShortcut(spaceShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: " ", modifiers: [], keyCode: 49)),
+            .files
         )
     }
 

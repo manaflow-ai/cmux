@@ -88,6 +88,20 @@ nonisolated enum RightSidebarDirectoryContext {
 }
 
 extension RightSidebarMode {
+    private static let shortcutRelevantModifiers: NSEvent.ModifierFlags = [
+        .command,
+        .control,
+        .option,
+        .shift,
+    ]
+
+    static func shouldCheckModeShortcut(for event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return !flags.isDisjoint(with: shortcutRelevantModifiers)
+            || ShortcutStroke.isRecordableDirectKeyCodeEvent(event)
+    }
+
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
     }
@@ -96,7 +110,7 @@ extension RightSidebarMode {
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
-        guard event.type == .keyDown else { return nil }
+        guard shouldCheckModeShortcut(for: event) else { return nil }
         for mode in RightSidebarMode.allCases {
             guard let action = mode.shortcutAction,
                   allowingAction(action),

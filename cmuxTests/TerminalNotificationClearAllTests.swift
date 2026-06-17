@@ -337,6 +337,38 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
+    func testClosingVisualOnlyRestoredPanelUnreadClearsDismissibleActivity() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: false)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspace.id))
+
+        workspace.discardClosedPanelLifecycleState(
+            panelId: panelId,
+            tabId: try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId)),
+            paneId: workspace.paneId(forPanelId: panelId),
+            panel: workspace.panels[panelId],
+            origin: "test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspace.id))
+    }
+
     func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
