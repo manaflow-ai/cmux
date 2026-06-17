@@ -4875,6 +4875,64 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #endif
     }
 
+    func testHiddenTinyFirstResponderReappliesGhosttyFocusAfterGeometrySettles() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+        workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        panel.hostedView.frame = contentView.bounds
+        contentView.addSubview(panel.hostedView)
+        panel.hostedView.setVisibleInUI(true)
+        panel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: panel.hostedView) else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+
+        window.makeFirstResponder(nil)
+        panel.surface.setFocus(false)
+        XCTAssertFalse(panel.surface.debugDesiredFocusState())
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        XCTAssertTrue(panel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(panel.hostedView.debugRenderStats().desiredFocus)
+        XCTAssertFalse(
+            panel.surface.debugDesiredFocusState(),
+            "Hidden/tiny first-responder handoff should defer Ghostty focus until geometry is usable"
+        )
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(
+            panel.surface.debugDesiredFocusState(),
+            "Deferred focus reconciliation should reapply Ghostty focus once geometry becomes usable"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testLayoutFollowUpClearsPendingReparentSuppressionWithoutResponderEvent() throws {
 #if DEBUG
         let workspace = Workspace()
