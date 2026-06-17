@@ -99,10 +99,12 @@ struct TerminalLetterboxGeometryTests {
         #expect(pinned == nil)
     }
 
-    @Test("pins to a smaller effective grid producing a point-size box")
-    func pinsSmallerGrid() {
-        // effective 60x30, natural 100x40, cell 9x18 px at scale 3.
-        // pinnedW = 60 * 9 / 3 = 180, pinnedH = 30 * 18 / 3 = 180.
+    @Test("smaller effective grid does not pin the iOS render box")
+    func smallerEffectiveGridDoesNotPin() {
+        // The remote effective grid is a viewport negotiation result, not a
+        // sizing constraint for the iOS view. The local render surface must keep
+        // filling the available container so a smaller response cannot leave a
+        // dead band between the terminal and keyboard toolbar.
         let pinned = TerminalLetterboxGeometry.pinnedPointSize(
             effective: (cols: 60, rows: 30),
             measuredColumns: 100,
@@ -111,7 +113,7 @@ struct TerminalLetterboxGeometryTests {
             scale: 3,
             container: CGSize(width: 402, height: 700)
         )
-        #expect(pinned == CGSize(width: 180, height: 180))
+        #expect(pinned == nil)
     }
 
     @Test("no pin when the pinned box is not meaningfully smaller than the container")
