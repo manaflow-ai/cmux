@@ -9931,10 +9931,13 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+        let requiresSuppressedSurfaceGeometry = pendingSuppressedFirstResponderFocusReapply
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
-        guard !isHiddenForFocus, hasUsablePortalGeometry, hasUsableSurfaceGeometry else {
+        guard !isHiddenForFocus,
+              hasUsablePortalGeometry,
+              (!requiresSuppressedSurfaceGeometry || hasUsableSurfaceGeometry) else {
 #if DEBUG
             cmuxDebugLog(
                 "focus.apply.skip surface=\(surfaceShort) " +
