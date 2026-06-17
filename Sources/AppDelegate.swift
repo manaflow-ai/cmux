@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
 import CmuxBrowserPanel
@@ -29,6 +30,7 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxSidebar
 import CmuxSession
 import CmuxTerminal
 
@@ -509,6 +511,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
+    /// owned and created lazily so the window-decoration seam can point back at `self`.
+    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
+    var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
@@ -861,6 +868,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
+    /// Process-wide identity of the workspace currently being sidebar-dragged in
+    /// any window. Owned here (the composition root) and injected into every
+    /// window's `SidebarDragState` so cross-window drops resolve a single drag.
+    let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
+    #if DEBUG
+    /// Debug-only registry mapping each mounted sidebar's window id to its live
+    /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
+    let sidebarDragStateRegistry = SidebarDragStateRegistry()
+    #endif
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
@@ -11954,6 +11970,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.attach(to: window)
     }
 
+    // Satisfies CmuxAppKitSupportUI's WindowDecorating seam (see extension below).
     func applyWindowDecorations(to window: NSWindow) {
         windowDecorationsController.apply(to: window)
     }
@@ -17579,3 +17596,7 @@ extension AppDelegate {
         window.setFrame(frame, display: true, animate: false)
     }
 }
+
+// MARK: - CmuxAppKitSupportUI seam conformance
+
+extension AppDelegate: WindowDecorating {}
