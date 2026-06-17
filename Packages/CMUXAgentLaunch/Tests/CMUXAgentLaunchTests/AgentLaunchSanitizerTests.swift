@@ -65,6 +65,32 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves future Codex flags through continuation API")
+    func preservesFutureCodexFlagsThroughContinuationAPI() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--yolo",
+                    "--future-runtime-flag",
+                    "--future-mode=fast",
+                    "--model",
+                    "gpt-5.4",
+                    "initial prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+                "--future-runtime-flag",
+                "--future-mode=fast",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
     @Test("Detects Codex fork after startup image options")
     func detectsCodexForkAfterStartupImageOptions() {
         #expect(

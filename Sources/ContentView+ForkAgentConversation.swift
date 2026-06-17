@@ -121,6 +121,9 @@ extension ContentView {
                    let forkPanelId = forkWorkspace.focusedPanelId {
                     forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
                 }
+                if let forkPanelId = forkWorkspace.focusedPanelId {
+                    forkWorkspace.setSurfaceResumeBinding(launch.resumeBinding, panelId: forkPanelId)
+                }
                 didFork = true
             case .right, .left, .top, .bottom:
                 didFork = false

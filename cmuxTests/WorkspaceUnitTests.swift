@@ -5797,6 +5797,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        let resumeBinding = try XCTUnwrap(workspace.surfaceResumeBinding(panelId: forkPanel.id))
+        XCTAssertEqual(resumeBinding.kind, "codex")
+        XCTAssertEqual(resumeBinding.command, snapshot.forkCommand)
+        XCTAssertEqual(resumeBinding.cwd, "/tmp/fork repo")
+        XCTAssertEqual(resumeBinding.checkpointId, snapshot.sessionId)
+        XCTAssertEqual(resumeBinding.source, "agent-hook")
+        XCTAssertEqual(resumeBinding.autoResume, true)
+        XCTAssertEqual(resumeBinding.approvalPolicy, .auto)
         let split = try rootSplit(in: workspace)
         let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId)).id.uuidString
         let forkPaneId = try XCTUnwrap(workspace.paneId(forPanelId: forkPanel.id)).id.uuidString
@@ -6245,6 +6253,16 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             launch.initialTerminalInput,
             "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
+        XCTAssertEqual(launch.resumeBinding.kind, "codex")
+        XCTAssertEqual(
+            launch.resumeBinding.command,
+            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'"
+        )
+        XCTAssertEqual(launch.resumeBinding.cwd, "/tmp/local fork repo")
+        XCTAssertEqual(launch.resumeBinding.checkpointId, snapshot.sessionId)
+        XCTAssertEqual(launch.resumeBinding.source, "agent-hook")
+        XCTAssertEqual(launch.resumeBinding.autoResume, true)
+        XCTAssertEqual(launch.resumeBinding.approvalPolicy, .auto)
     }
 
     func testForkAgentConversationInRemoteConfiguredLocalWorkspaceAllowsLauncherScript() throws {
@@ -6895,6 +6913,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             snapshot.forkCommand.map { $0 + "\n" },
             "Forked tab should boot with the snapshot's --fork-session command"
         )
+        let resumeBinding = try XCTUnwrap(workspace.surfaceResumeBinding(panelId: forkPanel.id))
+        XCTAssertEqual(resumeBinding.kind, "claude")
+        XCTAssertEqual(resumeBinding.command, snapshot.forkCommand)
+        XCTAssertEqual(resumeBinding.cwd, "/tmp/fork repo")
+        XCTAssertEqual(resumeBinding.checkpointId, snapshot.sessionId)
+        XCTAssertEqual(resumeBinding.source, "agent-hook")
+        XCTAssertEqual(resumeBinding.autoResume, true)
+        XCTAssertEqual(resumeBinding.approvalPolicy, .auto)
     }
 
     func testForkAgentConversationToNewTabPlacesForkImmediatelyRightOfAnchor() throws {

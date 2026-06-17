@@ -69,6 +69,27 @@ extension TerminalController {
             ))
         }
 
+        func forkDestination(for action: String) -> AgentConversationForkDestination? {
+            switch action {
+            case "fork_conversation", "fork":
+                return AgentConversationForkDefaultSettings.current()
+            case "fork_right", "fork_conversation_right", "fork_to_right":
+                return .right
+            case "fork_left", "fork_conversation_left", "fork_to_left":
+                return .left
+            case "fork_top", "fork_conversation_top", "fork_to_top":
+                return .top
+            case "fork_bottom", "fork_conversation_bottom", "fork_to_bottom":
+                return .bottom
+            case "fork_new_tab", "fork_conversation_new_tab", "fork_to_new_tab":
+                return .newTab
+            case "fork_new_workspace", "fork_conversation_new_workspace", "fork_to_new_workspace":
+                return .newWorkspace
+            default:
+                return nil
+            }
+        }
+
         func insertionIndexToRight(anchorTabId: TabID, inPane paneId: PaneID) -> Int {
             let tabs = workspace.bonsplitController.tabs(inPane: paneId)
             guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
@@ -175,6 +196,106 @@ extension TerminalController {
                 return .duplicateFailed
             }
             return finish(.created(newPanel.id))
+
+        case let action where forkDestination(for: action) != nil:
+            guard let snapshot = workspace.forkableAgentSnapshot(forPanelId: surfaceId) else {
+                return .bridged(.err(
+                    code: "invalid_state",
+                    message: "No forkable agent session found for tab",
+                    data: nil
+                ))
+            }
+            let isRemote = workspace.isRemoteTerminalSurface(surfaceId)
+            guard ContentView.commandPaletteSnapshotForkAvailability(
+                snapshot,
+                isRemoteTerminal: isRemote
+            ) == .supportedWithoutProbe else {
+                return .bridged(.err(
+                    code: "invalid_state",
+                    message: "Agent session cannot be forked from CLI without a probe",
+                    data: nil
+                ))
+            }
+            guard let destination = forkDestination(for: action) else {
+                return .unknownAction
+            }
+            if let direction = destination.splitDirection {
+                guard let forkedPanel = workspace.forkAgentConversation(
+                    fromPanelId: surfaceId,
+                    snapshot: snapshot,
+                    direction: direction
+                ) else {
+                    return .createFailed
+                }
+                return finish(.created(forkedPanel.id))
+            }
+            switch destination {
+            case .newTab:
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    return .tabPaneNotFound
+                }
+                guard let forkedPanel = workspace.forkAgentConversationToNewTab(
+                    fromPanelId: surfaceId,
+                    snapshot: snapshot,
+                    anchorTabId: anchorTabId,
+                    paneId: paneId
+                ) else {
+                    return .createFailed
+                }
+                return finish(.created(forkedPanel.id))
+            case .newWorkspace:
+                guard let launch = workspace.forkAgentWorkspaceLaunch(
+                    fromPanelId: surfaceId,
+                    snapshot: snapshot
+                ) else {
+                    return .createFailed
+                }
+                let forkWorkspace = tabManager.addWorkspace(
+                    workingDirectory: launch.terminalWorkingDirectory,
+                    initialTerminalCommand: launch.initialTerminalCommand,
+                    initialTerminalInput: launch.initialTerminalInput,
+                    initialTerminalEnvironment: launch.initialTerminalEnvironment,
+                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
+                    autoWelcomeIfNeeded: false
+                )
+                if let remoteConfiguration = launch.remoteConfiguration {
+                    forkWorkspace.configureRemoteConnection(
+                        remoteConfiguration,
+                        autoConnect: launch.autoConnectRemoteConfiguration
+                    )
+                }
+                if let workingDirectory = launch.workingDirectory,
+                   launch.terminalWorkingDirectory == nil,
+                   let forkPanelId = forkWorkspace.focusedPanelId {
+                    forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+                }
+                if let forkPanelId = forkWorkspace.focusedPanelId {
+                    forkWorkspace.setSurfaceResumeBinding(launch.resumeBinding, panelId: forkPanelId)
+                }
+                var payload: [String: Any] = [
+                    "action": action,
+                    "window_id": windowId?.uuidString ?? NSNull(),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "tab_id": surfaceId.uuidString,
+                    "tab_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "created_workspace_id": forkWorkspace.id.uuidString,
+                    "created_workspace_ref": v2Ref(kind: .workspace, uuid: forkWorkspace.id),
+                ]
+                if let forkPanelId = forkWorkspace.focusedPanelId {
+                    payload["created_surface_id"] = forkPanelId.uuidString
+                    payload["created_surface_ref"] = v2Ref(kind: .surface, uuid: forkPanelId)
+                    payload["created_tab_id"] = forkPanelId.uuidString
+                    payload["created_tab_ref"] = v2Ref(kind: .surface, uuid: forkPanelId)
+                }
+                return .bridged(.ok(JSONValue(foundationObject: payload) ?? .object([:])))
+            case .right, .left, .top, .bottom:
+                return .unknownAction
+            }
 
         case "new_terminal_right", "new_terminal_to_right", "new_terminal_tab_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
