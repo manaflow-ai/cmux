@@ -192,6 +192,38 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
 
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import fcntl
+          import json
+          import subprocess
+          import sys
+
+          def has_ios_runtime():
+              data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"], text=True))
+              return any(
+                  runtime.get("isAvailable", True)
+                  and (
+                      runtime.get("platform") == "iOS"
+                      or runtime.get("name", "").startswith("iOS")
+                      or ".iOS-" in runtime.get("identifier", "")
+                  )
+                  for runtime in data.get("runtimes", [])
+              )
+
+          with open("/tmp/cmux-ios-platform-download.lock", "w") as lock:
+              fcntl.flock(lock, fcntl.LOCK_EX)
+              if not has_ios_runtime():
+                  print("No available iOS simulator runtime found; downloading the iOS platform.")
+                  subprocess.check_call(["xcodebuild", "-downloadPlatform", "iOS"])
+
+          if not has_ios_runtime():
+              sys.exit("No available iOS simulator runtime after xcodebuild -downloadPlatform iOS")
+          PY
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -309,33 +341,23 @@ jobs:
                   print(f"No usable {prefix} simulator runtime/device type found", file=sys.stderr)
                   print(f"Available iOS runtimes: {runtime_names}", file=sys.stderr)
                   print(f"Available {prefix} device types: {device_type_names}", file=sys.stderr)
-                  print("IOS_SIMULATOR_SKIP=true")
-                  print(f"SIMULATOR_SKIP_REASON=No usable {prefix} simulator runtime/device type found")
-                  raise SystemExit(0)
+                  raise SystemExit(1)
               name = f"cmux CI {device_type['name']}"
               udid = subprocess.check_output(
                   ["xcrun", "simctl", "create", name, device_type["identifier"], runtime["identifier"]],
                   text=True,
               ).strip()
               selected = {"udid": udid, "name": name}
-          print("IOS_SIMULATOR_SKIP=false")
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
           cat "$simulator_env"
           cat "$simulator_env" >> "$GITHUB_ENV"
-          if grep -q '^IOS_SIMULATOR_SKIP=true$' "$simulator_env"; then
-            echo "::notice title=iOS simulator tests::Skipping $DEVICE_FAMILY simulator tests: $(grep '^SIMULATOR_SKIP_REASON=' "$simulator_env" | cut -d= -f2-)"
-          fi
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           set -euo pipefail
-          if [ "${IOS_SIMULATOR_SKIP:-false}" = "true" ]; then
-            echo "Skipping package resolution: ${SIMULATOR_SKIP_REASON:-no simulator available}"
-            exit 0
-          fi
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -348,10 +370,6 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
-          if [ "${IOS_SIMULATOR_SKIP:-false}" = "true" ]; then
-            echo "Skipping iOS simulator tests: ${SIMULATOR_SKIP_REASON:-no simulator available}"
-            exit 0
-          fi
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
