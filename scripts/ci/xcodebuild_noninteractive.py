@@ -6,10 +6,13 @@ from __future__ import annotations
 import os
 import pty
 import select
+import signal
 import sys
+import time
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
+TIMEOUT_EXIT_CODE = 124
 
 
 def child_exit_code(status: int) -> int:
@@ -20,6 +23,55 @@ def child_exit_code(status: int) -> int:
     return 1
 
 
+def timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
+def terminate_child(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            finished, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if finished:
+            return
+        time.sleep(0.1)
+
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(
@@ -28,16 +80,34 @@ def main() -> int:
         )
         return 2
 
+    timeout = timeout_seconds()
+    deadline = time.monotonic() + timeout if timeout else None
+
     pid, fd = pty.fork()
     if pid == 0:
+        try:
+            os.setsid()
+        except OSError:
+            pass
         os.execvp(sys.argv[1], sys.argv[1:])
 
     prompt_window = b""
+    timed_out = False
     while True:
+        select_timeout = None
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            select_timeout = min(1, remaining)
+
         try:
-            readable, _, _ = select.select([fd], [], [])
+            readable, _, _ = select.select([fd], [], [], select_timeout)
         except OSError:
             break
+        if not readable:
+            continue
         if fd not in readable:
             continue
 
@@ -55,6 +125,12 @@ def main() -> int:
             # noninteractive quit path and let xcodebuild continue reporting.
             os.write(fd, b"q")
             prompt_window = b""
+
+    if timed_out:
+        assert timeout is not None
+        print(f"Timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
+        terminate_child(pid)
+        return TIMEOUT_EXIT_CODE
 
     _, status = os.waitpid(pid, 0)
     return child_exit_code(status)

@@ -8,6 +8,7 @@ fi
 log_dir="${RUNNER_TEMP:-/tmp}"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-2}"
+export CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-900}"
 
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
@@ -28,8 +29,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
-    if [ "$attempt" -lt "$max_attempts" ] && grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
-      echo "Retrying app-host xcodebuild after XCTest startup hang (attempt $attempt/$max_attempts)" >&2
+    if [ "$attempt" -lt "$max_attempts" ] && { [ "$status" -eq 124 ] || grep -Fq 'The test runner hung before establishing connection.' "$log_path"; }; then
+      if [ "$status" -eq 124 ]; then
+        echo "Retrying app-host xcodebuild after ${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS}s timeout (attempt $attempt/$max_attempts)" >&2
+      else
+        echo "Retrying app-host xcodebuild after XCTest startup hang (attempt $attempt/$max_attempts)" >&2
+      fi
       pkill -x "cmux DEV" || true
       attempt=$((attempt + 1))
       continue

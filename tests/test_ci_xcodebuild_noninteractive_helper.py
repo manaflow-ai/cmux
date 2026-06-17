@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+import os
 from pathlib import Path
 
 
@@ -54,7 +55,39 @@ def main() -> int:
         print("FAIL: helper did not answer each crash prompt with q")
         return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts")
+    timeout_child = textwrap.dedent(
+        """
+        import time
+
+        print("ready", flush=True)
+        time.sleep(10)
+        """
+    )
+    timeout_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS": "0.2",
+    }
+    timeout_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", timeout_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=timeout_env,
+    )
+    if timeout_result.returncode != 124:
+        print(timeout_result.stdout, end="")
+        print(timeout_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: expected timeout exit 124, got {timeout_result.returncode}")
+        return 1
+    if "Timed out after 0.2s" not in timeout_result.stderr:
+        print(timeout_result.stdout, end="")
+        print(timeout_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not report timeout")
+        return 1
+
+    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and times out stuck children")
     return 0
 
 
