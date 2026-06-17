@@ -4921,7 +4921,14 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Hidden/tiny first-responder handoff should defer Ghostty focus until geometry is usable"
         )
 
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(
+            panel.surface.debugDesiredFocusState(),
+            "The first deferred apply can fire while geometry is still unusable"
+        )
+
         surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        surfaceView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         XCTAssertTrue(
