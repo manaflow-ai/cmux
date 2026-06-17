@@ -93,6 +93,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
+    /// Grok Build emits lowercase native tool names that must escalate like
+    /// Cursor-style `Write`/`Bash` names.
+    @Test func grokPreToolUseEscalatesNativeWriteAliases() {
+        #expect(classify("grok", "PreToolUse", tool: "Write").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "write").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "search_replace").actionable == true)
+        #expect(classify("grok", "PreToolUse", tool: "read_file").actionable == false)
+    }
+
     /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
     /// approval tool names route to their own wire kinds — they are never
     /// collapsed into a generic `PermissionRequest`. Guards the shared
