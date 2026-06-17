@@ -305,9 +305,18 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
+                // Extend the terminal under the translucent "liquid glass" nav
+                // bar so the grid renders full-height behind it. The grid is
+                // bottom-anchored, so recent output stays clear at the bottom and
+                // older rows pass under the glass on scrollback. Applied to the
+                // surface (not the enclosing Group) so the Group's layout frame
+                // stays inside the safe area and the connection-status pill
+                // overlay below still anchors under the header, not behind it.
+                .ignoresSafeArea(.container, edges: .top)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .ignoresSafeArea(.container, edges: .top)
             }
             #else
             TerminalPalette.background
@@ -348,8 +357,11 @@ struct WorkspaceDetailView: View {
             includesBottom: true
         )
         .background {
+            // Fill the whole window, including under the translucent nav bar, so
+            // the glass tints the terminal's own dark color rather than the page
+            // background.
             TerminalPalette.background
-                .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
         .background(TerminalPalette.background)
