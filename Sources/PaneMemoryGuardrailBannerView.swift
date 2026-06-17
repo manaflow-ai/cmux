@@ -7,7 +7,10 @@ import SwiftUI
 /// rule). Stays silent while `activeBanner` is nil.
 struct PaneMemoryGuardrailBanner: View {
     @ObservedObject var guardrail: PaneMemoryGuardrail
-    @State private var isConfirmingKill = false
+    /// The warning the user tapped "Kill" on, captured so a poll-loop swap of
+    /// `activeBanner` while the confirm dialog is open cannot redirect the kill
+    /// to a different pane.
+    @State private var pendingKillWarning: PaneMemoryWarning?
 
     private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
@@ -55,7 +58,7 @@ struct PaneMemoryGuardrailBanner: View {
 
             HStack(spacing: 8) {
                 Button(role: .destructive) {
-                    isConfirmingKill = true
+                    pendingKillWarning = warning
                 } label: {
                     Text(String(
                         localized: "paneMemoryGuardrail.banner.kill",
@@ -69,11 +72,15 @@ struct PaneMemoryGuardrailBanner: View {
                         localized: "paneMemoryGuardrail.confirm.title",
                         defaultValue: "Kill this pane's runaway process?"
                     ),
-                    isPresented: $isConfirmingKill,
-                    titleVisibility: .visible
-                ) {
+                    isPresented: Binding(
+                        get: { pendingKillWarning != nil },
+                        set: { if !$0 { pendingKillWarning = nil } }
+                    ),
+                    titleVisibility: .visible,
+                    presenting: pendingKillWarning
+                ) { target in
                     Button(role: .destructive) {
-                        guardrail.killActivePaneProcess()
+                        guardrail.killPane(target)
                     } label: {
                         Text(String(
                             localized: "paneMemoryGuardrail.confirm.kill",
@@ -83,7 +90,7 @@ struct PaneMemoryGuardrailBanner: View {
                     Button(role: .cancel) {} label: {
                         Text(String(localized: "paneMemoryGuardrail.confirm.cancel", defaultValue: "Cancel"))
                     }
-                } message: {
+                } message: { _ in
                     Text(String(
                         localized: "paneMemoryGuardrail.confirm.message",
                         defaultValue: "This sends SIGTERM then SIGKILL to the pane's runaway process group(s). The pane and its shell stay open."
@@ -91,7 +98,7 @@ struct PaneMemoryGuardrailBanner: View {
                 }
 
                 Button {
-                    guardrail.dismissActiveBanner()
+                    guardrail.dismiss(warning)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))

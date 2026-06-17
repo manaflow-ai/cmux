@@ -155,33 +155,56 @@ enum PaneMemoryProcessKiller {
     /// runaway job and its descendants die while the pane's shell (a different
     /// group) stays alive. ESRCH on an already-dead group/pid is harmless.
     ///
-    /// The delayed SIGKILL does NOT blindly re-signal the captured pgids — a
-    /// group can fully exit during the grace window and its id be reused by an
-    /// unrelated process. Instead it re-validates each captured member pid and
-    /// only force-kills the ones still alive whose process group is unchanged,
-    /// so a reused pid/pgid is never force-killed.
+    /// Both signals are validated against the captured member pids, because the
+    /// sample is taken at poll time but acted on later (the banner can sit open):
+    /// the sampled pgid could have exited and been reused by an unrelated
+    /// process. A group is only signalled while it still contains a live
+    /// captured member whose process group is unchanged, so a reused pid/pgid is
+    /// never signalled — not at SIGTERM and not at the delayed SIGKILL.
     static func terminate(
         processGroupIDs: [Int],
         memberPIDs: [Int],
         graceSeconds: TimeInterval = 3
     ) {
-        let pgids = Set(processGroupIDs.filter { $0 > 1 })
-        guard !pgids.isEmpty else { return }
-        for pgid in pgids {
+        let candidatePGIDs = Set(processGroupIDs.filter { $0 > 1 })
+        let members = memberPIDs.filter { $0 > 1 }
+        guard !candidatePGIDs.isEmpty, !members.isEmpty else { return }
+
+        // Validate at SIGTERM time: only groups that still hold a live captured
+        // member with an unchanged pgid.
+        let groups = liveTargetGroups(members: members, candidatePGIDs: candidatePGIDs)
+        guard !groups.isEmpty else { return }
+        for pgid in groups {
             _ = kill(pid_t(-pgid), SIGTERM)
         }
-        let members = memberPIDs.filter { $0 > 1 }
+
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + graceSeconds) {
-            for pid in members {
-                // Still alive?
-                guard kill(pid_t(pid), 0) == 0 else { continue }
-                // Still in one of the originally targeted groups? (Guards against
-                // pid reuse / the pid having re-parented into another group.)
-                let currentPGID = getpgid(pid_t(pid))
-                guard currentPGID > 1, pgids.contains(Int(currentPGID)) else { continue }
+            // Re-validate at SIGKILL time and force-kill surviving member pids
+            // individually (not the group) so a reused pgid is never SIGKILLed.
+            for pid in members where isMember(pid, ofGroups: groups) {
                 _ = kill(pid_t(pid), SIGKILL)
             }
         }
+    }
+
+    /// The subset of `candidatePGIDs` that still contains at least one live
+    /// captured member whose current process group is unchanged.
+    private static func liveTargetGroups(members: [Int], candidatePGIDs: Set<Int>) -> Set<Int> {
+        var groups = Set<Int>()
+        for pid in members {
+            guard kill(pid_t(pid), 0) == 0 else { continue }
+            let currentPGID = Int(getpgid(pid_t(pid)))
+            if currentPGID > 1, candidatePGIDs.contains(currentPGID) {
+                groups.insert(currentPGID)
+            }
+        }
+        return groups
+    }
+
+    private static func isMember(_ pid: Int, ofGroups pgids: Set<Int>) -> Bool {
+        guard kill(pid_t(pid), 0) == 0 else { return false }
+        let currentPGID = Int(getpgid(pid_t(pid)))
+        return currentPGID > 1 && pgids.contains(currentPGID)
     }
 }
 
@@ -382,19 +405,27 @@ final class PaneMemoryGuardrail: ObservableObject {
 
     // MARK: Banner actions
 
-    func dismissActiveBanner() {
-        guard let active = activeBanner else { return }
-        engine.dismiss(PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId))
-        activeBanner = nil
+    /// Dismiss the banner for the specific `warning` the user acted on. Passing
+    /// the warning (rather than reading `activeBanner`) makes the action immune
+    /// to a poll-loop swap of `activeBanner` while the banner/dialog was up.
+    func dismiss(_ warning: PaneMemoryWarning) {
+        let key = PaneMemoryPaneKey(workspaceId: warning.workspaceId, panelId: warning.panelId)
+        engine.dismiss(key)
+        if let active = activeBanner,
+           active.workspaceId == warning.workspaceId, active.panelId == warning.panelId {
+            activeBanner = nil
+        }
     }
 
-    func killActivePaneProcess() {
-        guard let active = activeBanner else { return }
-        let key = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
+    /// Kill the runaway process group(s) for the specific `warning` the user
+    /// confirmed — NOT whatever `activeBanner` currently holds, which the poll
+    /// loop may have swapped to a different pane while the confirm dialog was open.
+    func killPane(_ warning: PaneMemoryWarning) {
+        let key = PaneMemoryPaneKey(workspaceId: warning.workspaceId, panelId: warning.panelId)
         let sample = lastSamplesByKey[key]
         let pgids = sample?.runawayProcessGroupIDs ?? []
         if pgids.isEmpty {
-            onRequestClosePane?(active.workspaceId, active.panelId)
+            onRequestClosePane?(warning.workspaceId, warning.panelId)
         } else {
             PaneMemoryProcessKiller.terminate(
                 processGroupIDs: pgids,
@@ -402,7 +433,10 @@ final class PaneMemoryGuardrail: ObservableObject {
             )
         }
         engine.acknowledgeHandled(key)
-        activeBanner = nil
+        if let active = activeBanner,
+           active.workspaceId == warning.workspaceId, active.panelId == warning.panelId {
+            activeBanner = nil
+        }
         if engine.warnedWorkspaceIds != lastWarnedWorkspaceIds {
             lastWarnedWorkspaceIds = engine.warnedWorkspaceIds
             onWarnedWorkspacesChanged?(engine.warnedWorkspaceIds)
