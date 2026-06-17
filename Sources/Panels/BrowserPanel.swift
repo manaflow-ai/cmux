@@ -2587,7 +2587,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Per-pane browser audio mute intent. BrowserPanel owns this so the state
     /// survives WKWebView replacement and can be applied to each new page.
-    @Published private(set) var isMuted: Bool = false
+    @Published private(set) var isMuted: Bool = false {
+        didSet {
+            guard oldValue != isMuted else { return }
+            // Muting silences audible output, so the sidebar audio indicator
+            // must re-evaluate (#6100).
+            publishMediaActivity()
+        }
+    }
 
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
@@ -2763,15 +2770,55 @@ final class BrowserPanel: Panel, ObservableObject {
     private var playingMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
-    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
-    /// the `private(set)` setter stays confined to this file.
-    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
+    /// Whether the live page is producing *audible* media (an unmuted, non-zero
+    /// volume `<video>`/`<audio>` element is playing, in the main frame or any
+    /// iframe). Unlike ``isPlayingMedia`` (which keeps muted video alive for
+    /// #5409), this drives the sidebar audio-activity indicator so a muted
+    /// autoplay video does not light the speaker glyph (#6100).
+    private(set) var isProducingAudibleMedia: Bool = false {
+        didSet {
+            guard oldValue != isProducingAudibleMedia else { return }
+            publishMediaActivity()
+        }
+    }
+    /// Document ids of the frames currently reporting audible media.
+    private var audibleMediaFrameIDs: Set<String> = []
+
+    /// Whether the live page is currently capturing the camera. Mirrors
+    /// `WKWebView.cameraCaptureState != .none` (device engaged) and drives the
+    /// sidebar camera indicator (#6100).
+    @Published private(set) var isUsingCamera: Bool = false {
+        didSet {
+            guard oldValue != isUsingCamera else { return }
+            publishMediaActivity()
+        }
+    }
+    /// Whether the live page is currently capturing the microphone. Mirrors
+    /// `WKWebView.microphoneCaptureState != .none` and drives the sidebar
+    /// microphone indicator (#6100).
+    @Published private(set) var isUsingMicrophone: Bool = false {
+        didSet {
+            guard oldValue != isUsingMicrophone else { return }
+            publishMediaActivity()
+        }
+    }
+
+    /// Folds a per-frame playback report into ``isPlayingMedia`` and
+    /// ``isProducingAudibleMedia``. Lives here so the `private(set)` setters stay
+    /// confined to this file.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool, isAudible: Bool) {
         if isPlaying {
             playingMediaFrameIDs.insert(frameID)
         } else {
             playingMediaFrameIDs.remove(frameID)
         }
         isPlayingMedia = !playingMediaFrameIDs.isEmpty
+        if isAudible {
+            audibleMediaFrameIDs.insert(frameID)
+        } else {
+            audibleMediaFrameIDs.remove(frameID)
+        }
+        isProducingAudibleMedia = !audibleMediaFrameIDs.isEmpty
     }
 
     /// Clears all tracked playing frames (new webview bind or main-frame
@@ -2779,6 +2826,24 @@ final class BrowserPanel: Panel, ObservableObject {
     func resetMediaPlaybackTracking() {
         playingMediaFrameIDs.removeAll()
         isPlayingMedia = false
+        audibleMediaFrameIDs.removeAll()
+        isProducingAudibleMedia = false
+    }
+
+    /// Pushes this pane's current media activity (audible audio / mic / camera)
+    /// to the shared center so the sidebar workspace row can surface an indicator
+    /// for the workspace this pane belongs to (#6100).
+    func publishMediaActivity() {
+        let activity = PaneMediaActivity(
+            isPlayingAudio: isProducingAudibleMedia && !isMuted,
+            isUsingMicrophone: isUsingMicrophone,
+            isUsingCamera: isUsingCamera
+        )
+        BrowserMediaActivityCenter.shared.update(
+            panelId: id,
+            workspaceId: workspaceId,
+            activity: activity
+        )
     }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
@@ -3978,7 +4043,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        guard workspaceId != newWorkspaceId else { return }
         workspaceId = newWorkspaceId
+        // Re-home this pane's media activity under the new workspace (#6100).
+        publishMediaActivity()
     }
 
     func reattachToWorkspace(
@@ -3988,7 +4056,12 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint?,
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
+        let workspaceChanged = workspaceId != newWorkspaceId
         workspaceId = newWorkspaceId
+        if workspaceChanged {
+            // Re-home this pane's media activity under the new workspace (#6100).
+            publishMediaActivity()
+        }
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
@@ -4278,6 +4351,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private func setupObservers(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
 
+        // A freshly bound webview starts idle; the capture observers use `.new`
+        // (no `.initial`), so reset the mirrored flags here or stale state from a
+        // replaced webview would linger (#6100).
+        isUsingCamera = (webView.cameraCaptureState != WKMediaCaptureState.none)
+        isUsingMicrophone = (webView.microphoneCaptureState != WKMediaCaptureState.none)
+
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
             let observedURL = change.newValue ?? webView.url
@@ -4378,6 +4457,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.isUsingCamera = (webView.cameraCaptureState != WKMediaCaptureState.none)
                 self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
             }
         }
@@ -4386,6 +4466,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.isUsingMicrophone = (webView.microphoneCaptureState != WKMediaCaptureState.none)
                 self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
             }
         }
@@ -5469,7 +5550,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
+        let panelId = id
         Task { @MainActor in
+            BrowserMediaActivityCenter.shared.remove(panelId: panelId)
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }

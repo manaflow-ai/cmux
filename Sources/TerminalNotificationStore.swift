@@ -2172,6 +2172,37 @@ final class SidebarUnreadModel: ObservableObject {
     @Published private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
     @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
+    /// Workspaces with at least one pane over the runaway-memory threshold.
+    /// Updated independently by `PaneMemoryGuardrail`; mirrored here so the
+    /// sidebar re-renders the warning badge through the same coalesced
+    /// observation path as unread state (snapshot-boundary rule).
+    @Published private(set) var memoryWarningWorkspaceIds: Set<UUID> = []
+
+    func setMemoryWarningWorkspaceIds(_ ids: Set<UUID>) {
+        if memoryWarningWorkspaceIds != ids {
+            memoryWarningWorkspaceIds = ids
+        }
+    }
+
+    func hasMemoryWarning(forWorkspaceId id: UUID) -> Bool {
+        memoryWarningWorkspaceIds.contains(id)
+    }
+
+    /// Per-workspace browser media activity (audio / mic / camera), driven by
+    /// `BrowserMediaActivityCenter`. Mirrored here so the sidebar re-renders the
+    /// media-activity glyph through the same coalesced observation path as
+    /// unread/memory state (snapshot-boundary rule, #6100 / #2586).
+    @Published private(set) var mediaActivityByWorkspaceId: [UUID: WorkspaceMediaActivity] = [:]
+
+    func setMediaActivity(_ activity: [UUID: WorkspaceMediaActivity]) {
+        if mediaActivityByWorkspaceId != activity {
+            mediaActivityByWorkspaceId = activity
+        }
+    }
+
+    func mediaActivity(forWorkspaceId id: UUID) -> WorkspaceMediaActivity {
+        mediaActivityByWorkspaceId[id] ?? .none
+    }
 
     func apply(
         totalUnreadCount: Int,
