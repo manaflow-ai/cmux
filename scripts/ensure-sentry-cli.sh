@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if command -v sentry-cli >/dev/null 2>&1; then
-  command -v sentry-cli
-  exit 0
-fi
-
 INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"
 SENTRY_CLI_VERSION="3.3.0"
 SENTRY_CLI_ASSET="sentry-cli-Darwin-universal"

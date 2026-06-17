@@ -424,6 +424,7 @@ jobs:
           rm -f "$ZIP_SUBMIT"
           # create-dmg generates a styled drag-to-install DMG
           create-dmg \
+            --no-code-sign \
             "$APP_PATH" \
             ./
           mv ./cmux*.dmg "$DMG_RELEASE"

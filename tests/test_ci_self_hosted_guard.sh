@@ -325,6 +325,10 @@ check_sentry_cli_install_portability() {
       exit 1
     fi
   done
+  if grep -Fq 'command -v sentry-cli' "$helper"; then
+    echo "FAIL: sentry-cli helper must not reuse ambient runner PATH state"
+    exit 1
+  fi
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if grep -Fq 'brew install getsentry/tools/sentry-cli' "$file"; then
@@ -354,18 +358,55 @@ check_sentry_cli_helper_behavior() {
   bin_dir="$tmp_dir/bin"
   stdout="$tmp_dir/stdout"
   stderr="$tmp_dir/stderr"
-  expected_path="$bin_dir/sentry-cli"
+  expected_path="$tmp_dir/runner/sentry-cli-bin/sentry-cli"
   mkdir -p "$bin_dir"
 
-  cat > "$expected_path" <<'EOF'
+  cat > "$bin_dir/sentry-cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "ambient sentry-cli should not run" >&2
+exit 44
+EOF
+  chmod +x "$bin_dir/sentry-cli"
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--output)
+			output="$2"
+			shift 2
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+if [[ -z "$output" ]]; then
+	echo "missing --output" >&2
+	exit 1
+fi
+cat > "$output" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "sentry-cli 3.3.0"
+SCRIPT
 EOF
-  chmod +x "$expected_path"
+  chmod +x "$bin_dir/curl"
+  cat > "$bin_dir/shasum" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+last=""
+for arg in "$@"; do
+	last="$arg"
+done
+printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
+EOF
+  chmod +x "$bin_dir/shasum"
 
-  if ! PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
-    echo "FAIL: sentry-cli helper behavior test should find an existing stub CLI"
+  if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+    echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
     cat "$stderr" >&2 || true
     exit 1
   fi
@@ -375,19 +416,33 @@ EOF
     exit 1
   fi
 
-  if [[ -s "$stderr" ]]; then
-    echo "FAIL: sentry-cli helper must not emit installer chatter when sentry-cli is already available"
+  if ! grep -Fq 'Installing sentry-cli 3.3.0 into' "$stderr"; then
+    echo "FAIL: sentry-cli helper should report pinned install on stderr"
+    exit 1
+  fi
+  if grep -Fq 'ambient sentry-cli should not run' "$stderr"; then
+    echo "FAIL: sentry-cli helper must ignore ambient sentry-cli on PATH"
     exit 1
   fi
 
   rm -rf "$tmp_dir"
-  echo "PASS: sentry-cli helper keeps stdout machine-readable when sentry-cli already exists"
+  echo "PASS: sentry-cli helper installs the pinned binary without ambient PATH state"
 }
 
 check_dmg_signing_uses_build_keychain() {
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
       echo "FAIL: $(basename "$file") must not let create-dmg codesign outside build.keychain"
+      exit 1
+    fi
+
+    if ! awk '
+      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+      in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
+      in_dmg && /^[[:space:]]*$/ { in_dmg=0 }
+      END { exit !saw_no_code_sign }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must disable create-dmg implicit code signing"
       exit 1
     fi
 

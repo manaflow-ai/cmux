@@ -538,6 +538,7 @@ jobs:
 
             dmg_tmp_dir="$(mktemp -d)"
             create-dmg \
+              --no-code-sign \
               "$app_path" \
               "$dmg_tmp_dir"
             created_dmg="$(find "$dmg_tmp_dir" -maxdepth 1 -name '*.dmg' | head -n 1)"
