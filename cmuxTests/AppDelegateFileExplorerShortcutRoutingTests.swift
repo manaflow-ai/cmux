@@ -55,6 +55,51 @@ struct AppDelegateFileExplorerShortcutRoutingTests {
         }
     }
 
+    @Test func fileExplorerShortcutReboundToMenuDefaultRoutesBeforeStaleMenuSuppression() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared, "Expected AppDelegate.shared")
+            let openFolderDefault = KeyboardShortcutSettings.Action.openFolder.defaultShortcut
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .openFolder)
+            KeyboardShortcutSettings.setShortcut(openFolderDefault, for: .fileExplorerOpenSelection)
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+            let resultsView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            resultsView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name")))
+            var commitCount = 0
+            resultsView.onCommit = {
+                commitCount += 1
+            }
+            contentView.addSubview(resultsView)
+            window.contentView = contentView
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            defer { window.orderOut(nil) }
+
+            #expect(window.makeFirstResponder(resultsView))
+            #expect(window.firstResponder === resultsView)
+
+            let event = try #require(
+                makeKeyDownEvent(shortcut: openFolderDefault, windowNumber: window.windowNumber),
+                "Failed to construct Open Folder default event"
+            )
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+
+            #expect(appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event))
+            #expect(appDelegate.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: window))
+            #expect(commitCount == 1)
+        }
+    }
+
     private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-explorer-shortcut-routing"

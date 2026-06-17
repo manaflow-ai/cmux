@@ -250,6 +250,28 @@ extension AppDelegate {
         return focusView.window === window || focusView.window?.windowNumber == window.windowNumber
     }
 
+    @discardableResult
+    func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
+        let window = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let responder = window.firstResponder,
+              let focusView = shortcutFileExplorerFocusView(for: responder),
+              focusView.window === window || focusView.window?.windowNumber == window.windowNumber else {
+            return false
+        }
+
+        if let outlineView = focusView as? FileExplorerNSOutlineView {
+            return outlineView.handleOpenSelectionShortcut(event)
+        }
+        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
+            return resultsView.handleOpenSelectionShortcut(event)
+        }
+        if let searchField = focusView as? FileExplorerSearchField {
+            return searchField.handleOpenSelectionShortcut(event)
+        }
+        return false
+    }
+
     private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
         if let view = responder as? NSView,
            isFileExplorerShortcutFocusView(view) {
