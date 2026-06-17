@@ -531,7 +531,6 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          AWS_CLI="$(scripts/ci/resolve-aws-cli.sh)"
 
           # Guard: only upload if this tag is the highest semver release.
           # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
@@ -546,9 +545,11 @@ jobs:
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
           # is either the old version or the new one, never missing.
-          "$AWS_CLI" s3 cp appcast.xml \
-            "s3://cmux-binaries/stable/appcast.xml" \
+          python3 scripts/ci/upload-r2-object.py \
+            --file appcast.xml \
             --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
             --cache-control "no-cache, no-store, must-revalidate"
 
           echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"
