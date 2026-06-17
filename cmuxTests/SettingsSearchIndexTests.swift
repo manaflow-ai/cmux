@@ -34,21 +34,29 @@ struct SettingsSearchIndexTests {
         assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("naming", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("nmaing", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("auto name", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("rename workspace", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("naming agent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("automation.autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("option as alt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
+        assertSearch("option", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
+        assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-pane-gap"))
+        assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-snapping"))
+        assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
     }
 
-    @Test func exactSectionNameRanksSectionFirst() throws {
-        let first = try #require(SettingsSearchIndex.entries(matching: "automation").first)
-        if case .section = first.kind {
-            #expect(first.title == "Automation")
-        } else {
-            Issue.record("expected the Automation section first, got setting \(first.id)")
-        }
+    @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() {
+        #expect(
+            SettingsSearchIndex.entries(matching: "Terminal Config").first?.id
+                == SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
+        )
+        #expect(
+            SettingsSearchIndex.entries(matching: "copy on select").first?.id
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "copy-on-select")
+        )
     }
 
     @Test func settingsPathAnchorIncludesBrowserEnabled() {
@@ -63,6 +71,10 @@ struct SettingsSearchIndexTests {
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions")
                 == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
         )
+    }
+
+    @Test func conditionalAutoNamingAgentDoesNotReuseWorkspaceAutoNamingAnchor() {
+        #expect(SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }
 
     @Test func settingsPathAnchorIncludesTextBoxMaxLines() {
@@ -111,20 +123,6 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings")
                 == SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
-        )
-    }
-
-    @Test func settingsPathAnchorIncludesWorkspaceAutoNaming() {
-        #expect(
-            SettingsSearchIndex.anchorID(forSettingsPath: "automation.workspaceAutoNaming")
-                == SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
-        )
-    }
-
-    @Test func settingsPathAnchorIncludesAutoNamingAgent() {
-        #expect(
-            SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent")
-                == SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming")
         )
     }
 

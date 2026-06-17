@@ -115,7 +115,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini kiro"
+            return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -273,6 +273,8 @@ struct SettingsSearchEntry: Identifiable {
     let subtitle: String?
     let symbolName: String
     let normalizedSearchText: String
+    let normalizedSearchWords: [String]
+    let normalizedSearchWordSet: Set<String>
 
     init(
         id: String,
@@ -289,7 +291,10 @@ struct SettingsSearchEntry: Identifiable {
         self.title = title
         self.subtitle = subtitle
         self.symbolName = symbolName
-        normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
+        let normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
+        self.normalizedSearchText = normalizedSearchText
+        self.normalizedSearchWords = SettingsSearchIndex.normalizedTokens(for: normalizedSearchText)
+        self.normalizedSearchWordSet = Set(normalizedSearchWords)
     }
 }
 
@@ -323,7 +328,7 @@ enum SettingsSearchIndex {
         setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
         setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
-        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
+        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview macos-option-as-alt option as alt left option right option alt key meta"),
         setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
         setting(.app, "markdown-font-size", String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"), "md markdown viewer font size points zoom scale text bigger smaller"),
         setting(.app, "markdown-font-family", String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"), "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
@@ -357,6 +362,8 @@ enum SettingsSearchIndex {
         ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
+        setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
+        setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
@@ -396,7 +403,19 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
-        setting(.automation, "workspace-auto-naming", String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"), "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary agent picker naming agent"),
+        setting(
+            .automation,
+            "workspace-auto-naming",
+            String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+            [
+                "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
+                String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
+            ].joined(separator: " ")
+        ),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
@@ -481,6 +500,8 @@ enum SettingsSearchIndex {
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
+        "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
+        "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
@@ -524,7 +545,6 @@ enum SettingsSearchIndex {
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
-        "automation.autoNamingAgent": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
@@ -552,18 +572,21 @@ enum SettingsSearchIndex {
     ]
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {
-        let tokens = normalizedTokens(for: query)
+        let tokens = normalizedQueryTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
         let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
-        return allEntries.enumerated().compactMap { index, entry -> (entry: SettingsSearchEntry, score: Int, index: Int)? in
-            guard let score = matchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
-            return (entry, score, index)
-        }
-        .sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.index < rhs.index
-        }
-        .map { $0.entry }
+        return allEntries.enumerated()
+            .compactMap { offset, entry -> (entry: SettingsSearchEntry, score: Int, offset: Int)? in
+                guard let score = matchScore(entry: entry, query: normalizedQuery, tokens: tokens) else {
+                    return nil
+                }
+                return (entry, score, offset)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score < rhs.score }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.entry)
     }
 
     static func entry(withID id: String) -> SettingsSearchEntry? {
@@ -579,111 +602,5 @@ enum SettingsSearchIndex {
 
     static func anchorID(forSettingsPath path: String) -> String? {
         settingsPathAnchorIDs[path]
-    }
-
-    static func normalized(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
-
-    private static func setting(
-        _ target: SettingsNavigationTarget,
-        _ idSuffix: String,
-        _ title: String,
-        _ searchText: String
-    ) -> SettingsSearchEntry {
-        SettingsSearchEntry(
-            id: settingID(for: target, idSuffix: idSuffix),
-            kind: .setting,
-            target: target,
-            title: title,
-            subtitle: target.title,
-            symbolName: target.symbolName,
-            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
-        )
-    }
-
-    private static func normalizedTokens(for query: String) -> [String] {
-        normalized(query)
-            .split { character in
-                character.unicodeScalars.allSatisfy { scalar in
-                    CharacterSet.whitespacesAndNewlines.contains(scalar)
-                        || CharacterSet.punctuationCharacters.contains(scalar)
-                }
-            }
-            .map(String.init)
-    }
-
-    private static func matchScore(_ entry: SettingsSearchEntry, tokens queryTokens: [String], normalizedQuery: String) -> Int? {
-        var total = 0
-        // Mirror the package SettingsSearchIndex: an exact title match is the
-        // strongest signal and must outrank synonym-only hits, so an exact
-        // section-name query (e.g. "automation") lands on the section instead
-        // of its child settings (whose dotted-path synonyms also match and
-        // carry the +20 bonus below).
-        if normalized(entry.title) == normalizedQuery { total += 1_000 }
-        if case .setting = entry.kind { total += 20 }
-        if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
-        for token in queryTokens {
-            guard let score = tokenScore(token, in: entry.normalizedSearchText) else { return nil }
-            total += score
-        }
-        return total
-    }
-
-    private static func tokenScore(_ token: String, in normalizedSearchText: String) -> Int? {
-        let words = normalizedTokens(for: normalizedSearchText)
-        if words.contains(token) { return 120 }
-        if words.contains(where: { $0.hasPrefix(token) }) { return 100 }
-        if normalizedSearchText.contains(token) { return 80 }
-        if words.contains(where: { isFuzzyMatch(token, word: $0) }) { return 60 }
-        if words.contains(where: { isSubsequence(token, of: $0) }) { return 40 }
-        return nil
-    }
-
-    private static func isFuzzyMatch(_ token: String, word: String) -> Bool {
-        let tokenLength = token.count
-        let wordLength = word.count
-        guard min(tokenLength, wordLength) >= 4 else { return false }
-        let maxDistance = min(tokenLength, wordLength) >= 7 ? 2 : 1
-        guard abs(tokenLength - wordLength) <= maxDistance else { return false }
-        return editDistance(token, word, maxDistance: maxDistance) <= maxDistance
-    }
-
-    private static func isSubsequence(_ token: String, of word: String) -> Bool {
-        guard token.count >= 3, token.count <= word.count else { return false }
-        var tokenIndex = token.startIndex
-        for character in word where character == token[tokenIndex] {
-            token.formIndex(after: &tokenIndex)
-            if tokenIndex == token.endIndex { return true }
-        }
-        return false
-    }
-
-    private static func editDistance(_ lhs: String, _ rhs: String, maxDistance: Int) -> Int {
-        let lhsCharacters = Array(lhs)
-        let rhsCharacters = Array(rhs)
-        if lhsCharacters.isEmpty { return rhsCharacters.count }
-        if rhsCharacters.isEmpty { return lhsCharacters.count }
-
-        var previous = Array(0...rhsCharacters.count)
-        var current = Array(repeating: 0, count: rhsCharacters.count + 1)
-
-        for lhsIndex in 1...lhsCharacters.count {
-            current[0] = lhsIndex
-            var rowMinimum = current[0]
-            for rhsIndex in 1...rhsCharacters.count {
-                let substitutionCost = lhsCharacters[lhsIndex - 1] == rhsCharacters[rhsIndex - 1] ? 0 : 1
-                current[rhsIndex] = min(
-                    previous[rhsIndex] + 1,
-                    current[rhsIndex - 1] + 1,
-                    previous[rhsIndex - 1] + substitutionCost
-                )
-                rowMinimum = min(rowMinimum, current[rhsIndex])
-            }
-            if rowMinimum > maxDistance { return maxDistance + 1 }
-            swap(&previous, &current)
-        }
-
-        return previous[rhsCharacters.count]
     }
 }
