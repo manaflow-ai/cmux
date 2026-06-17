@@ -6241,7 +6241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
+    func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
             return window
         }
@@ -8017,7 +8017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return fallback
     }
 
-    private func shortcutEventHasAddressableWindow(_ event: NSEvent?) -> Bool {
+    func shortcutEventHasAddressableWindow(_ event: NSEvent?) -> Bool {
         guard let event else { return false }
         // NSEvent.windowNumber can be 0 for responder-chain events that are not
         // actually bound to an NSWindow (notably some WebKit key paths).
@@ -13307,7 +13307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWorkspace) {
-            tabManagerForFocusedCloseShortcut(event: event)?.closeCurrentWorkspaceWithConfirmation()
+            _ = closeWorkspaceFromFocusedShortcut(event: event)
             return true
         }
 
@@ -15675,7 +15675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func activateMainWindowContext(_ context: MainWindowContext?) {
+    func activateMainWindowContext(_ context: MainWindowContext?) {
         guard let context else {
             tabManager = nil
             sidebarState = nil
