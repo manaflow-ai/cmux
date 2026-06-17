@@ -18,7 +18,7 @@ struct WorkspaceRow: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 4) {
             // Unread is JUST this dot, left of the icon like iMessage. The
             // gutter is always present (hidden dot when read) so read and
             // unread rows line up. Centered against the avatar's height.
@@ -53,17 +53,6 @@ struct WorkspaceRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(previewLineLimit, reservesSpace: true)
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(workspace.statusColor(connectionStatus: connectionStatus))
-                        .frame(width: 7, height: 7)
-
-                    Text(workspace.detailLine(connectionStatus: connectionStatus))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
