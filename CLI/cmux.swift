@@ -11908,28 +11908,28 @@ struct CMUXCLI {
         socketLock: NSLock
     ) -> DispatchSourceSignal {
         signal(SIGWINCH, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(
-            signal: SIGWINCH,
-            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        )
-        source.setEventHandler {
-            let size = self.currentCLITerminalSize()
-            socketLock.lock()
-            defer { socketLock.unlock() }
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": attachmentToken,
-                "cols": size.cols,
-                "rows": size.rows,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+        let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        var baseParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionID,
+            "attachment_id": attachmentID,
+            "attachment_token": attachmentToken,
+        ]
+        if let surfaceID {
+            baseParams["surface_id"] = surfaceID
+            baseParams["allow_moved_surface"] = true
         }
+        let coordinator = SSHPTYResizeCoordinator(
+            client: client,
+            baseParams: baseParams,
+            socketLock: socketLock,
+            queue: queue,
+            sizeProvider: { self.currentCLITerminalSize() },
+            log: { self.cliDebugLog($0) }
+        )
+        let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: queue)
+        source.setEventHandler { coordinator.noteResize() }
+        source.setCancelHandler { coordinator.cancel() }
         source.resume()
         return source
     }
