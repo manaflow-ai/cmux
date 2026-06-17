@@ -4407,6 +4407,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration() {
         let generation = keyboardCopyModePendingViewportJumpGeneration
+        // Ghostty can omit scrollbar packets for no-op copy-mode jumps; expire stale sync state.
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
             self?.cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
         }
