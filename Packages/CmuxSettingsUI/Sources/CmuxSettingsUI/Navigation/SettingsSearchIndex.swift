@@ -78,7 +78,7 @@ public struct SettingsSearchIndex: Sendable {
                 kind: .section,
                 title: section.title,
                 symbolName: section.symbolName,
-                normalizedSearchText: Self.normalize(
+                normalizedSearchText: normalizeSettingsSearchText(
                     "\(section.title) \(section.searchKeywords)"
                 )
             ))
@@ -90,7 +90,7 @@ public struct SettingsSearchIndex: Sendable {
                 kind: .setting(parent: entry.section),
                 title: entry.title,
                 symbolName: entry.section.symbolName,
-                normalizedSearchText: Self.normalize(
+                normalizedSearchText: normalizeSettingsSearchText(
                     "\(entry.title) \(entry.synonyms)"
                 )
             ))
@@ -144,17 +144,17 @@ public struct SettingsSearchIndex: Sendable {
         // highlight can be walked end to end by tapping each result. The
         // raw query is compared before tokenization so the sentinel's
         // punctuation isn't stripped. Compiled out of Release builds.
-        if Self.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines) == Self.debugShowAllQuery {
+        if normalizeSettingsSearchText(query).trimmingCharacters(in: .whitespacesAndNewlines) == Self.debugShowAllQuery {
             return entries
         }
         #endif
-        let tokens = Self.tokens(in: query)
+        let tokens = settingsSearchTokens(in: query)
         if tokens.isEmpty {
             return entries.filter { if case .section = $0.kind { return true } else { return false } }
         }
-        let normalizedQuery = Self.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedQuery = normalizeSettingsSearchText(query).trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.enumerated().compactMap { index, entry -> (entry: Entry, score: Int, index: Int)? in
-            guard let score = Self.matchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
+            guard let score = settingsSearchMatchScore(entry, tokens: tokens, normalizedQuery: normalizedQuery) else { return nil }
             return (entry, score, index)
         }
         .sorted { lhs, rhs in
@@ -170,94 +170,97 @@ public struct SettingsSearchIndex: Sendable {
     /// scroll → highlight path can be exercised one row at a time.
     static let debugShowAllQuery = ":all"
     #endif
+}
 
-    private static func normalize(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
+private func normalizeSettingsSearchText(_ text: String) -> String {
+    text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+}
 
-    private static func tokens(in query: String) -> [String] {
-        normalize(query)
-            .split { character in
-                character.unicodeScalars.allSatisfy { scalar in
-                    CharacterSet.whitespacesAndNewlines.contains(scalar)
-                        || CharacterSet.punctuationCharacters.contains(scalar)
-                }
+private func settingsSearchTokens(in query: String) -> [String] {
+    normalizeSettingsSearchText(query)
+        .split { character in
+            character.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.whitespacesAndNewlines.contains(scalar)
+                    || CharacterSet.punctuationCharacters.contains(scalar)
             }
-            .map(String.init)
-    }
-
-    private static func matchScore(_ entry: Entry, tokens queryTokens: [String], normalizedQuery: String) -> Int? {
-        var total = 0
-        // An exact title match is the strongest possible signal and must
-        // outrank rows that match only via synonyms. Without this, typing a
-        // section name (e.g. "automation") ranked child settings above the
-        // section itself, because their dotted-path synonyms ("automation.*")
-        // match the query and settings carry the +20 bonus below.
-        if Self.normalize(entry.title) == normalizedQuery { total += 1_000 }
-        if case .setting = entry.kind { total += 20 }
-        if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
-        for token in queryTokens {
-            guard let score = tokenScore(token, in: entry.normalizedSearchText) else { return nil }
-            total += score
         }
-        return total
-    }
+        .map(String.init)
+}
 
-    private static func tokenScore(_ token: String, in normalizedSearchText: String) -> Int? {
-        let words = tokens(in: normalizedSearchText)
-        if words.contains(token) { return 120 }
-        if words.contains(where: { $0.hasPrefix(token) }) { return 100 }
-        if normalizedSearchText.contains(token) { return 80 }
-        if words.contains(where: { isFuzzyMatch(token, word: $0) }) { return 60 }
-        if words.contains(where: { isSubsequence(token, of: $0) }) { return 40 }
-        return nil
+private func settingsSearchMatchScore(
+    _ entry: SettingsSearchIndex.Entry,
+    tokens queryTokens: [String],
+    normalizedQuery: String
+) -> Int? {
+    var total = 0
+    // An exact title match is the strongest possible signal and must
+    // outrank rows that match only via synonyms. Without this, typing a
+    // section name (e.g. "automation") ranked child settings above the
+    // section itself, because their dotted-path synonyms ("automation.*")
+    // match the query and settings carry the +20 bonus below.
+    if normalizeSettingsSearchText(entry.title) == normalizedQuery { total += 1_000 }
+    if case .setting = entry.kind { total += 20 }
+    if entry.normalizedSearchText.contains(normalizedQuery) { total += 50 }
+    for token in queryTokens {
+        guard let score = settingsSearchTokenScore(token, in: entry.normalizedSearchText) else { return nil }
+        total += score
     }
+    return total
+}
 
-    private static func isFuzzyMatch(_ token: String, word: String) -> Bool {
-        let tokenLength = token.count
-        let wordLength = word.count
-        guard min(tokenLength, wordLength) >= 4 else { return false }
-        let maxDistance = min(tokenLength, wordLength) >= 7 ? 2 : 1
-        guard abs(tokenLength - wordLength) <= maxDistance else { return false }
-        return editDistance(token, word, maxDistance: maxDistance) <= maxDistance
+private func settingsSearchTokenScore(_ token: String, in normalizedSearchText: String) -> Int? {
+    let words = settingsSearchTokens(in: normalizedSearchText)
+    if words.contains(token) { return 120 }
+    if words.contains(where: { $0.hasPrefix(token) }) { return 100 }
+    if normalizedSearchText.contains(token) { return 80 }
+    if words.contains(where: { settingsSearchIsFuzzyMatch(token, word: $0) }) { return 60 }
+    if words.contains(where: { settingsSearchIsSubsequence(token, of: $0) }) { return 40 }
+    return nil
+}
+
+private func settingsSearchIsFuzzyMatch(_ token: String, word: String) -> Bool {
+    let tokenLength = token.count
+    let wordLength = word.count
+    guard min(tokenLength, wordLength) >= 4 else { return false }
+    let maxDistance = min(tokenLength, wordLength) >= 7 ? 2 : 1
+    guard abs(tokenLength - wordLength) <= maxDistance else { return false }
+    return settingsSearchEditDistance(token, word, maxDistance: maxDistance) <= maxDistance
+}
+
+private func settingsSearchIsSubsequence(_ token: String, of word: String) -> Bool {
+    guard token.count >= 3, token.count <= word.count else { return false }
+    var tokenIndex = token.startIndex
+    for character in word where character == token[tokenIndex] {
+        token.formIndex(after: &tokenIndex)
+        if tokenIndex == token.endIndex { return true }
     }
+    return false
+}
 
-    private static func isSubsequence(_ token: String, of word: String) -> Bool {
-        guard token.count >= 3, token.count <= word.count else { return false }
-        var tokenIndex = token.startIndex
-        for character in word where character == token[tokenIndex] {
-            token.formIndex(after: &tokenIndex)
-            if tokenIndex == token.endIndex { return true }
+private func settingsSearchEditDistance(_ lhs: String, _ rhs: String, maxDistance: Int) -> Int {
+    let lhsCharacters = Array(lhs)
+    let rhsCharacters = Array(rhs)
+    if lhsCharacters.isEmpty { return rhsCharacters.count }
+    if rhsCharacters.isEmpty { return lhsCharacters.count }
+
+    var previous = Array(0...rhsCharacters.count)
+    var current = Array(repeating: 0, count: rhsCharacters.count + 1)
+
+    for lhsIndex in 1...lhsCharacters.count {
+        current[0] = lhsIndex
+        var rowMinimum = current[0]
+        for rhsIndex in 1...rhsCharacters.count {
+            let substitutionCost = lhsCharacters[lhsIndex - 1] == rhsCharacters[rhsIndex - 1] ? 0 : 1
+            current[rhsIndex] = min(
+                previous[rhsIndex] + 1,
+                current[rhsIndex - 1] + 1,
+                previous[rhsIndex - 1] + substitutionCost
+            )
+            rowMinimum = min(rowMinimum, current[rhsIndex])
         }
-        return false
+        if rowMinimum > maxDistance { return maxDistance + 1 }
+        swap(&previous, &current)
     }
 
-    private static func editDistance(_ lhs: String, _ rhs: String, maxDistance: Int) -> Int {
-        let lhsCharacters = Array(lhs)
-        let rhsCharacters = Array(rhs)
-        if lhsCharacters.isEmpty { return rhsCharacters.count }
-        if rhsCharacters.isEmpty { return lhsCharacters.count }
-
-        var previous = Array(0...rhsCharacters.count)
-        var current = Array(repeating: 0, count: rhsCharacters.count + 1)
-
-        for lhsIndex in 1...lhsCharacters.count {
-            current[0] = lhsIndex
-            var rowMinimum = current[0]
-            for rhsIndex in 1...rhsCharacters.count {
-                let substitutionCost = lhsCharacters[lhsIndex - 1] == rhsCharacters[rhsIndex - 1] ? 0 : 1
-                current[rhsIndex] = min(
-                    previous[rhsIndex] + 1,
-                    current[rhsIndex - 1] + 1,
-                    previous[rhsIndex - 1] + substitutionCost
-                )
-                rowMinimum = min(rowMinimum, current[rhsIndex])
-            }
-            if rowMinimum > maxDistance { return maxDistance + 1 }
-            swap(&previous, &current)
-        }
-
-        return previous[rhsCharacters.count]
-    }
-
+    return previous[rhsCharacters.count]
 }
