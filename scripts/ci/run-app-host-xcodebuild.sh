@@ -151,6 +151,8 @@ while [ "$attempt" -le "$max_attempts" ]; do
     retry_reason=""
     if [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
+    elif [ "$status" -eq 86 ]; then
+      retry_reason="Swift crash prompt"
     elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
       retry_reason="XCTest startup hang"
     fi

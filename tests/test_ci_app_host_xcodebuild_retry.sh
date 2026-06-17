@@ -40,3 +40,40 @@ if [ "$timeout_count" -ne 2 ]; then
 fi
 
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
+
+cat > "$TMP_DIR/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'Press space to interact, D to debug, or any other key to quit'
+sleep 10
+SH
+chmod +x "$TMP_DIR/xcodebuild"
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/crash-prompt-output.log" 2>&1
+status=$?
+set -e
+
+if [ "$status" -ne 86 ]; then
+  cat "$TMP_DIR/crash-prompt-output.log"
+  echo "FAIL: expected wrapper to exit with final Swift crash prompt status 86, got $status"
+  exit 1
+fi
+
+if ! grep -Fq "Retrying app-host xcodebuild after Swift crash prompt (attempt 1/2)" "$TMP_DIR/crash-prompt-output.log"; then
+  cat "$TMP_DIR/crash-prompt-output.log"
+  echo "FAIL: wrapper did not retry after Swift crash prompt"
+  exit 1
+fi
+
+prompt_count="$(grep -Fc "Swift crash prompt detected; terminating noninteractive child" "$TMP_DIR/crash-prompt-output.log")"
+if [ "$prompt_count" -ne 2 ]; then
+  cat "$TMP_DIR/crash-prompt-output.log"
+  echo "FAIL: expected two Swift crash prompt terminations, got $prompt_count"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries Swift crash prompts"
