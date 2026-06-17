@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxVNC
 import Foundation
 
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
@@ -357,6 +358,15 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 focus: focus
             )?.id
+        } else if panelType == .vnc {
+            guard let endpoint = VNCEndpoint(string: inputs.urlRaw ?? "") else {
+                return .createFailed
+            }
+            newPanelId = ws.newVNCSurface(
+                inPane: paneId,
+                endpoint: endpoint,
+                focus: focus
+            )?.id
         } else {
             switch ws.newTerminalSurfaceOutcome(
                 inPane: paneId,
@@ -455,6 +465,7 @@ extension TerminalController {
         case "filepreview": return .filePreview
         case "rightsidebartool": return .rightSidebarTool
         case "agentsession": return .agentSession
+        case "vnc": return .vnc
         default: return nil
         }
     }

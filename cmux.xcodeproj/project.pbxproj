@@ -310,6 +310,7 @@
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
 		CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0200000000CDFEED02 /* CmuxUpdater */; };
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
+		CF0000000000000000000C03 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = CF0000000000000000000C02 /* CmuxVNC */; };
 		D7C0DE00000000000000A101 /* CmuxWebView+ContextMenuLinkCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */; };
 		D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */; };
 		C6255D010000000000000001 /* CmuxWebView+ScriptedDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */; };
@@ -879,6 +880,8 @@
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		CF0000000000000000000A02 /* VNCPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000000000000000000A01 /* VNCPanel.swift */; };
+		CF0000000000000000000B02 /* VNCPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000000000000000000B01 /* VNCPanelView.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A5001700A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */; };
@@ -1816,6 +1819,8 @@
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		CF0000000000000000000A01 /* VNCPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/VNCPanel.swift; sourceTree = "<group>"; };
+		CF0000000000000000000B01 /* VNCPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/VNCPanelView.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowAppearanceSnapshot.swift; sourceTree = "<group>"; };
@@ -1955,6 +1960,7 @@
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
+				CF0000000000000000000C03 /* CmuxVNC in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
 				E3B7A3000000000000000113 /* CmuxWorkspaceCore in Frameworks */,
 				E3B7A30000000000000000E3 /* CmuxWorkspaceNavigation in Frameworks */,
@@ -2539,6 +2545,8 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
 				A5001418 /* MarkdownPanel.swift */,
+				CF0000000000000000000A01 /* VNCPanel.swift */,
+				CF0000000000000000000B01 /* VNCPanelView.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
 				F5168A040000000000000002 /* MarkdownFontFamily.swift */,
@@ -3064,6 +3072,7 @@
 				E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
 				E3B7A3000000000000000112 /* CmuxWorkspaceCore */,
+				CF0000000000000000000C02 /* CmuxVNC */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
@@ -3258,6 +3267,7 @@
 				E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */,
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */,
+				CF0000000000000000000C01 /* XCLocalSwiftPackageReference "CmuxVNC" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
@@ -3938,6 +3948,8 @@
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				CF0000000000000000000A02 /* VNCPanel.swift in Sources */,
+				CF0000000000000000000B02 /* VNCPanelView.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001700A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift in Sources */,
 				A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */,
@@ -4876,6 +4888,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxWorkspaceCore;
 		};
+		CF0000000000000000000C01 /* XCLocalSwiftPackageReference "CmuxVNC" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxVNC;
+		};
 		E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxWorkspaces;
@@ -5155,6 +5171,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A3000000000000000111 /* XCLocalSwiftPackageReference "CmuxWorkspaceCore" */;
 			productName = CmuxWorkspaceCore;
+		};
+		CF0000000000000000000C02 /* CmuxVNC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CF0000000000000000000C01 /* XCLocalSwiftPackageReference "CmuxVNC" */;
+			productName = CmuxVNC;
 		};
 		E3B7A3000000000000000102 /* CmuxWorkspaces */ = {
 			isa = XCSwiftPackageProductDependency;

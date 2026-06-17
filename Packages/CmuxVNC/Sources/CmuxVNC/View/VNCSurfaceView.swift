@@ -23,6 +23,10 @@ public final class VNCSurfaceView: NSView {
     /// Called on the main actor for every client event (state, bell, clipboard).
     public var onEvent: ((VNCClientEvent) -> Void)?
 
+    /// Called when the user interacts (mouse/keys) so the host can mark this
+    /// surface focused in its own model.
+    public var onFocusRequested: (() -> Void)?
+
     public init(client: RFBClient) {
         self.client = client
         super.init(frame: .zero)
@@ -172,7 +176,7 @@ public final class VNCSurfaceView: NSView {
 
     // MARK: Mouse
 
-    public override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self); currentButtons.insert(.left); sendPointer(for: event) }
+    public override func mouseDown(with event: NSEvent) { onFocusRequested?(); window?.makeFirstResponder(self); currentButtons.insert(.left); sendPointer(for: event) }
     public override func mouseUp(with event: NSEvent) { currentButtons.remove(.left); sendPointer(for: event) }
     public override func mouseDragged(with event: NSEvent) { sendPointer(for: event) }
     public override func rightMouseDown(with event: NSEvent) { currentButtons.insert(.right); sendPointer(for: event) }

@@ -120,6 +120,17 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .vnc:
+            if let vncPanel = panel as? VNCPanel {
+                VNCPanelView(
+                    panel: vncPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -139,7 +150,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool, .agentSession, .project, .extensionBrowser:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .vnc:
             return false
         }
     }

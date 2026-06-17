@@ -31,4 +31,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let project = SurfaceKind(rawValue: "project")
     /// A browser pane owned by a sidebar extension.
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
+    /// A native VNC (RFB) remote-display pane.
+    public static let vnc = SurfaceKind(rawValue: "vnc")
 }

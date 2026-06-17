@@ -221,6 +221,8 @@ extension Workspace {
             return "project"
         case .extensionBrowser:
             return "extension_browser"
+        case .vnc:
+            return "vnc"
         }
     }
 }

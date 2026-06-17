@@ -1605,6 +1605,11 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+struct SessionVNCPanelSnapshot: Codable, Sendable {
+    /// `vnc://host:port`. The password is intentionally never persisted.
+    var connectionString: String
+}
+
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
 
@@ -1730,6 +1735,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
+    var vnc: SessionVNCPanelSnapshot? = nil
 }
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}

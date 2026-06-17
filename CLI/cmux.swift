@@ -15428,11 +15428,11 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|agent-session|vnc>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
-              --url <url>                 URL for browser surfaces
+              --url <url>                 URL for browser surfaces, or vnc://host:port for VNC
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
@@ -15443,6 +15443,7 @@ struct CMUXCLI {
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
+              cmux new-surface --type vnc --url vnc://127.0.0.1:5900 --focus true
             """
         case "close-surface":
             return """
