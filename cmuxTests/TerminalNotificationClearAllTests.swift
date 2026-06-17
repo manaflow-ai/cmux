@@ -337,44 +337,36 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
-    func testStructuredAgentRuntimeChangesPostNotificationSuppressionInvalidation() throws {
+    func testClosingVisualOnlyRestoredPanelUnreadClearsDismissibleActivity() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
-        let manager = TabManager()
-        let originalTabManager = appDelegate.tabManager
-        appDelegate.tabManager = manager
-
-        let workspace = manager.addWorkspace(select: true)
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
         defer {
-            if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
-            }
-            appDelegate.tabManager = originalTabManager
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
         }
 
-        final class Counter {
-            var value = 0
-        }
-        let counter = Counter()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .cmuxTerminalNotificationSuppressionStateDidChange,
-            object: workspace,
-            queue: nil
-        ) { _ in
-            counter.value += 1
-        }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-
+        let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        workspace.recordAgentPID(key: "codex.codex-session-123", pid: pid_t(12345), panelId: panelId)
-        XCTAssertEqual(counter.value, 1)
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: false)
+        XCTAssertTrue(store.hasDismissibleActivity(forTabId: workspace.id))
 
-        workspace.clearAgentPID(key: "codex.codex-session-123", panelId: panelId, clearStatus: true)
-        XCTAssertEqual(counter.value, 2)
+        workspace.discardClosedPanelLifecycleState(
+            panelId: panelId,
+            tabId: try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId)),
+            paneId: workspace.paneId(forPanelId: panelId),
+            panel: workspace.panels[panelId],
+            origin: "test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
 
-        workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: panelId)
-        XCTAssertEqual(counter.value, 2)
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertFalse(store.hasDismissibleActivity(forTabId: workspace.id))
     }
 
     func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {

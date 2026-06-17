@@ -98,11 +98,6 @@ extension Workspace {
         return didChange
     }
 
-    private func postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey key: String) {
-        guard isStructuredAgentHookPIDKey(key) else { return }
-        NotificationCenter.default.post(name: .cmuxTerminalNotificationSuppressionStateDidChange, object: self)
-    }
-
     @discardableResult
     private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
@@ -123,17 +118,13 @@ extension Workspace {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
         agentPIDs[key] = pid
-        let didChangeOwnership: Bool
         if let panelId {
-            didChangeOwnership = recordAgentPIDOwnership(key: key, panelId: panelId)
+            _ = recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
-            didChangeOwnership = removeAgentPIDOwnership(key: key)
+            _ = removeAgentPIDOwnership(key: key)
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
-        }
-        if didChangeOwnership || didClearOtherStructuredAgentRuntime {
-            postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey: key)
         }
         return didClearOtherStructuredAgentRuntime
     }
@@ -244,7 +235,6 @@ extension Workspace {
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
 
         var didChange = false
-        let didChangeNotificationSuppression = ownedPanelId != nil && isStructuredAgentHookPIDKey(key)
         if agentPIDs.removeValue(forKey: key) != nil {
             didChange = true
         }
@@ -265,9 +255,6 @@ extension Workspace {
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
-        }
-        if didChangeNotificationSuppression {
-            postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey: key)
         }
         return didChange
     }
@@ -305,9 +292,7 @@ extension Workspace {
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
-            if recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId) {
-                postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey: key)
-            }
+            _ = recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
@@ -379,6 +364,7 @@ extension Workspace {
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
+        restoredUnreadPanelIndicators.removeValue(forKey: panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)

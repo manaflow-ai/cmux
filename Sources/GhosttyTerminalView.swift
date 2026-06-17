@@ -391,11 +391,6 @@ enum GhosttyDesktopNotificationRoute: Sendable {
     case fallThrough
 }
 
-struct GhosttyDesktopNotificationCallbackPlan: Equatable, Sendable {
-    let handlesNotification: Bool
-    let deliveryTarget: GhosttyDesktopNotificationTarget?
-}
-
 private final class GhosttyRenderedFrameNotificationDemandGate: RenderDemandGating {
     private let base: any RenderDemandGating
 
@@ -756,8 +751,6 @@ class GhosttyApp {
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
     private let titleNotificationDispatcher = GhosttyTitleNotificationDispatcher()
-    private let appDesktopNotificationRouteLock = NSLock()
-    private var cachedAppDesktopNotificationRoute: GhosttyDesktopNotificationRoute = .fallThrough
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -1179,40 +1172,6 @@ class GhosttyApp {
         ) { [weak self] _ in
             self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
         })
-
-        appObservers.append(NotificationCenter.default.addObserver(
-            forName: .cmuxSelectedWorkspaceDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshAppDesktopNotificationRouteSnapshot()
-        })
-
-        appObservers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidFocusSurface,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshAppDesktopNotificationRouteSnapshot()
-        })
-
-        appObservers.append(NotificationCenter.default.addObserver(
-            forName: .mainWindowContextsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshAppDesktopNotificationRouteSnapshot()
-        })
-
-        appObservers.append(NotificationCenter.default.addObserver(
-            forName: .cmuxTerminalNotificationSuppressionStateDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshAppDesktopNotificationRouteSnapshot()
-        })
-
-        refreshAppDesktopNotificationRouteSnapshot()
 
         #endif
     }
@@ -2643,50 +2602,25 @@ class GhosttyApp {
         return owningManager?.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
     }
 
-    func refreshAppDesktopNotificationRouteSnapshot() {
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                setCachedAppDesktopNotificationRoute(Self.appDesktopNotificationRoute())
-            }
+    @MainActor
+    private static func deliverAppDesktopNotificationIfNeeded(
+        route: GhosttyDesktopNotificationRoute,
+        actionTitle: String,
+        actionBody: String
+    ) {
+        guard case .deliver(let notificationTarget) = route else {
             return
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.refreshAppDesktopNotificationRouteSnapshot()
-        }
-    }
-
-    private func cachedAppDesktopNotificationRouteForCallback() -> GhosttyDesktopNotificationRoute {
-        appDesktopNotificationRouteLock.lock()
-        defer { appDesktopNotificationRouteLock.unlock() }
-        return cachedAppDesktopNotificationRoute
-    }
-
-    private func setCachedAppDesktopNotificationRoute(_ route: GhosttyDesktopNotificationRoute) {
-        appDesktopNotificationRouteLock.lock()
-        cachedAppDesktopNotificationRoute = route
-        appDesktopNotificationRouteLock.unlock()
-    }
-
-    static func appDesktopNotificationCallbackPlan(
-        cachedRoute: GhosttyDesktopNotificationRoute
-    ) -> GhosttyDesktopNotificationCallbackPlan {
-        switch cachedRoute {
-        case .deliver(let notificationTarget):
-            return GhosttyDesktopNotificationCallbackPlan(
-                handlesNotification: true,
-                deliveryTarget: notificationTarget
-            )
-        case .suppress:
-            return GhosttyDesktopNotificationCallbackPlan(
-                handlesNotification: true,
-                deliveryTarget: nil
-            )
-        case .fallThrough:
-            return GhosttyDesktopNotificationCallbackPlan(
-                handlesNotification: false,
-                deliveryTarget: nil
-            )
-        }
+        let command = actionTitle.isEmpty
+            ? desktopNotificationTitle(forTabId: notificationTarget.tabId)
+            : actionTitle
+        TerminalNotificationStore.shared.addNotification(
+            tabId: notificationTarget.tabId,
+            surfaceId: notificationTarget.surfaceId,
+            title: command,
+            subtitle: "",
+            body: actionBody
+        )
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
@@ -2852,26 +2786,31 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                let route = cachedAppDesktopNotificationRouteForCallback()
-                let plan = Self.appDesktopNotificationCallbackPlan(cachedRoute: route)
-                Task { @MainActor [weak self, actionTitle, actionBody, plan] in
-                    let currentRoute = Self.appDesktopNotificationRoute()
-                    self?.setCachedAppDesktopNotificationRoute(currentRoute)
-                    guard let notificationTarget = plan.deliveryTarget else {
-                        return
+                if Thread.isMainThread {
+                    return MainActor.assumeIsolated {
+                        let currentRoute = Self.appDesktopNotificationRoute()
+                        Self.deliverAppDesktopNotificationIfNeeded(
+                            route: currentRoute,
+                            actionTitle: actionTitle,
+                            actionBody: actionBody
+                        )
+                        switch currentRoute {
+                        case .deliver, .suppress:
+                            return true
+                        case .fallThrough:
+                            return false
+                        }
                     }
-                    let command = actionTitle.isEmpty
-                        ? Self.desktopNotificationTitle(forTabId: notificationTarget.tabId)
-                        : actionTitle
-                    TerminalNotificationStore.shared.addNotification(
-                        tabId: notificationTarget.tabId,
-                        surfaceId: notificationTarget.surfaceId,
-                        title: command,
-                        subtitle: "",
-                        body: actionBody
+                }
+                Task { @MainActor [actionTitle, actionBody] in
+                    let currentRoute = Self.appDesktopNotificationRoute()
+                    Self.deliverAppDesktopNotificationIfNeeded(
+                        route: currentRoute,
+                        actionTitle: actionTitle,
+                        actionBody: actionBody
                     )
                 }
-                return plan.handlesNotification
+                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {

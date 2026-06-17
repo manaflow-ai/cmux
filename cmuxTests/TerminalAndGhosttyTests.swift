@@ -984,31 +984,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
-final class GhosttyAppDesktopNotificationRouteTests: XCTestCase {
-    func testSuppressRoutePlanHandlesWithoutAppDelivery() {
-        let plan = GhosttyApp.appDesktopNotificationCallbackPlan(cachedRoute: .suppress)
-
-        XCTAssertTrue(plan.handlesNotification)
-        XCTAssertNil(plan.deliveryTarget)
-    }
-
-    func testDeliverRoutePlanUsesCachedDeliveryTarget() {
-        let target = GhosttyDesktopNotificationTarget(tabId: UUID(), surfaceId: UUID())
-        let plan = GhosttyApp.appDesktopNotificationCallbackPlan(cachedRoute: .deliver(target))
-
-        XCTAssertTrue(plan.handlesNotification)
-        XCTAssertEqual(plan.deliveryTarget?.tabId, target.tabId)
-        XCTAssertEqual(plan.deliveryTarget?.surfaceId, target.surfaceId)
-    }
-
-    func testFallthroughRoutePlanRefreshesWithoutAppDelivery() {
-        let plan = GhosttyApp.appDesktopNotificationCallbackPlan(cachedRoute: .fallThrough)
-
-        XCTAssertFalse(plan.handlesNotification)
-        XCTAssertNil(plan.deliveryTarget)
-    }
-}
-
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
