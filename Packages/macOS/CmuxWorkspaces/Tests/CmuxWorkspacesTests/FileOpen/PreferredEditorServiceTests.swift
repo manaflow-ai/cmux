@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxFileOpen
+@testable import CmuxWorkspaces
 import CmuxSettings
 import CmuxTestSupport
 

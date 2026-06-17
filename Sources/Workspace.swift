@@ -5,7 +5,7 @@ import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
-import CmuxSession
+import CmuxWorkspaces
 import CmuxTerminalEngine
 import SwiftUI
 import AppKit
@@ -17,8 +17,6 @@ import CmuxBrowser
 import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
-import CmuxWorkspaceCore
-import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSocketControl
 import Combine

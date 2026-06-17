@@ -1,6 +1,6 @@
 import Testing
 import AppKit
-@testable import CmuxWorkspaceWindow
+@testable import CmuxWorkspaces
 
 private struct StubSettings: WindowBackgroundSettingsReading {
     var sidebarBlendModeRawValue: String

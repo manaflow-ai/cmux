@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxSession
+@testable import CmuxWorkspaces
 
 @Suite("WorkspaceSessionRestorePolicyService")
 struct WorkspaceSessionRestorePolicyServiceTests {

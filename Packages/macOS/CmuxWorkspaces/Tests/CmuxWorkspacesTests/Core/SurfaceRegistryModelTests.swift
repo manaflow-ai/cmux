@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxWorkspaceCore
+@testable import CmuxWorkspaces
 
 @MainActor
 @Suite("SurfaceRegistryModel")

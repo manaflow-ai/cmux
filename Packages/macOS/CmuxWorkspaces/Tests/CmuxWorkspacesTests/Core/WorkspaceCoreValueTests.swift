@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxWorkspaceCore
+@testable import CmuxWorkspaces
 
 @Suite struct SurfaceKindTests {
     /// The kind strings are persisted in session snapshots and compared

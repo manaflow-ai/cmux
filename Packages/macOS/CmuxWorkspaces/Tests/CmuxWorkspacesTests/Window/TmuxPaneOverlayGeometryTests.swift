@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 import Bonsplit
-@testable import CmuxWorkspaceWindow
+@testable import CmuxWorkspaces
 
 @Suite("TmuxPaneOverlayGeometry")
 struct TmuxPaneOverlayGeometryTests {

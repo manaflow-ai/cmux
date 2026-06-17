@@ -23,7 +23,7 @@ import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
 import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")

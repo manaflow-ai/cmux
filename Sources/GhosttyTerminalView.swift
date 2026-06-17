@@ -8,10 +8,9 @@ import CmuxTerminalEngine
 import CmuxTerminalServices
 import CmuxTerminalCopyMode
 import CmuxSocketControl
-import CmuxFileOpen
+import CmuxWorkspaces
 import CmuxSettings
 import CmuxTestSupport
-import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
 import CmuxFoundation

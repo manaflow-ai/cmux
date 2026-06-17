@@ -31,7 +31,6 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
-import CmuxSession
 import CmuxTerminal
 
 private enum CmuxThemeNotifications {

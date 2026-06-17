@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxWorkspaceNavigation
+@testable import CmuxWorkspaces
 
 /// In-memory window host: a dictionary of workspaces/panels plus counters
 /// for the mutations a navigation performs.

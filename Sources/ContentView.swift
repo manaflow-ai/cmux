@@ -15,7 +15,6 @@ import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
-import CmuxFileOpen
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar

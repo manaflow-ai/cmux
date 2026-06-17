@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxSession
+@testable import CmuxWorkspaces
 
 /// Minimal stand-in for the app's `AppSessionSnapshot` root: a version plus
 /// a window list, mirroring the fields the repository's usability rules read.
