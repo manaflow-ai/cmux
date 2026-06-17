@@ -4802,6 +4802,38 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
             .reset
         )
     }
+
+    func testFontSizeBindingActionMapsToGhosttyActions() {
+        XCTAssertEqual(
+            BrowserZoomShortcutAction.zoomIn.ghosttyFontSizeBindingAction,
+            "increase_font_size:1"
+        )
+        XCTAssertEqual(
+            BrowserZoomShortcutAction.zoomOut.ghosttyFontSizeBindingAction,
+            "decrease_font_size:1"
+        )
+        XCTAssertEqual(
+            BrowserZoomShortcutAction.reset.ghosttyFontSizeBindingAction,
+            "reset_font_size"
+        )
+    }
+
+    // Regression for manaflow-ai/cmux#5981: on a Spanish (and other European)
+    // layout, "+" is a dedicated key (keyCode 30, character "+", no Shift). The
+    // resolved terminal action must be increase, and it must drive Ghostty's
+    // increase_font_size action directly — re-dispatching the raw key let
+    // Ghostty's US-chord ("equal"/"plus") re-match fail for increase while
+    // decrease/reset still worked.
+    func testSpanishLayoutPlusKeyDrivesIncreaseFontBinding() {
+        let action = browserZoomShortcutAction(
+            flags: [.command],
+            chars: "+",
+            keyCode: 30,
+            literalChars: "+"
+        )
+        XCTAssertEqual(action, .zoomIn)
+        XCTAssertEqual(action?.ghosttyFontSizeBindingAction, "increase_font_size:1")
+    }
 }
 
 
@@ -4829,6 +4861,22 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 flags: [.command],
                 chars: "0",
                 keyCode: 29
+            )
+        )
+    }
+
+    // Regression for manaflow-ai/cmux#5981 (browser side): the default browser
+    // zoom-in chord is keyed to "=", but on a Spanish/European layout the "+"
+    // key is dedicated (keyCode 30, character "+", no Shift). The configured
+    // shortcut must still match so the focused browser panel zooms in.
+    func testBrowserZoomInMatchesSpanishLayoutPlusKey() {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .browserZoomIn)
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
             )
         )
     }

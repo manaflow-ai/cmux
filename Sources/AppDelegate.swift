@@ -16915,20 +16915,25 @@ private extension NSWindow {
             // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when
             // the terminal is focused. Otherwise our browser menu shortcuts can
             // consume the event even when no browser panel is focused.
-            if shouldRouteTerminalFontZoomShortcutToGhostty(
-                firstResponderIsGhostty: true,
+            //
+            // Drive the resolved font-size action through Ghostty's binding API
+            // directly rather than re-dispatching the raw key event. Re-dispatch
+            // relied on Ghostty re-matching the chord against its own keybinds,
+            // which fails for increase on layouts where "+" is a dedicated key
+            // (Spanish, German QWERTZ, …) — decrease/reset still matched, so only
+            // increase broke (manaflow-ai/cmux#5981). cmux already resolves the
+            // intent layout-independently via browserZoomShortcutAction.
+            if let fontZoomAction = browserZoomShortcutAction(
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
                 keyCode: event.keyCode,
                 literalChars: event.characters
             ) {
-                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
+                let handled = ghosttyView.performBindingAction(fontZoomAction.ghosttyFontSizeBindingAction)
 #if DEBUG
-                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+                cmuxDebugLog("zoom.shortcut stage=window.ghosttyBindingAction event=\(Self.keyDescription(event)) action=\(fontZoomAction.ghosttyFontSizeBindingAction) handled=\(handled ? 1 : 0)")
 #endif
-                    return true
-                }
-                return false
+                return handled
             }
         }
 
