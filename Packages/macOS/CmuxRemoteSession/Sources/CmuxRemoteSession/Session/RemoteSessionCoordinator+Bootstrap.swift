@@ -327,8 +327,8 @@ extension RemoteSessionCoordinator {
         do {
             binaryData = try Data(contentsOf: localBinary)
         } catch {
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to read cmuxd-remote for upload: \(error.localizedDescription)",
+            throw NSError(domain: "cmux.remote.daemon", code: 33, userInfo: [
+                NSLocalizedDescriptionKey: "failed to read the local cmuxd-remote binary before upload",
             ])
         }
         let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
