@@ -161,8 +161,8 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
     public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
-
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
