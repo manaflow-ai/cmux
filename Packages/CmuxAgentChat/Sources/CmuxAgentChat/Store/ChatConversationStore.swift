@@ -149,7 +149,7 @@ public final class ChatConversationStore {
             var retryTask: Task<Void, Never>?
             func startPendingTranscriptRetriesIfNeeded() {
                 guard transcriptAvailability == .pending, retryTask == nil else { return }
-                retryTask = makePendingTranscriptRetryTask(idleSleep: idleSleep, signalQueue: signalQueue)
+                retryTask = Self.makePendingTranscriptRetryTask(idleSleep: idleSleep, signalQueue: signalQueue)
             }
             func cancelPendingTranscriptRetries() -> Task<Void, Never>? {
                 let task = retryTask; task?.cancel(); retryTask = nil
