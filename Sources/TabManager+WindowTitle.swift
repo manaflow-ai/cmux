@@ -50,23 +50,46 @@ extension TabManager {
             resolvedWorkspaceDisplayTitle(for: $0)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
+        let focusedPanelTitle = focusedPanelTitle(for: tab)
         let activeDirectory = tab?.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
             activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
+            focusedPanel: focusedPanelTitle,
             activeDirectory: activeDirectory,
             windowId: windowId,
-            appName: "cmux"
+            appName: String(localized: "window.title.appName", defaultValue: "cmux")
         ))
         let trimmedResolvedTitle = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedResolvedTitle.isEmpty ? defaultTitle : trimmedResolvedTitle
     }
 
     private func defaultWindowTitle(for tab: Workspace?) -> String {
-        guard let tab else { return "cmux" }
+        let fallbackTitle = String(localized: "window.title.appName", defaultValue: "cmux")
+        guard let tab else { return fallbackTitle }
         let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty { return trimmedTitle }
+        let focusedPanelTitle = focusedPanelTitle(for: tab)
+        var components: [String] = []
+        if !trimmedTitle.isEmpty {
+            components.append(trimmedTitle)
+        }
+        if !focusedPanelTitle.isEmpty, !components.contains(focusedPanelTitle) {
+            components.append(focusedPanelTitle)
+        }
+        if !components.isEmpty {
+            let separator = String(localized: "window.title.separator", defaultValue: " - ")
+            return components.joined(separator: separator)
+        }
         let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+        return trimmedDirectory.isEmpty ? fallbackTitle : trimmedDirectory
+    }
+
+    private func focusedPanelTitle(for tab: Workspace?) -> String {
+        guard let tab,
+              let focusedPanelId = tab.focusedPanelId,
+              let title = tab.panelTitle(panelId: focusedPanelId) else {
+            return ""
+        }
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
