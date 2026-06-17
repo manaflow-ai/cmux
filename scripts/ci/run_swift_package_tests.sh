@@ -7,11 +7,23 @@ if [ "$#" -eq 0 ]; then
 fi
 
 for pkg in "$@"; do
-  echo "::group::swift test Packages/$pkg"
+  pkgdir=""
+  for candidate in Packages/*/"$pkg"; do
+    if [ -f "$candidate/Package.swift" ]; then
+      pkgdir="$candidate"
+      break
+    fi
+  done
+  if [ -z "$pkgdir" ]; then
+    echo "::error::package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    exit 1
+  fi
+
+  echo "::group::swift test $pkgdir"
   case "$pkg" in
   CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
     status=0
-    output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
+    output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
     printf '%s\n' "$output"
     if [ "$status" -ne 0 ]; then
       if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
@@ -24,7 +36,7 @@ for pkg in "$@"; do
     fi
     ;;
   *)
-    swift test --package-path "Packages/$pkg"
+    swift test --package-path "$pkgdir"
     ;;
   esac
   echo "::endgroup::"
