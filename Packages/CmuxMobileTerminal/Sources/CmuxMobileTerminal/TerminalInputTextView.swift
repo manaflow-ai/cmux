@@ -530,6 +530,11 @@ final class TerminalInputTextView: UITextView {
     }
 
     override func deleteBackward() {
+        // TEMP dogfood trace (tag `dog`): stderr so it shows in devicectl --console
+        // (os_log does not). Reveals whether a held Backspace auto-repeats this call.
+        FileHandle.standardError.write(Data(
+            "BKSP deleteBackward marked=\(markedTextRange != nil) hasText=\(hasText) firstResponder=\(isFirstResponder)\n".utf8
+        ))
         // Branches route on `markedTextRange` (IME composition) only. `hasText` is
         // forced `true` above to keep the keyboard's hold-to-repeat timer alive, so
         // it can no longer gate these — while NOT composing, a backspace is always
