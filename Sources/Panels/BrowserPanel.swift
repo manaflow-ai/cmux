@@ -196,8 +196,13 @@ enum BrowserAutoFocusModeSettings {
 }
 
 enum BrowserAutoFocusModeActivation {
-    static func shouldActivate(isEnabled: Bool, isBrowserFocusModeActive: Bool, isAddressBarFocused: Bool) -> Bool {
-        isEnabled && !isBrowserFocusModeActive && !isAddressBarFocused
+    static func shouldActivate(
+        isEnabled: Bool,
+        isPanelFocused: Bool,
+        isBrowserFocusModeActive: Bool,
+        isAddressBarFocused: Bool
+    ) -> Bool {
+        isEnabled && isPanelFocused && !isBrowserFocusModeActive && !isAddressBarFocused
     }
 }
 

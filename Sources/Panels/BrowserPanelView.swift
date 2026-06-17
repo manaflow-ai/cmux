@@ -831,10 +831,8 @@ struct BrowserPanelView: View {
         )
         panel.refreshAppearanceDrivenColors()
         panel.setBrowserThemeMode(browserThemeMode)
-        applyPendingAddressBarFocusRequestIfNeeded()
         syncURLFromPanel()
-        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
-        autoFocusOmnibarIfBlank()
+        reconcileFocusedPanelState(reason: "autoFocusMode.onAppear", isPanelFocused: isFocused)
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
         panel.historyStore.loadIfNeeded()
 #if DEBUG
@@ -1000,17 +998,7 @@ struct BrowserPanelView: View {
 #endif
         // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
         if focused {
-            applyPendingAddressBarFocusRequestIfNeeded()
-            autoFocusOmnibarIfBlank()
-            // Skip auto-activation when the omnibar just claimed focus (blank tabs):
-            // focus mode and address-bar focus are mutually exclusive states.
-            if BrowserAutoFocusModeActivation.shouldActivate(
-                isEnabled: autoFocusModeEnabled,
-                isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
-                isAddressBarFocused: addressBarFocused
-            ) {
-                panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
-            }
+            reconcileFocusedPanelState(reason: "autoFocusMode.panelFocus", isPanelFocused: focused)
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
             panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
@@ -1028,6 +1016,22 @@ struct BrowserPanelView: View {
             reason: "panelFocusChanged",
             isPanelFocusedOverride: focused
         )
+    }
+
+    private func reconcileFocusedPanelState(reason: String, isPanelFocused: Bool) {
+        applyPendingAddressBarFocusRequestIfNeeded()
+        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
+        autoFocusOmnibarIfBlank()
+        // Skip auto-activation when the omnibar just claimed focus (blank tabs):
+        // focus mode and address-bar focus are mutually exclusive states.
+        if BrowserAutoFocusModeActivation.shouldActivate(
+            isEnabled: autoFocusModeEnabled,
+            isPanelFocused: isPanelFocused,
+            isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
+            isAddressBarFocused: addressBarFocused
+        ) {
+            panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: false)
+        }
     }
 
     private func handleAddressBarFocusedChange(_ focused: Bool) {

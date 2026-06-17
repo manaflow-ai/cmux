@@ -12002,6 +12002,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             BrowserAutoFocusModeActivation.shouldActivate(
                 isEnabled: true,
+                isPanelFocused: true,
                 isBrowserFocusModeActive: false,
                 isAddressBarFocused: false
             )
@@ -12009,6 +12010,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             BrowserAutoFocusModeActivation.shouldActivate(
                 isEnabled: false,
+                isPanelFocused: true,
                 isBrowserFocusModeActive: false,
                 isAddressBarFocused: false
             )
@@ -12016,6 +12018,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             BrowserAutoFocusModeActivation.shouldActivate(
                 isEnabled: true,
+                isPanelFocused: false,
+                isBrowserFocusModeActive: false,
+                isAddressBarFocused: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: true,
+                isPanelFocused: true,
                 isBrowserFocusModeActive: true,
                 isAddressBarFocused: false
             )
@@ -12023,6 +12034,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             BrowserAutoFocusModeActivation.shouldActivate(
                 isEnabled: true,
+                isPanelFocused: true,
                 isBrowserFocusModeActive: false,
                 isAddressBarFocused: true
             )
