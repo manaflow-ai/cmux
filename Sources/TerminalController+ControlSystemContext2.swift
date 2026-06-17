@@ -270,6 +270,9 @@ extension TerminalController {
                    let forkPanelId = forkWorkspace.focusedPanelId {
                     forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
                 }
+                if let forkPanelId = forkWorkspace.focusedPanelId {
+                    forkWorkspace.setSurfaceResumeBinding(launch.resumeBinding, panelId: forkPanelId)
+                }
                 var payload: [String: Any] = [
                     "action": action,
                     "window_id": windowId?.uuidString ?? NSNull(),

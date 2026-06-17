@@ -10737,6 +10737,7 @@ final class Workspace: Identifiable, ObservableObject {
         var initialTerminalCommand: String?
         var initialTerminalInput: String
         var initialTerminalEnvironment: [String: String]
+        var resumeBinding: SurfaceResumeBindingSnapshot
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
     }
@@ -10758,6 +10759,10 @@ final class Workspace: Identifiable, ObservableObject {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork
+              ),
+              let resumeBinding = forkAgentResumeBinding(
+                  snapshot: launchSnapshot,
+                  workingDirectory: workingDirectory
               ) else {
             return nil
         }
@@ -10768,6 +10773,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
             initialTerminalEnvironment: isRemoteFork ? (remoteConfiguration?.sshTerminalStartupEnvironment ?? [:]) : [:],
+            resumeBinding: resumeBinding,
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
@@ -10811,6 +10817,10 @@ final class Workspace: Identifiable, ObservableObject {
            remoteStartupCommand != nil,
            let workingDirectory {
             updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+        }
+        if let forkedPanel,
+           let resumeBinding = forkAgentResumeBinding(snapshot: launchSnapshot, workingDirectory: workingDirectory) {
+            setSurfaceResumeBinding(resumeBinding, panelId: forkedPanel.id)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -10913,10 +10923,30 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteStartupCommand != nil, let workingDirectory {
                 updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
             }
+            if let resumeBinding = forkAgentResumeBinding(snapshot: launchSnapshot, workingDirectory: workingDirectory) {
+                setSurfaceResumeBinding(resumeBinding, panelId: forkedPanel.id)
+            }
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }
         return forkedPanel
+    }
+
+    private func forkAgentResumeBinding(
+        snapshot: SessionRestorableAgentSnapshot,
+        workingDirectory: String?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let forkCommand = snapshot.forkCommand else { return nil }
+        return SurfaceResumeBindingSnapshot(
+            name: snapshot.agentDisplayName,
+            kind: snapshot.kind.rawValue,
+            command: forkCommand,
+            cwd: workingDirectory,
+            checkpointId: snapshot.sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            approvalPolicy: .auto
+        )
     }
 
     private func forkAgentRemoteStartupCommand(fromPanelId panelId: UUID) -> String? {
@@ -12594,6 +12624,9 @@ extension Workspace: BonsplitDelegate {
            launch.terminalWorkingDirectory == nil,
            let forkPanelId = forkWorkspace.focusedPanelId {
             forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+        }
+        if let forkPanelId = forkWorkspace.focusedPanelId {
+            forkWorkspace.setSurfaceResumeBinding(launch.resumeBinding, panelId: forkPanelId)
         }
         return true
     }
