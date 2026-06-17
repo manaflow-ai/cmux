@@ -91,6 +91,9 @@ jobs:
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
 
+      - name: Validate workspace SPM package grouping
+        run: python3 scripts/check-workspace-package-groups.py --check
+
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
@@ -523,11 +526,18 @@ jobs:
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
           for pkg in "${PACKAGES[@]}"; do
-            echo "::group::swift test Packages/$pkg"
+            # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+            # resolve the actual directory so this list stays group-agnostic.
+            pkgdir="$(ls -d Packages/*/"$pkg" 2>/dev/null | head -n1)"
+            if [ -z "$pkgdir" ]; then
+              echo "::error::package '$pkg' not found under Packages/*/ (renamed or moved?)"
+              exit 1
+            fi
+            echo "::group::swift test $pkgdir"
             case "$pkg" in
             CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
               status=0
-              output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
+              output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
               printf '%s\n' "$output"
               if [ "$status" -ne 0 ]; then
                 if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
@@ -540,7 +550,7 @@ jobs:
               fi
               ;;
             *)
-              swift test --package-path "Packages/$pkg"
+              swift test --package-path "$pkgdir"
               ;;
             esac
             echo "::endgroup::"

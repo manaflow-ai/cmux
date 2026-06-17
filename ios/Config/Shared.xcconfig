@@ -57,5 +57,5 @@ CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
 // (TestFlight beta + App Store) overrides this to cmux-ios in
 // Release.xcconfig. The default here is the dev scheme so an unknown build
 // configuration can never hijack release links. Keep both values in sync with
-// CmxPairingURLScheme in Packages/CMUXMobileCore.
+// CmxPairingURLScheme in Packages/Shared/CMUXMobileCore.
 CMUX_IOS_URL_SCHEME = cmux-ios-dev
