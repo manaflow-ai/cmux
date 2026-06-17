@@ -1,9 +1,9 @@
 import Foundation
 
+// Safety: `UserDefaults` documents thread-safe access. This wrapper exposes
+// only typed read/write/remove operations and never hands out the defaults
+// instance across actor boundaries.
 final class UserDefaultsSettingsStorage: @unchecked Sendable {
-    // Safety: `UserDefaults` documents thread-safe access. This wrapper exposes
-    // only typed read/write/remove operations and never hands out the defaults
-    // instance across actor boundaries.
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults) {

@@ -112,8 +112,8 @@ import CmuxGit
     }
 
     /// Reapplying the same branch from a filesystem-triggered git probe keeps
-    /// the sidebar branch fresh without forcing another PR refresh. PR lookup
-    /// cadence is owned by the poll service once the branch is already known.
+    /// the sidebar branch fresh without forcing another PR refresh when that
+    /// panel is already tracked by the PR poller.
     @Test func knownBranchSnapshotDoesNotForceDuplicatePullRequestRefresh() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
@@ -125,6 +125,7 @@ import CmuxGit
         let clock = ManualGitPollClock()
         let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x", isDirty: true))
         let pullRequestProbing = RecordingPullRequestProbing()
+        pullRequestProbing.trackedPanelIdsByWorkspace[workspaceId] = [panelId]
         let service = makeService(
             host: host,
             reader: reader,
@@ -149,6 +150,49 @@ import CmuxGit
             isDirty: true
         ))
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
+
+    /// Restored sessions can already have a branch projected before the first
+    /// local git probe runs. If the PR poller has no tracking state yet, that
+    /// same-branch snapshot must still seed one refresh.
+    @Test func restoredKnownBranchSnapshotSeedsPullRequestRefreshWhenUntracked() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: false
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x", isDirty: false))
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "restore"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        while await reader.probedDirectories.isEmpty {
+            await Task.yield()
+        }
+        for _ in 0..<50 {
+            if pullRequestProbing.scheduledRefreshes.count == 1 { break }
+            await Task.yield()
+        }
+
+        #expect(pullRequestProbing.scheduledRefreshes.count == 1)
+        let scheduledRefresh = try #require(pullRequestProbing.scheduledRefreshes.first)
+        #expect(scheduledRefresh.workspaceId == workspaceId)
+        #expect(scheduledRefresh.panelId == panelId)
+        #expect(scheduledRefresh.reason == "localGitProbe")
     }
 
     /// A filesystem event that arrives while a probe is already in flight is a
@@ -189,7 +233,7 @@ import CmuxGit
         await clock.resumeNext()
         await reader.openGate()
 
-        for _ in 0..<50 {
+        for _ in 0..<500 {
             let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
             if immediateProbeSleeps >= 3 { break }
             await Task.yield()

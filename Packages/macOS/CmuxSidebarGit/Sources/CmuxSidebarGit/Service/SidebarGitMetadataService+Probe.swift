@@ -436,7 +436,12 @@ extension SidebarGitMetadataService {
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         }
-        if let nextBranch, shouldTrackPullRequests, previousBranchState?.branch != nextBranch {
+        let isPullRequestRefreshTracked = pullRequestProbing
+            .workspacePullRequestTrackedPanelIds(workspaceId: probeKey.workspaceId)
+            .contains(probeKey.panelId)
+        if let nextBranch,
+           shouldTrackPullRequests,
+           previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
