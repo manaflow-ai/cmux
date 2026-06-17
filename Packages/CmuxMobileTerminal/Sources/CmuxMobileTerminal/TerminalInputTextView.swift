@@ -678,15 +678,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     func deleteBackward() {
-        // TEMP dogfood trace (tag `dog`): stderr so it shows in devicectl --console
-        // (os_log does not). Reveals whether a held Backspace auto-repeats this
-        // call. With the documentless UIKeyInput/UITextInput responder + the
-        // zero-width delete-repeat anchor, this MUST now fire repeatedly while
-        // Backspace is held (the prior empty `UITextView` fired it zero times).
-        FileHandle.standardError.write(Data(
-            "BKSP deleteBackward marked=\(markedText != nil) hasText=\(hasText) firstResponder=\(isFirstResponder)\n".utf8
-        ))
-        TerminalInputDebugLog.log("proxy.deleteBackward composing=\(markedText != nil) ctrl=\(controlAccessoryArmed) alt=\(alternateAccessoryArmed) cmd=\(commandAccessoryArmed)")
         // Branches route on `markedText` (IME composition in progress), NOT
         // `hasText`: `hasText` is a forced constant `true` so the software keyboard
         // auto-repeats backspace, so it can no longer mean "the local document is
