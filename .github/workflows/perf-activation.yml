@@ -195,7 +195,7 @@ jobs:
 
           CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
-            CONSOLE_HOME="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+            CONSOLE_HOME="$( (dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
             if [ -z "$CONSOLE_HOME" ]; then
               CONSOLE_HOME="$HOME"
             fi
