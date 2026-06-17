@@ -19,6 +19,7 @@ import CMUXMobileCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
+import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
 import CmuxTerminal
@@ -131,6 +132,10 @@ class TerminalController {
     // with the legacy dispatcher), so the former `nonisolated` is gone. The
     // package type keeps its internal lock for its own tested contract.
     let socketFastPathState = SocketFastPathState()
+    // Stateless sidebar-metadata/command argument parser (CmuxSidebar).
+    // Pure transforms over the raw arg string; holds no state and reaches no
+    // app singletons, so the `report_*`/sidebar-mutation handlers forward to it.
+    private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -9980,7 +9985,7 @@ class TerminalController {
             } else {
                 requestedSteps = nil
             }
-            guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+            guard AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
                 return .err(
                     code: "not_found",
                     message: "No mounted sidebar for window_id",
@@ -10064,7 +10069,7 @@ class TerminalController {
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
@@ -10090,7 +10095,7 @@ class TerminalController {
                 pathSample.append(targetTabId.uuidString)
             }
             let tickOK: Bool = v2MainSync {
-                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
@@ -10104,7 +10109,7 @@ class TerminalController {
         }
 
         v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
         }
@@ -12735,149 +12740,15 @@ class TerminalController {
     // MARK: - Option Parsing (sidebar metadata commands)
 
     private nonisolated static func tokenizeArgs(_ args: String) -> [String] {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var tokens: [String] = []
-        var current = ""
-        var inQuote = false
-        var quoteChar: Character = "\""
-        var cursor = trimmed.startIndex
-
-        while cursor < trimmed.endIndex {
-            let char = trimmed[cursor]
-            if inQuote {
-                if char == quoteChar {
-                    inQuote = false
-                    cursor = trimmed.index(after: cursor)
-                    continue
-                }
-                if char == "\\" {
-                    let nextIndex = trimmed.index(after: cursor)
-                    if nextIndex < trimmed.endIndex {
-                        let next = trimmed[nextIndex]
-                        switch next {
-                        case "n":
-                            current.append("\n")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "r":
-                            current.append("\r")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "t":
-                            current.append("\t")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "\"", "'", "\\":
-                            current.append(next)
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        default:
-                            break
-                        }
-                    }
-                }
-                current.append(char)
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char == "'" || char == "\"" {
-                inQuote = true
-                quoteChar = char
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            current.append(char)
-            cursor = trimmed.index(after: cursor)
-        }
-
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
+        SidebarMetadataArgumentParser().tokenize(args)
     }
 
     private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var stopParsingOptions = false
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if stopParsingOptions {
-                positional.append(token)
-            } else if token == "--" {
-                stopParsingOptions = true
-            } else if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptions(args)
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if token == "--" {
-                i += 1
-                continue
-            }
-            if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptionsNoStop(args)
     }
 
     private func resolveTabForReport(_ args: String) -> Tab? {
@@ -12910,20 +12781,19 @@ class TerminalController {
     private func parseSidebarMutationTabTarget(
         options: [String: String]
     ) -> (target: SidebarMutationTabTarget?, error: String?) {
-        if let rawTabArg = options["tab"] {
-            let tabArg = rawTabArg.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !tabArg.isEmpty else {
-                return (nil, "ERROR: Tab not found")
-            }
-            if let tabId = UUID(uuidString: tabArg) {
-                return (.workspace(tabId), nil)
-            }
-            if let index = Int(tabArg), index >= 0 {
-                return (.index(index), nil)
-            }
-            return (nil, "ERROR: Tab not found")
+        let resolution = sidebarMetadataArgumentParser.parseMutationTabTarget(options: options)
+        let target: SidebarMutationTabTarget?
+        switch resolution.target {
+        case nil:
+            target = nil
+        case .selected:
+            target = .selected
+        case .workspace(let id):
+            target = .workspace(id)
+        case .index(let index):
+            target = .index(index)
         }
-        return (.selected, nil)
+        return (target, resolution.error)
     }
 
     private func resolveSidebarMutationTab(_ target: SidebarMutationTabTarget) -> Tab? {
@@ -12956,37 +12826,19 @@ class TerminalController {
     }
 
     private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
-        switch raw.lowercased() {
-        case "plain":
-            return .plain
-        case "markdown", "md":
-            return .markdown
-        default:
-            return nil
-        }
+        sidebarMetadataArgumentParser.parseMetadataFormat(raw)
     }
 
     private func normalizedOptionValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        sidebarMetadataArgumentParser.normalizedOptionValue(value)
     }
 
     private func parseOptionalPanelIdOption(
         options: [String: String],
         usage: String
     ) -> (panelId: UUID?, error: String?) {
-        guard let rawPanelArg = options["panel"] ?? options["surface"] else {
-            return (nil, nil)
-        }
-        let panelArg = rawPanelArg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !panelArg.isEmpty else {
-            return (nil, "ERROR: Missing panel id — usage: \(usage)")
-        }
-        guard let panelId = UUID(uuidString: panelArg) else {
-            return (nil, "ERROR: Invalid panel id '\(rawPanelArg)'")
-        }
-        return (panelId, nil)
+        let result = sidebarMetadataArgumentParser.parseOptionalPanelId(options: options, usage: usage)
+        return (result.panelId, result.error)
     }
 
     private func scheduleSidebarMutation(
@@ -13220,12 +13072,7 @@ class TerminalController {
     }
 
     private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
-        guard let separatorRange = args.range(of: " -- ") else {
-            return (args, nil)
-        }
-        let optionsPart = String(args[..<separatorRange.lowerBound])
-        let markdownPart = String(args[separatorRange.upperBound...])
-        return (optionsPart, markdownPart)
+        sidebarMetadataArgumentParser.splitMetadataBlockArgs(args)
     }
 
     private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
@@ -13325,207 +13172,59 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-    /// Hard caps for the agent feedback sink. The only intended caller is a
-    /// paired phone, but a malformed or hostile request must not be able to
-    /// allocate huge buffers, block the Mac UI, or grow the cache without bound.
-    /// Strings are capped by character count before any large allocation; the
-    /// base64 blob is rejected outright past its cap (so it is never decoded),
-    /// and a decoded blob past the byte cap is dropped.
-    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
-    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
-    nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
-    nonisolated private static let dogfoodFeedbackMaxBlobBase64Chars = 8_388_608 // ~6 MiB decoded
-    nonisolated private static let dogfoodFeedbackMaxBlobBytes = 6_291_456 // 6 MiB
-    /// Keep at most this many bundle directories; older ones are pruned after
-    /// each write so a retrying client can't grow the cache without bound.
-    nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
-
-    /// The privileged feedback domain. Mirrors `isManaflowEmail` in
-    /// `CmuxMobileShellModel` (the phone's routing source of truth) but is
-    /// replicated here so the macOS app target need not link that mobile
-    /// package just for this one suffix check. Trims + lowercases before
-    /// matching so stored casing/padding does not bypass the gate.
-    nonisolated static func isPrivilegedFeedbackEmail(_ email: String?) -> Bool {
-        guard let email else { return false }
-        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.hasSuffix("@manaflow.ai")
-    }
-
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
-    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
-    /// writes a self-contained bundle directory under
-    /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
-    /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
+    /// Reads `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }` off
+    /// the wire and hands them to ``DogfoodFeedbackService`` (in the
+    /// `CmuxFeedback` package), which caps the fields, rejects an oversized
+    /// base64 blob without decoding, and writes a self-contained bundle
+    /// directory under `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/`
+    /// (a `bundle.json` manifest plus the decoded `diagnostic.log`) off the main
+    /// actor. This method owns only the trust-boundary privilege check and the
+    /// wire mapping; the validation, allocation caps, and filesystem I/O live in
+    /// the service.
+    ///
     /// It is protected by the same-account Stack-auth authorization the rest of
     /// the mobile data plane enforces, so it never accepts an unauthenticated
     /// caller. The phone only ever routes here for `@manaflow.ai` users on an
     /// active connection, so this exists in Release builds too (the team can
     /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
-    ///
-    /// Field sizes are capped on the main actor *before* any large allocation,
-    /// invalid/oversized base64 is rejected without decoding, and the decode +
-    /// filesystem writes run off the main actor so a large payload cannot block
-    /// the Mac UI.
     private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
         // Privilege check at the trust boundary: the mobile data plane only
         // accepts same-account connections, so the caller is this Mac's own Stack
-        // account. The privileged agent feedback sink is restricted to the
-        // @manaflow.ai domain; a crafted RPC from any other account is rejected
-        // here regardless of which route the phone UI chose. (The phone also
-        // gates the route on `@manaflow.ai` + `dogfood.v1`, but the Mac is the
-        // real boundary.)
+        // account. The service re-enforces the @manaflow.ai gate, but we resolve
+        // the authenticated email here because it requires the main-actor
+        // `MobileHostService`. (The phone also gates the route on `@manaflow.ai`
+        // + `dogfood.v1`, but the Mac is the real boundary.)
         let localEmail = await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
-        guard Self.isPrivilegedFeedbackEmail(localEmail) else {
+        let submission = DogfoodFeedbackSubmission(
+            text: v2RawString(params, "text") ?? "",
+            terminalText: v2RawString(params, "terminal_text") ?? "",
+            buildStamp: v2RawString(params, "build_stamp") ?? "",
+            diagnosticBlobBase64: v2RawString(params, "diagnostic_blob_base64") ?? ""
+        )
+        let outcome = await DogfoodFeedbackService().submit(submission, authenticatedEmail: localEmail)
+        switch outcome {
+        case let .written(bundlePath, diagnosticLogBytes):
+            return .ok([
+                "ok": true,
+                "bundle_path": bundlePath,
+                "diagnostic_log_bytes": diagnosticLogBytes,
+            ])
+        case .unauthorized:
             return .err(
                 code: "unauthorized",
                 message: "Feedback agent sink is restricted to privileged accounts",
                 data: nil
             )
-        }
-
-        // Cheap main-actor validation first: cap each field by character count
-        // before allocating anything large, and reject an oversized base64 blob
-        // outright so it is never decoded into a giant Data.
-        let text = String((v2RawString(params, "text") ?? "").prefix(Self.dogfoodFeedbackMaxTextChars))
-        let terminalText = String((v2RawString(params, "terminal_text") ?? "").prefix(Self.dogfoodFeedbackMaxTerminalChars))
-        let buildStamp = String((v2RawString(params, "build_stamp") ?? "").prefix(Self.dogfoodFeedbackMaxBuildStampChars))
-        let diagnosticBlobBase64 = v2RawString(params, "diagnostic_blob_base64") ?? ""
-        guard diagnosticBlobBase64.count <= Self.dogfoodFeedbackMaxBlobBase64Chars else {
-            return .err(
-                code: "invalid_params",
-                message: "diagnostic_blob_base64 exceeds size limit",
-                data: nil
-            )
-        }
-
-        let maxBlobBytes = Self.dogfoodFeedbackMaxBlobBytes
-        // Off-main: decode the blob and write the bundle. A `Task.detached`
-        // keeps the (potentially multi-MiB) decode + synchronous file I/O off the
-        // main actor so it never stalls the Mac UI. Returns a Sendable result.
-        let outcome = await Task.detached(priority: .utility) { () -> DogfoodFeedbackWriteOutcome in
-            let decoded = Data(base64Encoded: diagnosticBlobBase64) ?? Data()
-            guard decoded.count <= maxBlobBytes else {
-                return .rejected(reason: "diagnostic blob exceeds size limit")
-            }
-            return Self.writeDogfoodFeedbackBundle(
-                text: text,
-                terminalText: terminalText,
-                buildStamp: buildStamp,
-                diagnosticData: decoded
-            )
-        }.value
-
-        switch outcome {
-        case let .written(bundlePath, byteCount):
-            return .ok([
-                "ok": true,
-                "bundle_path": bundlePath,
-                "diagnostic_log_bytes": byteCount,
-            ])
-        case let .rejected(reason):
+        case let .invalidParams(reason):
             return .err(code: "invalid_params", message: reason, data: nil)
-        case .failed:
+        case .internalError:
             return .err(
                 code: "internal_error",
                 message: "Failed to persist dogfood feedback bundle",
                 data: nil
             )
-        }
-    }
-
-    /// The result of writing a dogfood feedback bundle off the main actor.
-    private enum DogfoodFeedbackWriteOutcome: Sendable {
-        case written(bundlePath: String, byteCount: Int)
-        case rejected(reason: String)
-        case failed
-    }
-
-    /// Persist a validated dogfood feedback bundle to disk. Runs off the main
-    /// actor (called from a detached task), so its synchronous file I/O never
-    /// blocks the Mac UI. All inputs are already size-capped by the caller.
-    nonisolated private static func writeDogfoodFeedbackBundle(
-        text: String,
-        terminalText: String,
-        buildStamp: String,
-        diagnosticData: Data
-    ) -> DogfoodFeedbackWriteOutcome {
-        let fileManager = FileManager.default
-        let root = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache", isDirectory: true)
-            .appendingPathComponent("cmux-dogfood-feedback", isDirectory: true)
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        // Colons are legal in HFS+/APFS but awkward in shell globs; swap for `-`
-        // so the directory name is paste-safe.
-        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let shortID = String(UUID().uuidString.prefix(8)).lowercased()
-        let bundleDir = root.appendingPathComponent("\(timestamp)_\(shortID)", isDirectory: true)
-
-        do {
-            // The bundle holds visible terminal text and debug logs, which can
-            // contain credentials or other private data. Create the root and
-            // bundle dirs owner-only (0700) so no other local user can traverse
-            // into them, and chmod the written files to 0600. The dir is created
-            // 0700 first, so even the brief window before the file chmod is not
-            // world-readable through a traversable parent.
-            let dirAttributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-            try fileManager.createDirectory(
-                at: root,
-                withIntermediateDirectories: true,
-                attributes: dirAttributes
-            )
-            try fileManager.createDirectory(
-                at: bundleDir,
-                withIntermediateDirectories: true,
-                attributes: dirAttributes
-            )
-            let diagnosticURL = bundleDir.appendingPathComponent("diagnostic.log")
-            try diagnosticData.write(to: diagnosticURL)
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: diagnosticURL.path)
-            let manifest: [String: Any] = [
-                "schema": "cmux.dogfood.feedback.v1",
-                "received_at": formatter.string(from: Date()),
-                "text": text,
-                "terminal_text": terminalText,
-                "build_stamp": buildStamp,
-                "diagnostic_log_file": "diagnostic.log",
-                "diagnostic_log_bytes": diagnosticData.count,
-            ]
-            let manifestData = try JSONSerialization.data(
-                withJSONObject: manifest,
-                options: [.prettyPrinted, .sortedKeys]
-            )
-            let manifestURL = bundleDir.appendingPathComponent("bundle.json")
-            try manifestData.write(to: manifestURL)
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
-        } catch {
-            return .failed
-        }
-
-        pruneDogfoodFeedbackBundles(root: root, keep: dogfoodFeedbackMaxRetainedBundles)
-        return .written(bundlePath: bundleDir.path, byteCount: diagnosticData.count)
-    }
-
-    /// Keep only the newest `keep` bundle directories under `root`, deleting the
-    /// rest. The directory names start with an ISO8601 timestamp, so a
-    /// lexicographic sort is chronological. Best-effort: a failure to enumerate
-    /// or remove is ignored (it only affects cleanup, not the just-written
-    /// bundle). Runs off the main actor with its writer.
-    nonisolated private static func pruneDogfoodFeedbackBundles(root: URL, keep: Int) {
-        let fileManager = FileManager.default
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        let directories = entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard directories.count > keep else { return }
-        for stale in directories.dropLast(keep) {
-            try? fileManager.removeItem(at: stale)
         }
     }
 
