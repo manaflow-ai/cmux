@@ -137,22 +137,54 @@ final class ComposerDictationController {
         }
         baseText = existingText
         self.onText = onText
+
+        // iOS 26 trap avoidance (the real mic-tap crash): when speech + mic
+        // authorization is ALREADY resolved (the common case after the first
+        // grant), decide synchronously and go straight to recognition. The async
+        // `SFSpeechRecognizer.requestAuthorization` / `requestRecordPermission`
+        // completions are dispatched by TCC on an XPC reply thread; a Swift
+        // closure the compiler treats as main-actor-isolated traps there in
+        // `swift_task_isCurrentExecutor` -> `dispatch_assert_queue_fail`. Reading
+        // the status synchronously never invokes that completion, so a repeat tap
+        // (Lawrence's repro) cannot hit the crashing callback. Only a genuinely
+        // undetermined permission falls through to the async request below.
+        switch Self.resolvedAuthorization() {
+        case .granted:
+            state = .requestingPermission
+            beginRecognition()
+            return
+        case .denied:
+            self.onText = nil
+            state = .unavailable
+            return
+        case .undetermined:
+            // First-ever request: fall through to the async prompt below.
+            break
+        }
+
         state = .requestingPermission
+        // The Speech/AVFoundation authorization callbacks fire on their own
+        // (non-main) queues, so `requestAuthorization` is nonisolated with a
+        // `@Sendable` completion. Hop to the main actor ONCE, here, via
+        // `Task { @MainActor in }` (an async enqueue, not a synchronous executor
+        // assertion) before touching any actor-isolated state.
         requestAuthorization { [weak self] granted in
-            guard let self else { return }
-            // A second tap may have cancelled (or otherwise moved on) while
-            // authorization resolved; if so this start is stale. Do nothing, so a
-            // cancel during the permission flow neither starts the engine nor
-            // overwrites the user's idle state with `unavailable`.
-            guard self.state == .requestingPermission else { return }
-            guard granted else {
-                // Denied or restricted: a terminal rest state that disables the
-                // mic. The captured callback is dropped.
-                self.onText = nil
-                self.state = .unavailable
-                return
+            Task { @MainActor in
+                guard let self else { return }
+                // A second tap may have cancelled (or otherwise moved on) while
+                // authorization resolved; if so this start is stale. Do nothing, so
+                // a cancel during the permission flow neither starts the engine nor
+                // overwrites the user's idle state with `unavailable`.
+                guard self.state == .requestingPermission else { return }
+                guard granted else {
+                    // Denied or restricted: a terminal rest state that disables the
+                    // mic. The captured callback is dropped.
+                    self.onText = nil
+                    self.state = .unavailable
+                    return
+                }
+                self.beginRecognition()
             }
-            self.beginRecognition()
         }
     }
 
@@ -210,34 +242,71 @@ final class ComposerDictationController {
 
     // MARK: - Authorization
 
-    /// Resolve both speech-recognition and microphone authorization, calling back
-    /// on the main actor with whether BOTH were granted.
-    private func requestAuthorization(_ completion: @escaping @MainActor (Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { speechStatus in
-            // The Speech callback arrives off the main actor; hop back before
-            // touching any state or the microphone request.
-            Task { @MainActor in
-                guard speechStatus == .authorized else {
-                    completion(false)
-                    return
-                }
-                Self.requestMicrophonePermission { micGranted in
-                    completion(micGranted)
-                }
+    /// Whether both authorizations are already resolved, and if so the verdict.
+    /// `undetermined` means at least one permission has never been requested, so a
+    /// first-time async prompt is still required.
+    private enum AuthResolution { case granted, denied, undetermined }
+
+    /// Read the CURRENT speech + microphone authorization synchronously, without
+    /// invoking any async request completion. `nonisolated` and side-effect-free:
+    /// these status getters are plain synchronous reads, so they are safe to call
+    /// from the main actor and never touch the crashing TCC callback path.
+    private nonisolated static func resolvedAuthorization() -> AuthResolution {
+        let speech = SFSpeechRecognizer.authorizationStatus()
+        let micGranted: Bool
+        let micDetermined: Bool
+        if #available(iOS 17.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: micGranted = true; micDetermined = true
+            case .denied: micGranted = false; micDetermined = true
+            case .undetermined: micGranted = false; micDetermined = false
+            @unknown default: micGranted = false; micDetermined = false
             }
+        } else {
+            switch AVAudioSession.sharedInstance().recordPermission {
+            case .granted: micGranted = true; micDetermined = true
+            case .denied: micGranted = false; micDetermined = true
+            case .undetermined: micGranted = false; micDetermined = false
+            @unknown default: micGranted = false; micDetermined = false
+            }
+        }
+        guard speech != .notDetermined, micDetermined else { return .undetermined }
+        return (speech == .authorized && micGranted) ? .granted : .denied
+    }
+
+    /// Resolve speech-recognition then microphone authorization and report whether
+    /// BOTH were granted.
+    ///
+    /// `nonisolated` with a `@Sendable` completion ON PURPOSE: `SFSpeechRecognizer`
+    /// / `AVFoundation` invoke their completion handlers on their own (non-main)
+    /// queues. If those closures were main-actor-isolated (the default for a
+    /// closure written inside this `@MainActor` type), Swift 6 on iOS 26 asserts
+    /// executor isolation when the system calls them off-main and traps
+    /// (`EXC_BREAKPOINT` in `swift_task_isCurrentExecutor` ->
+    /// `dispatch_assert_queue_fail`), which is the mic-tap crash. Keeping the
+    /// whole authorization chain nonisolated means no `@MainActor` closure is ever
+    /// invoked off-main; the caller hops to the main actor once.
+    private nonisolated func requestAuthorization(_ completion: @escaping @Sendable (Bool) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { speechStatus in
+            guard speechStatus == .authorized else {
+                completion(false)
+                return
+            }
+            Self.requestMicrophonePermission(completion)
         }
     }
 
-    /// Request microphone permission, bridging the iOS 17+ API to its
-    /// pre-17 fallback. Calls back on the main actor.
-    private static func requestMicrophonePermission(_ completion: @escaping @MainActor (Bool) -> Void) {
+    /// Request microphone permission, bridging the iOS 17+ API to its pre-17
+    /// fallback. `nonisolated` + `@Sendable` for the same off-main-isolation
+    /// reason as ``requestAuthorization(_:)``; reports on the system's queue.
+    private nonisolated static func requestMicrophonePermission(_ completion: @escaping @Sendable (Bool) -> Void) {
         if #available(iOS 17.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
-                Task { @MainActor in completion(granted) }
+                completion(granted)
             }
         } else {
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                Task { @MainActor in completion(granted) }
+                completion(granted)
             }
         }
     }
@@ -265,10 +334,9 @@ final class ComposerDictationController {
         do {
             let session = AVAudioSession.sharedInstance()
             // Record-only category for speech-to-text. `.duckOthers` is NOT valid
-            // for `.record` (only Ambient/PlayAndRecord/Playback/MultiRoute), and
-            // `.notifyOthersOnDeactivation` is only valid on deactivation, so both
-            // are omitted here; passing them throws on OSes that enforce the
-            // documented restrictions and would permanently disable the mic.
+            // for `.record`, and `.notifyOthersOnDeactivation` is only valid on
+            // deactivation, so both are omitted here; passing them throws on OSes
+            // that enforce the documented restrictions.
             try session.setCategory(.record, mode: .measurement)
             try session.setActive(true)
         } catch {
@@ -278,17 +346,13 @@ final class ComposerDictationController {
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
-        // A zero-channel format means there is no usable input route; bail rather
-        // than crash installing a tap with an invalid format.
-        guard format.channelCount > 0 else {
+        // Validate the input format; an invalid one makes `installTap` raise an
+        // uncatchable Obj-C exception.
+        guard format.channelCount > 0, format.sampleRate > 0 else {
             failStart()
             return
         }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
-            // The tap fires on a realtime audio thread. `append` is thread-safe on
-            // the request; do not touch main-actor state here.
-            request?.append(buffer)
-        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.makeTapBlock(request: request))
 
         audioEngine.prepare()
         do {
@@ -298,18 +362,48 @@ final class ComposerDictationController {
             return
         }
 
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            // The recognition callback arrives on an arbitrary queue with
-            // non-Sendable reference types (`SFSpeechRecognitionResult`, `Error`).
-            // Extract only Sendable value snapshots HERE, then hop to the main
-            // actor with those, so no non-Sendable reference crosses the actor
-            // boundary. `self` is weak so the task does not retain the controller.
+        task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler())
+
+        state = .listening
+    }
+
+    /// Build the audio-tap block. `nonisolated` so the returned closure is NOT
+    /// main-actor-isolated: `installTap` invokes it on the realtime audio render
+    /// thread, where a main-actor closure traps in `swift_task_isCurrentExecutor`.
+    /// `append` is thread-safe on the request; no main-actor state is touched.
+    private nonisolated static func makeTapBlock(
+        request: SFSpeechAudioBufferRecognitionRequest
+    ) -> (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        return { [weak request] buffer, _ in
+            request?.append(buffer)
+        }
+    }
+
+    /// Build the recognition result handler. `nonisolated` so the returned closure
+    /// is NOT main-actor-isolated: `SFSpeechRecognitionTask` delivers results on an
+    /// arbitrary queue. The closure extracts only `Sendable` value snapshots and
+    /// hops to the main actor via `Task { @MainActor in }` before touching any
+    /// actor-isolated state; `self` is weak so the task does not retain the
+    /// controller.
+    private nonisolated func makeRecognitionResultHandler()
+        -> @Sendable (SFSpeechRecognitionResult?, Error?) -> Void {
+        // `@Sendable` so the closure is its own isolation region (not main-actor):
+        // Speech invokes it off-main, where a main-actor closure traps. It captures
+        // only `[weak self]` (a Sendable, main-actor class) and reads Sendable
+        // snapshots from the non-Sendable result/error PARAMETERS, then hops to the
+        // main actor. This mirrors the authorization completion pattern above.
+        return { [weak self] result, error in
             let transcript = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             let failed = error != nil
             Task { @MainActor in
                 guard let self else { return }
-                if let transcript {
+                // Only apply a NON-EMPTY transcript. On stop, the recognizer can
+                // deliver a final result with an empty transcript; merging that
+                // (`merged(base, "")` -> `base`) would wipe the words the partials
+                // already committed. The latest non-empty partial is already in the
+                // field, so an empty final/partial must be ignored, not applied.
+                if let transcript, !transcript.isEmpty {
                     self.onText?(self.textMerger.merged(
                         base: self.baseText,
                         transcript: transcript
@@ -329,8 +423,6 @@ final class ComposerDictationController {
                 }
             }
         }
-
-        state = .listening
     }
 
     /// Tear down after a setup failure and disable the mic. Distinct from a clean
