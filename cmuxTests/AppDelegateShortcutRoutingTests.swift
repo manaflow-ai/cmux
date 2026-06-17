@@ -11822,6 +11822,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertFalse(harness.panel.isBrowserAutoFocusModeSuppressedUntilFocusGain)
 
         XCTAssertEqual(
             appDelegate.handleBrowserFocusModeKeyEvent(commandS, webView: harness.webView, source: "unit.commandS"),
@@ -11854,10 +11855,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertTrue(harness.panel.isBrowserAutoFocusModeSuppressedUntilFocusGain)
 
         XCTAssertTrue(
             harness.panel.setBrowserFocusModeActive(true, reason: "unit.capsEscape", focusWebView: false)
         )
+        XCTAssertFalse(harness.panel.isBrowserAutoFocusModeSuppressedUntilFocusGain)
         XCTAssertEqual(
             appDelegate.handleBrowserFocusModeKeyEvent(capsExitFirstEscape, webView: harness.webView, source: "unit.capsExitFirstEscape"),
             .forwardToWebView
@@ -11869,6 +11872,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertFalse(harness.panel.isBrowserFocusModeActive)
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
+        XCTAssertTrue(harness.panel.isBrowserAutoFocusModeSuppressedUntilFocusGain)
     }
 
     func testBrowserFocusModeStaleExitArmRearmsOnNextEscape() {
@@ -12004,7 +12008,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isEnabled: true,
                 isPanelFocused: true,
                 isBrowserFocusModeActive: false,
-                isAddressBarFocused: false
+                isAddressBarFocused: false,
+                isAutoFocusModeSuppressedUntilFocusGain: false
             )
         )
         XCTAssertFalse(
@@ -12012,7 +12017,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isEnabled: false,
                 isPanelFocused: true,
                 isBrowserFocusModeActive: false,
-                isAddressBarFocused: false
+                isAddressBarFocused: false,
+                isAutoFocusModeSuppressedUntilFocusGain: false
             )
         )
         XCTAssertFalse(
@@ -12020,7 +12026,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isEnabled: true,
                 isPanelFocused: false,
                 isBrowserFocusModeActive: false,
-                isAddressBarFocused: false
+                isAddressBarFocused: false,
+                isAutoFocusModeSuppressedUntilFocusGain: false
             )
         )
         XCTAssertFalse(
@@ -12028,7 +12035,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isEnabled: true,
                 isPanelFocused: true,
                 isBrowserFocusModeActive: true,
-                isAddressBarFocused: false
+                isAddressBarFocused: false,
+                isAutoFocusModeSuppressedUntilFocusGain: false
             )
         )
         XCTAssertFalse(
@@ -12036,7 +12044,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isEnabled: true,
                 isPanelFocused: true,
                 isBrowserFocusModeActive: false,
-                isAddressBarFocused: true
+                isAddressBarFocused: true,
+                isAutoFocusModeSuppressedUntilFocusGain: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserAutoFocusModeActivation.shouldActivate(
+                isEnabled: true,
+                isPanelFocused: true,
+                isBrowserFocusModeActive: false,
+                isAddressBarFocused: false,
+                isAutoFocusModeSuppressedUntilFocusGain: true
             )
         )
     }

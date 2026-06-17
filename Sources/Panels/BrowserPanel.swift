@@ -201,9 +201,14 @@ enum BrowserAutoFocusModeActivation {
         isEnabled: Bool,
         isPanelFocused: Bool,
         isBrowserFocusModeActive: Bool,
-        isAddressBarFocused: Bool
+        isAddressBarFocused: Bool,
+        isAutoFocusModeSuppressedUntilFocusGain: Bool
     ) -> Bool {
-        isEnabled && isPanelFocused && !isBrowserFocusModeActive && !isAddressBarFocused
+        isEnabled &&
+            isPanelFocused &&
+            !isBrowserFocusModeActive &&
+            !isAddressBarFocused &&
+            !isAutoFocusModeSuppressedUntilFocusGain
     }
 
     static func shouldRetryAfterAddressBarBlur(isPageRenderable: Bool, isContentBlank: Bool) -> Bool {
@@ -2652,6 +2657,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Browser focus mode gives the focused WKWebView first ownership of page/app shortcuts.
     @Published private(set) var isBrowserFocusModeActive: Bool = false
+
+    /// Suppresses browser auto-focus-mode re-entry after an explicit user exit.
+    private(set) var isBrowserAutoFocusModeSuppressedUntilFocusGain: Bool = false
 
     /// A first plain Escape in browser focus mode is forwarded to the page and arms exit.
     @Published private(set) var isBrowserFocusModeExitArmed: Bool = false
@@ -6840,11 +6848,17 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func toggleBrowserFocusMode(reason: String, focusWebView: Bool = true) -> Bool {
+    func toggleBrowserFocusMode(
+        reason: String,
+        focusWebView: Bool = true,
+        suppressAutoFocusUntilFocusGainOnExit: Bool = false
+    ) -> Bool {
+        let shouldActivate = !isBrowserFocusModeActive
         setBrowserFocusModeActive(
-            !isBrowserFocusModeActive,
+            shouldActivate,
             reason: reason,
-            focusWebView: focusWebView
+            focusWebView: focusWebView,
+            suppressAutoFocusUntilFocusGain: !shouldActivate && suppressAutoFocusUntilFocusGainOnExit
         )
     }
 
@@ -6852,10 +6866,14 @@ extension BrowserPanel {
     func setBrowserFocusModeActive(
         _ active: Bool,
         reason: String,
-        focusWebView: Bool = true
+        focusWebView: Bool = true,
+        suppressAutoFocusUntilFocusGain: Bool = false
     ) -> Bool {
         if !active {
-            clearBrowserFocusMode(reason: reason)
+            clearBrowserFocusMode(
+                reason: reason,
+                suppressAutoFocusUntilFocusGain: suppressAutoFocusUntilFocusGain
+            )
             return true
         }
 
@@ -6871,6 +6889,7 @@ extension BrowserPanel {
             return false
         }
 
+        clearBrowserAutoFocusModeSuppression(reason: "\(reason).activate")
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         isBrowserFocusModeActive = true
@@ -6891,7 +6910,10 @@ extension BrowserPanel {
         return true
     }
 
-    func clearBrowserFocusMode(reason: String) {
+    func clearBrowserFocusMode(reason: String, suppressAutoFocusUntilFocusGain: Bool = false) {
+        if suppressAutoFocusUntilFocusGain {
+            suppressBrowserAutoFocusModeUntilFocusGain(reason: reason)
+        }
         let shouldNotify = isBrowserFocusModeActive || isBrowserFocusModeExitArmed
         guard isBrowserFocusModeActive ||
             isBrowserFocusModeExitArmed ||
@@ -6908,6 +6930,22 @@ extension BrowserPanel {
         if shouldNotify {
             NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
         }
+    }
+
+    func clearBrowserAutoFocusModeSuppression(reason: String) {
+        guard isBrowserAutoFocusModeSuppressedUntilFocusGain else { return }
+        isBrowserAutoFocusModeSuppressedUntilFocusGain = false
+#if DEBUG
+        cmuxDebugLog("browser.autoFocusMode.suppression.clear panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+    }
+
+    private func suppressBrowserAutoFocusModeUntilFocusGain(reason: String) {
+        guard !isBrowserAutoFocusModeSuppressedUntilFocusGain else { return }
+        isBrowserAutoFocusModeSuppressedUntilFocusGain = true
+#if DEBUG
+        cmuxDebugLog("browser.autoFocusMode.suppression.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
     }
 
     func clearBrowserFocusModeEscapeArms(reason: String) {
@@ -6970,7 +7008,10 @@ extension BrowserPanel {
 
         if isBrowserFocusModeExitArmed {
             if browserFocusModeEscapeArmIsFresh(for: event) {
-                clearBrowserFocusMode(reason: "\(reason).escapeExit")
+                clearBrowserFocusMode(
+                    reason: "\(reason).escapeExit",
+                    suppressAutoFocusUntilFocusGain: true
+                )
                 return .consume
             }
 

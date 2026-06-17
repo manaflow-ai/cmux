@@ -774,7 +774,11 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserFocusModeButtonAction() {
-        if !panel.toggleBrowserFocusMode(reason: "toolbarButton", focusWebView: true) {
+        if !panel.toggleBrowserFocusMode(
+            reason: "toolbarButton",
+            focusWebView: true,
+            suppressAutoFocusUntilFocusGainOnExit: true
+        ) {
             NSSound.beep()
         }
     }
@@ -1000,6 +1004,7 @@ struct BrowserPanelView: View {
 #endif
         // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
         if focused {
+            panel.clearBrowserAutoFocusModeSuppression(reason: "panelFocus.onChange.focused")
             reconcileFocusedPanelState(reason: "autoFocusMode.panelFocus", isPanelFocused: focused)
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
@@ -1044,7 +1049,8 @@ struct BrowserPanelView: View {
             isEnabled: autoFocusModeEnabled,
             isPanelFocused: isPanelFocused,
             isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
-            isAddressBarFocused: addressBarFocused
+            isAddressBarFocused: addressBarFocused,
+            isAutoFocusModeSuppressedUntilFocusGain: panel.isBrowserAutoFocusModeSuppressedUntilFocusGain
         ) {
             panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: false)
         }
