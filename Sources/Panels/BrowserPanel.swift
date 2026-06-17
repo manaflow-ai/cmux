@@ -4,6 +4,7 @@ import CmuxBrowser
 import CmuxBrowserImport
 import CmuxSettings
 import Combine
+import CmuxAppKitSupportUI
 import WebKit
 import AppKit
 import Bonsplit
@@ -4491,7 +4492,7 @@ final class BrowserPanel: Panel, ObservableObject {
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
             usesTransparentWindow: WindowBackgroundComposition.policy
-                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
         )
     }
 
