@@ -14,6 +14,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    /// The running bundle's identifier, used to gate the public update train off DEV/staging builds.
+    let bundleIdentifier: String?
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
 
@@ -24,10 +26,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock) {
+    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, bundleIdentifier: String? = Bundle.main.bundleIdentifier) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.bundleIdentifier = bundleIdentifier
         super.init()
     }
 

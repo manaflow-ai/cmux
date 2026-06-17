@@ -58,6 +58,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        // DEV / staging builds are off the public release train. If Sparkle still surfaces an
+        // update here (e.g. a manual "Check for Updates", or a probe that started before the
+        // launch gate landed), clear it instead of recording so the pill never appears.
+        if UpdateController.isDevLikeBundleIdentifier(bundleIdentifier) {
+            model.clearDetectedUpdate()
+            log.append("ignoring found update on dev/staging build: \(item.displayVersionString)")
+            return
+        }
         model.recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""

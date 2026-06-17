@@ -82,7 +82,7 @@ public final class UpdateController {
         settings.apply(to: defaults)
 
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock)
+        let driver = UpdateDriver(model: model, log: log, clock: clock, bundleIdentifier: hostBundle.bundleIdentifier)
         self.driver = driver
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
@@ -338,6 +338,17 @@ public final class UpdateController {
     }
 
     private func startLaunchUpdateProbeIfNeeded() {
+        // DEV / staging builds are produced from local source and are not on the public release
+        // train, so they must never query the public appcast or surface the "Update Available"
+        // pill. Tear down any background probe and bail before touching Sparkle.
+        if Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier) {
+            backgroundProbeTask?.cancel()
+            backgroundProbeTask = nil
+            model.clearDetectedUpdate()
+            log.append("launch update probe skipped (dev/staging build)")
+            return
+        }
+
         guard updater.automaticallyChecksForUpdates else {
             log.append("launch update probe skipped (automatic checks disabled)")
             return
@@ -361,6 +372,22 @@ public final class UpdateController {
                 self.updater.checkForUpdateInformation()
             }
         }
+    }
+
+    /// Whether the running bundle is a DEV or staging build that should be excluded from the
+    /// public Sparkle release train.
+    ///
+    /// Mirrors `CmuxSocketControl.SocketControlSettings.isDebugLikeBundleIdentifier` /
+    /// `isStagingBundleIdentifier` locally so the updater module does not take a package
+    /// dependency on `CmuxSocketControl`. Covers the untagged base ids and every tagged variant
+    /// produced by `reload.sh --tag` (`com.cmuxterm.app.debug.<tag>` /
+    /// `com.cmuxterm.app.staging.<tag>`).
+    public nonisolated static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
+            || bundleIdentifier == "com.cmuxterm.app.staging"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 
     private func recordUITestTimestamp(key: String) {
