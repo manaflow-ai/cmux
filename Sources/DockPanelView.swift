@@ -8,7 +8,7 @@ import SwiftUI
 /// (terminals + browsers) using the same split machinery as the main content
 /// area, just constrained to the sidebar width.
 struct DockPanelView: View {
-    @ObservedObject var store: DockSplitStore
+    let store: DockSplitStore
     let isSidebarVisible: Bool
     let mode: RightSidebarMode
 
@@ -119,7 +119,7 @@ struct DockPanelView: View {
 /// Renders the Dock's Bonsplit tree, reusing `PanelContentView` so Dock
 /// terminals and browsers render identically to main-area panes.
 private struct DockSplitContentView: View {
-    @ObservedObject var store: DockSplitStore
+    let store: DockSplitStore
     let appearance: PanelAppearance
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
@@ -272,7 +272,7 @@ private struct DockErrorView: View {
 }
 
 private struct DockKeyboardFocusBridge: NSViewRepresentable {
-    @ObservedObject var store: DockSplitStore
+    let store: DockSplitStore
 
     func makeNSView(context: Context) -> DockKeyboardFocusView {
         DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))

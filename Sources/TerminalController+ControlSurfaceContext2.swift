@@ -417,9 +417,7 @@ extension TerminalController {
         url: URL?,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        guard panelType == .terminal || panelType == .browser else {
-            return .createFailed
-        }
+        guard panelType == .terminal || panelType == .browser else { return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: String(localized: "rpc.v2.surface.create.dockUnsupportedType", defaultValue: "Dock placement supports only terminal and browser surfaces")) }
         let dock = ws.dockSplit
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound

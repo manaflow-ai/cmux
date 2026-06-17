@@ -425,11 +425,9 @@ extension ControlCommandCoordinator {
                 data: .object(["renderer": .string(rawValue)])
             )
         case .invalidPlacement(let rawValue):
-            return .err(
-                code: "invalid_params",
-                message: "placement must be one of: workspace, dock",
-                data: .object(["placement": .string(rawValue)])
-            )
+            return .err(code: "invalid_params", message: "placement must be one of: workspace, dock", data: .object(["placement": .string(rawValue)]))
+        case .dockUnsupportedType(let typeRawValue, let message):
+            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
         case .workspaceNotFound:

@@ -19,6 +19,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The `placement` was present but not one of `workspace|dock`
     /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
     case invalidPlacement(rawValue: String)
+    /// The request targeted the Dock with a surface type the Dock cannot host
+    /// (`invalid_params`, app-bundle-resolved message, `data: {"type": rawValue}`).
+    case dockUnsupportedType(typeRawValue: String, message: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").

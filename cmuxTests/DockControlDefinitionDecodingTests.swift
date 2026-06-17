@@ -18,6 +18,15 @@ struct DockControlDefinitionDecodingTests {
         try JSONDecoder().decode(DockControlDefinition.self, from: Data(json.utf8))
     }
 
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-config-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     @Test("Legacy terminal config decodes unchanged")
     func legacyTerminalDecodes() throws {
         let control = try decode(#"{"id":"git","title":"Git","command":"lazygit","cwd":".","height":300}"#)
@@ -113,5 +122,29 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[0].kind == .terminal)
         #expect(file.controls[1].kind == .browser)
         #expect(file.controls[1].url == "https://example.com")
+    }
+
+    @Test("Project config identity follows the resolved dock file, not child cwd")
+    func projectConfigIdentityUsesResolvedDockFile() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cmuxDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: cmuxDirectory, withIntermediateDirectories: true)
+        let dockConfig = cmuxDirectory.appendingPathComponent("dock.json", isDirectory: false)
+        try #"{"controls":[{"id":"git","title":"Git","command":"lazygit"}]}"#
+            .write(to: dockConfig, atomically: true, encoding: .utf8)
+
+        let firstChild = root.appendingPathComponent("packages/app", isDirectory: true)
+        let secondChild = root.appendingPathComponent("packages/web", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstChild, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondChild, withIntermediateDirectories: true)
+
+        let firstIdentity = DockSplitStore.configIdentity(rootDirectory: firstChild.path)
+        let secondIdentity = DockSplitStore.configIdentity(rootDirectory: secondChild.path)
+
+        #expect(firstIdentity == secondIdentity)
+        #expect(firstIdentity.sourcePath == dockConfig.standardizedFileURL.path)
+        #expect(firstIdentity.baseDirectory == root.path)
     }
 }
