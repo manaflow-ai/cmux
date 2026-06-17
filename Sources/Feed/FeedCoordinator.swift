@@ -1169,8 +1169,15 @@ enum FeedSocketEncoding {
         return dict
     }
 
+    /// Process-lifetime ISO8601 formatter reused across every encoded item.
+    ///
+    /// Uses default `formatOptions` (no fractional seconds) because the feed
+    /// snapshot wire bytes are contractually exact. `ISO8601DateFormatter` is
+    /// safe for concurrent read-only `string(from:)` use.
+    private static let isoFormatter = ISO8601DateFormatter()
+
     static func itemDict(_ item: WorkstreamItem) -> [String: Any] {
-        let isoFormatter = ISO8601DateFormatter()
+        let isoFormatter = Self.isoFormatter
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,

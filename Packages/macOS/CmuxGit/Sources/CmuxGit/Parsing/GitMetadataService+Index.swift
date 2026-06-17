@@ -18,8 +18,15 @@ extension GitMetadataService {
             return (false, gitIndexFileSignature(indexURL: indexURL), nil)
         }
 
+        // `entry.path` is a validated repo-relative POSIX path (no leading "/",
+        // no ".."), so plain concatenation against a precomputed root prefix
+        // yields the same absolute path as `URL(...).appendingPathComponent(...)`
+        // without allocating a Foundation URL (plus several intermediates) per
+        // tracked file on every dirty check.
+        let workTreePrefix = repository.workTreeRoot.hasSuffix("/")
+            ? repository.workTreeRoot
+            : repository.workTreeRoot + "/"
         for entry in indexSnapshot.entries {
-            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
                 guard let submoduleCommit = gitlinkWorktreeCommit(
@@ -34,8 +41,9 @@ extension GitMetadataService {
                 continue
             }
 
+            let filePath = workTreePrefix + entry.path
             var statValue = stat()
-            guard lstat(fileURL.path, &statValue) == 0 else {
+            guard lstat(filePath, &statValue) == 0 else {
                 return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
             }
             let size = gitIndexUInt32Field(statValue.st_size)

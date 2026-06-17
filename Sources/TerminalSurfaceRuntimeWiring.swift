@@ -112,17 +112,32 @@ extension RendererRealizationController: TerminalRendererRealizationScheduling {
 // MARK: Agent hibernation
 
 /// The legacy `recordAgentHibernationTerminalInput` free helper as an
-/// injected recorder: same gate, same timestamp capture, same main-actor hop.
+/// injected recorder: same gate, recording inline on the main thread (with a
+/// `Task` fallback only for the off-main path), letting the controller stamp the
+/// timestamp.
 final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
-        let recordedAt = Date()
-        Task { @MainActor in
-            AgentHibernationController.shared.recordTerminalInput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
+        // The injected recorder is invoked from `@MainActor` key/IME/paste
+        // handlers on every keystroke, so record inline rather than allocating a
+        // Task per keystroke for a sub-microsecond dictionary write.
+        // `recordTerminalInput` stamps its own `Date()` when `recordedAt` is nil.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AgentHibernationController.shared.recordTerminalInput(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedAt: nil
+                )
+            }
+        } else {
+            Task { @MainActor in
+                AgentHibernationController.shared.recordTerminalInput(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedAt: nil
+                )
+            }
         }
     }
 }

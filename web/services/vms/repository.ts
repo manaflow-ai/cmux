@@ -454,14 +454,13 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("markLeasesRevoked", async () => {
       if (ids.length === 0) return;
       const db = cloudDb();
-      await Promise.all(
-        ids.map((id) =>
-          db
-            .update(cloudVmLeases)
-            .set({ revokedAt: new Date() })
-            .where(eq(cloudVmLeases.id, id)),
-        ),
-      );
+      // One UPDATE ... WHERE id IN (...) instead of K separate round-trips over
+      // the pool. The non-empty guard above keeps `inArray` valid, and every
+      // revoked row gets a single consistent `revokedAt` timestamp.
+      await db
+        .update(cloudVmLeases)
+        .set({ revokedAt: new Date() })
+        .where(inArray(cloudVmLeases.id, ids));
     }),
 
   recordUsageEvent: (input) =>

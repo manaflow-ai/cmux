@@ -75,11 +75,20 @@ struct FeedPanelView: View {
     @StateObject private var viewModel = FeedPanelViewModel()
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Derive snapshots here — this body only re-runs when `items`/`filter`
+        // (or the load-more flags) change, never on FeedListView's internal
+        // selection/draft state, so the per-item walk happens only when the
+        // underlying data actually changes.
+        let snapshots = FeedListView.visibleSnapshots(viewModel.items, filter: filter)
+        let activityGroups = filter == .activity
+            ? FeedListView.activitySnapshotGroups(snapshots)
+            : nil
+        return VStack(spacing: 0) {
             controlBar
             FeedListView(
                 filter: filter,
-                items: viewModel.items,
+                snapshots: snapshots,
+                activityGroups: activityGroups,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
                 onLoadOlderItems: viewModel.loadOlderItems
@@ -164,7 +173,13 @@ private struct FeedSecondaryFilterButton: View {
 /// owns the observation.
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
-    let items: [WorkstreamItem]
+    /// Pre-derived snapshots, computed once by the parent (which only re-renders
+    /// when `items`/`filter` change). Deriving here instead would re-walk every
+    /// item and reallocate the whole snapshot array on each `focusSnapshot` /
+    /// `stopDrafts` change (i.e. every selection move and every keystroke in a
+    /// stop-reply field), even though `items` was unchanged.
+    let snapshots: [FeedItemSnapshot]
+    let activityGroups: ActivitySnapshotGroups?
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
@@ -175,8 +190,6 @@ private struct FeedListView: View {
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
 
     var body: some View {
-        let snapshots = visibleSnapshots(items)
-        let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
         let focusSnapshots = activityGroups?.ordered ?? snapshots
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
@@ -243,7 +256,7 @@ private struct FeedListView: View {
             )
         case .activity:
             activityScrollSurface(
-                groups: activityGroups ?? activitySnapshotGroups(snapshots),
+                groups: activityGroups ?? Self.activitySnapshotGroups(snapshots),
                 actions: actions,
                 showsLoadMore: hasMorePersistedItems
             )
@@ -320,19 +333,19 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private struct ActivitySnapshotGroups {
+    fileprivate struct ActivitySnapshotGroups {
         let stable: [FeedItemSnapshot]
         let history: [FeedItemSnapshot]
         let ordered: [FeedItemSnapshot]
     }
 
-    private func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
+    fileprivate static func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
         var stable: [FeedItemSnapshot] = []
         var history: [FeedItemSnapshot] = []
         stable.reserveCapacity(snapshots.count)
         history.reserveCapacity(snapshots.count)
         for snapshot in snapshots {
-            if prefersStableSurface(snapshot) {
+            if Self.prefersStableSurface(snapshot) {
                 stable.append(snapshot)
             } else {
                 history.append(snapshot)
@@ -390,7 +403,7 @@ private struct FeedListView: View {
     /// ordered by createdAt, and records the most recent user-prompt
     /// text per workstreamId. Rows consult this dict to show a
     /// "You: …" echo line at the top of their card.
-    private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
+    fileprivate static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
         var out: [String: String] = [:]
         for item in items {
             if case .userPrompt(let text) = item.payload, !text.isEmpty {
@@ -400,7 +413,7 @@ private struct FeedListView: View {
         return out
     }
 
-    private func filtered(_ items: [WorkstreamItem]) -> [WorkstreamItem] {
+    fileprivate static func filtered(_ items: [WorkstreamItem], filter: FeedPanelView.Filter) -> [WorkstreamItem] {
         let base: [WorkstreamItem]
         switch filter {
         case .actionable:
@@ -426,9 +439,9 @@ private struct FeedListView: View {
         return Array(base.reversed())
     }
 
-    private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
+    fileprivate static func visibleSnapshots(_ items: [WorkstreamItem], filter: FeedPanelView.Filter) -> [FeedItemSnapshot] {
         let lastPromptByWorkstream = Self.lastPromptByWorkstream(items)
-        return filtered(items).map { item in
+        return filtered(items, filter: filter).map { item in
             FeedItemSnapshot(
                 item: item,
                 userPromptEcho: lastPromptByWorkstream[item.workstreamId]
@@ -436,7 +449,7 @@ private struct FeedListView: View {
         }
     }
 
-    private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
+    private static func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
         snapshot.status.isPending || snapshot.kind == .stop
     }
 
