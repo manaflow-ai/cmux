@@ -54,6 +54,15 @@ final class TerminalInputTextView: UITextView {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    // Always report text present so the software keyboard's hold-to-repeat timer
+    // keeps firing `deleteBackward()` while Backspace is held. The terminal's
+    // document is effectively empty, and an empty `UITextView`'s `hasText` is
+    // `false`, which makes UIKit stop the auto-repeat after a single delete (the
+    // hold-to-repeat-Backspace regression). It is always valid to send another
+    // backspace to the Mac, so this is unconditionally `true`; `deleteBackward()`
+    // routes on `markedTextRange` (IME composition) instead of `hasText`.
+    override var hasText: Bool { true }
+
     override var keyCommands: [UIKeyCommand]? {
         guard markedTextRange == nil else { return nil }
         return TerminalHardwareKeyResolver.makeKeyCommands(
@@ -521,7 +530,12 @@ final class TerminalInputTextView: UITextView {
     }
 
     override func deleteBackward() {
-        if commandAccessoryArmed, markedTextRange == nil, !hasText {
+        // Branches route on `markedTextRange` (IME composition) only. `hasText` is
+        // forced `true` above to keep the keyboard's hold-to-repeat timer alive, so
+        // it can no longer gate these — while NOT composing, a backspace is always
+        // forwarded to the Mac (and repeats on every auto-repeat tick); while
+        // composing, it edits the marked text locally via `super`.
+        if commandAccessoryArmed, markedTextRange == nil {
             if !commandAccessorySticky {
                 setCommandAccessoryArmed(false)
             }
@@ -529,7 +543,7 @@ final class TerminalInputTextView: UITextView {
             onEscapeSequence?(Data([0x15]))
             return
         }
-        if alternateAccessoryArmed, markedTextRange == nil, !hasText {
+        if alternateAccessoryArmed, markedTextRange == nil {
             if !alternateAccessorySticky {
                 setAlternateAccessoryArmed(false)
             }
@@ -541,14 +555,14 @@ final class TerminalInputTextView: UITextView {
             }
             return
         }
-        if controlAccessoryArmed, markedTextRange == nil, !hasText {
+        if controlAccessoryArmed, markedTextRange == nil {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
             }
             onBackspace?()
             return
         }
-        if shiftAccessoryArmed, markedTextRange == nil, !hasText {
+        if shiftAccessoryArmed, markedTextRange == nil {
             // Shift does not change Backspace, but a one-shot ⇧ must still be
             // consumed here so it cannot leak onto the next key (matching the
             // Control branch above).
@@ -558,7 +572,9 @@ final class TerminalInputTextView: UITextView {
             onBackspace?()
             return
         }
-        if markedTextRange != nil || hasText {
+        // Composing: edit marked text locally. Otherwise forward a backspace to the
+        // Mac on every (held) repeat tick.
+        if markedTextRange != nil {
             super.deleteBackward()
             return
         }
