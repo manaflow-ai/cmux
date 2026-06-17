@@ -18,9 +18,10 @@ import Foundation
 /// `Localizable.xcstrings`: the coordinator never calls `String(localized:)` for
 /// this domain, so no non-English translation is dropped.
 ///
-/// Both the coordinator (`processV2Command`) and the mobile RPC handler
-/// (`mobileHostHandleRPC`) drive the same private bodies, so the wire behavior is
-/// shared across both entrypoints.
+/// These witnesses serve only the v2 control socket (`processV2Command` →
+/// ``ControlCommandCoordinator/handleMobileHost(_:)``). The mobile data-plane RPC
+/// (`mobileHostHandleRPC`) dispatches the same `v2Mobile*` bodies directly, with
+/// no `ControlCallResult` round-trip, so it does not transit this seam.
 extension TerminalController: ControlMobileHostContext {
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult {
         // `processV2Command` called `v2MobileHostStatus(params:)` with the
@@ -56,65 +57,12 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalMouse(params: foundationParams(params)))
     }
 
-    func controlMobileHostStatusPublic(params: [String: JSONValue]) -> ControlCallResult {
-        // The mobile RPC handler called `v2MobileHostStatus` with
-        // `includePrivateMetadata: false`, so keep that here.
-        bridgeMobileResult(
-            v2MobileHostStatus(params: foundationParams(params), includePrivateMetadata: false)
-        )
-    }
-
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult {
         bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
     }
 
     func controlMobileChatSessionsDump() -> ControlCallResult {
         bridgeMobileResult(v2ChatSessionsDump())
-    }
-
-    func controlMobileAttachTicketCreate(params: [String: JSONValue]) async -> ControlCallResult {
-        bridgeMobileResult(await v2MobileAttachTicketCreate(params: foundationParams(params)))
-    }
-
-    func controlMobileTerminalPasteImage(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalPasteImage(params: foundationParams(params)))
-    }
-
-    func controlMobileWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceCreate(params: foundationParams(params)))
-    }
-
-    func controlMobileWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceAction(params: foundationParams(params)))
-    }
-
-    func controlMobileChatDispatch(method: String, params: [String: JSONValue]) async -> ControlCallResult {
-        bridgeMobileResult(await v2MobileChatDispatch(method: method, params: foundationParams(params)))
-    }
-
-    func controlMobileWorkspaceClose(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceClose(params: foundationParams(params)))
-    }
-
-    func controlMobileWorkspaceGroupSetCollapsed(
-        params: [String: JSONValue],
-        isCollapsed: Bool
-    ) -> ControlCallResult {
-        bridgeMobileResult(
-            v2MobileWorkspaceGroupSetCollapsed(params: foundationParams(params), isCollapsed: isCollapsed)
-        )
-    }
-
-    func controlMobileNotificationDismiss(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileNotificationDismiss(params: foundationParams(params)))
-    }
-
-    func controlMobileNotificationReconcile(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileNotificationReconcile(params: foundationParams(params)))
-    }
-
-    func controlMobileDogfoodFeedbackSubmit(params: [String: JSONValue]) async -> ControlCallResult {
-        bridgeMobileResult(await v2MobileDogfoodFeedbackSubmit(params: foundationParams(params)))
     }
 
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's

@@ -13104,43 +13104,63 @@ class TerminalController {
 
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
-        // The mobile data-plane RPC dispatch table moved onto
-        // `ControlCommandCoordinator.handleMobileHostRPC`; each method is a thin
-        // pass-through to a `ControlMobileHostContext` witness that runs the
-        // identical legacy `v2Mobile*` body app-side and bridges the result, so
-        // the wire bytes are unchanged. The coordinator receives typed params and
-        // the witnesses reconstruct `[String: Any]` via `foundationParams`, the
-        // exact inverse of the bridging below. `id`/`auth` are not consulted by
-        // any mobile body (auth is enforced upstream in `MobileHostService`), so
-        // a `null` id on the coordinator request is irrelevant; the response is
-        // re-wrapped here with the original request's `id`.
-        let controlParams = request.params.compactMapValues { JSONValue(foundationObject: $0) }
-        let controlRequest = ControlRequest(id: .null, method: request.method, params: controlParams)
-        guard let controlResult = await controlCommandCoordinator.handleMobileHostRPC(controlRequest) else {
-            // Unknown method: reproduce the legacy default case verbatim.
-            return mobileHostResult(.err(
-                code: "method_not_found",
-                message: "Unknown mobile method",
-                data: ["method": request.method]
-            ))
+        // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
+        // `MobileHostRPCResult` and dispatches directly to the app-side
+        // `v2Mobile*` bodies. It deliberately does NOT route through the v2
+        // control-socket `ControlCommandCoordinator` (whose native result type is
+        // `ControlCallResult`): doing so would force a
+        // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
+        // MobileHostRPCResult` type round-trip with no behavior change. The v2
+        // control socket shares the same bodies through `handleMobileHost`, so the
+        // wire bytes stay identical across both entrypoints without a bridge here.
+        let result: V2CallResult
+        switch request.method {
+        case "mobile.host.status":
+            result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
+        case "mobile.attach_ticket.create":
+            result = await v2MobileAttachTicketCreate(params: request.params)
+        case "mobile.workspace.list", "workspace.list":
+            result = v2MobileWorkspaceList(params: request.params)
+        case "workspace.create":
+            result = v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.terminal.create", "terminal.create":
+            result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.input", "terminal.input":
+            result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste", "terminal.paste":
+            result = v2MobileTerminalPaste(params: request.params)
+        case "mobile.terminal.paste_image", "terminal.paste_image":
+            result = v2MobileTerminalPasteImage(params: request.params)
+        case "mobile.terminal.replay", "terminal.replay":
+            result = v2MobileTerminalReplay(params: request.params)
+        case "mobile.terminal.viewport", "terminal.viewport":
+            result = v2MobileTerminalViewport(params: request.params)
+        case "mobile.terminal.scroll", "terminal.scroll":
+            result = v2MobileTerminalScroll(params: request.params)
+        case "mobile.terminal.mouse", "terminal.mouse":
+            result = v2MobileTerminalMouse(params: request.params)
+        case "workspace.action":
+            result = v2MobileWorkspaceAction(params: request.params)
+        case let method where method.hasPrefix("mobile.chat."):
+            result = await v2MobileChatDispatch(method: method, params: request.params)
+        case "workspace.close":
+            result = v2MobileWorkspaceClose(params: request.params)
+        case "workspace.group.collapse":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
+        case "workspace.group.expand":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "notification.dismiss":
+            result = v2MobileNotificationDismiss(params: request.params)
+        case "notification.reconcile":
+            result = v2MobileNotificationReconcile(params: request.params)
+        case "dogfood.feedback.submit":
+            result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        default:
+            result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
+                "method": request.method
+            ])
         }
-        return mobileHostResultBridging(controlResult)
-    }
-
-    /// Bridges a coordinator ``ControlCallResult`` back to a
-    /// ``MobileHostRPCResult``, applying the same `internal_error` message/data
-    /// scrubbing the legacy `mobileHostResult(_:)` did. The payload bridge is the
-    /// exact inverse of `JSONValue(foundationObject:)`, so the Foundation payload
-    /// the RPC envelope encodes is byte-identical to the legacy path's.
-    private func mobileHostResultBridging(_ result: ControlCallResult) -> MobileHostRPCResult {
-        switch result {
-        case let .ok(payload):
-            return .ok(payload.foundationObject)
-        case let .err(code, message, data):
-            let safeMessage = code == "internal_error" ? "Mobile host operation failed" : message
-            let safeData = code == "internal_error" ? nil : data?.foundationObject
-            return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
-        }
+        return mobileHostResult(result)
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).

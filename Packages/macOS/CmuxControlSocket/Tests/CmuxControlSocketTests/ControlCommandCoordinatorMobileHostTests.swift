@@ -12,10 +12,6 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
     private(set) var lastMarker: String?
     /// The params the last routed witness received.
     private(set) var lastParams: [String: JSONValue]?
-    /// The method passed to ``controlMobileChatDispatch(method:params:)``.
-    private(set) var lastChatMethod: String?
-    /// The `isCollapsed` flag passed to the workspace-group witness.
-    private(set) var lastIsCollapsed: Bool?
 
     private func record(_ marker: String, _ params: [String: JSONValue]) -> ControlCallResult {
         lastMarker = marker
@@ -25,10 +21,6 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
 
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult {
         record("host.status.private", params)
-    }
-
-    func controlMobileHostStatusPublic(params: [String: JSONValue]) -> ControlCallResult {
-        record("host.status.public", params)
     }
 
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult {
@@ -65,51 +57,6 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
 
     func controlMobileChatSessionsDump() -> ControlCallResult {
         record("chat.sessions.dump", [:])
-    }
-
-    func controlMobileAttachTicketCreate(params: [String: JSONValue]) async -> ControlCallResult {
-        record("attach_ticket.create", params)
-    }
-
-    func controlMobileTerminalPasteImage(params: [String: JSONValue]) -> ControlCallResult {
-        record("terminal.paste_image", params)
-    }
-
-    func controlMobileWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult {
-        record("workspace.create", params)
-    }
-
-    func controlMobileWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult {
-        record("workspace.action", params)
-    }
-
-    func controlMobileChatDispatch(method: String, params: [String: JSONValue]) async -> ControlCallResult {
-        lastChatMethod = method
-        return record("chat.dispatch", params)
-    }
-
-    func controlMobileWorkspaceClose(params: [String: JSONValue]) -> ControlCallResult {
-        record("workspace.close", params)
-    }
-
-    func controlMobileWorkspaceGroupSetCollapsed(
-        params: [String: JSONValue],
-        isCollapsed: Bool
-    ) -> ControlCallResult {
-        lastIsCollapsed = isCollapsed
-        return record("workspace.group.set_collapsed", params)
-    }
-
-    func controlMobileNotificationDismiss(params: [String: JSONValue]) -> ControlCallResult {
-        record("notification.dismiss", params)
-    }
-
-    func controlMobileNotificationReconcile(params: [String: JSONValue]) -> ControlCallResult {
-        record("notification.reconcile", params)
-    }
-
-    func controlMobileDogfoodFeedbackSubmit(params: [String: JSONValue]) async -> ControlCallResult {
-        record("dogfood.feedback.submit", params)
     }
 }
 
@@ -149,100 +96,51 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(context.lastMarker == "host.status.private")
     }
 
-    @Test func v2SurfaceMobileHostHandlerIgnoresDataPlaneOnlyVerbs() {
-        let (coordinator, context) = makeCoordinator()
-        // The mobile-host v2 dispatcher must NOT own the data-plane-only verbs
-        // (`mobile.chat.*`, `dogfood.feedback.submit`, the mobile workspace
-        // wrappers). `handleMobileHost` returns nil for them so they never touch a
-        // mobile-host seam witness on the v2 control socket. (Other coordinator
-        // domains may still own some of these method names — e.g. the workspace
-        // domain owns `workspace.close` — so this asserts the mobile-host handler
-        // specifically, not the umbrella `handle(_:)`.)
-        for method in [
-            "mobile.chat.sessions",
-            "dogfood.feedback.submit",
-            "mobile.attach_ticket.create",
-            "workspace.action",
-        ] {
-            #expect(coordinator.handleMobileHost(request(method)) == nil, "for \(method)")
-        }
-        #expect(context.lastMarker == nil)
-    }
-
-    // MARK: - handleMobileHostRPC (mobile data-plane surface)
-
-    @Test func rpcUsesPublicHostStatusVariant() async {
-        let (coordinator, context) = makeCoordinator()
-        let result = await coordinator.handleMobileHostRPC(request("mobile.host.status"))
-        #expect(result != nil)
-        // The data-plane RPC path omits private metadata.
-        #expect(context.lastMarker == "host.status.public")
-    }
-
-    @Test func rpcRoutesWorkspaceListBareAlias() async {
-        let (coordinator, context) = makeCoordinator()
-        // The bare `workspace.list` alias is RPC-only (the v2 surface keeps it on
-        // the legacy v2WorkspaceList).
-        _ = await coordinator.handleMobileHostRPC(request("workspace.list"))
-        #expect(context.lastMarker == "workspace.list")
-        // The bare alias is RPC-only for the mobile-host handler: the v2
-        // mobile-host dispatcher does not route it (the v2 surface keeps
-        // `workspace.list` on the workspace domain / legacy v2WorkspaceList).
-        #expect(coordinator.handleMobileHost(request("workspace.list")) == nil)
-    }
-
-    @Test func rpcRoutesChatPrefixThroughDispatchSeam() async {
-        let (coordinator, context) = makeCoordinator()
-        _ = await coordinator.handleMobileHostRPC(request("mobile.chat.history"))
-        #expect(context.lastMarker == "chat.dispatch")
-        #expect(context.lastChatMethod == "mobile.chat.history")
-    }
-
-    @Test func rpcRoutesWorkspaceGroupCollapseAndExpand() async {
-        let (coordinator, context) = makeCoordinator()
-        _ = await coordinator.handleMobileHostRPC(request("workspace.group.collapse"))
-        #expect(context.lastMarker == "workspace.group.set_collapsed")
-        #expect(context.lastIsCollapsed == true)
-        _ = await coordinator.handleMobileHostRPC(request("workspace.group.expand"))
-        #expect(context.lastIsCollapsed == false)
-    }
-
-    @Test func rpcRoutesEachDataPlaneVerbToItsSeam() async {
-        let (coordinator, context) = makeCoordinator()
-        let expectations: [(method: String, marker: String)] = [
-            ("mobile.attach_ticket.create", "attach_ticket.create"),
-            ("workspace.create", "workspace.create"),
-            ("mobile.terminal.paste_image", "terminal.paste_image"),
-            ("terminal.paste_image", "terminal.paste_image"),
-            ("workspace.action", "workspace.action"),
-            ("workspace.close", "workspace.close"),
-            ("notification.dismiss", "notification.dismiss"),
-            ("notification.reconcile", "notification.reconcile"),
-            ("dogfood.feedback.submit", "dogfood.feedback.submit"),
-            ("mobile.terminal.input", "terminal.input"),
-            ("terminal.mouse", "terminal.mouse"),
-        ]
-        for expectation in expectations {
-            let result = await coordinator.handleMobileHostRPC(request(expectation.method))
-            #expect(result != nil, "expected \(expectation.method) to be handled")
-            #expect(context.lastMarker == expectation.marker, "for \(expectation.method)")
-        }
-    }
-
-    @Test func rpcReturnsNilForUnknownMethod() async {
-        let (coordinator, _) = makeCoordinator()
-        let result = await coordinator.handleMobileHostRPC(request("totally.unknown.method"))
-        #expect(result == nil)
-    }
-
-    @Test func rpcForwardsParamsVerbatim() async {
+    @Test func v2SurfaceForwardsParamsVerbatim() {
         let (coordinator, context) = makeCoordinator()
         let params: [String: JSONValue] = [
             "workspace_id": .string("abc"),
             "text": .string("hello"),
             "count": .int(3),
         ]
-        _ = await coordinator.handleMobileHostRPC(request("mobile.terminal.input", params))
+        #expect(coordinator.handle(request("mobile.terminal.input", params)) != nil)
+        #expect(context.lastMarker == "terminal.input")
         #expect(context.lastParams == params)
+    }
+
+    @Test func v2SurfaceMobileHostHandlerIgnoresDataPlaneOnlyVerbs() {
+        let (coordinator, context) = makeCoordinator()
+        // The mobile-host v2 dispatcher must NOT own the data-plane-only verbs
+        // (`mobile.chat.*`, `dogfood.feedback.submit`, the mobile workspace
+        // wrappers). The phone reaches those only through the mobile data-plane RPC
+        // (`TerminalController.mobileHostHandleRPC`), which dispatches its
+        // `v2Mobile*` bodies directly and never transits this coordinator.
+        // `handleMobileHost` returns nil for them so they never touch a mobile-host
+        // seam witness on the v2 control socket. (Other coordinator domains may
+        // still own some of these method names — e.g. the workspace domain owns
+        // `workspace.close` — so this asserts the mobile-host handler specifically,
+        // not the umbrella `handle(_:)`.)
+        for method in [
+            "mobile.chat.sessions",
+            "dogfood.feedback.submit",
+            "mobile.attach_ticket.create",
+            "workspace.action",
+            "workspace.create",
+            "workspace.close",
+            "notification.dismiss",
+            "notification.reconcile",
+            "mobile.terminal.paste_image",
+        ] {
+            #expect(coordinator.handleMobileHost(request(method)) == nil, "for \(method)")
+        }
+        #expect(context.lastMarker == nil)
+    }
+
+    @Test func v2SurfaceMobileHostHandlerIgnoresBareWorkspaceListAlias() {
+        let (coordinator, context) = makeCoordinator()
+        // The bare `workspace.list` alias stays on the workspace domain / legacy
+        // `v2WorkspaceList`: the v2 mobile-host dispatcher does not route it.
+        #expect(coordinator.handleMobileHost(request("workspace.list")) == nil)
+        #expect(context.lastMarker == nil)
     }
 }
