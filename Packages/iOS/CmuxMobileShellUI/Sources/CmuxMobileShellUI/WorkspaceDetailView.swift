@@ -305,17 +305,19 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
-                // The terminal grid stays INSIDE the top safe area, i.e. below the
-                // glass nav bar. That header-height gap is the "fake padding at
-                // top": the bottom-anchored grid (and its scrollback) sits fully
-                // clear of the bar, so scrolling to the top of the scrollback
-                // brings the oldest line out from under the header instead of
-                // leaving it stuck beneath the glass. The terminal *background*
-                // still extends under the bar (see the `.background` below) so the
-                // bar's blur material has dark content to frost.
+                // Extend the terminal under the Liquid Glass nav bar so the grid
+                // renders full-height behind it and you can actually SEE terminal
+                // content through the glass. The grid is bottom-anchored, so
+                // recent output stays clear at the bottom and older rows show
+                // through / pass under the glass on scrollback. Applied to the
+                // surface (not the enclosing Group) so the Group's layout frame
+                // stays inside the safe area and the connection-status pill
+                // overlay below still anchors under the header, not behind it.
+                .ignoresSafeArea(.container, edges: .top)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .ignoresSafeArea(.container, edges: .top)
             }
             #else
             TerminalPalette.background
