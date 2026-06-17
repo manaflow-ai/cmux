@@ -185,7 +185,6 @@
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 556	Sources/Panels/BrowserAutomation.swift
 551	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
-547	Packages/macOS/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
@@ -199,6 +198,7 @@
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
+527	Packages/macOS/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
