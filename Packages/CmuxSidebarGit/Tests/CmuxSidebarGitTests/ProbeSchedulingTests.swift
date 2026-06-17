@@ -151,10 +151,10 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
-    /// A filesystem event that arrives while an unchanged probe is already in
-    /// flight is covered by the in-flight read. It must not chain another
-    /// immediate rerun when the applied branch/dirty/badge state did not change.
-    @Test func unchangedInFlightFilesystemEventDoesNotChainProbeRerun() async throws {
+    /// A filesystem event that arrives while a probe is already in flight is a
+    /// freshness signal independent of whether the stale snapshot changes
+    /// visible sidebar state. It should coalesce to one follow-up probe.
+    @Test func inFlightFilesystemEventChainsOneProbeRerun() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
@@ -169,7 +169,6 @@ import CmuxGit
         )
         let service = makeService(host: host, reader: reader, clock: clock)
 
-        let events = host.projectionEvents()
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -190,16 +189,15 @@ import CmuxGit
         await clock.resumeNext()
         await reader.openGate()
 
-        for await event in events {
-            if case .gitBranch = event { break }
-        }
-        for _ in 0..<10 {
+        for _ in 0..<50 {
+            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
+            if immediateProbeSleeps >= 3 { break }
             await Task.yield()
         }
-
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-        #expect(immediateProbeSleeps == 2)
-        #expect(await reader.probedDirectories.count == 1)
+
+        #expect(immediateProbeSleeps == 3)
+        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
     }
 
     /// With PR polling disabled, a branch probe does not touch the PR seam.

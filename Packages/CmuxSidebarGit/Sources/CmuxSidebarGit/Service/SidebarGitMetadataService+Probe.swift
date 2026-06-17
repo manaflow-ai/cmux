@@ -260,11 +260,10 @@ extension SidebarGitMetadataService {
         let shouldFinishProbe = shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt
         let shouldStopTrackingGitDirectory = shouldFinishProbe && !shouldTrackGitDirectory
         var didClearProbe = false
-        var shouldSchedulePendingRerun = true
         defer {
             if wasInFlight, !didClearProbe {
                 let rerunPending = workspaceGitProbeRerunPending(for: probeKey)
-                if rerunPending, shouldSchedulePendingRerun {
+                if rerunPending {
                     workspaceGitProbeStateByKey[probeKey] = .idle
                     if shouldFinishProbe {
                         cancelWorkspaceGitProbeTask(for: probeKey)
@@ -437,8 +436,6 @@ extension SidebarGitMetadataService {
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         }
-        shouldSchedulePendingRerun = didApplyMaterialSidebarGitChange
-
         if let nextBranch, shouldTrackPullRequests, previousBranchState?.branch != nextBranch {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
