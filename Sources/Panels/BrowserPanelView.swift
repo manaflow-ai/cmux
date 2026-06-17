@@ -5471,8 +5471,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
-    let showsActivePaneBoundary: Bool
-    let activePaneBoundaryColor: NSColor
+    var showsActivePaneBoundary: Bool = false
+    var activePaneBoundaryColor: NSColor = .clear
     let paneDropZone: DropZone?
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
