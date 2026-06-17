@@ -1,6 +1,7 @@
 @preconcurrency import XCTest
 import CmuxSettings
 import CmuxBrowser
+import CmuxBrowserImport
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -5993,7 +5994,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
             homeDirectoryURL: home,
             bundleLookup: { bundleIdentifier in
                 if bundleIdentifier == "com.google.Chrome" {
@@ -6022,7 +6023,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
         let home = makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
-        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
@@ -6041,7 +6042,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
@@ -6084,7 +6085,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             )
         )
 
-        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
@@ -6124,7 +6125,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
