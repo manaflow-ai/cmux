@@ -765,6 +765,7 @@
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
+		A6306000000000000000C001 /* SSHPTYResizeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6306000000000000000C002 /* SSHPTYResizeCoordinator.swift */; };
 		A6306000000000000000F003 /* SSHPTYResizeRetryIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6306000000000000000F004 /* SSHPTYResizeRetryIntegrationTests.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
@@ -1704,6 +1705,7 @@
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachStartupCommandBuilder.swift; sourceTree = "<group>"; };
+		A6306000000000000000C002 /* SSHPTYResizeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeCoordinator.swift; sourceTree = "<group>"; };
 		A6306000000000000000F004 /* SSHPTYResizeRetryIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeRetryIntegrationTests.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
@@ -2718,6 +2720,7 @@
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
 				B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
+				A6306000000000000000C002 /* SSHPTYResizeCoordinator.swift */,
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
@@ -4039,6 +4042,7 @@
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
+				A6306000000000000000C001 /* SSHPTYResizeCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
