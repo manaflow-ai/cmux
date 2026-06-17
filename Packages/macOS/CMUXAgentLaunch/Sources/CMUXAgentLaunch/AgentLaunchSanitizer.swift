@@ -449,7 +449,7 @@ public enum AgentLaunchSanitizer {
             if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
             let following = index + 2 < args.count ? args[index + 2] : nil
             if policy.greedyOptionalValueOptions.contains(arg),
-               looksLikeGreedyOptionalValue(value, following: following) { return 2 }
+               looksLikeGreedyOptionalValue(value) { return 2 }
             guard looksLikeOptionalValue(value, following: following) else { return 1 }
             return 2
         }
