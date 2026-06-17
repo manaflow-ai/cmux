@@ -252,13 +252,13 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var trustRequest: DockTrustRequest?
-    @Published private(set) var focusedControlId: String?
 
     private var lastRootDirectory: String?
     private var lastWorkspaceId: UUID?
     private var activeConfigURL: URL?
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
+    private var focusedControlId: String?
 
     fileprivate var controlSnapshots: [DockControlSnapshot] {
         controls.map { $0.snapshot(isFocused: $0.id == focusedControlId) }
@@ -342,7 +342,7 @@ final class DockControlsStore: ObservableObject {
 
     func focusFirstControl() -> Bool {
         guard let first = controls.first else { return false }
-        focusedControlId = first.id
+        setFocusedControlId(first.id)
         first.focus()
         return true
     }
@@ -366,17 +366,17 @@ final class DockControlsStore: ObservableObject {
 
     func focusControl(id: String) {
         guard let control = controls.first(where: { $0.id == id }) else { return }
-        focusedControlId = id
+        setFocusedControlId(id)
         control.focus()
     }
 
     func applyKeyboardFocusedSurface(id surfaceId: UUID?) {
         guard let surfaceId,
               let control = controls.first(where: { $0.panel.id == surfaceId }) else {
-            focusedControlId = nil
+            setFocusedControlId(nil)
             return
         }
-        focusedControlId = control.id
+        setFocusedControlId(control.id)
     }
 
     func restartControl(id: String) {
@@ -394,7 +394,7 @@ final class DockControlsStore: ObservableObject {
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
         guard controls.contains(where: { $0.id == id }) else { return }
-        focusedControlId = id
+        setFocusedControlId(id)
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
@@ -406,10 +406,16 @@ final class DockControlsStore: ObservableObject {
         let oldControls = controls
         controls = newControls
         if let focusedControlId, !newControls.contains(where: { $0.id == focusedControlId }) {
-            self.focusedControlId = nil
+            setFocusedControlId(nil)
         }
         newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
         oldControls.forEach { $0.close() }
+    }
+
+    private func setFocusedControlId(_ id: String?) {
+        guard focusedControlId != id else { return }
+        objectWillChange.send()
+        focusedControlId = id
     }
 
     private func setControlsVisibleInUI(_ visible: Bool) {
@@ -798,7 +804,7 @@ private struct DockControlSectionView<TerminalContent: View>: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text("\(ordinal)")
+            Text(verbatim: "\(ordinal)")
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .center)
