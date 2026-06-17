@@ -223,6 +223,9 @@ struct TerminalNotification: Identifiable, Hashable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
+    private typealias NotificationAuthorizationStatusProvider = (@escaping (UNAuthorizationStatus) -> Void) -> Void
+    private typealias PhoneForwardHandler = (TerminalNotification, Int) -> Bool
+
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -237,6 +240,14 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
+    private static let defaultNotificationAuthorizationStatusProvider: NotificationAuthorizationStatusProvider = { completion in
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            completion(settings.authorizationStatus)
+        }
+    }
+    private static let defaultPhoneForwardHandler: PhoneForwardHandler = { notification, badgeCount in
+        PhonePushClient.shared.forward(notification, badgeCount: badgeCount)
+    }
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -495,6 +506,8 @@ final class TerminalNotificationStore: ObservableObject {
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
+    private var notificationAuthorizationStatusProvider = TerminalNotificationStore.defaultNotificationAuthorizationStatusProvider
+    private var phoneForwardHandler = TerminalNotificationStore.defaultPhoneForwardHandler
     private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -642,12 +655,12 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func refreshAuthorizationStatus() {
-        center.getNotificationSettings { [weak self] settings in
+        notificationAuthorizationStatusProvider { [weak self] status in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.authorizationState = Self.authorizationState(from: status)
                 self.logAuthorization(
-                    "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
+                    "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(self.authorizationState.statusLabel)"
                 )
             }
         }
@@ -656,8 +669,7 @@ final class TerminalNotificationStore: ObservableObject {
     @MainActor
     func refreshAuthorizationStatusFromSettings() async -> NotificationAuthorizationState {
         await withCheckedContinuation { continuation in
-            center.getNotificationSettings { [weak self] settings in
-                let status = settings.authorizationStatus
+            notificationAuthorizationStatusProvider { [weak self] status in
                 Task { @MainActor in
                     guard let self else {
                         continuation.resume(returning: .unknown)
@@ -1304,28 +1316,6 @@ final class TerminalNotificationStore: ObservableObject {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
             notificationDeliveryHandler(self, notification, effects)
-            // Mirror to the user's iPhone (opt-in, off by default). Only on the
-            // desktop-delivery path so it matches what the Mac actually shows;
-            // suppressed/focused notifications are not forwarded. The badge is
-            // the authoritative unread total at send time (the store was already
-            // mutated above, so it includes this notification); the server
-            // stamps it as `aps.badge` so the icon badge is SET, not incremented.
-            if effects.desktop {
-                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
-                // Clear superseded banners only after the replacement is queued;
-                // a throttled push leaves them stashed for the next forward.
-                if queued {
-                    let superseded = supersededPhoneDismissBuffer.flush(
-                        forKey: SupersededPhoneDismissBuffer.key(
-                            tabId: notification.tabId,
-                            surfaceId: notification.surfaceId
-                        )
-                    )
-                    if !superseded.isEmpty {
-                        emitNotificationsDismissed(ids: superseded)
-                    }
-                }
-            }
         }
     }
 
@@ -1791,7 +1781,11 @@ final class TerminalNotificationStore: ObservableObject {
             content.title = self.resolvedNotificationTitle(for: notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
+            guard self.notificationPassesCurrentDeliveryGate(notification, effects: effects) else {
+                return
+            }
             guard authorized else {
+                self.flushSupersededPhoneDismisses(for: notification)
                 self.playLocalNotificationFeedback(
                     title: content.title,
                     subtitle: content.subtitle,
@@ -1821,6 +1815,15 @@ final class TerminalNotificationStore: ObservableObject {
                 trigger: nil
             )
 
+            // Mirror to the user's iPhone (opt-in, off by default). This runs
+            // only after the effective OS authorization state is known to allow
+            // desktop delivery, so a stale cached state cannot forward a banner
+            // the Mac is no longer allowed to show.
+            let queued = self.phoneForwardHandler(notification, self.indexes.unreadCount)
+            if queued {
+                self.flushSupersededPhoneDismisses(for: notification)
+            }
+
             self.center.add(request) { error in
                 if let error {
                     terminalNotificationLogger.error(
@@ -1849,12 +1852,15 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
-        playLocalNotificationFeedback(
-            title: resolvedNotificationTitle(for: notification),
-            subtitle: notification.subtitle,
-            body: notification.body,
-            effects: effects
-        )
+        resolveFallbackEffectsFromCurrentAuthorization(effects) { [weak self] effectiveEffects in
+            guard let self else { return }
+            self.playLocalNotificationFeedback(
+                title: self.resolvedNotificationTitle(for: notification),
+                subtitle: notification.subtitle,
+                body: notification.body,
+                effects: effectiveEffects
+            )
+        }
     }
 
     private func playLocalNotificationFeedback(
@@ -1872,6 +1878,33 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: subtitle,
                 body: body
             )
+        }
+    }
+
+    private func resolveFallbackEffectsFromCurrentAuthorization(
+        _ effects: TerminalNotificationPolicyEffects,
+        _ completion: @escaping (TerminalNotificationPolicyEffects) -> Void
+    ) {
+        guard effects.desktop || effects.sound || effects.command else {
+            completion(effects)
+            return
+        }
+        if authorizationState == .denied {
+            completion(Self.fallbackEffects(effects, authorizationState: .denied))
+            return
+        }
+        notificationAuthorizationStatusProvider { [weak self] status in
+            DispatchQueue.main.async {
+                guard let self else {
+                    completion(effects)
+                    return
+                }
+                self.authorizationState = Self.authorizationState(from: status)
+                self.logAuthorization(
+                    "feedback status=\(Self.authorizationStatusLabel(status)) mapped=\(self.authorizationState.statusLabel)"
+                )
+                completion(Self.fallbackEffects(effects, authorizationState: self.authorizationState))
+            }
         }
     }
 
@@ -1898,18 +1931,18 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         logAuthorization("ensure start origin=\(origin.rawValue)")
-        center.getNotificationSettings { [weak self] settings in
+        notificationAuthorizationStatusProvider { [weak self] status in
             DispatchQueue.main.async {
                 guard let self else {
                     completion(false, .unknown)
                     return
                 }
 
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.authorizationState = Self.authorizationState(from: status)
                 self.logAuthorization(
-                    "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
+                    "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(status)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
                 )
-                switch settings.authorizationStatus {
+                switch status {
                 case .authorized, .provisional, .ephemeral:
                     completion(true, self.authorizationState)
                 case .denied:
@@ -1921,7 +1954,7 @@ final class TerminalNotificationStore: ObservableObject {
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
                         origin: origin,
-                        status: settings.authorizationStatus,
+                        status: status,
                         isAppActive: AppFocusState.isAppActive()
                     ) {
                         self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
@@ -1981,6 +2014,40 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
     }
+
+    private func flushSupersededPhoneDismisses(for notification: TerminalNotification) {
+        let superseded = supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId
+            )
+        )
+        if !superseded.isEmpty {
+            emitNotificationsDismissed(ids: superseded)
+        }
+    }
+
+    private func notificationIsCurrent(_ notification: TerminalNotification) -> Bool {
+        notifications.first { existing in
+            existing.matches(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        }?.id == notification.id
+    }
+
+    private func notificationPassesCurrentDeliveryGate(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) -> Bool {
+        !effects.record || notificationIsCurrent(notification)
+    }
+
+#if DEBUG
+    func notificationPassesCurrentDeliveryGateForTesting(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) -> Bool {
+        notificationPassesCurrentDeliveryGate(notification, effects: effects)
+    }
+#endif
 
     private func promptToEnableNotifications() {
         guard !hasPromptedForSettings else { return }
@@ -2112,6 +2179,26 @@ final class TerminalNotificationStore: ObservableObject {
         }
         notificationSettingsURLOpener = { url in NSWorkspace.shared.open(url) }
         hasPromptedForSettings = false
+    }
+
+    func configureNotificationAuthorizationStatusProviderForTesting(
+        _ provider: @escaping (@escaping (UNAuthorizationStatus) -> Void) -> Void
+    ) {
+        notificationAuthorizationStatusProvider = provider
+    }
+
+    func resetNotificationAuthorizationStatusProviderForTesting() {
+        notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
+    }
+
+    func configurePhoneForwardHandlerForTesting(
+        _ handler: @escaping (TerminalNotification, Int) -> Bool
+    ) {
+        phoneForwardHandler = handler
+    }
+
+    func resetPhoneForwardHandlerForTesting() {
+        phoneForwardHandler = Self.defaultPhoneForwardHandler
     }
 
     func configureNotificationDeliveryHandlerForTesting(

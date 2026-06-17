@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,94 @@ import Testing
 @MainActor
 @Suite(.serialized)
 final class NotificationAuthorizationDeliveryTests {
+    @Test func recordlessNotificationsPassCurrentDeliveryGate() {
+        let store = TerminalNotificationStore.shared
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Recordless",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+        let recordedEffects = TerminalNotificationPolicyEffects()
+        var recordlessEffects = TerminalNotificationPolicyEffects()
+        recordlessEffects.record = false
+
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        #expect(store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordlessEffects))
+        #expect(!store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordedEffects))
+
+        store.replaceNotificationsForTesting([notification])
+        #expect(store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordedEffects))
+    }
+
+    @Test func staleDeniedAuthorizationSuppressesPhoneForwardingBeforeDeliveryMirror() async throws {
+        guard let appDelegate = AppDelegate.shared else {
+            Issue.record("AppDelegate.shared must be set for this test")
+            return
+        }
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalAuthorizationState = store.authorizationState
+        var forwardedNotificationIDs: [UUID] = []
+
+        store.replaceNotificationsForTesting([])
+        store.setAuthorizationStateForTesting(.unknown)
+        store.configureNotificationAuthorizationStatusProviderForTesting { completion in
+            completion(.denied)
+        }
+        store.configurePhoneForwardHandlerForTesting { notification, _ in
+            forwardedNotificationIDs.append(notification.id)
+            return true
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.resetPhoneForwardHandlerForTesting()
+            store.setAuthorizationStateForTesting(originalAuthorizationState)
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            Issue.record("Expected selected workspace with a focused terminal panel")
+            return
+        }
+
+        var authorizationUpdates = store.authorizationStateUpdates().makeAsyncIterator()
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+
+        while let state = await authorizationUpdates.next() {
+            if state == .denied {
+                break
+            }
+        }
+
+        #expect(store.authorizationState == .denied)
+        #expect(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        #expect(forwardedNotificationIDs.isEmpty)
+    }
+
     @Test func deniedAuthorizationSuppressesFocusedTerminalExternalFeedback() throws {
         guard let appDelegate = AppDelegate.shared else {
             Issue.record("AppDelegate.shared must be set for this test")
