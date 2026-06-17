@@ -18,7 +18,7 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - `reload.sh` writes the current path to `/tmp/cmux-last-debug-log-path`
 - `reload.sh` writes the selected dev CLI path to `/tmp/cmux-last-cli-path`
 - `reload.sh` updates `/tmp/cmux-cli` and `$HOME/.local/bin/cmux-dev` to that CLI
-- Implementation: `Packages/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`
+- Implementation: `Packages/macOS/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`
 - App shim: `Sources/App/DebugLogging.swift`
 - Free function `cmuxDebugLog("message")` logs with timestamp and appends to file in real time from cmux code
 - The package implementation and app shim are `#if DEBUG`; all call sites must be wrapped in `#if DEBUG` / `#endif`
