@@ -94,6 +94,9 @@
          location = "group:CmuxBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxBrowserImport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxBrowserPanel">
       </FileRef>
       <FileRef
