@@ -1,25 +1,5 @@
 import Foundation
 
-private final class UserDefaultsSettingsStorage: @unchecked Sendable {
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults) {
-        self.defaults = defaults
-    }
-
-    func value<Value>(for key: DefaultsKey<Value>) -> Value {
-        key.value(in: defaults)
-    }
-
-    func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
-        key.set(value, in: defaults)
-    }
-
-    func removeObject(forKey key: String) {
-        defaults.removeObject(forKey: key)
-    }
-}
-
 /// Typed read/write/observe access to settings persisted in `UserDefaults`.
 ///
 /// The store is an `actor`. Reads, writes, and reset are all `async`. There
