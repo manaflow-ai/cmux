@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -4207,7 +4208,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
                 inlineCompletion: nil,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },

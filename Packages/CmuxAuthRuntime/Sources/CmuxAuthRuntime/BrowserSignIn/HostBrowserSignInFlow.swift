@@ -16,6 +16,15 @@ public final class HostBrowserSignInFlow {
     /// Whether a browser sign-in attempt (popup + completion) is in flight.
     public private(set) var isSigningIn = false
 
+    /// Whether the in-flight sign-in attempt has been waiting on the hosted
+    /// (Safari-backed) `ASWebAuthenticationSession` longer than
+    /// ``slowSignInThreshold`` without delivering a callback. The Settings
+    /// account UI watches this to offer an "open sign-in in your default
+    /// browser" fallback when the system sign-in window hangs (issue #6015),
+    /// instead of leaving the user on an indefinite spinner. Resets to `false`
+    /// whenever an attempt completes, is cancelled, or is replaced.
+    public private(set) var signInIsSlow = false
+
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let sessionFactory: any HostBrowserAuthSessionFactory
@@ -24,16 +33,19 @@ public final class HostBrowserSignInFlow {
     private let callbackScheme: @MainActor () -> String
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
+    private let slowSignInThreshold: TimeInterval
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
     @ObservationIgnored private var activeSessionContinuation: CheckedContinuation<URL?, Never>?
     @ObservationIgnored private var activeSessionContinuationAttemptID: UInt64?
     @ObservationIgnored private var activeAttemptTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var slowSignInHintTask: Task<Void, Never>?
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var pendingManualCallbackState: String?
+    @ObservationIgnored private var pendingFallbackCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
 
     /// Creates the flow.
@@ -49,6 +61,9 @@ public final class HostBrowserSignInFlow {
     ///   - callbackScheme: The custom callback scheme for the popup.
     ///   - clock: Drives the sign-in deadline; tests inject a virtual clock.
     ///   - browserAttemptTimeout: Cancels abandoned external-browser attempts.
+    ///   - slowSignInThreshold: How long an attempt may wait on the hosted
+    ///     browser before ``signInIsSlow`` flips to surface the manual
+    ///     default-browser fallback. `0` disables the hint.
     public init(
         coordinator: AuthCoordinator,
         tokenStore: any StackAuthTokenStoreProtocol,
@@ -57,7 +72,8 @@ public final class HostBrowserSignInFlow {
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
         clock: any Clock<Duration> = ContinuousClock(),
-        browserAttemptTimeout: TimeInterval = 10 * 60
+        browserAttemptTimeout: TimeInterval = 10 * 60,
+        slowSignInThreshold: TimeInterval = 30
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
@@ -67,6 +83,7 @@ public final class HostBrowserSignInFlow {
         self.callbackScheme = callbackScheme
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
+        self.slowSignInThreshold = slowSignInThreshold
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
@@ -82,6 +99,19 @@ public final class HostBrowserSignInFlow {
         let state = makeCallbackState()
         pendingManualCallbackState = state
         return makeSignInURL(state)
+    }
+
+    /// The hosted sign-in URL for the in-flight attempt, to open in the user's
+    /// real default browser when the hosted-browser popup hangs (issue #6015).
+    /// Reuses the active attempt's callback state, so the resulting
+    /// `cmux://auth-callback` deep link routes back into the in-flight attempt
+    /// through ``handleCallbackURL(_:)`` instead of being rejected as a
+    /// stateful callback with no matching attempt. `nil` when no attempt is in
+    /// flight.
+    public var activeAttemptSignInURL: URL? {
+        guard let activeCallbackState else { return nil }
+        pendingFallbackCallbackState = activeCallbackState
+        return makeSignInURL(activeCallbackState)
     }
 
     /// Run a browser sign-in attempt with a deadline, for the socket
@@ -114,6 +144,7 @@ public final class HostBrowserSignInFlow {
             }
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
+            cancelSlowSignInHint()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
             resumeActiveSessionContinuation(
                 returning: nil,
@@ -125,6 +156,13 @@ public final class HostBrowserSignInFlow {
         if callbackRouter.isAuthCallbackURL(url), callbackState(from: url) == nil {
             log.log("auth.callback.external.routeToFallback")
             return await completeCallback(url: url, attemptID: nil)
+        }
+        if callbackRouter.isAuthCallbackURL(url),
+           let state = callbackState(from: url),
+           state == pendingFallbackCallbackState {
+            log.log("auth.callback.external.routeToIssuedFallback")
+            pendingFallbackCallbackState = nil
+            return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")
         return false
@@ -199,6 +237,7 @@ public final class HostBrowserSignInFlow {
         isSigningIn = true
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedState(callbackState))")
         scheduleAttemptTimeout(attemptID)
+        scheduleSlowSignInHint(attemptID)
         return Task { @MainActor [weak self] in
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
@@ -209,6 +248,7 @@ public final class HostBrowserSignInFlow {
             }
             guard self.activeAttemptID == attemptID else { return false }
             self.cancelAttemptTimeout()
+            self.cancelSlowSignInHint()
             return await self.completeCallback(url: callbackURL, attemptID: attemptID)
         }
     }
@@ -267,6 +307,7 @@ public final class HostBrowserSignInFlow {
             expectedAttemptID: attemptID
         )
         cancelAttemptTimeout()
+        cancelSlowSignInHint()
         activeAttemptID = nil
         activeCallbackState = nil
         activeSession = nil
@@ -279,8 +320,10 @@ public final class HostBrowserSignInFlow {
         }
         resumeActiveSessionContinuation(returning: nil, reason: "cancelAttempt")
         cancelAttemptTimeout()
+        cancelSlowSignInHint()
         activeAttemptID = nil
         activeCallbackState = nil
+        pendingFallbackCallbackState = nil
         activeSession?.cancel()
         activeSession = nil
         isSigningIn = false
@@ -307,11 +350,37 @@ public final class HostBrowserSignInFlow {
         activeAttemptTimeoutTask = nil
     }
 
+    /// After ``slowSignInThreshold`` of an attempt still waiting on the hosted
+    /// browser, flip ``signInIsSlow`` so the account UI can offer the manual
+    /// default-browser fallback. Non-destructive: the popup keeps running, so a
+    /// user who is simply taking their time can still finish in it.
+    private func scheduleSlowSignInHint(_ attemptID: UInt64) {
+        slowSignInHintTask?.cancel()
+        guard slowSignInThreshold > 0 else {
+            slowSignInHintTask = nil
+            return
+        }
+        let threshold = slowSignInThreshold
+        let clock = self.clock
+        slowSignInHintTask = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: .seconds(threshold))
+            guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
+            self.log.log("auth.browser.attempt.slow id=\(attemptID)")
+            self.signInIsSlow = true
+        }
+    }
+
+    private func cancelSlowSignInHint() {
+        slowSignInHintTask?.cancel()
+        slowSignInHintTask = nil
+        signInIsSlow = false
+    }
+
     // MARK: - Callback completion
 
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
-    private func completeCallback(url: URL, attemptID: UInt64?) async -> Bool {
+    private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
@@ -322,7 +391,7 @@ public final class HostBrowserSignInFlow {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
                 return false
             }
-        } else if callbackState(from: url) != nil {
+        } else if let state = callbackState(from: url), state != acceptedExternalState {
             log.log("auth.callback rejected: stateful external callback without active attempt")
             return false
         }
@@ -345,6 +414,21 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
+            // No flow-side seed clear here, deliberately. When a sign-out
+            // raced the validation round trip, the seeds were already in the
+            // store when the coordinator's local-first clear ran (they are
+            // seeded before `completeExternalSignIn`), so the coordinator's
+            // clear owns wiping them. Clearing here instead RACES that
+            // sign-out: the flow bumps `signOutGeneration` before the
+            // coordinator captures the teardown credentials with raw store
+            // reads, so a clear from this catch can empty the store inside
+            // the capture window and silently strip the best-effort server
+            // teardown (push unregister, session revocation) of its
+            // credentials. A coordinator-level cancellation without a
+            // sign-out (a concurrent publish) must not clear either: in
+            // production the published session is typically authenticated by
+            // these very tokens (same shared store), and clearing them would
+            // strand it.
             return false
         }
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
@@ -358,6 +442,9 @@ public final class HostBrowserSignInFlow {
                 refreshToken: payload.refreshToken
             )
             return false
+        }
+        if callbackState(from: url) == pendingFallbackCallbackState {
+            pendingFallbackCallbackState = nil
         }
         return true
     }

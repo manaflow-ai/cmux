@@ -31,6 +31,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate activation benchmark scrollback sizing
+        run: python3 tests/test_perf_activation_scrollback_sizing.py
+
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
@@ -40,11 +43,20 @@ jobs:
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
+      - name: Validate Xcode SourcePackages cache sanitizer
+        run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
+      - name: Validate Zig install without sudo
+        run: ./tests/test_install_zig_ci_no_sudo.sh
+
+      - name: Validate virtual display lock
+        run: ./tests/test_ci_virtual_display_lock.sh
 
       - name: Validate nightly tag push auth
         run: ./tests/test_ci_nightly_tag_push_auth.sh
@@ -286,6 +298,9 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
@@ -305,7 +320,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -329,6 +352,44 @@ jobs:
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
+            test
+
+      - name: Run browser system proxy mirror regression
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
+          # The full "Run unit tests" step tolerates app-host crashes by
+          # parsing only the last test summary, so suites that run late can
+          # be silently skipped when an earlier crash aborts the run. This
+          # step makes the system-proxy loopback-bypass regression an
+          # unconditional gate.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
+            test
+
+      - name: Run Option/Alt sided-modifier regression
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5993.
+          # The full "Run unit tests" step tolerates app-host crashes by
+          # parsing only the last test summary, so suites that run late can
+          # be silently skipped when an earlier crash aborts the run. This
+          # step makes the Option/Alt sided-modifier and Option-composition
+          # regression an unconditional gate.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
       - name: Run unit tests
@@ -410,16 +471,31 @@ jobs:
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
+          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
+          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
+          # to keep the FFI parity suite a real gate).
+          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
           # not execute the SPM package test targets. Run them here so package
           # tests (settings stores, secret-file migration, socket-control
           # convergence, etc.) are a real CI gate, not just compiled.
           # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
           # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone.
+          # is confirmed to resolve standalone. The GhosttyKit-referencing
+          # packages (CmuxTerminalCore and the terminal packages stacked on
+          # it) are the exception: their binaryTarget only needs the
+          # xcframework present at the repo root (downloaded earlier in this
+          # job), and their test runners link a C stub for the @_silgen_name
+          # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
+            CmuxRemoteSession
             CmuxAuthRuntime
+            CmuxCommandPalette
             CmuxControlSocket
             CmuxFileWatch
             CmuxFoundation
@@ -428,12 +504,44 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminal
+            CmuxTerminalCore
+            CmuxTerminalEngine
+            CmuxTerminalServices
             CmuxUpdater
             CMUXAgentLaunch
           )
+          # SwiftPM emits an error-severity diagnostic while planning the
+          # GhosttyKit binaryTarget (the xcframework's static archive is not
+          # lib-prefixed: "unexpected binary name"/"unexpected binary
+          # framework"). The build and every test still succeed, but the
+          # diagnostic poisons the process exit code on a fresh .build. For
+          # the GhosttyKit-referencing packages only, tolerate exactly that
+          # case: a nonzero exit passes only when the all-tests-passed summary
+          # is present, no test failures are reported, and the only error
+          # lines are that known diagnostic. Everything else (compile errors,
+          # test failures, crashes) still fails the job.
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            swift test --package-path "Packages/$pkg"
+            case "$pkg" in
+            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
+              status=0
+              output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
+              printf '%s\n' "$output"
+              if [ "$status" -ne 0 ]; then
+                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
+                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+                  echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
+                else
+                  exit "$status"
+                fi
+              fi
+              ;;
+            *)
+              swift test --package-path "Packages/$pkg"
+              ;;
+            esac
             echo "::endgroup::"
           done
 
@@ -489,7 +597,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -497,6 +605,31 @@ jobs:
     # CA and lag regressions beyond 35 min before the cache could repopulate.
     timeout-minutes: 55
     steps:
+      - name: Validate display runner identity
+        env:
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$REQUESTED_RUNNER" in
+            depot-*)
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              echo "Display runner is not Depot; skipping Depot identity guard"
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -577,6 +710,9 @@ jobs:
           key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-build-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
@@ -589,7 +725,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -612,6 +756,79 @@ jobs:
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          HELPER_PATH="$RUNNER_TEMP/create-virtual-display"
+          VDISPLAY_READY="$RUNNER_TEMP/cmux-build-lag-vdisplay.ready"
+          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-build-lag-vdisplay.id"
+          VDISPLAY_LOG="$RUNNER_TEMP/cmux-build-lag-vdisplay.log"
+          VDISPLAY_PID=""
+
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          cleanup_display_attempt() {
+            if [ -n "${VDISPLAY_PID:-}" ]; then
+              kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              for _ in $(seq 1 50); do
+                kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+                sleep 0.1
+              done
+              VDISPLAY_PID=""
+            fi
+            scripts/ci/virtual-display-lock.sh release || true
+          }
+
+          for attempt in 1 2 3; do
+            rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+            LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+            eval "$LOCK_ENV"
+            export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
+            echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
+            echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
+            "$HELPER_PATH" \
+              --ready-path "$VDISPLAY_READY" \
+              --display-id-path "$VDISPLAY_ID_PATH" \
+              >"$VDISPLAY_LOG" 2>&1 &
+            VDISPLAY_PID=$!
+            scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PID"
+
+            echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+            echo "VDISPLAY_HELPER_PATH=$HELPER_PATH" >> "$GITHUB_ENV"
+            echo "VDISPLAY_READY=$VDISPLAY_READY" >> "$GITHUB_ENV"
+            echo "VDISPLAY_ID_PATH=$VDISPLAY_ID_PATH" >> "$GITHUB_ENV"
+            echo "VDISPLAY_LOG=$VDISPLAY_LOG" >> "$GITHUB_ENV"
+
+            for _ in $(seq 1 100); do
+              if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+                break
+              fi
+              if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+                echo "Virtual display helper exited before readiness on attempt $attempt" >&2
+                cat "$VDISPLAY_LOG" >&2 || true
+                break
+              fi
+              sleep 0.1
+            done
+
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+              cat "$VDISPLAY_LOG"
+              exit 0
+            fi
+
+            echo "Virtual display not ready on attempt $attempt" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            cleanup_display_attempt
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to create virtual display after 3 attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
       - name: Run CoreAnimation main-thread startup regression
         run: |
           set -euo pipefail
@@ -630,17 +847,6 @@ jobs:
           CMUX_CA_ASSERT_HOLD_SECONDS=15 \
           CMUX_TAG="ci-ca-main-thread" \
           ./scripts/verify-main-thread-ca-transactions.sh "$APP"
-
-      - name: Create virtual display
-        run: |
-          set -euo pipefail
-          clang -framework Foundation -framework CoreGraphics \
-            -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -690,8 +896,13 @@ jobs:
           set -euo pipefail
           if [ -n "${VDISPLAY_PID:-}" ]; then
             kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
           fi
-          rm -f /tmp/create-virtual-display
+          scripts/ci/virtual-display-lock.sh release || true
+          rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-ghostty-cli-helper:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
@@ -812,6 +1023,9 @@ jobs:
             spm-release-
             spm-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
@@ -853,11 +1067,36 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
+      - name: Validate display runner identity
+        env:
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$REQUESTED_RUNNER" in
+            depot-*)
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              echo "Display runner is not Depot; skipping Depot identity guard"
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -919,6 +1158,9 @@ jobs:
           key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-ui-regressions-
 
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
@@ -931,7 +1173,15 @@ jobs:
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: a restored
+              # .ci-source-packages can make resolve report success without the
+              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # fails the build. Verify they materialized; if not, clear and retry.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -952,53 +1202,69 @@ jobs:
             -destination "platform=macOS" \
             build-for-testing
 
-      - name: Create persistent virtual display
+      - name: Enable XCTest automation mode
         run: |
           set -euo pipefail
-          HELPER_PATH="/tmp/create-virtual-display"
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
-          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
-
-          "$HELPER_PATH" \
-            --modes "1920x1080" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
-          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
-
-          echo "Waiting for persistent virtual display..."
-          for _ in $(seq 1 24); do
-            if [ -f "$VDISPLAY_READY" ]; then break; fi
-            sleep 0.5
-          done
-          if [ ! -f "$VDISPLAY_READY" ]; then
-            echo "ERROR: Persistent virtual display not ready after 12s" >&2
-            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
-            exit 1
+          if ! command -v automationmodetool >/dev/null 2>&1; then
+            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
+            exit 0
           fi
-          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
+
+          if sudo -n true 2>/dev/null; then
+            sudo -n automationmodetool enable-automationmode-without-authentication
+          else
+            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
+          fi
 
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          HELPER_PATH="/tmp/create-virtual-display"
           TOKEN="$(uuidgen)"
+          HELPER_PATH="$RUNNER_TEMP/create-virtual-display-display-churn-${TOKEN}"
           DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
           DISPLAY_READY="/tmp/cmux-ui-test-display-${TOKEN}.ready"
           DISPLAY_ID_PATH="/tmp/cmux-ui-test-display-${TOKEN}.id"
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          HELPER_PID=""
+          DISPLAY_LOCK_DIR=""
+          DISPLAY_LOCK_TOKEN=""
 
-          cleanup() {
+          acquire_display_lock() {
+            LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+            eval "$LOCK_ENV"
+            export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
+            DISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR"
+            DISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN"
+          }
+
+          release_display_lock() {
+            if [ -n "${DISPLAY_LOCK_DIR:-}" ]; then
+              CMUX_VDISPLAY_LOCK_DIR="$DISPLAY_LOCK_DIR" \
+              CMUX_VDISPLAY_LOCK_TOKEN="$DISPLAY_LOCK_TOKEN" \
+                scripts/ci/virtual-display-lock.sh release || true
+              DISPLAY_LOCK_DIR=""
+              DISPLAY_LOCK_TOKEN=""
+            fi
+          }
+
+          cleanup_attempt() {
+            if [ -n "${HELPER_PID:-}" ]; then
+              kill "$HELPER_PID" 2>/dev/null || true
+              wait "$HELPER_PID" 2>/dev/null || true
+              HELPER_PID=""
+            fi
+            release_display_lock
             pkill -x "cmux DEV" 2>/dev/null || true
             rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
+          }
+
+          cleanup() {
+            cleanup_attempt
+            rm -f "$HELPER_PATH"
           }
           trap cleanup EXIT
 
@@ -1015,7 +1281,9 @@ jobs:
           echo "App binary: $APP_BINARY"
 
           for attempt in 1 2; do
-            cleanup 2>/dev/null || true
+            cleanup_attempt 2>/dev/null || true
+
+            acquire_display_lock
 
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
@@ -1031,19 +1299,35 @@ jobs:
               --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
+            scripts/ci/virtual-display-lock.sh set-owner "$HELPER_PID"
 
             # Wait for display ready
             echo "Waiting for virtual display..."
-            for _ in $(seq 1 24); do
-              if [ -f "$DISPLAY_READY" ]; then break; fi
-              sleep 0.5
+            DISPLAY_READY_OK=false
+            for _ in $(seq 1 100); do
+              if [ -s "$DISPLAY_READY" ] && [ -s "$DISPLAY_ID_PATH" ]; then
+                DISPLAY_READY_OK=true
+                break
+              fi
+              if ! kill -0 "$HELPER_PID" 2>/dev/null; then
+                echo "ERROR: Virtual display helper exited before readiness" >&2
+                cat "$HELPER_LOG" 2>/dev/null || true
+                break
+              fi
+              sleep 0.1
             done
-            if [ ! -f "$DISPLAY_READY" ]; then
-              echo "ERROR: Virtual display not ready after 12s" >&2
+            if [ "$DISPLAY_READY_OK" != "true" ]; then
+              echo "ERROR: Virtual display not ready after 10s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
+              cleanup_attempt
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed after 2 virtual display setup attempts" >&2
+                exit 1
+              fi
+              sleep 3
               continue
             fi
-            DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
+            DISPLAY_ID=$(tr -d '\n' < "$DISPLAY_ID_PATH")
             echo "Virtual display ready: ID=$DISPLAY_ID"
 
             # Launch app from shell (non-sandboxed, outside XCTest sandbox)
@@ -1132,11 +1416,12 @@ jobs:
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
               test-without-building; then
+              cleanup_attempt
               exit 0
             fi
 
             pkill -x "cmux DEV" 2>/dev/null || true
-            kill "$HELPER_PID" 2>/dev/null || true
+            cleanup_attempt
 
             if [ "$attempt" -eq 2 ]; then
               echo "Display resolution UI regression failed after 2 attempts" >&2
@@ -1146,10 +1431,70 @@ jobs:
             sleep 3
           done
 
+      - name: Create persistent virtual display
+        run: |
+          set -euo pipefail
+          LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+          eval "$LOCK_ENV"
+          export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
+          echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
+          echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
+          HELPER_PATH="$RUNNER_TEMP/create-virtual-display-persistent"
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          VDISPLAY_READY="$RUNNER_TEMP/cmux-vdisplay-persistent.ready"
+          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-vdisplay-persistent.id"
+          VDISPLAY_LOG="$RUNNER_TEMP/cmux-vdisplay-persistent.log"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          "$HELPER_PATH" \
+            --modes "1920x1080" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            >"$VDISPLAY_LOG" 2>&1 &
+          VDISPLAY_PERSISTENT_PID=$!
+          scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PERSISTENT_PID"
+
+          echo "VDISPLAY_PERSISTENT_PID=$VDISPLAY_PERSISTENT_PID" >> "$GITHUB_ENV"
+          echo "VDISPLAY_PERSISTENT_HELPER_PATH=$HELPER_PATH" >> "$GITHUB_ENV"
+          echo "VDISPLAY_PERSISTENT_READY=$VDISPLAY_READY" >> "$GITHUB_ENV"
+          echo "VDISPLAY_PERSISTENT_ID_PATH=$VDISPLAY_ID_PATH" >> "$GITHUB_ENV"
+          echo "VDISPLAY_PERSISTENT_LOG=$VDISPLAY_LOG" >> "$GITHUB_ENV"
+
+          echo "Waiting for persistent virtual display..."
+          for _ in $(seq 1 100); do
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              break
+            fi
+            if ! kill -0 "$VDISPLAY_PERSISTENT_PID" 2>/dev/null; then
+              echo "Persistent virtual display helper exited before readiness" >&2
+              cat "$VDISPLAY_LOG" >&2 || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+
+          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
+            echo "ERROR: Persistent virtual display not ready after 10s" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            exit 1
+          fi
+
+          echo "Persistent virtual display ready: ID=$(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+          cat "$VDISPLAY_LOG"
+
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ] && ! kill -0 "$VDISPLAY_PERSISTENT_PID" 2>/dev/null; then
+            echo "Persistent virtual display exited before browser find UI regression" >&2
+            cat "${VDISPLAY_PERSISTENT_LOG:-/dev/null}" >&2 || true
+            exit 1
+          fi
+
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -1164,5 +1509,10 @@ jobs:
         run: |
           if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
             kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
           fi
-          rm -f /tmp/cmux-vdisplay-persistent.ready /tmp/cmux-vdisplay-persistent.id /tmp/cmux-vdisplay-persistent.log
+          scripts/ci/virtual-display-lock.sh release || true
+          rm -f "${VDISPLAY_PERSISTENT_HELPER_PATH:-}" "${VDISPLAY_PERSISTENT_READY:-}" "${VDISPLAY_PERSISTENT_ID_PATH:-}" "${VDISPLAY_PERSISTENT_LOG:-}"

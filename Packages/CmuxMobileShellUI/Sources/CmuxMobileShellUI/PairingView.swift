@@ -18,7 +18,9 @@ struct PairingView: View {
     /// (for example "Check that both devices are on the same Tailscale"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
+    let versionWarning: String?
     let connectPairingCode: () async -> Void
+    let acceptVersionWarning: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
@@ -142,6 +144,35 @@ struct PairingView: View {
                     }
                 }
 
+                if let versionWarning {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+
+                            Text(versionWarning)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("MobilePairingVersionWarning")
+
+                            Button(role: .destructive) {
+                                startPairingTask {
+                                    await acceptVersionWarning()
+                                }
+                            } label: {
+                                Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
+                            }
+                            .disabled(isPairing)
+                            .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
+                        }
+                    }
+                }
+
                 if let errorText {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
@@ -248,7 +279,7 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !trimmedHost.hasPrefix("cmux-ios://"),
+              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
@@ -286,7 +317,7 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if trimmedHost.hasPrefix("cmux-ios://") {
+        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
             pairingCode = trimmedHost
             startPairingTask {
                 await connectPairingCode()

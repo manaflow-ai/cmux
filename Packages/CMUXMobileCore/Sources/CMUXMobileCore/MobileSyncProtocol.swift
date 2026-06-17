@@ -6,6 +6,9 @@ public struct CmxMobileDefaults {
 
     /// The default daemon host port mobile clients dial when none is supplied.
     public static let defaultHostPort = 58_465
+    /// Shared Mac/iOS pairing compatibility level. Bump this only when current
+    /// clients can pair but may behave incorrectly without explicit user approval.
+    public static let pairingCompatibilityVersion = 1
 }
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {
@@ -25,6 +28,16 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
     case forbiddenSecretField(String)
     case invalidURL
     case invalidPayloadEncoding
+    /// A scanned/pasted pairing code only offered loopback routes. A QR or
+    /// deep link pointing at `127.0.0.1` would make the phone dial itself,
+    /// so it is rejected with a clear error instead of a doomed connect;
+    /// loopback pairing is reserved for the dev-injected attach URL path.
+    case loopbackRouteRejected
+    /// A pairing/attach URL whose grammar version (`v=`) is newer than this
+    /// build understands. The associated value is the version read off the URL.
+    /// Surfaced distinctly so the user is told to update the app rather than
+    /// shown the generic "not a valid code" copy.
+    case unrecognizedURLVersion(Int)
 }
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
@@ -101,14 +114,14 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "cmux-ios://pair?v=\(version)&payload=\(payload)") else {
+        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
     }
 
     public static func decodeURL(_ url: URL, now: Date = Date()) throws -> MobileSyncPairingPayload {
-        guard url.scheme == "cmux-ios",
+        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
               url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,

@@ -50,6 +50,7 @@ const sectionOrder = [
   "browser",
   "markdown",
   "fileEditor",
+  "fileExplorer",
   "shortcuts",
 ] as const;
 
@@ -64,6 +65,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
@@ -106,6 +108,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "fileEditor": {
   //   // ${t("exampleFileEditorWordWrap")}
   //   "wordWrap": false
+  // },
+
+  // "fileExplorer": {
+  //   // ${t("exampleFileExplorerDoubleClickAction")}
+  //   "doubleClickAction": "preview"
   // },
 
   // "automation": {
@@ -379,13 +386,14 @@ working-directory = ~/code`}</CodeBlock>
         }
 
         const skipBindings = sectionName === "shortcuts" ? ["bindings"] : [];
+        const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
 
         return (
           <section key={sectionName}>
             <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
             </DocsHeading>
-            {property.description && <p>{property.description}</p>}
+            {description && <p>{description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
               <>

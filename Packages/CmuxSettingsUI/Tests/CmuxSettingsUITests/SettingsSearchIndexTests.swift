@@ -25,6 +25,12 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    @Test func modifierHoldHintSynonymsFindKeyboardShortcutSetting() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match("hotkey hint chips")
+        #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")

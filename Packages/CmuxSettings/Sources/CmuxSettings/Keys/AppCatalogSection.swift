@@ -20,6 +20,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appIconMode"
     )
 
+    /// Optional macOS window title template. Empty preserves the default
+    /// active-workspace title behavior.
+    public let windowTitleTemplate = DefaultsKey<String>(
+        id: "app.windowTitleTemplate",
+        defaultValue: "",
+        userDefaultsKey: "windowTitleTemplate"
+    )
+
     public let menuBarOnly = DefaultsKey<Bool>(
         id: "app.menuBarOnly",
         defaultValue: false,
@@ -73,9 +81,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openSupportedFilesInCmux"
     )
 
+    /// Default `true` matches the runtime cmd-click router (legacy
+    /// `CmdClickMarkdownRouteSettings.defaultValue`); the catalog briefly
+    /// said `false`, which made the Settings toggle display OFF for users
+    /// who never changed it while the route was actually active.
     public let openMarkdownInCmuxViewer = DefaultsKey<Bool>(
         id: "app.openMarkdownInCmuxViewer",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 

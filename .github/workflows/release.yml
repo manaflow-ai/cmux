@@ -53,8 +53,15 @@ jobs:
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
-    timeout-minutes: 20
+    # Pinned to WarpBuild, NOT vars.MACOS_RUNNER_26 (= cmux-macos-26, a
+    # self-hosted mini): this job codesigns + notarizes, and the self-hosted
+    # runners lack the Developer-ID/WWDR chain in their keychain, so codesign
+    # fails with errSecInternalComponent. Signing must run on the Warp image
+    # that carries the chain until the minis are provisioned for signing.
+    runs-on: warp-macos-26-arm64-6x
+    # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
+    # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -150,6 +157,15 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      # Same self-sufficiency as nightly: a self-hosted macOS runner may lack npm
+      # on PATH, which breaks the pinned create-dmg install below. setup-node
+      # guarantees node/npm regardless of which runner picks up the job.
+      - name: Set up Node
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -180,6 +196,10 @@ jobs:
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Setup Go
         if: steps.guard_release_assets.outputs.skip_all != 'true'

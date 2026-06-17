@@ -15,13 +15,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`-prefixed method and the fixed
-    /// socket-worker set run on the worker; everything else runs on the main
-    /// actor.
+    /// Classifies a method: every `vm.`- and `remotes.`-prefixed method and the
+    /// fixed socket-worker set run on the worker; everything else runs on the
+    /// main actor.
+    ///
+    /// `remotes.*` (the `cmux remotes` device-registry verbs) make blocking,
+    /// authenticated web API calls just like `vm.*`, so they must stay off the
+    /// main actor; a prefix match keeps the three verbs in lockstep without
+    /// listing each.
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
-        if method.hasPrefix("vm.") || Self.socketWorkerMethods.contains(method) {
+        if method.hasPrefix("vm.") || method.hasPrefix("remotes.")
+            || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )
@@ -59,11 +65,21 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.attach_ticket.create",
         "system.top",
         "system.memory",
+        // `workspace.env` is a read that resolves a workspace and copies its
+        // env dictionary behind a `v2MainSync` hop, so it runs on the worker
+        // lane like the other workspace reads below.
+        "workspace.env",
         "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "remote.tmux.sessions",
+        "remote.tmux.attach",
+        "remote.tmux.detach",
+        "remote.tmux.state",
+        "remote.tmux.mirror",
+        "remote.tmux.window",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
@@ -73,6 +89,55 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // Browser methods that evaluate page JavaScript (or wait on it) run on
+        // the socket worker: on the main actor they block SwiftUI updates for
+        // their full duration, and on a not-yet-mounted webview that is a
+        // starvation deadlock (the JS can't run until SwiftUI mounts the
+        // webview, which can't happen while the handler holds the main
+        // thread). UI/model access inside the handlers stays on main via
+        // v2MainSync.
+        "browser.navigate",
+        "browser.back",
+        "browser.forward",
+        "browser.reload",
+        "browser.snapshot",
+        "browser.eval",
+        "browser.wait",
+        "browser.click",
+        "browser.dblclick",
+        "browser.hover",
+        "browser.focus",
+        "browser.type",
+        "browser.fill",
+        "browser.press",
+        "browser.keydown",
+        "browser.keyup",
+        "browser.check",
+        "browser.uncheck",
+        "browser.select",
+        "browser.scroll",
+        "browser.scroll_into_view",
+        "browser.get.text",
+        "browser.get.html",
+        "browser.get.value",
+        "browser.get.attr",
+        "browser.get.count",
+        "browser.get.box",
+        "browser.get.styles",
+        "browser.is.visible",
+        "browser.is.enabled",
+        "browser.is.checked",
+        "browser.find.role",
+        "browser.find.text",
+        "browser.find.label",
+        "browser.find.placeholder",
+        "browser.find.alt",
+        "browser.find.title",
+        "browser.find.testid",
+        "browser.find.first",
+        "browser.find.last",
+        "browser.find.nth",
+        "browser.highlight",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main

@@ -15,6 +15,9 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
+    @State private var autoNamingModel: DefaultsValueModel<Bool>
+    @State private var autoNamingAgentModel: DefaultsValueModel<String>
+    @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
@@ -51,6 +54,18 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
+        _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
+        _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
+        // Internal status (not a user setting), observed reactively via an
+        // inline key so a failure reported mid-session updates the line live.
+        _autoNamingStatusModel = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: DefaultsKey<String>(
+                id: "automation.autoNamingLastStatus",
+                defaultValue: "",
+                userDefaultsKey: AutoNamingStatusStore.userDefaultsKey
+            )
+        ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
@@ -71,6 +86,7 @@ public struct AutomationSection: View {
             socketControlCard
             claudeCodeCard
             claudePathCard
+            autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
             ampCard
@@ -241,6 +257,77 @@ public struct AutomationSection: View {
                 .frame(width: 200)
             }
         }
+    }
+
+    @ViewBuilder
+    private var autoNamingCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.workspaceAutoNaming"),
+                String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+                subtitle: autoNamingModel.current
+                    ? String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations.")
+                    : String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated.")
+            ) {
+                Toggle("", isOn: Binding(get: { autoNamingModel.current }, set: { autoNamingModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsWorkspaceAutoNamingToggle")
+            }
+            if autoNamingModel.current {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .json("automation.autoNamingAgent"),
+                    String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                    subtitle: AutoNamingAgentDisplay.selectionSubtitle(forSlug: autoNamingAgentModel.current),
+                    controlWidth: Self.columnWidth
+                ) {
+                    Picker("", selection: Binding(get: { autoNamingAgentModel.current }, set: { autoNamingAgentModel.set($0) })) {
+                        Text(String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"))
+                            .tag(AutoNamingAgentCatalog.autoSlug)
+                        Section(String(localized: "settings.automation.autoNamingAgent.section.supported", defaultValue: "Supported")) {
+                            ForEach(AutoNamingAgentCatalog.supportedAgents, id: \.slug) { agent in
+                                Text(agent.displayName).tag(agent.slug)
+                            }
+                        }
+                        Section(String(localized: "settings.automation.autoNamingAgent.section.other", defaultValue: "Other agents")) {
+                            ForEach(AutoNamingAgentCatalog.otherAgents, id: \.slug) { agent in
+                                Text(agent.displayName).tag(agent.slug)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SettingsAutoNamingAgentPicker")
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
+            if autoNamingModel.current,
+               !claudeCodeModel.current,
+               autoNamingAgentModel.current == AutoNamingAgentCatalog.autoSlug || autoNamingAgentModel.current == "claude" {
+                autoNamingFootnote(String(localized: "settings.automation.workspaceAutoNaming.hooksOffWarning", defaultValue: "Claude Code Integration is off, so Claude sessions will not be auto-named. Other supported agents still name when their cmux hooks are installed."))
+            }
+            if autoNamingModel.current, let status = currentAutoNamingStatus {
+                autoNamingFootnote(AutoNamingAgentDisplay.statusMessage(status))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func autoNamingFootnote(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
+    }
+
+    private var currentAutoNamingStatus: AutoNamingStatus? {
+        guard !autoNamingStatusModel.current.isEmpty,
+              let data = autoNamingStatusModel.current.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(AutoNamingStatus.self, from: data)
     }
 
     @ViewBuilder

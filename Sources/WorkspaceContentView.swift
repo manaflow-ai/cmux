@@ -1,7 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxFoundation
 import Bonsplit
+import CmuxWorkspaceWindow
+import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -48,49 +51,6 @@ private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
     // covers titlebar chrome.
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
-struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
-    let paneId: String
-    let left: Int
-    let top: Int
-    let width: Int
-    let height: Int
-    let isActive: Bool
-}
-
-struct TmuxPaneLayoutReport: Codable, Equatable, Sendable {
-    let panes: [TmuxPaneLayoutPane]
-
-    var activePane: TmuxPaneLayoutPane? {
-        panes.first(where: \.isActive) ?? panes.first
-    }
-}
-
-func tmuxActivePaneOverlayRect(
-    surfaceFrame: CGRect,
-    cellSize: CGSize,
-    pane: TmuxPaneLayoutPane
-) -> CGRect? {
-    guard cellSize.width > 0,
-          cellSize.height > 0,
-          pane.width > 0,
-          pane.height > 0 else {
-        return nil
-    }
-
-    return CGRect(
-        x: surfaceFrame.origin.x + (CGFloat(pane.left) * cellSize.width),
-        y: surfaceFrame.origin.y + (CGFloat(pane.top) * cellSize.height),
-        width: CGFloat(pane.width) * cellSize.width,
-        height: CGFloat(pane.height) * cellSize.height
-    )
-}
-
-private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
 }
 
 struct TmuxWorkspacePaneOverlayRenderState: Equatable {
@@ -237,50 +197,70 @@ struct WorkspaceContentView: View {
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
-                PanelContentView(
-                    panel: panel,
-                    workspaceId: workspace.id,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isSelectedInPane: isSelectedInPane,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: workspacePortalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
-                    onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
-                        // active workspace. This prevents divergence between the blue focused-tab
-                        // indicator and where keyboard input/flash-focus actually lands.
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                    },
-                    onRequestPanelFocus: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
-                            workspaceId: workspace.id,
-                            panelId: panel.id,
-                            in: NSApp.keyWindow ?? NSApp.mainWindow
-                        )
-                        workspace.focusPanel(panel.id)
-                    },
-                    onResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
-                    },
-                    onAutoResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
-                    },
-                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-                )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                    // Multi-pane tmux window: render its pane layout as splits
+                    // inside this single tab. Single-pane windows keep the
+                    // standard PanelContentView path below.
+                    RemoteTmuxWindowMirrorView(
+                        mirror: windowMirror,
+                        appearance: appearance,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        onClosePane: { tmuxPaneId in
+                            workspace.requestRemoteTmuxPaneClose(
+                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
+                            )
+                        }
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
+                } else {
+                    PanelContentView(
+                        panel: panel,
+                        workspaceId: workspace.id,
+                        paneId: paneId,
+                        isFocused: isFocused,
+                        isSelectedInPane: isSelectedInPane,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        isSplit: isSplit,
+                        appearance: appearance,
+                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
+                        onFocus: {
+                            // Keep bonsplit focus in sync with the AppKit first responder for the
+                            // active workspace. This prevents divergence between the blue focused-tab
+                            // indicator and where keyboard input/flash-focus actually lands.
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                        },
+                        onRequestPanelFocus: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                                workspaceId: workspace.id,
+                                panelId: panel.id,
+                                in: NSApp.keyWindow ?? NSApp.mainWindow
+                            )
+                            workspace.focusPanel(panel.id)
+                        },
+                        onResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                        },
+                        onAutoResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                        },
+                        onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
                 }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
@@ -356,8 +336,20 @@ struct WorkspaceContentView: View {
             )
         }
 
-        bonsplitView
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        Group {
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance
+                )
+            } else {
+                bonsplitView
+            }
+        }
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -402,67 +394,18 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-
-    private enum TmuxWorkspacePaneOverlayTrimMode {
-        case workspaceLocal
-        case windowContent
-    }
-
-    private static func tmuxWorkspacePaneContentRect(
-        _ rect: CGRect,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect {
-        let topInset = min(tmuxWorkspacePaneTopChromeHeight, max(0, rect.height - 1))
-        switch trimMode {
-        case .workspaceLocal, .windowContent:
-            return CGRect(
-                x: rect.origin.x,
-                y: rect.origin.y + topInset,
-                width: rect.width,
-                height: max(0, rect.height - topInset)
-            )
-        }
-    }
-
-    private static func tmuxWorkspacePaneRect(
-        layoutSnapshot: LayoutSnapshot?,
-        paneId: PaneID?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect? {
-        guard let layoutSnapshot,
-              let paneId,
-              let paneRect = layoutSnapshot.panes
-                .first(where: { $0.paneId == paneId.id.uuidString })?
-                .frame
-                .cgRect else {
-            return nil
-        }
-
-        let rect: CGRect
-        if includeContainerOffset {
-            rect = paneRect.offsetBy(
-                dx: 0,
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        } else {
-            rect = paneRect.offsetBy(
-                dx: -CGFloat(layoutSnapshot.containerFrame.x),
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        }
-        return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
-    }
+    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+        topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
+    )
 
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
         layoutSnapshot: LayoutSnapshot?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
+        includeContainerOffset: Bool
     ) -> [CGRect] {
         guard let layoutSnapshot else { return [] }
+        let geometry = tmuxPaneOverlayGeometry
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -498,7 +441,7 @@ struct WorkspaceContentView: View {
                     dy: -CGFloat(layoutSnapshot.containerFrame.y)
                 )
             }
-            return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
+            return geometry.contentRect(rect)
         }
     }
 
@@ -506,11 +449,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.overlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            paneId: paneId
         )
     }
 
@@ -518,11 +459,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.windowOverlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            paneId: paneId
         )
     }
 
@@ -530,15 +469,10 @@ struct WorkspaceContentView: View {
         cachedSnapshot: LayoutSnapshot?,
         liveSnapshot: LayoutSnapshot?
     ) -> LayoutSnapshot? {
-        if let liveSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(liveSnapshot) {
-            return liveSnapshot
-        }
-        if let cachedSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(cachedSnapshot) {
-            return cachedSnapshot
-        }
-        return cachedSnapshot ?? liveSnapshot
+        tmuxPaneOverlayGeometry.effectiveSnapshot(
+            cachedSnapshot: cachedSnapshot,
+            liveSnapshot: liveSnapshot
+        )
     }
 
     static func tmuxWorkspacePaneUnreadRects(
@@ -550,8 +484,7 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            includeContainerOffset: false
         )
     }
 
@@ -564,17 +497,8 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            includeContainerOffset: true
         )
-    }
-
-    private static func tmuxLayoutSnapshotHasRenderableGeometry(_ snapshot: LayoutSnapshot) -> Bool {
-        snapshot.containerFrame.width > 1 &&
-            snapshot.containerFrame.height > 1 &&
-            snapshot.panes.contains { pane in
-                pane.frame.width > 1 && pane.frame.height > 1
-            }
     }
 
     private func flushDeferredThemeRefreshIfNeeded() {
@@ -782,7 +706,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
     }
 
     private func createBrowser() {

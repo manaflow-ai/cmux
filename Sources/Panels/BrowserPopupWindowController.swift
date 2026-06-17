@@ -628,6 +628,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+
         decisionHandler(.allow)
     }
 
@@ -647,15 +652,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if let response = navigationResponse.response as? HTTPURLResponse {
-            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
-            if contentDisposition.lowercased().hasPrefix("attachment") {
-                decisionHandler(.download)
-                return
-            }
-        }
-
-        if !navigationResponse.canShowMIMEType {
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+        ) != nil {
             decisionHandler(.download)
             return
         }

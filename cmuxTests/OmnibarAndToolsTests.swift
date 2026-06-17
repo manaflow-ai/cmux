@@ -437,7 +437,6 @@ final class VSCodeServeWebControllerTests: XCTestCase {
     }
 }
 
-
 final class OmnibarStateMachineTests: XCTestCase {
     func testPointerFocusCanPreserveInitialClickSelection() throws {
         var state = OmnibarState()
@@ -949,7 +948,7 @@ private final class OmnibarInlineDeletionHarness {
                 inlineCompletion: inlineCompletion,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },

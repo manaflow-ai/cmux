@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Habilita los hooks de integración de cmux para Amp. Cuando está desactivado, el complemento incluido permanece inactivo sin necesidad de eliminarlo.",
-          "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed."
+          "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
+          "workspaceAutoNaming": "Nombrado automático opcional de espacios de trabajo y pestañas mediante IA a partir del contenido de la conversación del agente. Cuando está activado, cmux resume las sesiones de agentes compatibles en títulos cortos usando el binario propio de cada agente; los renombrados manuales siempre prevalecen.",
+          "autoNamingAgent": "Qué agente genera los nombres automáticos en cada sesión. «auto» (predeterminado) nombra cada sesión con su propio agente; cualquier identificador de agente (claude, codex, grok, opencode, pi, omp, …) anula el nombrado de todas las sesiones, incluso las de otros agentes. Los agentes no compatibles o no instalados recurren al agente propio de la sesión, por lo que el nombrado nunca falla."
         },
         "app": {
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
+          "windowTitleTemplate": "Plantilla opcional para el título de NSWindow. En blanco conserva el comportamiento de título predeterminado existente de cmux, incluida la alternativa del directorio actual. Marcadores admitidos: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
+        },
+        "fileExplorer": {
+          "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",
+          "doubleClickAction": "Qué hace al hacer doble clic (o presionar Return en un resultado de búsqueda) sobre un archivo en el explorador de archivos. `preview` abre la vista previa integrada de archivos de cmux (comportamiento predeterminado e histórico). `defaultEditor` abre con la app predeterminada de macOS para ese tipo de archivo. `preferredEditor` abre con el comando `app.preferredEditor`, con fallback a la app predeterminada cuando no está configurado. Solo aplica a archivos; los directorios siempre se expanden/contraen, y los exploradores de archivos no locales (remotos) siempre abren la vista previa de cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles."
+          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
+          "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Doble clic en un archivo: preview (predeterminado), defaultEditor (app predeterminada de macOS) o preferredEditor (el comando app.preferredEditor).",
       "shortcutsWhenIntro": "Predicados de contexto opcionales por acción (cláusulas when al estilo de VS Code), indexados por el id de acción de cmux. Una asignación solo se activa —y solo entra en conflicto con otra asignación de la misma pulsación— cuando su cláusula se cumple. Omite la cláusula para conservar el contexto integrado de la acción. El vocabulario de las cláusulas:",
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
@@ -922,6 +934,8 @@
         "surfaces": "Superficies",
         "surfacesBlurb": "Las superficies son pestañas dentro de un panel.",
         "splitPanes": "Paneles divididos",
+        "canvas": "Lienzo",
+        "canvasBlurb": "Un modo de diseño 2D libre donde los paneles flotan sobre un lienzo infinito y desplazable. Los comandos de alineación y distribución están disponibles desde la paleta de comandos.",
         "browser": "Navegador",
         "notifications": "Notificaciones",
         "find": "Búsqueda",
