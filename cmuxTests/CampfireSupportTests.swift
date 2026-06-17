@@ -132,6 +132,68 @@ struct CampfireSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
+    @Test func directProcessDetectionClassifiesCampfireDevInvocation() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-dev-invocation-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let latest = try Self.writeSessionFile(
+            id: "campfire-dev-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "bun",
+            processPath: "/opt/homebrew/bin/bun",
+            arguments: [
+                "/opt/homebrew/bin/bun",
+                "/Users/example/campfire/packages/session/bin/campfire.ts",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("campfire"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func directProcessDetectionDoesNotTreatPlainCampfireArgumentAsAgent() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-plain-argument-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        _ = try Self.writeSessionFile(
+            id: "campfire-should-not-bind",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = Self.detectedCampfireSnapshot(
+            processName: "rg",
+            processPath: "/usr/bin/rg",
+            arguments: ["/usr/bin/rg", "campfire"],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        )
+
+        #expect(detected == nil)
+    }
+
     @Test func taskManagerClassifiesCampfireCompiledBinaryAndDevInvocation() throws {
         let compiled = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "campfire",
