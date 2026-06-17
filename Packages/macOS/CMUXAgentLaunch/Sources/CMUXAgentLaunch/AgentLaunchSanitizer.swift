@@ -42,7 +42,7 @@ public enum AgentLaunchSanitizer {
             if tail.first == "claude-teams" {
                 tail.removeFirst()
             }
-            guard let preserved = preserveOptions(tail, policy: claudeTeamsPolicy) else { return nil }
+            guard let preserved = preservedClaudeTeamsLaunchArguments(args: tail) else { return nil }
             return [executable, "claude-teams"] + preserved
         case "codexTeams":
             if tail.first == "codex-teams" {
@@ -160,6 +160,8 @@ public enum AgentLaunchSanitizer {
             return nil
         }
     }
+
+    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
 
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args

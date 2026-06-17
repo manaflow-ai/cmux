@@ -77,6 +77,30 @@ struct AgentResumeArgvTests {
         )
         #expect(
             AgentResumeArgv().launcherResolution(
+                launcher: "claudeTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "cmux",
+                    "claude-teams",
+                    "--worktree",
+                    "/tmp/team repo",
+                    "--tmux",
+                    "please",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ]
+            ) == .resolved([
+                "cmux",
+                "claude-teams",
+                "--resume",
+                "SID",
+                "--worktree",
+                "/tmp/team repo",
+            ])
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
                 launcher: "codexTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "codex-teams"]
             ) == .resolved(["cmux", "codex-teams", "resume", "SID"])
         )
