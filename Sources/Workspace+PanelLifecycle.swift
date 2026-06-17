@@ -266,6 +266,9 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
+        if didChangeNotificationSuppression {
+            postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey: key)
+        }
         return didChange
     }
 
@@ -287,9 +290,6 @@ extension Workspace {
         }
         if didChange {
             refreshTrackedAgentPorts()
-        }
-        if didChangeNotificationSuppression {
-            postNotificationSuppressionStateDidChangeIfNeeded(forAgentPIDKey: key)
         }
         return didChange
     }
