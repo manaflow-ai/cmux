@@ -3675,9 +3675,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "sonnet",
                     "--remote-control-session-name-prefix",
                     "cmux-team",
+                    "--tmux",
+                    "side effect should be dropped",
                     "--permission-mode",
                     "auto",
-                    "--tmux",
                     "initial team prompt"
                 ],
                 workingDirectory: "/tmp/team repo",
