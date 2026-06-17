@@ -424,6 +424,10 @@ struct BrowserPanelView: View {
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
+    /// Held detector instance; the view detects and summarizes installed browsers
+    /// through this rather than the former `BrowserInstalledBrowserDetector` static
+    /// namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -667,7 +671,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserImportHintSummary: String {
-        BrowserInstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+        installedBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
 
     private var shouldShowToolbarImportHintChip: Bool {
@@ -2456,9 +2460,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        let detector = installedBrowserDetector
         emptyStateImportBrowserRefreshTask = Task {
             let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+                detector.detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
