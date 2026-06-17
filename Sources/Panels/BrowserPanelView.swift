@@ -7313,7 +7313,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         let shouldShowLocalInlineActivePaneBoundary =
-            shouldAttachWebView && showsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
+            showsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
         coordinator.desiredShowsActivePaneBoundary = shouldShowLocalInlineActivePaneBoundary
         coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.attachGeneration += 1
