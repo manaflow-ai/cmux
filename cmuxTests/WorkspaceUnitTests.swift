@@ -4881,9 +4881,11 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let appDelegate = originalAppDelegate ?? AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             appDelegate.tabManager = originalTabManager
             AppDelegate.shared = originalAppDelegate
         }
