@@ -259,6 +259,37 @@ struct CampfireSupportTests {
         #expect(detected == nil)
     }
 
+    @Test func directProcessDetectionDoesNotTreatMentionedCampfireEntrypointAsAgent() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-mentioned-entrypoint-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        _ = try Self.writeSessionFile(
+            id: "campfire-should-not-bind-mentioned-entrypoint",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = Self.detectedCampfireSnapshot(
+            processName: "rg",
+            processPath: "/usr/bin/rg",
+            arguments: [
+                "/usr/bin/rg",
+                "packages/session/bin/campfire.ts",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        )
+
+        #expect(detected == nil)
+    }
+
     @Test func taskManagerClassifiesCampfireCompiledBinaryAndDevInvocation() throws {
         let compiled = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "campfire",
