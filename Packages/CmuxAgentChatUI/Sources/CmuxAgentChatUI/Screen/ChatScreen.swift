@@ -77,6 +77,7 @@ public struct ChatScreen: View {
                 rows: store.rows,
                 expandedIDs: expandedIDs,
                 agentState: store.agentState,
+                transcriptAvailability: store.transcriptAvailability,
                 hasMoreHistory: store.hasMoreHistory,
                 hasLoadedInitialHistory: store.hasLoadedInitialHistory,
                 initialLoadFailed: store.initialLoadFailed,
@@ -87,6 +88,7 @@ public struct ChatScreen: View {
             )
             .environment(\.chatMarkdownRenderer, renderer)
             .environment(\.chatContentCache, contentCache)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             #if os(iOS)
             // Measure the transcript so the keyboard-dismiss tap fires only over
             // the conversation, never the composer/accessory bar or header.
@@ -118,6 +120,7 @@ public struct ChatScreen: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
                 Text(error)

@@ -70,6 +70,9 @@ extension AuthCoordinator {
 
     func checkExistingSession() async {
         if launch.clearAuthRequested { return }
+        #if DEBUG
+        if launch.mockDataEnabled { return }
+        #endif
         // Coalesce overlapping runs (rapid foreground transitions): a second
         // call while one is in flight would race coordinator-state writes
         // (one run clearing while another re-validates the same stale token).
@@ -88,8 +91,6 @@ extension AuthCoordinator {
         let hasStoredTokens = hasAccessToken || hasRefreshToken
 
         #if DEBUG
-        if launch.mockDataEnabled { return }
-
         if let fixtureUser {
             authLog.debug("Applying auth fixture user")
             saveCachedUser(fixtureUser)

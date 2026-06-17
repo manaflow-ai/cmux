@@ -30,6 +30,27 @@ import Testing
         #expect(coordinator.currentUser == nil)
     }
 
+    @Test func mockDataStartKeepsPrimedSession() async {
+        let launch = AuthLaunchOptions(
+            clearAuthRequested: false,
+            mockDataEnabled: true,
+            environment: ["CMUX_UITEST_MOCK_DATA": "1"],
+            includesDevAuth: false
+        )
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient(), launch: launch)
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser?.id == "uitest_user")
+        #expect(!coordinator.isRestoringSession)
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser?.id == "uitest_user")
+        #expect(!coordinator.isRestoringSession)
+    }
+
     @Test func passwordSignInAuthenticatesAndCaches() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)

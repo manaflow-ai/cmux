@@ -84,9 +84,9 @@ extension TerminalController {
     /// for callers that already hold the `Workspace` (the workspace-list RPC
     /// enumerates every workspace and adopts inline, so the toggle is known
     /// before the user enters the workspace — no per-open resolution and no
-    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory
-    /// once the surface has a session, so a repeat scan of an already-adopted
-    /// workspace touches no filesystem.
+    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits through the
+    /// registry's visible-terminal index once the surface has a session, so a
+    /// repeat scan of an already-adopted workspace touches no filesystem.
     func adoptDetectedAgentSessions(workspace: Workspace) {
         let workspaceID = workspace.id.uuidString
         let service = AgentChatTranscriptService.shared
@@ -282,6 +282,29 @@ extension TerminalController {
                 defaultValue: "Answer key was not accepted"
             ), data: nil)
         }
+    }
+
+    /// Groups chat sessions for workspace-list serialization after one
+    /// process-liveness sweep over the visible terminal set, instead of one
+    /// unbounded sweep per workspace row.
+    func mobileChatSessionsByWorkspaceAndTerminalID(
+        workspaceTerminalIDsByWorkspaceID: [String: Set<String>]
+    ) -> [String: [String: [ChatSessionDescriptor]]] {
+        guard !workspaceTerminalIDsByWorkspaceID.isEmpty else { return [:] }
+        let service = AgentChatTranscriptService.shared
+        var grouped: [String: [String: [ChatSessionDescriptor]]] = [:]
+        for record in service.sessionRecords(
+            workspaceAndTerminalIDs: workspaceTerminalIDsByWorkspaceID
+        ) {
+            guard mobileChatBindingIsCurrentAgent(record) else { continue }
+            let descriptor = record.descriptor
+            guard let workspaceID = descriptor.workspaceID,
+                  let terminalID = descriptor.terminalID else {
+                continue
+            }
+            grouped[workspaceID, default: [:]][terminalID, default: []].append(descriptor)
+        }
+        return grouped
     }
 
     /// Workspace/surface params for a chat session's bound terminal, in the

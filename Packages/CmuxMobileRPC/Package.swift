@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxAgentChat"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
     ],
@@ -24,6 +25,7 @@ let package = Package(
             name: "CmuxMobileRPC",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAgentChat",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
             ],

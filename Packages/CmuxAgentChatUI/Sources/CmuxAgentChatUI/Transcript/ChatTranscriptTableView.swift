@@ -8,6 +8,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     let rows: [ChatTranscriptRow]
     let expandedIDs: Set<String>
     let agentState: ChatAgentState
+    let transcriptAvailability: ChatTranscriptAvailability
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
     let initialLoadFailed: Bool
@@ -47,6 +48,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 rows: rows,
                 expandedIDs: expandedIDs,
                 agentState: agentState,
+                transcriptAvailability: transcriptAvailability,
                 hasMoreHistory: hasMoreHistory,
                 hasLoadedInitialHistory: hasLoadedInitialHistory,
                 initialLoadFailed: initialLoadFailed,
@@ -164,8 +166,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             guard let configuration else { return cell }
             let item = items[indexPath.row]
             let tableWidth = tableView.bounds.width
+            let tableHeight = tableView.bounds.height
             cell.contentConfiguration = UIHostingConfiguration {
-                configuration.view(for: item, tableWidth: tableWidth)
+                configuration.view(for: item, tableWidth: tableWidth, tableHeight: tableHeight)
             }
             .margins(.all, 0)
             return cell
@@ -380,10 +383,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     }
 }
 
+@MainActor
 private struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
     let expandedIDs: Set<String>
     let agentState: ChatAgentState
+    let transcriptAvailability: ChatTranscriptAvailability
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
     let initialLoadFailed: Bool
@@ -405,6 +410,8 @@ private struct ChatTranscriptTableConfiguration {
         if rows.isEmpty {
             if initialLoadFailed {
                 items.append(.loadFailed)
+            } else if transcriptAvailability == .pending {
+                items.append(.transcriptPending)
             } else if hasLoadedInitialHistory {
                 items.append(.empty)
             } else {
@@ -420,8 +427,8 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
-    func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
-        itemView(for: item)
+    func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat, tableHeight: CGFloat) -> some View {
+        itemView(for: item, tableHeight: tableHeight)
             .padding(.horizontal, theme.horizontalMargin)
             .environment(\.chatTheme, theme)
             .environment(\.chatMarkdownRenderer, markdownRenderer)
@@ -433,7 +440,8 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
-    private func itemView(for item: ChatTranscriptTableItem) -> some View {
+    private func itemView(for item: ChatTranscriptTableItem, tableHeight: CGFloat) -> some View {
+        let emptyStateMinHeight = max(160, tableHeight - 9)
         switch item {
         case .loadingMore:
             ProgressView()
@@ -451,26 +459,11 @@ private struct ChatTranscriptTableConfiguration {
             .foregroundStyle(.tertiary)
             .padding(.vertical, 12)
         case .loadFailed:
-            VStack(spacing: 12) {
-                Text(
-                    String(
-                        localized: "chat.transcript.load_failed",
-                        defaultValue: "Couldn't load this conversation",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                Button(action: onRetryInitialLoad) {
-                    Text(
-                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
-                    )
-                    .font(.subheadline.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("ChatTranscriptRetry")
-            }
-            .padding(.vertical, 48)
+            ChatTranscriptLoadFailedPlaceholderView(onRetry: onRetryInitialLoad)
+                .frame(minHeight: emptyStateMinHeight, alignment: .center)
+        case .transcriptPending:
+            ChatTranscriptPendingPlaceholderView()
+                .frame(minHeight: emptyStateMinHeight, alignment: .center)
         case .empty:
             Text(
                 String(
@@ -482,10 +475,12 @@ private struct ChatTranscriptTableConfiguration {
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .padding(.vertical, 48)
+            .frame(minHeight: emptyStateMinHeight, alignment: .center)
         case .initialLoading:
             ProgressView()
                 .controlSize(.regular)
                 .padding(.vertical, 48)
+                .frame(minHeight: emptyStateMinHeight, alignment: .center)
         case .row(let row):
             ChatTranscriptRowView(
                 row: row,
@@ -501,12 +496,14 @@ private struct ChatTranscriptTableConfiguration {
                 .frame(height: 9)
         }
     }
+
 }
 
 private enum ChatTranscriptTableItem: Equatable {
     case loadingMore
     case historyTruncated
     case loadFailed
+    case transcriptPending
     case empty
     case initialLoading
     case row(ChatTranscriptRow)
@@ -521,6 +518,8 @@ private enum ChatTranscriptTableItem: Equatable {
             return "history-truncated"
         case .loadFailed:
             return "load-failed"
+        case .transcriptPending:
+            return "transcript-pending"
         case .empty:
             return "empty"
         case .initialLoading:

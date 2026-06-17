@@ -38,17 +38,9 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     /// Timestamp of the most recent transcript or hook activity.
     public let lastActivityAt: Date?
 
-    /// Creates a session descriptor.
-    ///
-    /// - Parameters:
-    ///   - id: The agent's own session identifier.
-    ///   - agentKind: Which agent runtime owns the session.
-    ///   - title: Human-readable conversation title.
-    ///   - workspaceID: Owning cmux workspace when known.
-    ///   - terminalID: Hosting cmux terminal surface when known.
-    ///   - workingDirectory: Session working directory when known.
-    ///   - state: Live activity state.
-    ///   - lastActivityAt: Most recent activity timestamp.
+    /// Whether the host currently has a transcript source for this session.
+    public let transcriptAvailability: ChatTranscriptAvailability
+
     /// Orders a workspace's sessions for selection: the session most
     /// likely to want the user opens first, and a dead session never
     /// shadows a live one. Ended sessions appear only when every session
@@ -67,6 +59,26 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         }
     }
 
+    /// Selects one openable session per terminal, then appends openable
+    /// sessions that are not terminal-bound.
+    public static func openableByTerminal(_ sessions: [ChatSessionDescriptor]) -> [ChatSessionDescriptor] {
+        var sessionsByTerminalID: [String: [ChatSessionDescriptor]] = [:]
+        var unboundSessions: [ChatSessionDescriptor] = []
+        for session in sessions {
+            guard let terminalID = session.terminalID else {
+                unboundSessions.append(session)
+                continue
+            }
+            sessionsByTerminalID[terminalID, default: []].append(session)
+        }
+        let boundSessions = sessionsByTerminalID.values
+            .compactMap { openable($0).first }
+            .sorted {
+                ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
+            }
+        return boundSessions + openable(unboundSessions)
+    }
+
     /// Selection rank for a state; lower opens first.
     static func selectionPriority(_ state: ChatAgentState) -> Int {
         switch state {
@@ -77,6 +89,19 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         }
     }
 
+    /// Creates a session descriptor.
+    ///
+    /// - Parameters:
+    ///   - id: The agent's own session identifier.
+    ///   - agentKind: Which agent runtime owns the session.
+    ///   - kind: Whether this session renders agent transcript messages or terminal command blocks.
+    ///   - title: Human-readable conversation title.
+    ///   - workspaceID: Owning cmux workspace when known.
+    ///   - terminalID: Hosting cmux terminal surface when known.
+    ///   - workingDirectory: Session working directory when known.
+    ///   - state: Live activity state.
+    ///   - lastActivityAt: Most recent activity timestamp.
+    ///   - transcriptAvailability: Whether the host currently has a transcript source.
     public init(
         id: String,
         agentKind: ChatAgentKind,
@@ -86,7 +111,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         terminalID: String? = nil,
         workingDirectory: String? = nil,
         state: ChatAgentState = .idle,
-        lastActivityAt: Date? = nil
+        lastActivityAt: Date? = nil,
+        transcriptAvailability: ChatTranscriptAvailability = .available
     ) {
         self.id = id
         self.agentKind = agentKind
@@ -97,6 +123,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         self.workingDirectory = workingDirectory
         self.state = state
         self.lastActivityAt = lastActivityAt
+        self.transcriptAvailability = transcriptAvailability
     }
 
     /// A copy with a new live state, leaving identity and bindings intact.
@@ -115,7 +142,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
             terminalID: terminalID,
             workingDirectory: workingDirectory,
             state: newState,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            transcriptAvailability: transcriptAvailability
         )
     }
 
@@ -129,11 +157,12 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         case workingDirectory = "cwd"
         case state
         case lastActivityAt = "last_activity_at"
+        case transcriptAvailability = "transcript_availability"
     }
 
-    // Custom Codable so `kind` decodes with a `.agent` default when absent
-    // (older payloads predate it), while still travelling on the wire for
-    // terminal sessions.
+    // Custom Codable so additive fields decode with defaults when older
+    // producers omit them, while still travelling on the wire for clients
+    // that understand the richer contract.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -145,6 +174,10 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
         state = try container.decode(ChatAgentState.self, forKey: .state)
         lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+        transcriptAvailability = try container.decodeIfPresent(
+            ChatTranscriptAvailability.self,
+            forKey: .transcriptAvailability
+        ) ?? .available
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -158,5 +191,6 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
+        try container.encode(transcriptAvailability, forKey: .transcriptAvailability)
     }
 }

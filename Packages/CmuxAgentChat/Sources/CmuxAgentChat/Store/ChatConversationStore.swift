@@ -31,6 +31,9 @@ public final class ChatConversationStore {
     /// Live agent presence (drives the typing indicator and header dot).
     public private(set) var agentState: ChatAgentState
 
+    /// Whether the host currently has a transcript source for this conversation.
+    public private(set) var transcriptAvailability: ChatTranscriptAvailability
+
     /// Whether older history exists beyond the current window.
     public private(set) var hasMoreHistory = false
 
@@ -100,10 +103,11 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
+        self.transcriptAvailability = descriptor.transcriptAvailability
         self.source = source
         self.projector = projector
         self.pageSize = pageSize
@@ -116,7 +120,7 @@ public final class ChatConversationStore {
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
     /// Cancellable reconnect-backoff sleep; injectable for deterministic
     /// tests.
-    @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private let idleSleep: @Sendable (Duration) async -> Void
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -140,24 +144,53 @@ public final class ChatConversationStore {
                 await resyncTail()
             }
             let streamStartedAt = now()
-            for await event in stream {
-                apply(event)
-                // If the initial history fetch failed (e.g. the Mac couldn't
-                // read the transcript yet — a title-detected agent adopted
-                // before its jsonl was written), a live frame means it is
-                // readable now. Retry so the error banner clears and full
-                // context loads instead of parking on the failure. No-ops once
-                // loaded; only re-runs while the fetch still throws.
-                if !hasLoadedInitialHistory {
-                    await loadInitialHistoryIfNeeded()
-                }
-                // Flush queued sends inline once the agent goes idle —
-                // structured here in the async run loop rather than a
-                // detached Task spawned from the synchronous apply().
-                if case .idle = agentState {
-                    await flushQueuedSends()
-                }
+            let signalQueue = ChatConversationRunSignalQueue(limit: 512)
+            let idleSleep = self.idleSleep
+            var retryTask: Task<Void, Never>?
+            func startPendingTranscriptRetriesIfNeeded() {
+                guard transcriptAvailability == .pending, retryTask == nil else { return }
+                retryTask = Self.makePendingTranscriptRetryTask(idleSleep: idleSleep, signalQueue: signalQueue)
             }
+            func cancelPendingTranscriptRetries() -> Task<Void, Never>? {
+                let task = retryTask; task?.cancel(); retryTask = nil
+                return task
+            }
+            let eventTask = Task {
+                for await event in stream { await signalQueue.enqueue(.event(event)) }
+                await signalQueue.enqueue(.streamEnded)
+            }
+            startPendingTranscriptRetriesIfNeeded()
+            var streamEnded = false
+            await withTaskCancellationHandler {
+                while let signal = await signalQueue.next() {
+                    guard !Task.isCancelled else { break }
+                    switch signal {
+                    case .event(let event):
+                        apply(event)
+                    case .retryPendingTranscript:
+                        await retryPendingTranscriptHistoryIfNeeded()
+                    case .overflowed:
+                        await resyncTail()
+                    case .streamEnded:
+                        streamEnded = true
+                    }
+                    if transcriptAvailability == .pending { startPendingTranscriptRetriesIfNeeded() } else { _ = cancelPendingTranscriptRetries() }
+                    if !hasLoadedInitialHistory { await loadInitialHistoryIfNeeded() }
+                    // Flush queued sends inline once the agent goes idle —
+                    // structured here in the async run loop rather than a
+                    // detached Task spawned from the synchronous apply().
+                    if case .idle = agentState { await flushQueuedSends() }
+                    if streamEnded { break }
+                }
+            } onCancel: {
+                eventTask.cancel()
+                Task { await signalQueue.close() }
+            }
+            await signalQueue.close()
+            eventTask.cancel()
+            let cancelledRetryTask = cancelPendingTranscriptRetries()
+            await eventTask.value
+            await cancelledRetryTask?.value
             isConnected = false
             guard !Task.isCancelled else { return }
             // Back off before resubscribing unless the stream was healthy
@@ -175,17 +208,16 @@ public final class ChatConversationStore {
         }
     }
 
+    private func retryPendingTranscriptHistoryIfNeeded() async {
+        guard transcriptAvailability == .pending else { return }
+        hasLoadedInitialHistory = false
+        await loadInitialHistoryIfNeeded()
+    }
+
     /// Fetches one older page and prepends it to the window.
     public func loadOlder() async {
         guard hasMoreHistory, !isLoadingOlder else { return }
-        // An empty window with hasMoreHistory still true would fetch the newest
-        // page (beforeSeq nil) and prepend it as if it were older history.
-        // Unreachable today (reset clears hasMoreHistory before emptying), but
-        // guard against a future path leaving the window empty.
-        guard let oldestSeq = messages.first?.seq else {
-            hasMoreHistory = false
-            return
-        }
+        guard let oldestSeq = messages.first?.seq else { hasMoreHistory = false; return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
         do {
@@ -194,6 +226,8 @@ public final class ChatConversationStore {
                 beforeSeq: oldestSeq,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            guard page.transcriptAvailability == .available else { applyPendingTranscriptHistory(); return }
             // Re-check the anchor: an append may have raced the fetch.
             guard messages.first?.seq == oldestSeq else { return }
             if page.messages.isEmpty {
@@ -325,8 +359,6 @@ public final class ChatConversationStore {
 
     private func loadInitialHistoryIfNeeded() async {
         guard !hasLoadedInitialHistory else { return }
-        // A fresh newest-page load re-anchors paging; truncated-at-head is only
-        // re-discovered if a later loadOlder hits the Mac cache head.
         historyTruncatedAtHead = false
         do {
             let page = try await source.history(
@@ -334,6 +366,11 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            if page.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory(markLoaded: true)
+                return
+            }
             if descriptor.kind == .terminal {
                 seedTerminalBlocks(page.terminalBlocks ?? [])
                 // Block paging isn't implemented yet, so never advertise more
@@ -379,8 +416,6 @@ public final class ChatConversationStore {
     /// After a stream drop, fetches the newest page and merges anything the
     /// window missed while disconnected.
     private func resyncTail() async {
-        // Re-deriving the window from the newest page resets paging; a later
-        // loadOlder re-discovers truncated-at-head if it still applies.
         historyTruncatedAtHead = false
         do {
             let page = try await source.history(
@@ -388,6 +423,11 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            transcriptAvailability = page.transcriptAvailability
+            if page.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory()
+                return
+            }
             if descriptor.kind == .terminal {
                 // Blocks are whole-value and keyed by id, so re-seeding from
                 // the authoritative page is idempotent.
@@ -484,8 +524,17 @@ public final class ChatConversationStore {
             agentState = state
             if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
+            let wasPending = transcriptAvailability == .pending
             self.descriptor = descriptor
             agentState = descriptor.state
+            transcriptAvailability = descriptor.transcriptAvailability
+            if wasPending, descriptor.transcriptAvailability == .available {
+                hasLoadedInitialHistory = false
+                initialLoadFailed = false
+                historyTruncatedAtHead = false
+            } else if !wasPending, descriptor.transcriptAvailability == .pending {
+                applyPendingTranscriptHistory(markLoaded: true)
+            }
             if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
@@ -500,12 +549,7 @@ public final class ChatConversationStore {
             reconcileTerminalPending(against: blocks)
             reproject()
         case .reset:
-            // The transcript was truncated/replaced on the Mac (tailer
-            // re-read from scratch). The window's seq space is void; clear
-            // and re-anchor from fresh history. Delivered pendings die with
-            // the old transcript (their echo is gone), but failed rows keep
-            // their retry and in-flight sends may still land in the new
-            // transcript and reconcile normally.
+            // Transcript reset invalidates seq space; re-anchor from fresh history.
             messages = []
             // Terminal blocks must clear here too: the terminal reproject()
             // does not consult `messages`, so without this the synchronous
@@ -515,10 +559,6 @@ public final class ChatConversationStore {
             terminalBlockOrder = []
             pending.removeAll { $0.delivery == .delivered }
             hasMoreHistory = false
-            // The new transcript re-anchors paging from scratch; a stale
-            // truncated-at-head flag would render the "earlier history is on
-            // your Mac" cell above a fresh short conversation. resyncTail
-            // re-derives the real paging state.
             historyTruncatedAtHead = false
             reproject()
             Task { await resyncTail() }
@@ -529,6 +569,12 @@ public final class ChatConversationStore {
 
     private var knownWindowIDs: Set<String> {
         Set(messages.map(\.id))
+    }
+
+    private func applyPendingTranscriptHistory(markLoaded: Bool = false) {
+        messages = []; terminalBlocks = [:]; terminalBlockOrder = []; hasMoreHistory = false; historyTruncatedAtHead = false; lastErrorDescription = nil
+        if markLoaded { hasLoadedInitialHistory = true; initialLoadFailed = false }
+        reproject()
     }
 
     private func appendToWindow(_ newMessages: [ChatMessage]) {
@@ -637,33 +683,6 @@ public final class ChatConversationStore {
                       counter < maxReconciledCounter else { return false }
                 return true
             }
-        }
-    }
-
-    /// Parses the monotonic counter from a pending row id (`local-<n>`), used
-    /// to order sends for stale-delivered eviction.
-    static func pendingCounter(_ id: String) -> Int? {
-        guard let dash = id.lastIndex(of: "-") else { return nil }
-        return Int(id[id.index(after: dash)...])
-    }
-
-    /// Whether an echoed user line is Claude Code's bracketed-paste
-    /// placeholder ("[Pasted text #1 +12 lines]").
-    static func isPastePlaceholder(_ text: String) -> Bool {
-        text.wholeMatch(of: /\[Pasted text #\d+( \+\d+ lines)?\]/) != nil
-    }
-
-    /// Matches the prompt when Claude echoes it with a short, non-spaced
-    /// prefix left behind in the terminal line editor.
-    static func echoedTextHasShortStalePrefix(_ echoed: String, pendingText: String) -> Bool {
-        let pending = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pending.isEmpty,
-              echoed != pending,
-              echoed.hasSuffix(pending) else { return false }
-        let prefix = echoed.dropLast(pending.count)
-        guard !prefix.isEmpty, prefix.count <= 8 else { return false }
-        return !prefix.contains { character in
-            character.isWhitespace || character.isNewline
         }
     }
 

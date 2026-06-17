@@ -28,8 +28,9 @@ struct CMUXMobileRootView: View {
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
+    @State private var isConnectingAttachURL = false
     @State private var didConsumeUITestAttachURL = false
-    @State private var didAuthenticateWithAttachTicket = false
+    @State var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
@@ -126,7 +127,7 @@ struct CMUXMobileRootView: View {
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
-            syncShellAuthentication(isAuthenticated)
+            syncShellAuthentication(shellAuthenticatedForCurrentAttachState)
             guard isAuthenticated else {
                 return
             }
@@ -136,7 +137,7 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
-            syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+            syncShellAuthentication(shellAuthenticatedForCurrentAttachState, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
             _ = consumePendingURLIfReady()
         }
@@ -151,6 +152,9 @@ struct CMUXMobileRootView: View {
             if !hasActiveUnexpiredAttachTicket {
                 clearAttachTicketAuthenticationIfNeeded()
             }
+        }
+        .task(id: attachTicketAuthenticationExpiry) {
+            await clearAttachTicketAuthenticationAtExpiry()
         }
     }
 
@@ -288,14 +292,22 @@ struct CMUXMobileRootView: View {
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: hasActiveAttachTicketAuthentication
+            attachTicketAuthenticated: hasAttachTicketAuthentication
         )
+    }
+
+    private var hasAttachURLPendingOrConnecting: Bool {
+        isConnectingAttachURL || pendingAttachURL.map(isRawAttachURL) == true
+    }
+
+    private var shellAuthenticatedForCurrentAttachState: Bool {
+        MobileRootAuthGate.shouldAuthenticateShell(authenticated: isAuthenticated, attachURLConnectionActive: hasAttachURLPendingOrConnecting)
     }
 
     private var shouldShowRestoringSession: Bool {
         MobileRootAuthGate.shouldShowRestoringSession(
             stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            attachTicketAuthenticated: hasAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession
         )
     }
@@ -309,10 +321,6 @@ struct CMUXMobileRootView: View {
             pairedMacHintUndetermined: store.pairedMacHintUndetermined,
             didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
         )
-    }
-
-    private var hasActiveAttachTicketAuthentication: Bool {
-        didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
 
     private func syncShellAuthentication(
@@ -332,12 +340,13 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+        guard isAuthenticated else { return }
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
-                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                attachTicketAuthenticated: hasAttachTicketAuthentication,
+                attachURLConnectionActive: hasAttachURLPendingOrConnecting,
                 connectionState: store.connectionState
               ) else { return }
         let stackUserID = authManager.currentUser?.id
@@ -354,13 +363,15 @@ struct CMUXMobileRootView: View {
     }
 
     private func connectAttachURL(_ rawURL: String) {
-        guard !authManager.isRestoringSession else {
+        if MobileRootAuthGate.shouldDeferAttachURLUntilSessionRestoreCompletes(isRestoringSession: authManager.isRestoringSession) {
             pendingAttachURL = rawURL
             return
         }
+        isConnectingAttachURL = true
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
+            defer { isConnectingAttachURL = false }
             let result = await store.connectPairingURLResult(rawURL)
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true
@@ -415,7 +426,7 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(authManager.isAuthenticated)
     }
 
-    private func clearAttachTicketAuthenticationIfNeeded() {
+    func clearAttachTicketAuthenticationIfNeeded() {
         guard didAuthenticateWithAttachTicket,
               store.connectionState != .connected || !store.hasActiveUnexpiredAttachTicket else {
             return
@@ -465,14 +476,19 @@ struct CMUXMobileRootView: View {
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
         guard !didConsumeUITestAttachURL,
-              isAuthenticated,
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        didConsumeUITestAttachURL = true
-        Task {
-            await store.connectPairingURL(attachURL)
+        guard isRawAttachURL(attachURL) else {
+            guard isAuthenticated else { return false }
+            didConsumeUITestAttachURL = true
+            Task {
+                await store.connectPairingURL(attachURL)
+            }
+            return true
         }
+        didConsumeUITestAttachURL = true
+        connectAttachURL(attachURL)
         return true
         #else
         return false

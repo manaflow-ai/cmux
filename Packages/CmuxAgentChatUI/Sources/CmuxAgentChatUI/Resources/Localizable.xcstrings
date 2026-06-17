@@ -1106,6 +1106,40 @@
         }
       }
     },
+    "chat.transcript.pending.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Messages will appear when the Mac finds the transcript."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Macがトランスクリプトを見つけるとメッセージが表示されます。"
+          }
+        }
+      }
+    },
+    "chat.transcript.pending.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for transcript"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トランスクリプト待機中"
+          }
+        }
+      }
+    },
     "chat.transcript.retry" : {
       "extractionState" : "manual",
       "localizations" : {

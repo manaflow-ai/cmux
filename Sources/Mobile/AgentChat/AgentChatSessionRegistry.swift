@@ -7,6 +7,8 @@ import Foundation
 @MainActor
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var sessionIDsByBinding: [AgentChatSessionBindingKey: Set<String>] = [:]
+    private var sessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -31,18 +33,52 @@ final class AgentChatSessionRegistry {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Matching records.
     func sessions(workspaceID: String?) -> [AgentChatSessionRecord] {
-        sweepDeadProcesses()
+        sweepDeadProcesses(workspaceID: workspaceID)
         return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
+    /// Sessions bound to a known set of workspace/surface ids, most recent
+    /// first. Used by mobile workspace-list serialization so historical
+    /// sessions outside the visible terminal set are not swept on every refresh.
+    func sessions(workspaceAndSurfaceIDs: [String: Set<String>]) -> [AgentChatSessionRecord] {
+        guard !workspaceAndSurfaceIDs.isEmpty else { return [] }
+        let sessionIDs = sessionIDs(matching: workspaceAndSurfaceIDs)
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        return sessionIDs
+            .compactMap { records[$0] }
+            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    /// Whether a specific visible terminal already has a live chat session.
+    ///
+    /// This is the title-detected adoption fast path: it preserves stale-process
+    /// sweeping, but bounds it to records already indexed to the visible binding.
+    func hasLiveSession(workspaceID: String, surfaceID: String) -> Bool {
+        let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let sessionIDs = sessionIDsByBinding[key], !sessionIDs.isEmpty else { return false }
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        return sessionIDs.contains { sessionID in
+            guard let record = records[sessionID] else { return false }
+            return record.state != .ended
+        }
+    }
+
     /// Marks sessions whose agent process died without a SessionEnd hook
     /// (crash, kill, closed terminal) as ended, so a missing Stop hook
     /// cannot wedge a session in "working" forever.
-    private func sweepDeadProcesses() {
-        for (sessionID, record) in records {
+    private func sweepDeadProcesses(
+        workspaceID: String? = nil,
+        sessionIDs: Set<String>? = nil
+    ) {
+        let candidates = sessionIDs ?? Set(records.keys)
+        for sessionID in candidates {
+            guard let record = records[sessionID] else { continue }
             guard record.state != .ended, let pid = record.pid else { continue }
+            if let workspaceID, record.workspaceID != workspaceID {
+                continue
+            }
             // ESRCH means the process is gone; EPERM means it exists but is
             // not signalable, which still counts as alive.
             if kill(pid_t(pid), 0) != 0, errno == ESRCH {
@@ -59,12 +95,21 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
-    /// Every session id the registry already tracks. Title-detected adoption
-    /// passes this to the transcript resolver so a second hook-bypassed claude
-    /// in the same directory resolves to a *different* (unclaimed) transcript
-    /// instead of colliding on the newest file.
+    /// Every session id the registry already tracks, including transcript
+    /// filename stems already attached to provisional records. Title-detected
+    /// adoption passes this to the transcript resolver so a second
+    /// hook-bypassed claude in the same directory resolves to a different
+    /// transcript instead of colliding on the newest file.
     func claimedSessionIDs() -> Set<String> {
-        Set(records.keys)
+        var claimed = Set(records.keys)
+        for record in records.values {
+            guard let transcriptPath = record.transcriptPath else { continue }
+            let transcriptSessionID = Self.transcriptSessionID(for: transcriptPath)
+            if !transcriptSessionID.isEmpty {
+                claimed.insert(transcriptSessionID)
+            }
+        }
+        return claimed
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,
@@ -97,8 +142,7 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
-        records[sessionID] = record
-        onRecordChanged?(record, previous)
+        setRecord(record, previous: previous)
     }
 
     /// A transcript tail can observe a completed assistant turn even when
@@ -127,7 +171,7 @@ final class AgentChatSessionRegistry {
             for entry in hookStore.entries(agentSource: source) {
                 guard records[entry.sessionID] == nil else { continue }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
-                records[entry.sessionID] = AgentChatSessionRecord(
+                let record = AgentChatSessionRecord(
                     sessionID: entry.sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
@@ -139,6 +183,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                setRecord(record, previous: nil, notify: false)
             }
         }
     }
@@ -165,10 +210,11 @@ final class AgentChatSessionRegistry {
         surfaceID: String,
         workingDirectory: String?,
         transcriptPath: String?,
+        titleHint: String? = nil,
         at timestamp: Date
     ) -> AgentChatSessionRecord {
         if let existing = records[sessionID] { return existing }
-        if let bound = records.values.first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+        if let bound = liveRecord(boundToSurfaceID: surfaceID) {
             return bound
         }
         let record = AgentChatSessionRecord(
@@ -181,10 +227,10 @@ final class AgentChatSessionRegistry {
             state: .idle,
             lastActivityAt: timestamp,
             title: nil,
+            titleHint: titleHint,
             pid: nil
         )
-        records[sessionID] = record
-        onRecordChanged?(record, nil)
+        setRecord(record, previous: nil)
         return record
     }
 
@@ -194,7 +240,10 @@ final class AgentChatSessionRegistry {
     /// - Parameter event: The hook event as published by the agent CLI.
     /// - Returns: The up-to-date record.
     @discardableResult
-    func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
+    func noteHookEvent(
+        _ event: WorkstreamEvent,
+        canonicalSessionIDForHookRecord: (AgentChatSessionRecord) -> String? = { _ in nil }
+    ) -> AgentChatSessionRecord {
         let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
         let kind = ChatAgentKind(source: event.source)
         var record = records[sessionID] ?? AgentChatSessionRecord(
@@ -248,9 +297,104 @@ final class AgentChatSessionRegistry {
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
-        records[sessionID] = record
-        onRecordChanged?(record, previous)
+        if let canonicalSessionID = canonicalSessionIDForHookRecord(record),
+           canonicalSessionID != sessionID,
+           var canonicalRecord = records[canonicalSessionID],
+           canonicalRecord.state != .ended {
+            let previousCanonical = canonicalRecord
+            let preservesTranscriptIdentity = canonicalRecord.transcriptPath.map {
+                Self.transcriptSessionID(for: $0) == sessionID
+            } ?? false
+            canonicalRecord.adoptHookRecord(
+                record,
+                preserveExistingTranscriptIdentity: preservesTranscriptIdentity
+            )
+            if let previous {
+                var endedRecord = previous
+                endedRecord.state = .ended
+                setRecord(endedRecord, previous: previous)
+                removeRecord(sessionID: sessionID)
+            }
+            setRecord(canonicalRecord, previous: previousCanonical)
+            return canonicalRecord
+        }
+        setRecord(record, previous: previous)
         return record
+    }
+
+    private func sessionIDs(matching workspaceAndSurfaceIDs: [String: Set<String>]) -> Set<String> {
+        var result: Set<String> = []
+        for (workspaceID, surfaceIDs) in workspaceAndSurfaceIDs {
+            for surfaceID in surfaceIDs {
+                let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                guard let ids = sessionIDsByBinding[key] else { continue }
+                result.formUnion(ids)
+            }
+        }
+        return result
+    }
+
+    /// The newest live session already bound to `surfaceID`, without sweeping
+    /// or sorting the full registry. Title-detected adoption calls this from
+    /// workspace-list refreshes, so the lookup must stay bounded to the
+    /// visible terminal being adopted.
+    func liveRecord(boundToSurfaceID surfaceID: String) -> AgentChatSessionRecord? {
+        guard let sessionIDs = sessionIDsBySurfaceID[surfaceID] else { return nil }
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        var newest: AgentChatSessionRecord?
+        for sessionID in sessionIDs {
+            guard let record = records[sessionID], record.state != .ended else { continue }
+            if newest.map({ record.lastActivityAt > $0.lastActivityAt }) ?? true {
+                newest = record
+            }
+        }
+        return newest
+    }
+
+    private func setRecord(
+        _ record: AgentChatSessionRecord,
+        previous: AgentChatSessionRecord?,
+        notify: Bool = true
+    ) {
+        if let previous {
+            removeIndexes(for: previous)
+        }
+        records[record.sessionID] = record
+        addIndexes(for: record)
+        if notify {
+            onRecordChanged?(record, previous)
+        }
+    }
+
+    private func removeRecord(sessionID: String) {
+        guard let record = records.removeValue(forKey: sessionID) else { return }
+        removeIndexes(for: record)
+    }
+
+    private func addIndexes(for record: AgentChatSessionRecord) {
+        if let surfaceID = record.surfaceID {
+            sessionIDsBySurfaceID[surfaceID, default: []].insert(record.sessionID)
+            if let workspaceID = record.workspaceID {
+                sessionIDsByBinding[AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID), default: []]
+                    .insert(record.sessionID)
+            }
+        }
+    }
+
+    private func removeIndexes(for record: AgentChatSessionRecord) {
+        if let surfaceID = record.surfaceID {
+            sessionIDsBySurfaceID[surfaceID]?.remove(record.sessionID)
+            if sessionIDsBySurfaceID[surfaceID]?.isEmpty == true {
+                sessionIDsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+            if let workspaceID = record.workspaceID {
+                let key = AgentChatSessionBindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                sessionIDsByBinding[key]?.remove(record.sessionID)
+                if sessionIDsByBinding[key]?.isEmpty == true {
+                    sessionIDsByBinding.removeValue(forKey: key)
+                }
+            }
+        }
     }
 
     /// Strips an agent-name prefix from prefixed workstream ids
@@ -261,6 +405,12 @@ final class AgentChatSessionRegistry {
             return String(id.dropFirst(prefix.count))
         }
         return id
+    }
+
+    private static func transcriptSessionID(for transcriptPath: String) -> String {
+        URL(fileURLWithPath: transcriptPath)
+            .deletingPathExtension()
+            .lastPathComponent
     }
 
     private static func nextState(

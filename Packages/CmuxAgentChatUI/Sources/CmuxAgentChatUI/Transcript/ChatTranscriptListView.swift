@@ -15,6 +15,7 @@ public struct ChatTranscriptListView: View {
     private let rows: [ChatTranscriptRow]
     private let expandedIDs: Set<String>
     private let agentState: ChatAgentState
+    private let transcriptAvailability: ChatTranscriptAvailability
     private let hasMoreHistory: Bool
     private let hasLoadedInitialHistory: Bool
     private let initialLoadFailed: Bool
@@ -48,6 +49,7 @@ public struct ChatTranscriptListView: View {
         rows: [ChatTranscriptRow],
         expandedIDs: Set<String>,
         agentState: ChatAgentState,
+        transcriptAvailability: ChatTranscriptAvailability = .available,
         hasMoreHistory: Bool,
         hasLoadedInitialHistory: Bool = true,
         initialLoadFailed: Bool = false,
@@ -59,6 +61,7 @@ public struct ChatTranscriptListView: View {
         self.rows = rows
         self.expandedIDs = expandedIDs
         self.agentState = agentState
+        self.transcriptAvailability = transcriptAvailability
         self.hasMoreHistory = hasMoreHistory
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
         self.initialLoadFailed = initialLoadFailed
@@ -70,34 +73,44 @@ public struct ChatTranscriptListView: View {
 
     public var body: some View {
         #if os(iOS)
-        ChatTranscriptTableView(
-            rows: rows,
-            expandedIDs: expandedIDs,
-            agentState: agentState,
-            hasMoreHistory: hasMoreHistory,
-            hasLoadedInitialHistory: hasLoadedInitialHistory,
-            initialLoadFailed: initialLoadFailed,
-            historyTruncatedAtHead: historyTruncatedAtHead,
-            actions: actions,
-            onReachTop: onReachTop,
-            onRetryInitialLoad: onRetryInitialLoad,
-            isAtBottom: $isAtBottom,
-            scrollToBottomRequest: scrollToBottomRequest
-        )
-        .overlay(alignment: .bottomTrailing) {
-            Group {
-                if !isAtBottom {
-                    ChatScrollToBottomButton {
-                        isAtBottom = true
-                        scrollToBottomRequest += 1
-                    }
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 8)
-                    .excludedFromKeyboardDismiss()
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                }
+        if usesViewportPlaceholder {
+            ZStack {
+                Color.clear
+                emptyPlaceholder
             }
-            .animation(.snappy(duration: 0.2), value: isAtBottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+        } else {
+            ChatTranscriptTableView(
+                rows: rows,
+                expandedIDs: expandedIDs,
+                agentState: agentState,
+                transcriptAvailability: transcriptAvailability,
+                hasMoreHistory: hasMoreHistory,
+                hasLoadedInitialHistory: hasLoadedInitialHistory,
+                initialLoadFailed: initialLoadFailed,
+                historyTruncatedAtHead: historyTruncatedAtHead,
+                actions: actions,
+                onReachTop: onReachTop,
+                onRetryInitialLoad: onRetryInitialLoad,
+                isAtBottom: $isAtBottom,
+                scrollToBottomRequest: scrollToBottomRequest
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if !isAtBottom {
+                        ChatScrollToBottomButton {
+                            isAtBottom = true
+                            scrollToBottomRequest += 1
+                        }
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 8)
+                        .excludedFromKeyboardDismiss()
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
+                .animation(.snappy(duration: 0.2), value: isAtBottom)
+            }
         }
         #else
         ScrollViewReader { proxy in
@@ -116,6 +129,10 @@ public struct ChatTranscriptListView: View {
     private var isWorking: Bool {
         if case .working = agentState { return true }
         return false
+    }
+
+    private var usesViewportPlaceholder: Bool {
+        rows.isEmpty && !hasMoreHistory && !historyTruncatedAtHead && !isWorking
     }
 
     private var scrollContent: some View {
@@ -181,26 +198,9 @@ public struct ChatTranscriptListView: View {
     @ViewBuilder
     private var emptyPlaceholder: some View {
         if initialLoadFailed {
-            VStack(spacing: 12) {
-                Text(
-                    String(
-                        localized: "chat.transcript.load_failed",
-                        defaultValue: "Couldn't load this conversation",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                Button(action: onRetryInitialLoad) {
-                    Text(
-                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
-                    )
-                    .font(.subheadline.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("ChatTranscriptRetry")
-            }
-            .padding(.vertical, 48)
+            ChatTranscriptLoadFailedPlaceholderView(onRetry: onRetryInitialLoad)
+        } else if transcriptAvailability == .pending {
+            ChatTranscriptPendingPlaceholderView()
         } else if hasLoadedInitialHistory {
             Text(
                 String(

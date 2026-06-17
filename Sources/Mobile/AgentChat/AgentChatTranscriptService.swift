@@ -22,9 +22,9 @@ final class AgentChatTranscriptService {
     private let resolver: AgentChatTranscriptResolver
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
-    /// Sessions whose transcript could not be resolved; skipped until an
-    /// explicit history request retries, so per-hook-event resolution
-    /// failures don't rescan the filesystem during tool storms.
+    /// Sessions whose recorded transcript path could not be read; skipped
+    /// until an explicit history request retries, so per-hook-event failures
+    /// don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
     /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
     /// surface that had no session yet, keyed by surface id. Bounds the
@@ -33,7 +33,6 @@ final class AgentChatTranscriptService {
     /// adoption removes the entry.
     private var detectionScanAt: [String: Date] = [:]
     private static let detectionScanThrottle: TimeInterval = 4
-    private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service.
     ///
@@ -84,7 +83,10 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
-        let record = registry.noteHookEvent(event)
+        let record = registry.noteHookEvent(
+            event,
+            canonicalSessionIDForHookRecord: Self.provisionalClaudeSessionID(for:)
+        )
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -107,7 +109,19 @@ final class AgentChatTranscriptService {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Wire descriptors, most recent first.
     func sessionDescriptors(workspaceID: String?) -> [ChatSessionDescriptor] {
-        registry.sessions(workspaceID: workspaceID).map(\.descriptor)
+        registry.sessions(workspaceID: workspaceID)
+            .map(\.descriptor)
+    }
+
+    /// Lists chat-capable sessions for known workspace/terminal ids.
+    ///
+    /// This is the bounded workspace-list path: unrelated historical records
+    /// are neither swept nor sorted.
+    func sessionDescriptors(
+        workspaceAndTerminalIDs: [String: Set<String>]
+    ) -> [ChatSessionDescriptor] {
+        sessionRecords(workspaceAndTerminalIDs: workspaceAndTerminalIDs)
+            .map(\.descriptor)
     }
 
     /// Lists raw session records for callers that must validate live
@@ -117,6 +131,14 @@ final class AgentChatTranscriptService {
     /// - Returns: Matching records, most recent first.
     func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
         registry.sessions(workspaceID: workspaceID)
+    }
+
+    /// Lists raw session records for known workspace/terminal ids so callers
+    /// can validate live terminal bindings before exposing descriptors.
+    func sessionRecords(
+        workspaceAndTerminalIDs: [String: Set<String>]
+    ) -> [AgentChatSessionRecord] {
+        registry.sessions(workspaceAndSurfaceIDs: workspaceAndTerminalIDs)
     }
 
     /// Adopts a Claude session cmux detected by terminal title but that
@@ -138,20 +160,24 @@ final class AgentChatTranscriptService {
         workingDirectory: String,
         titleHint: String? = nil
     ) -> Bool {
-        if let bound = registry.sessions(workspaceID: nil)
-            .first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+        if let bound = registry.liveRecord(boundToSurfaceID: surfaceID) {
+            let effectiveTitleHint = titleHint ?? bound.titleHint ?? bound.title
             registry.update(sessionID: bound.sessionID) { record in
                 record.workspaceID = workspaceID
                 record.surfaceID = surfaceID
                 record.workingDirectory = workingDirectory
+                if let titleHint, !titleHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    record.titleHint = titleHint
+                }
             }
             guard bound.transcriptPath == nil else { return true }
             if let resolved = newestClaudeTranscript(
                 workingDirectory: workingDirectory,
                 surfaceID: surfaceID,
                 excludingSessionID: bound.sessionID,
-                titleHint: titleHint,
-                forceScan: Self.isSpecificClaudeTitle(titleHint)
+                titleHint: effectiveTitleHint,
+                forceScan: Self.isSpecificClaudeTitle(effectiveTitleHint),
+                minimumModificationDate: bound.lastActivityAt.addingTimeInterval(-5)
             ) {
                 detectionScanAt.removeValue(forKey: surfaceID)
                 registry.update(sessionID: bound.sessionID) { record in
@@ -183,6 +209,7 @@ final class AgentChatTranscriptService {
                 surfaceID: surfaceID,
                 workingDirectory: workingDirectory,
                 transcriptPath: resolved.path,
+                titleHint: titleHint,
                 at: Date()
             )
             return true
@@ -194,6 +221,7 @@ final class AgentChatTranscriptService {
             surfaceID: surfaceID,
             workingDirectory: workingDirectory,
             transcriptPath: nil,
+            titleHint: titleHint,
             at: Date()
         )
         return true
@@ -229,24 +257,29 @@ final class AgentChatTranscriptService {
         // failed transcript resolution.
         failedResolutions.remove(sessionID)
         if record.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID),
+           record.canAwaitTranscript,
            let workingDirectory = record.workingDirectory,
            let surfaceID = record.surfaceID,
            let resolved = newestClaudeTranscript(
                workingDirectory: workingDirectory,
                surfaceID: surfaceID,
                excludingSessionID: sessionID,
-               titleHint: record.title,
-               forceScan: true
+               titleHint: record.title ?? record.titleHint,
+               forceScan: true,
+               minimumModificationDate: record.lastActivityAt.addingTimeInterval(-5)
            ) {
             registry.update(sessionID: sessionID) { $0.transcriptPath = resolved.path }
         }
         guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
-        if currentRecord.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID) {
-            return ChatHistoryPage(messages: [], hasMore: false)
+        guard let tailer = ensureTailer(for: currentRecord) else {
+            guard currentRecord.transcriptPath == nil,
+                  currentRecord.canAwaitTranscript else { return nil }
+            return ChatHistoryPage(
+                messages: [],
+                hasMore: false,
+                transcriptAvailability: .pending
+            )
         }
-        guard let tailer = ensureTailer(for: currentRecord) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
         if currentRecord.title == nil, let title = await tailer.title {
@@ -265,11 +298,12 @@ final class AgentChatTranscriptService {
                 "last_activity": record.lastActivityAt.timeIntervalSince1970,
                 "tailer_active": tailers[record.sessionID] != nil,
                 "resolution_failed": failedResolutions.contains(record.sessionID),
+                "transcript_availability": record.descriptor.transcriptAvailability.rawValue,
             ]
             entry["workspace_id"] = record.workspaceID
             entry["surface_id"] = record.surfaceID
             entry["transcript_path"] = record.transcriptPath
-            entry["is_provisional"] = Self.isProvisionalClaudeSessionID(record.sessionID)
+            entry["is_provisional"] = record.canAwaitTranscript
             if let pid = record.pid {
                 entry["pid"] = pid
                 entry["pid_alive"] = kill(pid_t(pid), 0) == 0
@@ -287,7 +321,7 @@ final class AgentChatTranscriptService {
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
         guard let path = resolver.transcriptPath(for: record) else {
-            if Self.isProvisionalClaudeSessionID(record.sessionID) {
+            if record.canAwaitTranscript {
                 return nil
             }
             failedResolutions.insert(record.sessionID)
@@ -366,8 +400,10 @@ final class AgentChatTranscriptService {
         }
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
-        // descriptor changed beyond the activity timestamp.
-        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
+        // descriptor changed beyond the activity timestamp. Transcript
+        // availability is part of the descriptor, so pending->available
+        // pushes an explicit source-state update to clients.
+        if transcriptBecameAvailable || Self.descriptorChangedMeaningfully(previous: previous, current: record) {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
@@ -391,7 +427,8 @@ final class AgentChatTranscriptService {
         surfaceID: String,
         excludingSessionID: String?,
         titleHint: String?,
-        forceScan: Bool
+        forceScan: Bool,
+        minimumModificationDate: Date? = nil
     ) -> (sessionID: String, path: String)? {
         let now = Date()
         if !forceScan,
@@ -407,16 +444,22 @@ final class AgentChatTranscriptService {
         return resolver.newestClaudeTranscript(
             workingDirectory: workingDirectory,
             excludingSessionIDs: claimed,
-            titleHint: titleHint
+            titleHint: titleHint,
+            minimumModificationDate: minimumModificationDate
         )
     }
 
     private static func provisionalClaudeSessionID(surfaceID: String) -> String {
-        provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
+        AgentChatSessionRecord.provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
     }
 
-    private static func isProvisionalClaudeSessionID(_ sessionID: String) -> Bool {
-        sessionID.hasPrefix(provisionalClaudeSessionIDPrefix)
+    private static func provisionalClaudeSessionID(for record: AgentChatSessionRecord) -> String? {
+        guard case .claude = record.agentKind,
+              !record.canAwaitTranscript,
+              let surfaceID = record.surfaceID else {
+            return nil
+        }
+        return provisionalClaudeSessionID(surfaceID: surfaceID)
     }
 
     private static func isSpecificClaudeTitle(_ title: String?) -> Bool {

@@ -11,25 +11,57 @@ public struct ChatHistoryPage: Sendable, Equatable, Codable {
     /// optional so existing agent payloads keep decoding unchanged.
     public let terminalBlocks: [TerminalCommandBlock]?
 
+    /// Whether the Mac has a transcript source for this page's session.
+    public let transcriptAvailability: ChatTranscriptAvailability
+
     /// Creates a history page.
     ///
     /// - Parameters:
     ///   - messages: Messages ordered by ascending seq.
     ///   - hasMore: Whether older history exists before this page.
     ///   - terminalBlocks: Command-blocks for terminal sessions, oldest first.
+    ///   - transcriptAvailability: Whether the transcript source is known.
     public init(
         messages: [ChatMessage],
         hasMore: Bool,
-        terminalBlocks: [TerminalCommandBlock]? = nil
+        terminalBlocks: [TerminalCommandBlock]? = nil,
+        transcriptAvailability: ChatTranscriptAvailability = .available
     ) {
         self.messages = messages
         self.hasMore = hasMore
         self.terminalBlocks = terminalBlocks
+        self.transcriptAvailability = transcriptAvailability
     }
 
     private enum CodingKeys: String, CodingKey {
         case messages
         case hasMore = "has_more"
         case terminalBlocks = "terminal_blocks"
+        case transcriptAvailability = "transcript_availability"
+    }
+
+    /// Decodes a history page, defaulting additive fields when older hosts omit them.
+    ///
+    /// - Parameter decoder: The decoder containing the page payload.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        messages = try container.decode([ChatMessage].self, forKey: .messages)
+        hasMore = try container.decode(Bool.self, forKey: .hasMore)
+        terminalBlocks = try container.decodeIfPresent([TerminalCommandBlock].self, forKey: .terminalBlocks)
+        transcriptAvailability = try container.decodeIfPresent(
+            ChatTranscriptAvailability.self,
+            forKey: .transcriptAvailability
+        ) ?? .available
+    }
+
+    /// Encodes a history page for transport to chat clients.
+    ///
+    /// - Parameter encoder: The encoder that receives the page payload.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(hasMore, forKey: .hasMore)
+        try container.encodeIfPresent(terminalBlocks, forKey: .terminalBlocks)
+        try container.encode(transcriptAvailability, forKey: .transcriptAvailability)
     }
 }
