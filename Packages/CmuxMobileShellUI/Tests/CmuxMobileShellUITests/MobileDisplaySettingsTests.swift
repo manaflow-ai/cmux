@@ -43,7 +43,7 @@ import Testing
     @Test func debugLayoutSettingsDefaultWithoutAWrite() throws {
         let defaults = try makeDefaults("debugLayoutDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(settings.unreadIndicatorLeftShift == 4.5)
+        #expect(settings.unreadIndicatorLeftShift == 8)
         #expect(settings.profilePictureLeftShift == 8)
         #expect(settings.profilePictureSize == 45)
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift") == nil)
