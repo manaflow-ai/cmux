@@ -1425,6 +1425,18 @@ extension Workspace {
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
+        // The bonsplit tab header only refreshes when `updateTab` is called; the writes
+        // above never reach it (`setPanelCustomTitle` skips the sync when there is no
+        // custom title), so push the restored title to the tab now, mirroring
+        // `updatePanelTitle`, instead of waiting for the next OSC title update.
+        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
         } else {
