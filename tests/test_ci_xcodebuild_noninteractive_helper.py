@@ -50,14 +50,19 @@ def main() -> int:
         check=False,
     )
 
-    if result.returncode != 7:
+    if result.returncode != 86:
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: expected wrapped command exit 7, got {result.returncode}")
+        print(f"FAIL: expected crash prompt exit 86, got {result.returncode}")
         return 1
-    if result.stdout.count("received=q") != 2:
+    if PROMPT not in result.stdout:
         print(result.stdout, end="")
-        print("FAIL: helper did not answer each crash prompt with q")
+        print("FAIL: helper did not preserve crash prompt output")
+        return 1
+    if "Swift crash prompt detected; terminating noninteractive child" not in result.stderr:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not report crash prompt termination")
         return 1
 
     line_buffered_child = textwrap.dedent(
@@ -83,14 +88,15 @@ def main() -> int:
             "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "1",
         },
     )
-    if line_buffered_result.returncode != 9:
+    if line_buffered_result.returncode != 86:
         print(line_buffered_result.stdout, end="")
         print(line_buffered_result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: expected line-buffered prompt child exit 9, got {line_buffered_result.returncode}")
+        print(f"FAIL: expected line-buffered crash prompt exit 86, got {line_buffered_result.returncode}")
         return 1
-    if "line_received=q" not in line_buffered_result.stdout:
+    if "Swift crash prompt detected; terminating noninteractive child" not in line_buffered_result.stderr:
         print(line_buffered_result.stdout, end="")
-        print("FAIL: helper did not answer a line-buffered crash prompt with q")
+        print(line_buffered_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not report line-buffered crash prompt termination")
         return 1
 
     timeout_child = textwrap.dedent(
@@ -171,7 +177,7 @@ def main() -> int:
             print("FAIL: helper did not write child output to log path")
             return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and idle-times out stuck children")
+    print("PASS: xcodebuild noninteractive helper terminates crash prompts and idle-times out stuck children")
     return 0
 
 
