@@ -1889,7 +1889,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
         notificationAuthorizationStatusProvider { [weak self] status in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self else {
                     completion(effects)
                     return
