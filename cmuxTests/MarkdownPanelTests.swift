@@ -515,12 +515,20 @@ final class MarkdownPanelTests: XCTestCase {
         // A still-loaded shell (WebContent process alive, just unpainted) must
         // not be torn down and reloaded when the view re-enters a window.
         coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
         coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
         coordinator.handleViewReenteredWindow()
 
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
     }
 
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {

@@ -735,14 +735,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// from the window WebKit can reclaim the WebContent process,
         /// leaving the panel permanently blank with no user-facing reload.
         func handleViewReenteredWindow() {
-            // A deliberate reattach is not a crash loop, so restore the full
-            // recovery budget. If the shell was lost while detached (WebContent
-            // process reclaimed, or the in-place recovery budget was exhausted),
-            // reload it so the document repaints instead of staying blank. A
-            // shell that is still loaded — alive but merely unpainted — is left
-            // intact; the host view's repaint nudge handles that case.
-            webContentProcessRecoveryAttempts = 0
+            // Only act when the shell was actually lost while detached
+            // (WebContent process reclaimed, or the in-place recovery budget
+            // exhausted). A still-loaded shell — alive but merely unpainted —
+            // is left intact; the host view's repaint nudge handles that case,
+            // and its per-payload crash budget must be preserved across this
+            // layout churn (see testMarkdownRendererKeepsRecoveryBudgetAfterShellReload).
             guard !isLoaded, !isShellLoading else { return }
+            // A deliberate reattach is not a crash loop, so restore the full
+            // recovery budget before reloading the blank shell so the document
+            // repaints instead of staying permanently blank.
+            webContentProcessRecoveryAttempts = 0
             loadShell(
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown
