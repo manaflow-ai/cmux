@@ -80,7 +80,8 @@ if [[ "$DIRECT_EXEC" == "1" ]]; then
   CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}" \
     "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
 else
-  /usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+  CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}" \
+    /usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
 fi
 OPEN_PID=$!
 

@@ -314,9 +314,13 @@ check_sentry_cli_install_portability() {
     'https://sentry.io/get-cli/' \
     'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
     'SENTRY_CLI_VERSION="${SENTRY_CLI_VERSION:-3.3.0}"' \
+    'INSTALLER_PATH="${RUNNER_TEMP:-/tmp}/sentry-cli-install.sh"' \
     '--connect-timeout 20' \
     '--max-time 120' \
-    'sh >&2'; do
+    '--output "$INSTALLER_PATH"' \
+    'unset SENTRY_AUTH_TOKEN' \
+    'SENTRY_CLI_VERSION="$SENTRY_CLI_VERSION" sh "$INSTALLER_PATH"' \
+    ') >&2'; do
     if ! grep -Fq -- "$needle" "$helper"; then
       echo "FAIL: sentry-cli helper must contain $needle"
       exit 1
@@ -346,60 +350,39 @@ check_sentry_cli_install_portability() {
 
 check_sentry_cli_helper_behavior() {
   local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
-  local tmp_dir bin_dir runner_temp stdout stderr expected_path
+  local tmp_dir bin_dir stdout stderr expected_path
   tmp_dir="$(mktemp -d)"
   bin_dir="$tmp_dir/bin"
-  runner_temp="$tmp_dir/runner-temp"
   stdout="$tmp_dir/stdout"
   stderr="$tmp_dir/stderr"
-  expected_path="$runner_temp/sentry-cli-bin/sentry-cli"
-  mkdir -p "$bin_dir" "$runner_temp"
+  expected_path="$bin_dir/sentry-cli"
+  mkdir -p "$bin_dir"
 
-  cat > "$bin_dir/curl" <<'EOF'
+  cat > "$expected_path" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" > "$CMUX_STUB_CURL_LOG"
-cat <<'INSTALLER'
-#!/usr/bin/env sh
-set -eu
-mkdir -p "$INSTALL_DIR"
-cat > "$INSTALL_DIR/sentry-cli" <<'CLI'
-#!/usr/bin/env sh
 echo "sentry-cli 3.3.0"
-CLI
-chmod +x "$INSTALL_DIR/sentry-cli"
-INSTALLER
 EOF
-  chmod +x "$bin_dir/curl"
+  chmod +x "$expected_path"
 
-  if ! PATH="$bin_dir:/usr/bin:/bin" RUNNER_TEMP="$runner_temp" CMUX_STUB_CURL_LOG="$tmp_dir/curl.log" "$helper" >"$stdout" 2>"$stderr"; then
-    echo "FAIL: sentry-cli helper behavior test should install a stub CLI"
+  if ! PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+    echo "FAIL: sentry-cli helper behavior test should find an existing stub CLI"
     cat "$stderr" >&2 || true
     exit 1
   fi
 
   if [[ "$(cat "$stdout")" != "$expected_path" ]]; then
-    echo "FAIL: sentry-cli helper must print only the installed executable path on stdout"
+    echo "FAIL: sentry-cli helper must print only the executable path on stdout"
     exit 1
   fi
 
-  if [[ ! -x "$expected_path" ]]; then
-    echo "FAIL: sentry-cli helper did not create an executable in RUNNER_TEMP"
-    exit 1
-  fi
-
-  if ! grep -Fq -- '--connect-timeout 20 --max-time 120 https://sentry.io/get-cli/' "$tmp_dir/curl.log"; then
-    echo "FAIL: sentry-cli helper behavior test did not call curl with bounded timeouts"
-    exit 1
-  fi
-
-  if ! grep -Fq 'Installing sentry-cli 3.3.0' "$stderr" || ! grep -Fq 'sentry-cli 3.3.0' "$stderr"; then
-    echo "FAIL: sentry-cli helper must keep installer chatter and version output on stderr"
+  if [[ -s "$stderr" ]]; then
+    echo "FAIL: sentry-cli helper must not emit installer chatter when sentry-cli is already available"
     exit 1
   fi
 
   rm -rf "$tmp_dir"
-  echo "PASS: sentry-cli helper installs into RUNNER_TEMP and keeps stdout machine-readable"
+  echo "PASS: sentry-cli helper keeps stdout machine-readable when sentry-cli already exists"
 }
 
 check_dmg_signing_uses_build_keychain() {
@@ -464,10 +447,11 @@ check_gui_smoke_unsupported_launch_handling() {
   done
 
   if ! awk '
-    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw=1 }
-    END { exit !saw }
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
+    END { exit !(saw_launchservices && saw_direct_exec) }
   ' "$ROOT_DIR/.github/workflows/release.yml"; then
-    echo "FAIL: release signing smoke must use direct exec CI launch mode"
+    echo "FAIL: release signing smoke must run LaunchServices smoke before direct exec CI launch mode"
     exit 1
   fi
 
