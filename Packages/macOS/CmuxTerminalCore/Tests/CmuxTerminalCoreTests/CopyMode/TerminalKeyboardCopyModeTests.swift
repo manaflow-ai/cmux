@@ -1,4 +1,4 @@
-import CmuxTerminalCopyMode
+import CmuxTerminalCore
 import Testing
 
 @Suite("Terminal keyboard copy mode resolver")

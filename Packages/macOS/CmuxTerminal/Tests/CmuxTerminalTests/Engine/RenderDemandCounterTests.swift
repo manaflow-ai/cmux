@@ -1,7 +1,7 @@
 import CmuxTerminalCore
 import Testing
 
-@testable import CmuxTerminalEngine
+@testable import CmuxTerminal
 
 @Suite("Render demand counter")
 struct RenderDemandCounterTests {

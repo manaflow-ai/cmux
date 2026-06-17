@@ -1,5 +1,5 @@
 import XCTest
-@testable import CMUXPasteboardFidelity
+@testable import CmuxTerminal
 
 final class PasteboardTextFidelityTests: XCTestCase {
     func testPrefersPlainTextWhenRichTextUsesQuestionMarkSubstitution() {

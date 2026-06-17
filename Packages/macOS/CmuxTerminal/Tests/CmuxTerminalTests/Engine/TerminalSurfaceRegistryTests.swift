@@ -3,7 +3,7 @@ import Foundation
 import GhosttyKit
 import Testing
 
-@testable import CmuxTerminalEngine
+@testable import CmuxTerminal
 
 /// Minimal registered-surface stand-in: identity plus focus placement,
 /// matching exactly what the registry reads through `TerminalSurfacing`.

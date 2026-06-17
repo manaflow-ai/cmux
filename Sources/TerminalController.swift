@@ -9,8 +9,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -22,7 +21,6 @@ import Bonsplit
 import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
-import CmuxTerminal
 import CmuxWorkspaces
 
 extension Notification.Name {

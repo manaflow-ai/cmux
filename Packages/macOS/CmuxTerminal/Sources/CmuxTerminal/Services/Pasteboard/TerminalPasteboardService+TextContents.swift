@@ -1,7 +1,6 @@
 public import AppKit
 public import CmuxTerminalCore
 public import GhosttyKit
-internal import CMUXPasteboardFidelity
 internal import UniformTypeIdentifiers
 
 extension TerminalPasteboardService: TerminalClipboardReading {

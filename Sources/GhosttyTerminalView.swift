@@ -4,9 +4,6 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
-import CmuxTerminalEngine
-import CmuxTerminalServices
-import CmuxTerminalCopyMode
 import CmuxSocketControl
 import CmuxWorkspaces
 import CmuxSettings
@@ -25,7 +22,6 @@ import Sentry
 import Bonsplit
 import CMUXAgentLaunch
 import CMUXMobileCore
-import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
@@ -238,7 +234,7 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
+    CmuxTerminalCore.terminalKeyboardCopyModeShouldBypassForShortcut(
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
     )
 }
@@ -250,7 +246,7 @@ func terminalKeyboardCopyModeAction(
     hasSelection: Bool,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
+    CmuxTerminalCore.terminalKeyboardCopyModeAction(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
@@ -269,7 +265,7 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
+    CmuxTerminalCore.terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),

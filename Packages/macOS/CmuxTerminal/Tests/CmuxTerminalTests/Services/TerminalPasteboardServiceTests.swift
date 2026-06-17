@@ -5,7 +5,7 @@ import GhosttyKit
 import Testing
 import UniformTypeIdentifiers
 
-@testable import CmuxTerminalServices
+@testable import CmuxTerminal
 
 /// A scratch pasteboard with a unique name, released when the test ends.
 private final class ScratchPasteboard {

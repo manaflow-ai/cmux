@@ -10,8 +10,7 @@ import CmuxControlSocket
 import CmuxIPCService
 import CmuxNotifications
 import CmuxTerminalCore
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -31,7 +30,6 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
-import CmuxTerminal
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
