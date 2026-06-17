@@ -3,6 +3,7 @@ import CmuxRemoteSession
 import CmuxCore
 import CmuxAuthRuntime
 import CmuxFeedback
+import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxPanes
@@ -130,6 +131,10 @@ class TerminalController {
     // with the legacy dispatcher), so the former `nonisolated` is gone. The
     // package type keeps its internal lock for its own tested contract.
     let socketFastPathState = SocketFastPathState()
+    // Stateless sidebar-metadata/command argument parser (CmuxSidebar).
+    // Pure transforms over the raw arg string; holds no state and reaches no
+    // app singletons, so the `report_*`/sidebar-mutation handlers forward to it.
+    private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -259,6 +264,17 @@ class TerminalController {
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
+    /// Stateless browser-control logic (JS builders, value normalization,
+    /// diagnostics, failure classification) extracted to `CmuxBrowser`.
+    /// The per-surface mutable state and WebKit evaluation seam stay here.
+    private nonisolated let v2BrowserControl = BrowserControlService(
+        evalEnvelope: BrowserEvalEnvelope(
+            typeKey: TerminalController.v2BrowserEvalEnvelopeTypeKey,
+            valueKey: TerminalController.v2BrowserEvalEnvelopeValueKey,
+            typeUndefined: TerminalController.v2BrowserEvalEnvelopeTypeUndefined,
+            typeValue: TerminalController.v2BrowserEvalEnvelopeTypeValue
+        )
+    )
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
@@ -5546,40 +5562,11 @@ class TerminalController {
     }
 
     private nonisolated func v2JSONLiteral(_ value: Any) -> String {
-        if let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
-           let text = String(data: data, encoding: .utf8),
-           text.count >= 2 {
-            return String(text.dropFirst().dropLast())
-        }
-        if let s = value as? String {
-            return "\"\(s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
-        }
-        return "null"
+        v2BrowserControl.jsonLiteral(value)
     }
 
     private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
-        guard let value else { return NSNull() }
-        if value is V2BrowserUndefinedSentinel {
-            return [
-                Self.v2BrowserEvalEnvelopeTypeKey: Self.v2BrowserEvalEnvelopeTypeUndefined,
-                Self.v2BrowserEvalEnvelopeValueKey: NSNull()
-            ]
-        }
-        if value is NSNull { return NSNull() }
-        if let v = value as? String { return v }
-        if let v = value as? NSNumber { return v }
-        if let v = value as? Bool { return v }
-        if let dict = value as? [String: Any] {
-            var out: [String: Any] = [:]
-            for (k, v) in dict {
-                out[k] = v2NormalizeJSValue(v)
-            }
-            return out
-        }
-        if let arr = value as? [Any] {
-            return arr.map { v2NormalizeJSValue($0) }
-        }
-        return String(describing: value)
+        v2BrowserControl.normalizeJSValue(value) { $0 is V2BrowserUndefinedSentinel }
     }
 
     enum V2JavaScriptResult {
@@ -5590,16 +5577,7 @@ class TerminalController {
     /// WKError's localizedDescription for JS exceptions is the useless generic
     /// "A JavaScript exception occurred"; the real exception text lives in userInfo.
     private static func v2DescribeJavaScriptError(_ error: Error) -> String {
-        let nsError = error as NSError
-        guard let exceptionMessage = nsError.userInfo["WKJavaScriptExceptionMessage"] as? String,
-              !exceptionMessage.isEmpty else {
-            return error.localizedDescription
-        }
-        var detail = exceptionMessage
-        if let line = nsError.userInfo["WKJavaScriptExceptionLineNumber"] as? Int, line > 0 {
-            detail += " (line \(line))"
-        }
-        return detail
+        BrowserControlService().describeJavaScriptError(error)
     }
 
     /// True when a page-world JS failure looks like a CSP block of eval/function
@@ -5610,11 +5588,7 @@ class TerminalController {
     /// script performed before throwing and could return a value from the wrong
     /// JS context.
     private nonisolated static func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
-        let lower = message.lowercased()
-        return lower.contains("unsafe-eval")
-            || lower.contains("content security policy")
-            || lower.contains("blocked by csp")
-            || lower.contains("refused to evaluate")
+        BrowserControlService().failureLooksLikeCSPEvalBlock(message)
     }
 
     /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
@@ -6517,69 +6491,7 @@ class TerminalController {
         browserPanel: BrowserPanel,
         selector: String
     ) -> [String: Any] {
-        let selectorLiteral = v2JSONLiteral(selector)
-        let script = """
-        (() => {
-          const __selector = \(selectorLiteral);
-          const __normalize = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
-          const __isVisible = (el) => {
-            try {
-              if (!el) return false;
-              const style = getComputedStyle(el);
-              const rect = el.getBoundingClientRect();
-              if (!style || !rect) return false;
-              if (rect.width <= 0 || rect.height <= 0) return false;
-              if (style.display === 'none' || style.visibility === 'hidden') return false;
-              if (parseFloat(style.opacity || '1') <= 0.01) return false;
-              return true;
-            } catch (_) {
-              return false;
-            }
-          };
-          const __describe = (el) => {
-            const tag = String(el.tagName || '').toLowerCase();
-            const id = __normalize(el.id || '');
-            const klass = __normalize(el.className || '').split(/\\s+/).filter(Boolean).slice(0, 2).join('.');
-            let out = tag || 'element';
-            if (id) out += '#' + id;
-            if (klass) out += '.' + klass;
-            return out;
-          };
-          try {
-            const __nodes = Array.from(document.querySelectorAll(__selector));
-            const __visible = __nodes.filter(__isVisible);
-            const __sample = __nodes.slice(0, 6).map((el, idx) => ({
-              index: idx,
-              descriptor: __describe(el),
-              role: __normalize(el.getAttribute('role') || ''),
-              visible: __isVisible(el),
-              text: __normalize(el.innerText || el.textContent || '').slice(0, 120)
-            }));
-            const __snapshotExcerpt = __sample.map((row) => {
-              const suffix = row.text ? ` \"${row.text}\"` : '';
-              return `- ${row.descriptor}${suffix}`;
-            }).join('\\n');
-            return {
-              ok: true,
-              selector: __selector,
-              count: __nodes.length,
-              visible_count: __visible.length,
-              sample: __sample,
-              snapshot_excerpt: __snapshotExcerpt,
-              title: __normalize(document.title || ''),
-              url: String(location.href || ''),
-              body_excerpt: document.body ? __normalize(document.body.innerText || '').slice(0, 400) : ''
-            };
-          } catch (err) {
-            return {
-              ok: false,
-              selector: __selector,
-              error: 'invalid_selector',
-              details: String((err && err.message) || err || '')
-            };
-          }
-        })()
-        """
+        let script = v2BrowserControl.notFoundDiagnosticsScript(selector: selector)
 
         switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 4.0) {
         case .failure(let message):
@@ -6620,14 +6532,11 @@ class TerminalController {
         let count = (data["match_count"] as? Int) ?? (data["match_count"] as? NSNumber)?.intValue ?? 0
         let visibleCount = (data["visible_match_count"] as? Int) ?? (data["visible_match_count"] as? NSNumber)?.intValue ?? 0
 
-        let message: String
-        if count > 0 && visibleCount == 0 {
-            message = "Element \"\(selector)\" is present but not visible."
-        } else if count > 1 {
-            message = "Selector \"\(selector)\" matched multiple elements."
-        } else {
-            message = "Element \"\(selector)\" not found or not visible. Run 'browser snapshot' to see current page elements."
-        }
+        let message = v2BrowserControl.elementNotFoundMessage(
+            selector: selector,
+            matchCount: count,
+            visibleCount: visibleCount
+        )
 
         return .err(code: "not_found", message: message, data: data)
     }
@@ -8281,47 +8190,7 @@ class TerminalController {
     ) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let script = """
-            (() => {
-              const __cmuxCssPath = (el) => {
-                if (!el || el.nodeType !== 1) return null;
-                if (el.id) return '#' + CSS.escape(el.id);
-                const parts = [];
-                let cur = el;
-                while (cur && cur.nodeType === 1) {
-                  let part = String(cur.tagName || '').toLowerCase();
-                  if (!part) break;
-                  if (cur.id) {
-                    part += '#' + CSS.escape(cur.id);
-                    parts.unshift(part);
-                    break;
-                  }
-                  const tag = part;
-                  let siblings = cur.parentElement ? Array.from(cur.parentElement.children).filter((n) => String(n.tagName || '').toLowerCase() === tag) : [];
-                  if (siblings.length > 1) {
-                    const pos = siblings.indexOf(cur) + 1;
-                    part += `:nth-of-type(${pos})`;
-                  }
-                  parts.unshift(part);
-                  cur = cur.parentElement;
-                }
-                return parts.join(' > ');
-              };
-
-              const __cmuxFound = (() => {
-            \(finderBody)
-              })();
-              if (!__cmuxFound) return { ok: false, error: 'not_found' };
-              const selector = __cmuxCssPath(__cmuxFound);
-              if (!selector) return { ok: false, error: 'not_found' };
-              return {
-                ok: true,
-                selector,
-                tag: String(__cmuxFound.tagName || '').toLowerCase(),
-                text: String(__cmuxFound.textContent || '').trim()
-              };
-            })()
-            """
+            let script = v2BrowserControl.findScript(finderBody: finderBody)
 
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
@@ -8366,55 +8235,8 @@ class TerminalController {
         }
         let name = v2String(params, "name")?.lowercased()
         let exact = v2Bool(params, "exact") ?? false
-        let roleLiteral = v2JSONLiteral(role)
-        let nameLiteral = name.map(v2JSONLiteral) ?? "null"
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __targetRole = String(\(roleLiteral)).toLowerCase();
-                const __targetName = \(nameLiteral);
-                const __exact = \(exactLiteral);
-                const __implicitRole = (el) => {
-                  const tag = String(el.tagName || '').toLowerCase();
-                  if (tag === 'button') return 'button';
-                  if (tag === 'a' && el.hasAttribute('href')) return 'link';
-                  if (tag === 'input') {
-                    const type = String(el.getAttribute('type') || 'text').toLowerCase();
-                    if (type === 'checkbox') return 'checkbox';
-                    if (type === 'radio') return 'radio';
-                    if (type === 'submit' || type === 'button') return 'button';
-                    return 'textbox';
-                  }
-                  if (tag === 'textarea') return 'textbox';
-                  if (tag === 'select') return 'combobox';
-                  return null;
-                };
-                const __nameFor = (el) => {
-                  const aria = String(el.getAttribute('aria-label') || '').trim();
-                  if (aria) return aria.toLowerCase();
-                  const labelledBy = String(el.getAttribute('aria-labelledby') || '').trim();
-                  if (labelledBy) {
-                    const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => String(n.textContent || '').trim()).join(' ').trim();
-                    if (text) return text.toLowerCase();
-                  }
-                  const txt = String(el.innerText || el.textContent || '').trim();
-                  if (txt) return txt.toLowerCase();
-                  if ('value' in el) {
-                    const v = String(el.value || '').trim();
-                    if (v) return v.toLowerCase();
-                  }
-                  return '';
-                };
-                const __nodes = Array.from(document.querySelectorAll('*'));
-                return __nodes.find((el) => {
-                  const explicit = String(el.getAttribute('role') || '').toLowerCase();
-                  const resolved = explicit || __implicitRole(el) || '';
-                  if (resolved !== __targetRole) return false;
-                  if (__targetName == null) return true;
-                  const currentName = __nameFor(el);
-                  return __exact ? (currentName === __targetName) : currentName.includes(__targetName);
-                }) || null;
-        """
+        let finder = v2BrowserControl.findRoleFinderBody(role: role, name: name, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8433,20 +8255,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
         let exact = v2Bool(params, "exact") ?? false
-        let textLiteral = v2JSONLiteral(text)
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __target = String(\(textLiteral));
-                const __exact = \(exactLiteral);
-                const __norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const __nodes = Array.from(document.querySelectorAll('body *'));
-                return __nodes.find((el) => {
-                  const v = __norm(el.innerText || el.textContent || '');
-                  if (!v) return false;
-                  return __exact ? (v === __target) : v.includes(__target);
-                }) || null;
-        """
+        let finder = v2BrowserControl.findTextFinderBody(text: text, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8461,25 +8271,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing label", data: nil)
         }
         let exact = v2Bool(params, "exact") ?? false
-        let labelLiteral = v2JSONLiteral(label)
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __target = String(\(labelLiteral));
-                const __exact = \(exactLiteral);
-                const __norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const __labels = Array.from(document.querySelectorAll('label'));
-                const __label = __labels.find((el) => {
-                  const v = __norm(el.innerText || el.textContent || '');
-                  return __exact ? (v === __target) : v.includes(__target);
-                });
-                if (!__label) return null;
-                const htmlFor = String(__label.getAttribute('for') || '').trim();
-                if (htmlFor) {
-                  return document.getElementById(htmlFor);
-                }
-                return __label.querySelector('input,textarea,select,button,[contenteditable="true"]');
-        """
+        let finder = v2BrowserControl.findLabelFinderBody(label: label, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8494,19 +8287,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing placeholder", data: nil)
         }
         let exact = v2Bool(params, "exact") ?? false
-        let placeholderLiteral = v2JSONLiteral(placeholder)
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __target = String(\(placeholderLiteral));
-                const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[placeholder]'));
-                return __nodes.find((el) => {
-                  const p = String(el.getAttribute('placeholder') || '').trim().toLowerCase();
-                  if (!p) return false;
-                  return __exact ? (p === __target) : p.includes(__target);
-                }) || null;
-        """
+        let finder = v2BrowserControl.findPlaceholderFinderBody(placeholder: placeholder, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8521,19 +8303,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing alt text", data: nil)
         }
         let exact = v2Bool(params, "exact") ?? false
-        let altLiteral = v2JSONLiteral(alt)
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __target = String(\(altLiteral));
-                const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[alt]'));
-                return __nodes.find((el) => {
-                  const a = String(el.getAttribute('alt') || '').trim().toLowerCase();
-                  if (!a) return false;
-                  return __exact ? (a === __target) : a.includes(__target);
-                }) || null;
-        """
+        let finder = v2BrowserControl.findAltFinderBody(alt: alt, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8548,19 +8319,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing title", data: nil)
         }
         let exact = v2Bool(params, "exact") ?? false
-        let titleLiteral = v2JSONLiteral(title)
-        let exactLiteral = exact ? "true" : "false"
 
-        let finder = """
-                const __target = String(\(titleLiteral));
-                const __exact = \(exactLiteral);
-                const __nodes = Array.from(document.querySelectorAll('[title]'));
-                return __nodes.find((el) => {
-                  const t = String(el.getAttribute('title') || '').trim().toLowerCase();
-                  if (!t) return false;
-                  return __exact ? (t === __target) : t.includes(__target);
-                }) || null;
-        """
+        let finder = v2BrowserControl.findTitleFinderBody(title: title, exact: exact)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8574,20 +8334,7 @@ class TerminalController {
         guard let testId = v2String(params, "testid") ?? v2String(params, "test_id") ?? v2String(params, "value") else {
             return .err(code: "invalid_params", message: "Missing testid", data: nil)
         }
-        let testIdLiteral = v2JSONLiteral(testId)
-
-        let finder = """
-                const __target = String(\(testIdLiteral));
-                const __selectors = ['[data-testid]', '[data-test-id]', '[data-test]'];
-                for (const sel of __selectors) {
-                  const nodes = Array.from(document.querySelectorAll(sel));
-                  const found = nodes.find((el) => {
-                    return String(el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-test') || '') === __target;
-                  });
-                  if (found) return found;
-                }
-                return null;
-        """
+        let finder = v2BrowserControl.findTestIdFinderBody(testId: testId)
 
         return v2BrowserFindWithScript(
             params: params,
@@ -8606,14 +8353,7 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              return { ok: true, selector: \(selectorLiteral), text: String(el.textContent || '').trim() };
-            })()
-            """
+            let script = v2BrowserControl.findFirstScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -8647,17 +8387,7 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const list = document.querySelectorAll(\(selectorLiteral));
-              if (!list || list.length === 0) return { ok: false, error: 'not_found' };
-              const idx = list.length - 1;
-              const el = list[idx];
-              const finalSelector = `${\(selectorLiteral)}:nth-of-type(${idx + 1})`;
-              return { ok: true, selector: finalSelector, text: String(el.textContent || '').trim() };
-            })()
-            """
+            let script = v2BrowserControl.findLastScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -8697,20 +8427,7 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const list = Array.from(document.querySelectorAll(\(selectorLiteral)));
-              if (!list.length) return { ok: false, error: 'not_found' };
-              let idx = \(index);
-              if (idx < 0) idx = list.length + idx;
-              if (idx < 0 || idx >= list.length) return { ok: false, error: 'not_found' };
-              const el = list[idx];
-              const nth = idx + 1;
-              const finalSelector = `${\(selectorLiteral)}:nth-of-type(${nth})`;
-              return { ok: true, selector: finalSelector, index: idx, text: String(el.textContent || '').trim() };
-            })()
-            """
+            let script = v2BrowserControl.findNthScript(selector: selector, index: index)
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -10267,7 +9984,7 @@ class TerminalController {
             } else {
                 requestedSteps = nil
             }
-            guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+            guard AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
                 return .err(
                     code: "not_found",
                     message: "No mounted sidebar for window_id",
@@ -10351,7 +10068,7 @@ class TerminalController {
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
@@ -10377,7 +10094,7 @@ class TerminalController {
                 pathSample.append(targetTabId.uuidString)
             }
             let tickOK: Bool = v2MainSync {
-                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
@@ -10391,7 +10108,7 @@ class TerminalController {
         }
 
         v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
         }
@@ -13022,149 +12739,15 @@ class TerminalController {
     // MARK: - Option Parsing (sidebar metadata commands)
 
     private nonisolated static func tokenizeArgs(_ args: String) -> [String] {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var tokens: [String] = []
-        var current = ""
-        var inQuote = false
-        var quoteChar: Character = "\""
-        var cursor = trimmed.startIndex
-
-        while cursor < trimmed.endIndex {
-            let char = trimmed[cursor]
-            if inQuote {
-                if char == quoteChar {
-                    inQuote = false
-                    cursor = trimmed.index(after: cursor)
-                    continue
-                }
-                if char == "\\" {
-                    let nextIndex = trimmed.index(after: cursor)
-                    if nextIndex < trimmed.endIndex {
-                        let next = trimmed[nextIndex]
-                        switch next {
-                        case "n":
-                            current.append("\n")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "r":
-                            current.append("\r")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "t":
-                            current.append("\t")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "\"", "'", "\\":
-                            current.append(next)
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        default:
-                            break
-                        }
-                    }
-                }
-                current.append(char)
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char == "'" || char == "\"" {
-                inQuote = true
-                quoteChar = char
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            current.append(char)
-            cursor = trimmed.index(after: cursor)
-        }
-
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
+        SidebarMetadataArgumentParser().tokenize(args)
     }
 
     private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var stopParsingOptions = false
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if stopParsingOptions {
-                positional.append(token)
-            } else if token == "--" {
-                stopParsingOptions = true
-            } else if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptions(args)
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if token == "--" {
-                i += 1
-                continue
-            }
-            if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptionsNoStop(args)
     }
 
     private func resolveTabForReport(_ args: String) -> Tab? {
@@ -13197,20 +12780,19 @@ class TerminalController {
     private func parseSidebarMutationTabTarget(
         options: [String: String]
     ) -> (target: SidebarMutationTabTarget?, error: String?) {
-        if let rawTabArg = options["tab"] {
-            let tabArg = rawTabArg.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !tabArg.isEmpty else {
-                return (nil, "ERROR: Tab not found")
-            }
-            if let tabId = UUID(uuidString: tabArg) {
-                return (.workspace(tabId), nil)
-            }
-            if let index = Int(tabArg), index >= 0 {
-                return (.index(index), nil)
-            }
-            return (nil, "ERROR: Tab not found")
+        let resolution = sidebarMetadataArgumentParser.parseMutationTabTarget(options: options)
+        let target: SidebarMutationTabTarget?
+        switch resolution.target {
+        case nil:
+            target = nil
+        case .selected:
+            target = .selected
+        case .workspace(let id):
+            target = .workspace(id)
+        case .index(let index):
+            target = .index(index)
         }
-        return (.selected, nil)
+        return (target, resolution.error)
     }
 
     private func resolveSidebarMutationTab(_ target: SidebarMutationTabTarget) -> Tab? {
@@ -13243,37 +12825,19 @@ class TerminalController {
     }
 
     private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
-        switch raw.lowercased() {
-        case "plain":
-            return .plain
-        case "markdown", "md":
-            return .markdown
-        default:
-            return nil
-        }
+        sidebarMetadataArgumentParser.parseMetadataFormat(raw)
     }
 
     private func normalizedOptionValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        sidebarMetadataArgumentParser.normalizedOptionValue(value)
     }
 
     private func parseOptionalPanelIdOption(
         options: [String: String],
         usage: String
     ) -> (panelId: UUID?, error: String?) {
-        guard let rawPanelArg = options["panel"] ?? options["surface"] else {
-            return (nil, nil)
-        }
-        let panelArg = rawPanelArg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !panelArg.isEmpty else {
-            return (nil, "ERROR: Missing panel id — usage: \(usage)")
-        }
-        guard let panelId = UUID(uuidString: panelArg) else {
-            return (nil, "ERROR: Invalid panel id '\(rawPanelArg)'")
-        }
-        return (panelId, nil)
+        let result = sidebarMetadataArgumentParser.parseOptionalPanelId(options: options, usage: usage)
+        return (result.panelId, result.error)
     }
 
     private func scheduleSidebarMutation(
@@ -13507,12 +13071,7 @@ class TerminalController {
     }
 
     private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
-        guard let separatorRange = args.range(of: " -- ") else {
-            return (args, nil)
-        }
-        let optionsPart = String(args[..<separatorRange.lowerBound])
-        let markdownPart = String(args[separatorRange.upperBound...])
-        return (optionsPart, markdownPart)
+        sidebarMetadataArgumentParser.splitMetadataBlockArgs(args)
     }
 
     private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
