@@ -2445,13 +2445,17 @@ final class TerminalOutputCollector {
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    await collector.waitForLines(1)
+    for _ in 0..<200 where collector.lines.count < 1 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    await collector.waitForLines(2)
+    for _ in 0..<200 where collector.lines.isEmpty {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
 
     #expect(collector.lines == [
         oldGridText,
@@ -2543,10 +2547,9 @@ final class TerminalOutputCollector {
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    // This router coalesces its replay + live render-grid event into a single
-    // collected chunk, so wait for exactly one line (matching the assertion
-    // below); waiting for two would suspend forever.
-    await collector.waitForLines(1)
+    for _ in 0..<200 where collector.lines.count < 2 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
 
     let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
     #expect(collector.lines == [liveText])
