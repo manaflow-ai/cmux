@@ -1052,7 +1052,7 @@ struct BrowserPanelView: View {
             isAddressBarFocused: addressBarFocused,
             isAutoFocusModeSuppressedUntilFocusGain: panel.isBrowserAutoFocusModeSuppressedUntilFocusGain
         ) {
-            panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: false)
+            panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: true)
         }
     }
 
