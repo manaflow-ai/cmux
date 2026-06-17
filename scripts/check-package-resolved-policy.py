@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from fnmatch import fnmatchcase
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -33,13 +34,17 @@ SKIPPED_DIRS = {
 
 
 def git_ls_files(*args: str) -> list[str]:
+    return [line for line in git_stdout("ls-files", *args).splitlines() if line]
+
+
+def git_stdout(*args: str) -> str:
     result = subprocess.run(
-        ["git", "ls-files", *args],
+        ["git", *args],
         check=True,
         stdout=subprocess.PIPE,
         text=True,
     )
-    return [line for line in result.stdout.splitlines() if line]
+    return result.stdout
 
 
 def is_allowed_vendor_path(path: str) -> bool:
@@ -86,6 +91,10 @@ def package_graph(manifests: dict[str, Path]) -> dict[str, tuple[bool, list[str]
     return graph
 
 
+def package_dependency_calls(text: str) -> list[str]:
+    return [" ".join(dependency.split()) for dependency in PACKAGE_DEPENDENCY_RE.findall(text)]
+
+
 def package_roots_requiring_lockfiles() -> set[str]:
     all_manifests = tracked_package_manifests(include_allowed_vendor=True)
     cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
@@ -119,6 +128,44 @@ def package_lockfile_path(root: str) -> str:
     return f"{root}/Package.resolved"
 
 
+def base_ref() -> str:
+    if override := os.environ.get("PACKAGE_RESOLVED_POLICY_BASE_REF"):
+        return override
+    if github_base := os.environ.get("GITHUB_BASE_REF"):
+        return f"origin/{github_base}"
+    return "origin/main"
+
+
+def merge_base_with_base_ref() -> str | None:
+    try:
+        return git_stdout("merge-base", base_ref(), "HEAD").strip()
+    except subprocess.CalledProcessError:
+        if os.environ.get("GITHUB_BASE_REF") or os.environ.get(
+            "PACKAGE_RESOLVED_POLICY_BASE_REF"
+        ):
+            raise
+        return None
+
+
+def changed_files_since(merge_base: str | None) -> set[str]:
+    if merge_base is None:
+        return set()
+    return set(git_stdout("diff", "--name-only", f"{merge_base}..HEAD").splitlines())
+
+
+def file_text_at(ref: str, path: str) -> str:
+    try:
+        return git_stdout("show", f"{ref}:{path}")
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def package_dependency_calls_changed(manifest: Path, merge_base: str) -> bool:
+    current = package_dependency_calls(manifest.read_text(encoding="utf-8"))
+    previous = package_dependency_calls(file_text_at(merge_base, manifest.as_posix()))
+    return current != previous
+
+
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile == XCODE_PACKAGE_RESOLVED:
         return True
@@ -148,8 +195,12 @@ def ignores_package_resolved(gitignore: Path) -> bool:
 
 def main() -> int:
     errors: list[str] = []
-    roots = set(tracked_package_manifests(include_allowed_vendor=False))
+    cmux_manifests = tracked_package_manifests(include_allowed_vendor=False)
+    roots = set(cmux_manifests)
     tracked_lockfiles = set(git_ls_files("*Package.resolved"))
+    required_lockfile_roots = package_roots_requiring_lockfiles()
+    merge_base = merge_base_with_base_ref()
+    changed_files = changed_files_since(merge_base)
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
         rel = gitignore.as_posix()
@@ -165,12 +216,30 @@ def main() -> int:
             f"{rel} ignores Package.resolved. cmux-owned SwiftPM lockfiles must be tracked."
         )
 
-    for expected_root in sorted(package_roots_requiring_lockfiles()):
+    for expected_root in sorted(required_lockfile_roots):
         expected_lockfile = package_lockfile_path(expected_root)
         if expected_lockfile in tracked_lockfiles:
             continue
         errors.append(
             f"Missing Package.resolved for SwiftPM package with remote pins: {expected_lockfile}"
+        )
+
+    for root, manifest in sorted(cmux_manifests.items()):
+        if merge_base is None or manifest.as_posix() not in changed_files:
+            continue
+        expected_lockfile = package_lockfile_path(root)
+        has_or_requires_lockfile = (
+            root in required_lockfile_roots or expected_lockfile in tracked_lockfiles
+        )
+        if not has_or_requires_lockfile:
+            continue
+        if not package_dependency_calls_changed(manifest, merge_base):
+            continue
+        if expected_lockfile in changed_files:
+            continue
+        errors.append(
+            f"{manifest.as_posix()} changed SwiftPM package dependencies without "
+            f"matching Package.resolved diff: {expected_lockfile}"
         )
 
     for lockfile in tracked_lockfiles:
