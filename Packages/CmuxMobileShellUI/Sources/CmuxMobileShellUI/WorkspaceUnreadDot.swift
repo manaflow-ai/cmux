@@ -13,7 +13,7 @@ struct WorkspaceUnreadDot: View {
     /// kept narrow so the list does not drift right.
     static let gutterWidth: CGFloat = 10
     /// Diameter of the dot itself.
-    static let dotDiameter: CGFloat = 10
+    static let dotDiameter: CGFloat = 11
 
     let isUnread: Bool
     var leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift

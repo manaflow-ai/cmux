@@ -43,9 +43,9 @@ import Testing
     @Test func debugLayoutSettingsDefaultWithoutAWrite() throws {
         let defaults = try makeDefaults("debugLayoutDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(settings.unreadIndicatorLeftShift == 0)
-        #expect(settings.profilePictureLeftShift == 0)
-        #expect(settings.profilePictureSize == 48)
+        #expect(settings.unreadIndicatorLeftShift == 4.5)
+        #expect(settings.profilePictureLeftShift == 8)
+        #expect(settings.profilePictureSize == 45)
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
