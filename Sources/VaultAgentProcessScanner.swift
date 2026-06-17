@@ -817,7 +817,7 @@ private extension CmuxVaultAgentDetectRule {
         if let processName {
             expectedNames.append(processName)
         }
-        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty else {
+        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty else {
             return false
         }
         let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
@@ -828,11 +828,19 @@ private extension CmuxVaultAgentDetectRule {
         let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
         let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
             && process.argumentsContainAll(alternateArgvContains)
-        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
+        let alternateArgvContainsAnyMatch = !alternateArgvContainsAny.isEmpty
+            && process.argumentsContainAny(alternateArgvContainsAny)
+        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch || alternateArgvContainsAnyMatch
     }
 }
 
 private extension VaultObservedAgentProcess {
+    func argumentsContainAny(_ needles: [String]) -> Bool {
+        needles.contains { needle in
+            argumentsContainAll([needle])
+        }
+    }
+
     func argumentsContainAll(_ needles: [String]) -> Bool {
         needles.allSatisfy { needle in
             if needle.contains(" ") {
