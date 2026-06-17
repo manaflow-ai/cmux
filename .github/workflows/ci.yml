@@ -87,8 +87,8 @@ jobs:
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
-      - name: Validate AWS CLI resolver guard
-        run: ./tests/test_ci_resolve_aws_cli.sh
+      - name: Validate Python R2 appcast upload guard
+        run: ./tests/test_ci_r2_upload_python.sh
 
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
