@@ -4,11 +4,8 @@ on:
   pull_request:
     paths:
       - "ios/**"
-      - "Packages/CMUXAuthCore/**"
-      - "Packages/CMUXMobileCore/**"
-      - "Packages/CmuxAuthRuntime/**"
-      - "Packages/CmuxMobile*/**"
-      - "Packages/CMUXMobile*/**"
+      - "Packages/Shared/**"
+      - "Packages/iOS/**"
       - "Sources/Mobile/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The namespace-type convention rule scans every package, so any package
@@ -64,7 +61,7 @@ jobs:
           gh api --paginate \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             --jq '.[].filename' > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Packages/CmuxSyncStore/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -135,13 +132,13 @@ jobs:
 
       - name: Run CMUXMobileCore package tests
         run: |
-          swift test --package-path Packages/CMUXMobileCore
+          swift test --package-path Packages/Shared/CMUXMobileCore
 
       - name: Run CmuxSyncStore package tests
         run: |
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
-          swift test --package-path Packages/CmuxSyncStore
+          swift test --package-path Packages/Shared/CmuxSyncStore
 
   ios-simulator:
     needs: detect-ios-changes

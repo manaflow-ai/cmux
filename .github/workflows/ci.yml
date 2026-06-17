@@ -76,6 +76,14 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Set up Python 3.9 for nightly prune compatibility
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.9"
+
+      - name: Validate nightly prune Python compatibility
+        run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+
       - name: Validate activation benchmark scrollback sizing
         run: python3 tests/test_perf_activation_scrollback_sizing.py
 
@@ -90,6 +98,12 @@ jobs:
 
       - name: Validate XCTest shard argument helper
         run: python3 tests/test_ci_xctest_shard_args.py
+
+      - name: Validate app-host xcodebuild retry guard
+        run: ./tests/test_ci_app_host_xcodebuild_retry.sh
+
+      - name: Validate app-host xcodebuild attempt budget
+        run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
@@ -120,6 +134,12 @@ jobs:
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
+      - name: Validate Python R2 appcast upload guard
+        run: ./tests/test_ci_r2_upload_python.sh
+
+      - name: Validate release-build timeout guard
+        run: ./tests/test_ci_release_build_timeout.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -137,6 +157,9 @@ jobs:
 
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
+
+      - name: Validate workspace SPM package grouping
+        run: python3 scripts/check-workspace-package-groups.py --check
 
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
@@ -492,7 +515,8 @@ jobs:
       - name: Run Ghostty split-theme appearance regression
         run: |
           set -euo pipefail
-          xcodebuild -xctestrun "$CMUX_UNIT_XCTESTRUN" \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_UNIT_XCTESTRUN" \
             -destination "platform=macOS" \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
@@ -503,7 +527,8 @@ jobs:
       - name: Run browser system proxy mirror regression
         run: |
           set -euo pipefail
-          xcodebuild -xctestrun "$CMUX_UNIT_XCTESTRUN" \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_UNIT_XCTESTRUN" \
             -destination "platform=macOS" \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test-without-building
@@ -511,7 +536,8 @@ jobs:
       - name: Run Option/Alt sided-modifier regression
         run: |
           set -euo pipefail
-          xcodebuild -xctestrun "$CMUX_UNIT_XCTESTRUN" \
+          scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_UNIT_XCTESTRUN" \
             -destination "platform=macOS" \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test-without-building
@@ -589,26 +615,11 @@ jobs:
           eval "ONLY_TESTING_ARGS=($ONLY_TESTING_TEXT)"
 
           run_unit_tests() {
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -xctestrun "$CMUX_UNIT_XCTESTRUN" \
+            scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_UNIT_XCTESTRUN" \
               -destination "platform=macOS" \
               "${ONLY_TESTING_ARGS[@]}" \
-              test-without-building 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
+              test-without-building
           }
 
           set +e
@@ -631,7 +642,8 @@ jobs:
         if: ${{ matrix.shard_index == 0 }}
         run: |
           set -euo pipefail
-          ./tests/test_bundled_ghostty_theme_picker_helper.sh
+          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard_index == 0 }}
@@ -1079,7 +1091,7 @@ jobs:
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

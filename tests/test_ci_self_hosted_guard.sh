@@ -203,7 +203,7 @@ check_shared_test_products_use_xctestrun() {
     exit 1
   fi
 
-  if ! grep -Fq "xcodebuild -xctestrun \"\$CMUX_UNIT_XCTESTRUN\"" "$CI_FILE"; then
+  if ! grep -Fq -- "-xctestrun \"\$CMUX_UNIT_XCTESTRUN\"" "$CI_FILE"; then
     echo "FAIL: unit test jobs must run test-without-building through the shared cmux-unit .xctestrun"
     exit 1
   fi
@@ -213,7 +213,7 @@ check_shared_test_products_use_xctestrun() {
     exit 1
   fi
 
-  if ! grep -Fq "xcodebuild -xctestrun \"\$CMUX_UI_XCTESTRUN\"" "$CI_FILE"; then
+  if ! grep -Fq -- "-xctestrun \"\$CMUX_UI_XCTESTRUN\"" "$CI_FILE"; then
     echo "FAIL: UI regression jobs must run test-without-building through the shared cmux .xctestrun"
     exit 1
   fi
@@ -223,26 +223,28 @@ check_shared_test_products_use_xctestrun() {
 
 check_app_hosted_xctest_socket_isolation() {
   if ! awk '
-    /^  xctest-focused-regressions:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
-    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
-    END { exit !(saw_override && saw_socket) }
-  ' "$CI_FILE"; then
-    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH and allow override"
-    exit 1
-  fi
+	    /^  xctest-focused-regressions:/ { in_job=1; next }
+	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
+	    END { exit !(saw_override && saw_socket && saw_retry_wrapper) }
+	  ' "$CI_FILE"; then
+	    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH, allow override, and run app-host tests through the retry wrapper"
+	    exit 1
+	  fi
 
   if ! awk '
-    /^  xctest-shard:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
-    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
-    END { exit !(saw_override && saw_socket) }
-  ' "$CI_FILE"; then
-    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH and allow override"
-    exit 1
-  fi
+	    /^  xctest-shard:/ { in_job=1; next }
+	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
+	    END { exit !(saw_override && saw_socket && saw_retry_wrapper) }
+	  ' "$CI_FILE"; then
+	    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH, allow override, and run app-host tests through the retry wrapper"
+	    exit 1
+	  fi
 
   if ! awk '
     /^  ui-regressions:/ { in_job=1; next }
@@ -256,6 +258,360 @@ check_app_hosted_xctest_socket_isolation() {
   fi
 
   echo "PASS: app-hosted XCTest jobs use isolated control sockets"
+}
+
+check_signing_intermediate_imports() {
+  local helper="$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh"
+  if [[ ! -x "$helper" ]]; then
+    echo "FAIL: Apple Developer ID intermediate import helper must exist and be executable"
+    exit 1
+  fi
+
+  for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$helper"; then
+      echo "FAIL: signing helper must import Apple's $cert intermediate"
+      exit 1
+    fi
+  done
+
+  for curl_flag in "--connect-timeout 20" "--max-time 120"; do
+    if ! grep -Fq -- "$curl_flag" "$helper"; then
+      echo "FAIL: signing helper must pass curl $curl_flag to avoid hanging signing runners"
+      exit 1
+    fi
+  done
+
+  if ! grep -Fq 'IMPORTED_COUNT="$(' "$helper" || ! grep -Fq 'if [[ "$IMPORTED_COUNT" -lt 2 ]]; then' "$helper"; then
+    echo "FAIL: signing helper must verify both Developer ID intermediates were imported"
+    exit 1
+  fi
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! awk '
+      /- name: Import signing cert/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
+      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
+      END { exit !(saw_cert_import && saw_intermediates) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      exit 1
+    fi
+  done
+
+  echo "PASS: nightly and release signing import Apple Developer ID intermediates"
+}
+
+check_signing_intermediate_helper_behavior() {
+  local helper="$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh"
+  local tmp_dir bin_dir curl_log security_log keychain
+  tmp_dir="$(mktemp -d)"
+  bin_dir="$tmp_dir/bin"
+  curl_log="$tmp_dir/curl.log"
+  security_log="$tmp_dir/security.log"
+  keychain="$tmp_dir/build.keychain"
+  mkdir -p "$bin_dir"
+  touch "$keychain" "$curl_log" "$security_log"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+for ((i = 1; i <= $#; i++)); do
+  arg="${!i}"
+  if [[ "$arg" == "--output" ]]; then
+    next=$((i + 1))
+    output="${!next}"
+  fi
+done
+if [[ -z "$output" ]]; then
+  echo "curl stub missing --output" >&2
+  exit 1
+fi
+printf '%s\n' "$*" >> "$CMUX_STUB_CURL_LOG"
+printf 'fake certificate\n' > "$output"
+EOF
+  chmod +x "$bin_dir/curl"
+
+  cat > "$bin_dir/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  add-certificates)
+    printf '%s\n' "$*" >> "$CMUX_STUB_SECURITY_LOG"
+    ;;
+  find-certificate)
+    added_count="$(grep -c '^add-certificates ' "$CMUX_STUB_SECURITY_LOG" 2>/dev/null || true)"
+    if [[ "${CMUX_STUB_CERT_COUNT_OVERRIDE:-}" != "" ]]; then
+      added_count="$CMUX_STUB_CERT_COUNT_OVERRIDE"
+    fi
+    for ((i = 0; i < added_count; i++)); do
+      printf '%s\n' '-----END CERTIFICATE-----'
+    done
+    ;;
+  *)
+    echo "unexpected security command: $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$bin_dir/security"
+
+  if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" "$helper" "$keychain" >"$tmp_dir/success.out" 2>"$tmp_dir/success.err"; then
+    echo "FAIL: signing helper behavior test should import both intermediates"
+    cat "$tmp_dir/success.err" >&2 || true
+    exit 1
+  fi
+
+  for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$curl_log"; then
+      echo "FAIL: signing helper behavior test did not download $cert"
+      exit 1
+    fi
+  done
+
+  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper behavior test did not add both certificates to the requested keychain"
+    exit 1
+  fi
+
+  if PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" CMUX_STUB_CERT_COUNT_OVERRIDE=1 "$helper" "$keychain" >"$tmp_dir/fail.out" 2>"$tmp_dir/fail.err"; then
+    echo "FAIL: signing helper behavior test should fail when fewer than two intermediates are visible"
+    exit 1
+  fi
+
+  if ! grep -Fq "Expected both Developer ID intermediate certificates" "$tmp_dir/fail.err"; then
+    echo "FAIL: signing helper behavior test missing count failure diagnostic"
+    exit 1
+  fi
+
+  rm -rf "$tmp_dir"
+  echo "PASS: signing helper downloads, imports, and verifies Developer ID intermediates"
+}
+
+check_sentry_cli_install_portability() {
+  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
+  if [[ ! -x "$helper" ]]; then
+    echo "FAIL: sentry-cli helper must exist and be executable"
+    exit 1
+  fi
+
+  for needle in \
+    'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
+    'SENTRY_CLI_ASSET="sentry-cli-Darwin-universal"' \
+    'SENTRY_CLI_SHA256="dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"' \
+    'https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/${SENTRY_CLI_ASSET}' \
+    'SENTRY_CLI_VERSION="3.3.0"' \
+    '--connect-timeout 20' \
+    '--max-time 120' \
+    'ACTUAL_SHA256="$(shasum -a 256 "$DOWNLOAD_PATH" | awk' \
+    'install -m 0755 "$DOWNLOAD_PATH" "$INSTALL_DIR/sentry-cli"'; do
+    if ! grep -Fq -- "$needle" "$helper"; then
+      echo "FAIL: sentry-cli helper must contain $needle"
+      exit 1
+    fi
+  done
+  if grep -Fq 'command -v sentry-cli' "$helper"; then
+    echo "FAIL: sentry-cli helper must not reuse ambient runner PATH state"
+    exit 1
+  fi
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if grep -Fq 'brew install getsentry/tools/sentry-cli' "$file"; then
+      echo "FAIL: $(basename "$file") must not require Homebrew for sentry-cli on self-hosted signing runners"
+      exit 1
+    fi
+
+    if ! awk '
+      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /SENTRY_CLI="\$\(\.\/scripts\/ensure-sentry-cli\.sh\)"/ { saw_helper=1 }
+      in_step && /"\$SENTRY_CLI" debug-files upload --include-sources/ { saw_upload=1 }
+      END { exit !(saw_helper && saw_upload) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must install sentry-cli through scripts/ensure-sentry-cli.sh before dSYM upload"
+      exit 1
+    fi
+  done
+
+  echo "PASS: dSYM upload installs sentry-cli without requiring Homebrew"
+}
+
+check_sentry_cli_helper_behavior() {
+  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
+  local tmp_dir bin_dir stdout stderr expected_path
+  tmp_dir="$(mktemp -d)"
+  bin_dir="$tmp_dir/bin"
+  stdout="$tmp_dir/stdout"
+  stderr="$tmp_dir/stderr"
+  expected_path="$tmp_dir/runner/sentry-cli-bin/sentry-cli"
+  mkdir -p "$bin_dir"
+
+  cat > "$bin_dir/sentry-cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "ambient sentry-cli should not run" >&2
+exit 44
+EOF
+  chmod +x "$bin_dir/sentry-cli"
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--output)
+			output="$2"
+			shift 2
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+if [[ -z "$output" ]]; then
+	echo "missing --output" >&2
+	exit 1
+fi
+cat > "$output" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "sentry-cli 3.3.0"
+SCRIPT
+EOF
+  chmod +x "$bin_dir/curl"
+  cat > "$bin_dir/shasum" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+last=""
+for arg in "$@"; do
+	last="$arg"
+done
+printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
+EOF
+  chmod +x "$bin_dir/shasum"
+
+  if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+    echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
+    cat "$stderr" >&2 || true
+    exit 1
+  fi
+
+  if [[ "$(cat "$stdout")" != "$expected_path" ]]; then
+    echo "FAIL: sentry-cli helper must print only the executable path on stdout"
+    exit 1
+  fi
+
+  if ! grep -Fq 'Installing sentry-cli 3.3.0 into' "$stderr"; then
+    echo "FAIL: sentry-cli helper should report pinned install on stderr"
+    exit 1
+  fi
+  if grep -Fq 'ambient sentry-cli should not run' "$stderr"; then
+    echo "FAIL: sentry-cli helper must ignore ambient sentry-cli on PATH"
+    exit 1
+  fi
+
+  rm -rf "$tmp_dir"
+  echo "PASS: sentry-cli helper installs the pinned binary without ambient PATH state"
+}
+
+check_dmg_signing_uses_build_keychain() {
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
+      echo "FAIL: $(basename "$file") must not let create-dmg codesign outside build.keychain"
+      exit 1
+    fi
+
+    if ! awk '
+      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+      in_dmg && /--no-code-sign[[:space:]]*\\/ { saw_no_code_sign=1 }
+      in_dmg && /^[[:space:]]*$/ { in_dmg=0 }
+      END { exit !saw_no_code_sign }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must disable create-dmg implicit code signing"
+      exit 1
+    fi
+
+    if ! awk '
+      /create-dmg[[:space:]]*\\/ { in_dmg=1; next }
+      in_dmg && /\/usr\/bin\/codesign --force --timestamp --keychain build\.keychain/ { saw_keychain=1 }
+      in_dmg && /--sign "\$APPLE_SIGNING_IDENTITY"/ { saw_identity=1 }
+      in_dmg && /\/usr\/bin\/codesign --verify --verbose=2 "\$(DMG_RELEASE|dmg_release)"/ { saw_verify=1 }
+      in_dmg && /xcrun notarytool submit "\$(DMG_RELEASE|dmg_release)"/ { saw_notary=1 }
+      END { exit !(saw_keychain && saw_identity && saw_verify && saw_notary) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must sign DMGs explicitly with build.keychain before notarization"
+      exit 1
+    fi
+  done
+
+  echo "PASS: DMG signing uses build.keychain explicitly"
+}
+
+check_create_dmg_uses_run_local_npm_prefix() {
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! awk '
+      /- name: Install build deps/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /CMUX_NODE_BIN="\$\(command -v node\)"/ { saw_node=1 }
+      in_step && /export npm_config_prefix="\$RUNNER_TEMP\/npm-global"/ { saw_prefix=1 }
+      in_step && /mkdir -p "\$npm_config_prefix"/ { saw_mkdir=1 }
+      in_step && /npm install --global "create-dmg@\$\{CREATE_DMG_VERSION\}"/ { saw_install=1 }
+      in_step && /wrapper_dir="\$RUNNER_TEMP\/create-dmg-wrapper"/ { saw_wrapper=1 }
+      in_step && /exec "\$CMUX_NODE_BIN" "\$npm_config_prefix\/lib\/node_modules\/create-dmg\/cli\.js" "\\\$@"/ { saw_exec=1 }
+      in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
+      END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
+      exit 1
+    fi
+  done
+
+  echo "PASS: create-dmg uses setup-node-bound wrapper from run-local npm prefix"
+}
+
+check_gui_smoke_unsupported_launch_handling() {
+  local helper="$ROOT_DIR/scripts/smoke-launch-macos-app.sh"
+  for needle in \
+    'ALLOW_UNSUPPORTED_GUI="${CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI:-0}"' \
+    'DIRECT_EXEC="${CMUX_SMOKE_DIRECT_EXEC:-0}"' \
+    'CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}"' \
+    'open_log_indicates_unsupported_gui()' \
+    "grep -Fq 'OSLaunchdErrorDomain Code=125'" \
+    "grep -Fq 'Domain does not support specified action'" \
+    'GUI launch smoke unsupported on this runner'; do
+    if ! grep -Fq -- "$needle" "$helper"; then
+      echo "FAIL: smoke-launch helper must explicitly detect unsupported GUI launch: $needle"
+      exit 1
+    fi
+  done
+
+  if ! awk '
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
+    END { exit !(saw_launchservices && saw_direct_exec) }
+  ' "$ROOT_DIR/.github/workflows/release.yml"; then
+    echo "FAIL: release signing smoke must run LaunchServices smoke before direct exec CI launch mode"
+    exit 1
+  fi
+
+  if ! awk '
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1/ { saw_launchservices=1 }
+    /scripts\/smoke-launch-macos-app\.sh/ && /CMUX_SMOKE_DIRECT_EXEC=1/ { saw_direct_exec=1 }
+    END { exit !(saw_launchservices && saw_direct_exec) }
+  ' "$ROOT_DIR/.github/workflows/nightly.yml"; then
+    echo "FAIL: nightly signing smoke must run direct exec after unsupported-GUI LaunchServices smoke"
+    exit 1
+  fi
+
+  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+    if ! grep -Fq 'scripts/smoke-launch-macos-app.sh' "$file"; then
+      echo "FAIL: $(basename "$file") signing workflow must run launch smoke"
+      exit 1
+    fi
+  done
+
+  echo "PASS: signing smoke handles unsupported GUI launch and release direct exec explicitly"
 }
 
 check_no_ci_xctest_skips() {
@@ -449,6 +805,13 @@ check_release_helper_upload_retry
 check_release_helper_selects_xcode
 check_shared_test_products_use_xctestrun
 check_app_hosted_xctest_socket_isolation
+check_signing_intermediate_imports
+check_signing_intermediate_helper_behavior
+check_sentry_cli_install_portability
+check_sentry_cli_helper_behavior
+check_dmg_signing_uses_build_keychain
+check_create_dmg_uses_run_local_npm_prefix
+check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
