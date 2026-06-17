@@ -681,9 +681,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // Branches route on `markedText` (IME composition in progress), NOT
         // `hasText`: `hasText` is a forced constant `true` so the software keyboard
         // auto-repeats backspace, so it can no longer mean "the local document is
-        // empty". While composing, the delete cancels the composition; otherwise it
-        // is a real backspace that must reach the Mac (and repeats on every
-        // auto-repeat tick).
+        // empty". While composing, the delete shortens the marked composition by
+        // one grapheme; otherwise it is a real backspace that must reach the Mac
+        // (and repeats on every auto-repeat tick).
         if commandAccessoryArmed, markedText == nil {
             if !commandAccessorySticky {
                 setCommandAccessoryArmed(false)
@@ -721,13 +721,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             onBackspace?()
             return
         }
-        // While composing, cancel the composition rather than self-editing the
-        // marked string. The IME owns decomposition; a documentless view cannot
-        // step back inside a CJK syllable (한 is one `Character`) without nuking
-        // the whole syllable, so canceling is the honest behavior and emits
-        // nothing to the Mac.
-        if markedText != nil {
-            withMarkedTextChange { markedText = nil }
+        // While composing, edit the marked text instead of cancelling the whole
+        // candidate. The previous `UITextView` let the input system delete one
+        // composing unit at a time; nuking the entire composition on the first
+        // Backspace made mid-composition correction impossible for CJK/pinyin
+        // input. Drop the LAST grapheme (`Character`, not a UTF-16 unit, so a
+        // multi-scalar glyph is never split mid-codepoint) and re-present the
+        // shortened composition through ``setMarkedText(_:selectedRange:)``,
+        // which brackets the change in `textWillChange`/`textDidChange` and
+        // derives both ``markedTextRange`` and ``selectedTextRange`` from the new
+        // string, keeping UIKit and the IME in sync. Removing the last remaining
+        // unit yields an empty string, which ``setMarkedText`` clears to `nil`
+        // (composition ends and the delete-repeat anchor re-arms). Nothing is
+        // sent to the Mac in either case: the composition is uncommitted.
+        if let composing = markedText {
+            var shortened = composing
+            shortened.removeLast()
+            setMarkedText(shortened, selectedRange: NSRange(location: (shortened as NSString).length, length: 0))
             return
         }
         // Empty buffer: this is a real backspace. Send DEL to the Mac and re-arm
