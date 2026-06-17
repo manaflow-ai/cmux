@@ -195,6 +195,54 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6049:
+    // TabManager.startSearch() ignored MarkdownPanel entirely, so the global
+    // find action (Cmd+F) returned false (unhandled, silently dropped) when a
+    // Markdown panel was focused. Pressing Cmd+F must be handled and surface a
+    // find bar; for a preview-mode panel that means switching to text mode,
+    // because WKWebView has no native find UI on macOS.
+    func testStartSearchRoutesToFocusedMarkdownPanel() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-routing-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            try? fileManager.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = TerminalController.shared.v2FileOpen(params: [
+            "paths": [fileURL.path],
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": pane.id.uuidString,
+            "focus": true
+        ])
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let openedPanelIdString = payload["surface_id"] as? String,
+              let openedPanelId = UUID(uuidString: openedPanelIdString) else {
+            XCTFail("Expected file.open to succeed for markdown, got \(result)")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, openedPanelId)
+        let panel = try XCTUnwrap(workspace.markdownPanel(for: openedPanelId))
+        XCTAssertEqual(panel.displayMode, .preview)
+
+        // The crux: the global find action must be handled (not silently dropped).
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertEqual(panel.displayMode, .text)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
