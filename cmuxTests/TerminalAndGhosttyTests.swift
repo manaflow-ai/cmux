@@ -2758,6 +2758,15 @@ final class GhosttyResponderResolutionTests: XCTestCase {
             "Ghostty responder resolution must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
         )
     }
+
+    func testLookupMenuTitleUsesCompactSelectionPreview() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let title = ghosttyView.lookupMenuTitleForTesting(
+            "  alpha\nbeta\tgamma delta epsilon zeta eta theta iota kappa lambda  "
+        )
+
+        XCTAssertEqual(title, "Look Up “alpha beta gamma delta epsilon zeta eta theta...”")
+    }
 }
 
 

@@ -4688,6 +4688,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    @IBAction func lookUpSelection(_ sender: Any?) {
+        _ = showDefinitionForCurrentSelection()
+    }
+
+    @IBAction func showDefinitionForSelection(_ sender: Any?) {
+        _ = showDefinitionForCurrentSelection()
+    }
+
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
         guard let terminalSurface else { return }
         let paneId = terminalSurface.owningWorkspace()?.paneId(forPanelId: terminalSurface.id)?.id
@@ -4751,6 +4759,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
+        case #selector(lookUpSelection(_:)), #selector(showDefinitionForSelection(_:)):
+            return readLookupSelectionSnapshot() != nil
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -4762,6 +4772,55 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         default:
             return true
         }
+    }
+
+    @discardableResult
+    private func showDefinitionForCurrentSelection() -> Bool {
+        guard let snapshot = readLookupSelectionSnapshot() else { return false }
+        showDefinition(
+            for: NSAttributedString(string: snapshot.string),
+            at: definitionBaselineOrigin(for: snapshot)
+        )
+        return true
+    }
+
+    private func readLookupSelectionSnapshot() -> SelectionSnapshot? {
+        guard let snapshot = readSelectionSnapshot() else { return nil }
+        guard !snapshot.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return snapshot
+    }
+
+    private func definitionBaselineOrigin(for snapshot: SelectionSnapshot) -> NSPoint {
+        let x = min(max(snapshot.topLeft.x - 2, 0), max(bounds.width - 1, 0))
+        let yFromTop = snapshot.topLeft.y + 2
+        let y = min(max(bounds.height - yFromTop, 0), max(bounds.height - 1, 0))
+        return NSPoint(x: x, y: y)
+    }
+
+    private func lookupMenuTitle(for selection: String) -> String {
+        let collapsedSelection = selection
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let previewLimit = 48
+        let preview: String
+        if collapsedSelection.count > previewLimit {
+            let limited = collapsedSelection.prefix(previewLimit)
+            if let lastWhitespace = limited.lastIndex(where: { $0.isWhitespace }),
+               lastWhitespace > limited.startIndex {
+                preview = String(limited[..<lastWhitespace]) + "..."
+            } else {
+                preview = String(limited) + "..."
+            }
+        } else {
+            preview = collapsedSelection
+        }
+        let format = String(
+            localized: "terminalContextMenu.lookUpFormat",
+            defaultValue: "Look Up “%@”"
+        )
+        return String(format: format, preview)
     }
 
     // MARK: - Accessibility
@@ -5006,6 +5065,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
+    }
+    func lookupMenuTitleForTesting(_ selection: String) -> String {
+        lookupMenuTitle(for: selection)
     }
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
@@ -6772,6 +6834,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            if let lookupSnapshot = readLookupSelectionSnapshot() {
+                let lookupItem = menu.addItem(
+                    withTitle: lookupMenuTitle(for: lookupSnapshot.string),
+                    action: #selector(lookUpSelection(_:)),
+                    keyEquivalent: ""
+                )
+                lookupItem.target = self
+            }
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
