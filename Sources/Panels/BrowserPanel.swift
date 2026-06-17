@@ -4,6 +4,7 @@ import CmuxBrowser
 import CmuxBrowserImport
 import CmuxSettings
 import Combine
+import CmuxAppKitSupportUI
 import WebKit
 import AppKit
 import Bonsplit
@@ -3059,7 +3060,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func restoreDiscardedWebViewIfNeeded(reason: String) -> Bool {
+    func restoreDiscardedWebViewIfNeeded(
+        reason: String,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) -> Bool {
         return hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason) {
             shouldRenderWebView = true
             guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
@@ -3069,7 +3073,8 @@ final class BrowserPanel: Panel, ObservableObject {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
                 recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
+                preserveRestoredSessionHistory: true,
+                cachePolicy: cachePolicy
             )
         }
     }
@@ -4491,7 +4496,7 @@ final class BrowserPanel: Panel, ObservableObject {
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
             usesTransparentWindow: WindowBackgroundComposition.policy
-                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
         )
     }
 
@@ -4674,7 +4679,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func recoverTerminatedWebContent(reason: String = "manual") -> Bool {
+    func recoverTerminatedWebContent(
+        reason: String = "manual",
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) -> Bool {
         guard hasRecoverableWebContentTermination else { return false }
         let recoveryURL = pendingWebContentRecoveryURL
         clearWebContentTerminationRecovery()
@@ -4691,7 +4699,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(
             to: recoveryURL,
             recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true
+            preserveRestoredSessionHistory: true,
+            cachePolicy: cachePolicy
         )
         return true
     }
@@ -5184,9 +5193,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private func navigateWithoutInsecureHTTPPrompt(
         to url: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool = false
+        preserveRestoredSessionHistory: Bool = false,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) {
-        let request = URLRequest(url: url)
+        let request = URLRequest(url: url, cachePolicy: cachePolicy)
         navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
@@ -5873,13 +5883,12 @@ extension BrowserPanel {
         bypassesRemoteWorkspaceProxy
     }
 
-    /// Reload the current page
-    func reload() {
-        if recoverTerminatedWebContent(reason: "reload") {
-            return
+    private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
+        if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+            return true
         }
-        if restoreDiscardedWebViewIfNeeded(reason: "reload") {
-            return
+        if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+            return true
         }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
@@ -5891,12 +5900,29 @@ extension BrowserPanel {
                 navigateWithoutInsecureHTTPPrompt(
                     to: fallbackURL,
                     recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: usesRestoredSessionHistory
+                    preserveRestoredSessionHistory: usesRestoredSessionHistory,
+                    cachePolicy: mode.recoveryCachePolicy
                 )
-                return
+                return true
             }
         }
+        return false
+    }
+
+    /// Reload the current page
+    func reload() {
+        if prepareForReload(reason: "reload", mode: .soft) {
+            return
+        }
         webView.reload()
+    }
+
+    /// Reload the current page, bypassing WebKit's cache.
+    func hardReload() {
+        if prepareForReload(reason: "hardReload", mode: .hard) {
+            return
+        }
+        webView.reloadFromOrigin()
     }
 
     /// Stop loading
@@ -10069,6 +10095,11 @@ final class BrowserDataImportCoordinator {
 
     private var importInProgress = false
 
+    /// Held detector instance; the coordinator detects and summarizes installed
+    /// browsers through this rather than the former `BrowserInstalledBrowserDetector`
+    /// static namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
+
     private init() {}
 
     func presentImportDialog(
@@ -10099,10 +10130,10 @@ final class BrowserDataImportCoordinator {
         let environment = ProcessInfo.processInfo.environment
         let fixtureBrowsers = BrowserImportUITestFixtureLoader.browsers(from: environment)
         let fixtureDestinationProfiles = BrowserImportUITestFixtureLoader.destinationProfiles(from: environment)
-        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
 #else
         let fixtureDestinationProfiles: [BrowserProfileDefinition]? = nil
-        let browsers = prefilledBrowsers ?? BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = prefilledBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
 #endif
         guard !browsers.isEmpty else {
             let alert = NSAlert()
@@ -10303,6 +10334,9 @@ final class BrowserDataImportCoordinator {
         private let destinationProfiles: [BrowserProfileDefinition]
         private let initialDestinationProfileID: UUID
         private let defaultScope: BrowserImportScope?
+        /// Held detector instance used to summarize the detected browsers, rather
+        /// than the former `BrowserInstalledBrowserDetector` static namespace.
+        private let installedBrowserDetector = BrowserInstalledBrowserDetector()
 
         private var step: Step = .source
         private var didFinishModal = false
@@ -10648,7 +10682,7 @@ final class BrowserDataImportCoordinator {
             sourceRow.distribution = .fill
 
             let detectedLabel = NSTextField(
-                wrappingLabelWithString: BrowserInstalledBrowserDetector.summaryText(for: browsers)
+                wrappingLabelWithString: installedBrowserDetector.summaryText(for: browsers)
             )
             detectedLabel.font = NSFont.systemFont(ofSize: 11)
             detectedLabel.textColor = .secondaryLabelColor

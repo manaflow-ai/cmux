@@ -105,7 +105,8 @@ struct BrowserInstalledBrowserDetectorTests {
 
     @Test("summaryText lists names and summarizes overflow")
     func summaryText() {
-        #expect(BrowserInstalledBrowserDetector.summaryText(for: []).contains("No supported"))
+        let detector = BrowserInstalledBrowserDetector()
+        #expect(detector.summaryText(for: []).contains("No supported"))
 
         let candidates = (0..<6).map { index in
             InstalledBrowserCandidate(
@@ -119,7 +120,7 @@ struct BrowserInstalledBrowserDetectorTests {
                 detectionScore: 1
             )
         }
-        let summary = BrowserInstalledBrowserDetector.summaryText(for: candidates, limit: 4)
+        let summary = detector.summaryText(for: candidates, limit: 4)
         #expect(summary.contains("more"))
     }
 }
