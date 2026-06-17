@@ -28,8 +28,8 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
         )
     }
 
-    @Test("Drops post-boundary flags at end of argv")
-    func dropsPostBoundaryFlagsAtEndOfArgv() {
+    @Test("Recovers safe post-boundary flags at end of argv")
+    func recoversSafePostBoundaryFlagsAtEndOfArgv() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -51,6 +51,10 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
                 "claude-teams",
                 "--remote-control-session-name-prefix",
                 "cmux-team",
+                "--model",
+                "sonnet",
+                "--permission-mode",
+                "auto",
             ]
         )
     }

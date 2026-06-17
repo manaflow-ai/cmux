@@ -3,8 +3,8 @@ import Testing
 
 @Suite("Claude Teams policy isolation")
 struct ClaudeTeamsPolicyIsolationTests {
-    @Test("Treats equals-style tmux as prompt boundary")
-    func treatsEqualsStyleTmuxAsPromptBoundary() {
+    @Test("Drops equals-style tmux mode without preserving unsafe later flags")
+    func dropsEqualsStyleTmuxModeWithoutPreservingUnsafeLaterFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -20,12 +20,14 @@ struct ClaudeTeamsPolicyIsolationTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
+                "--model",
+                "sonnet",
             ]
         )
     }
 
-    @Test("Treats split tmux as prompt boundary")
-    func treatsSplitTmuxAsPromptBoundary() {
+    @Test("Drops split tmux mode without stopping later safe flags")
+    func dropsSplitTmuxModeWithoutStoppingLaterSafeFlags() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -35,6 +37,28 @@ struct ClaudeTeamsPolicyIsolationTests {
                     "classic",
                     "--model",
                     "sonnet",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+                "--model",
+                "sonnet",
+            ]
+        )
+    }
+
+    @Test("Treats non-mode equals tmux as prompt boundary")
+    func treatsNonModeEqualsTmuxAsPromptBoundary() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux=fix",
+                    "--permission-mode",
+                    "auto",
                 ],
                 launcher: "claudeTeams",
                 fallbackKind: "claude"
