@@ -124,6 +124,26 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
     }
 
+    func testShowReusesTrackedOrderedOutSettingsWindow() async {
+        let presenter = SettingsWindowPresenter()
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        var didOpen = false
+        defer {
+            settingsWindow.orderOut(nil)
+            settingsWindow.close()
+        }
+
+        presenter.configure(window: settingsWindow)
+        settingsWindow.orderOut(nil)
+        await Task.yield()
+
+        presenter.show(openWindowOverride: { didOpen = true })
+
+        XCTAssertFalse(didOpen)
+        XCTAssertEqual(settingsWindow.makeKeyAndOrderFrontCallCount, 1)
+        XCTAssertTrue(settingsWindow.isVisible)
+    }
+
     func testRepeatedShowWhileSettingsSceneIsOpeningCoalescesOpenRequests() {
         let presenter = SettingsWindowPresenter()
         var openCallCount = 0

@@ -190,8 +190,7 @@ struct SettingsWindowPresenter {
     }
 
     private func existingWindow() -> NSWindow? {
-        if let settingsWindow = state.settingsWindow,
-           settingsWindow.isVisible || settingsWindow.isMiniaturized {
+        if let settingsWindow = state.settingsWindow {
             return settingsWindow
         }
         return NSApp.windows.first {
