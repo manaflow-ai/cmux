@@ -448,6 +448,14 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if customRegistration == CmuxVaultAgentRegistration.builtInCampfire {
+                return AgentResumeArgv().builtInKind(
+                    kind: "campfire",
+                    sessionId: sessionId,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            }
             if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
                 return resumeWithOption(
                     kind: "antigravity",

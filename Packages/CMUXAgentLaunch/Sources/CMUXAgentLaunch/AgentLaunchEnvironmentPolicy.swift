@@ -1,8 +1,13 @@
 import Foundation
 
+/// Resolves Claude configuration directories that may have moved between cmux-managed auth roots.
 public struct ClaudeConfigDirectoryPath: Sendable {
     private init() {}
 
+    /// Returns the preferred on-disk Claude config path for a captured launch environment value.
+    ///
+    /// Legacy cmux auth directories under `~/.subrouter/codex/claude` are mapped to the newer
+    /// `~/.codex-accounts/claude` location when the corresponding account directory exists.
     public static func preferredPath(
         _ rawPath: String,
         fileManager: FileManager = .default,
@@ -25,7 +30,9 @@ public struct ClaudeConfigDirectoryPath: Sendable {
     }
 }
 
+/// Selects the non-secret launch environment values that are safe to replay when restoring agents.
 public struct AgentLaunchEnvironmentPolicy: Sendable {
+    /// Creates a launch environment policy.
     public init() {}
 
     private let hermesAgentEnvironmentKeys: Set<String> = [
@@ -98,6 +105,10 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "USE_BUILTIN_RIPGREP"
     ]
 
+    /// Returns the subset of captured environment variables that should be replayed for an agent.
+    ///
+    /// The optional `kind` applies agent-specific exclusions for values that are safe for one
+    /// agent but managed or incorrect for another.
     public func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
         var result: [String: String] = [:]
         for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
@@ -120,6 +131,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return result
     }
 
+    /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard safeEnvironmentKeys.contains(key) else { return nil }
         switch key {

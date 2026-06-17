@@ -169,6 +169,129 @@ struct CampfireSupportTests {
         #expect(detected.resumeCommand?.contains("/opt/homebrew/bin/bun") == false)
     }
 
+    @Test func directProcessDetectionDropsCampfireBunfsEntrypointAndPreservesFlags() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-bunfs-invocation-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let latest = try Self.writeSessionFile(
+            id: "campfire-bunfs-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "campfire",
+            processPath: "/Users/example/.local/bin/campfire",
+            arguments: [
+                "/Users/example/.local/bin/campfire",
+                "/$bunfs/root/campfire",
+                "--relay",
+                "wss://relay.example/ws",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("campfire"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.launchCommand?.arguments == [
+            "/Users/example/.local/bin/campfire",
+            "--relay",
+            "wss://relay.example/ws",
+        ])
+        #expect(detected.resumeCommand?.contains("$bunfs") == false)
+        #expect(detected.resumeCommand?.contains("'--relay' 'wss://relay.example/ws'") == true)
+    }
+
+    @Test func directProcessDetectionDropsCampfireRuntimePrefixAndPreservesFlags() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-runtime-prefix-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let latest = try Self.writeSessionFile(
+            id: "campfire-runtime-prefix-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: [
+                "/opt/homebrew/bin/node",
+                "--import",
+                "./loader.mjs",
+                "/Users/example/campfire/packages/session/bin/campfire.ts",
+                "--relay",
+                "wss://relay.example/ws",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.launchCommand?.arguments == [
+            "campfire",
+            "--relay",
+            "wss://relay.example/ws",
+        ])
+        #expect(detected.resumeCommand?.contains("'--import'") == false)
+        #expect(detected.resumeCommand?.contains("'./loader.mjs'") == false)
+        #expect(detected.resumeCommand?.contains("'--relay' 'wss://relay.example/ws'") == true)
+    }
+
+    @Test func campfireRegistrationOverrideKeepsConfiguredResumeCommand() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-override-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let latest = try Self.writeSessionFile(
+            id: "campfire-override-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        var registration = CmuxVaultAgentRegistration.builtInCampfire
+        registration.resumeCommand = "custom-campfire restore {{sessionId}}"
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            arguments: [
+                "/Users/example/.local/bin/campfire",
+                "/$bunfs/root/campfire",
+                "--relay",
+                "wss://relay.example/ws",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ],
+            registration: registration
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.resumeCommand?.contains("'custom-campfire' 'restore'") == true)
+        #expect(detected.resumeCommand?.contains("'campfire' '--session'") == false)
+    }
+
     @Test func directProcessDetectionClassifiesCampfireDistInvocation() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-dist-invocation-")
         defer { try? FileManager.default.removeItem(at: root) }

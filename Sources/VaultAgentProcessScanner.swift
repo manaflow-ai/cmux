@@ -113,12 +113,19 @@ extension RestorableAgentSessionIndex {
             }
 
             let useDefaultExecutable = registration.detect.usesAlternateMatchWithoutPrimaryMatch(observed)
-            let executablePath = useDefaultExecutable
+            var executablePath = useDefaultExecutable
                 ? registration.defaultExecutable
                 : (normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable)
-            let arguments = useDefaultExecutable
+            var arguments = useDefaultExecutable
                 ? [executablePath]
                 : (observed.arguments.isEmpty ? [executablePath] : observed.arguments)
+            if registration == CmuxVaultAgentRegistration.builtInCampfire {
+                arguments = normalizedCampfireLaunchArguments(
+                    observed.arguments,
+                    defaultExecutable: registration.defaultExecutable
+                )
+                executablePath = arguments.first ?? registration.defaultExecutable
+            }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
@@ -141,6 +148,55 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
+    }
+
+    private static func normalizedCampfireLaunchArguments(
+        _ arguments: [String],
+        defaultExecutable: String
+    ) -> [String] {
+        guard !arguments.isEmpty else { return [defaultExecutable] }
+        if campfireArgumentLooksLikeExecutable(arguments[0]) {
+            if arguments.count > 1, campfireArgumentLooksLikeBunfsEntry(arguments[1]) {
+                return [arguments[0]] + Array(arguments.dropFirst(2))
+            }
+            return arguments
+        }
+        if campfireArgumentLooksLikeJavaScriptRuntime(arguments[0]),
+           let scriptIndex = campfireScriptArgumentIndex(in: arguments) {
+            return [defaultExecutable] + Array(arguments.dropFirst(scriptIndex + 1))
+        }
+        return [defaultExecutable] + Array(arguments.dropFirst())
+    }
+
+    private static func campfireScriptArgumentIndex(in arguments: [String]) -> Int? {
+        guard arguments.count > 1 else { return nil }
+        return arguments.indices.dropFirst().first { campfireArgumentLooksLikeScript(arguments[$0]) }
+    }
+
+    private static func campfireArgumentLooksLikeBunfsEntry(_ value: String) -> Bool {
+        let normalized = value.replacingOccurrences(of: "\\", with: "/")
+        return normalized.contains("$bunfs")
+            || normalized.contains("~BUN")
+            || normalized.contains("%7EBUN")
+    }
+
+    private static func campfireArgumentLooksLikeExecutable(_ value: String) -> Bool {
+        URL(fileURLWithPath: value).lastPathComponent.compare(
+            "campfire",
+            options: [.caseInsensitive, .literal]
+        ) == .orderedSame && !campfireArgumentLooksLikeBunfsEntry(value)
+    }
+
+    private static func campfireArgumentLooksLikeScript(_ value: String) -> Bool {
+        let normalized = value.replacingOccurrences(of: "\\", with: "/").lowercased()
+        let base = URL(fileURLWithPath: normalized).lastPathComponent
+        return ["campfire.ts", "campfire.js", "campfire"].contains(base)
+            && (normalized.contains("/campfire") || normalized.contains("packages/session"))
+    }
+
+    private static func campfireArgumentLooksLikeJavaScriptRuntime(_ value: String) -> Bool {
+        let base = URL(fileURLWithPath: value).lastPathComponent.lowercased()
+        return ["node", "bun", "deno", "tsx", "ts-node"].contains(base)
     }
 
     static func processLooksLikeOpenCode(

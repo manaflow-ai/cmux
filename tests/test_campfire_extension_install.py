@@ -357,10 +357,16 @@ def main() -> int:
         fake_args_log = root / "fake-cmux-args.log"
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
+        fake_order_log = root / "fake-cmux-order.log"
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'start %s\n' "$*" >> "$FAKE_CMUX_ORDER_LOG"
+case "$*" in
+  *notification*) sleep 1 ;;
+  *) sleep 0.15 ;;
+esac
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
@@ -369,6 +375,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
   printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
 } >> "$FAKE_CMUX_ENV_LOG"
+printf 'end %s\n' "$*" >> "$FAKE_CMUX_ORDER_LOG"
 """,
         )
 
@@ -379,6 +386,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
+        check_env["FAKE_CMUX_ORDER_LOG"] = str(fake_order_log)
         check_env["CAMPFIRE_SESSION_ROLE"] = "host"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_CAMPFIRE_EXTENSION_PATH;
@@ -452,6 +460,19 @@ await new Promise((resolve) => setTimeout(resolve, 300));
         args_log = wait_for_text(fake_args_log, expected_invocations)
         stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2)
         env_log = wait_for_text(fake_env_log, expected_invocations * 3)
+        order_log = wait_for_text(fake_order_log, expected_invocations * 2)
+        order_lines = [line for line in order_log.splitlines() if line.strip()]
+        expected_lifecycle_order = [
+            "start hooks campfire session-start",
+            "end hooks campfire session-start",
+            "start hooks campfire prompt-submit",
+            "end hooks campfire prompt-submit",
+            "start hooks campfire stop",
+            "end hooks campfire stop",
+        ]
+        if order_lines[: len(expected_lifecycle_order)] != expected_lifecycle_order:
+            print(f"FAIL: lifecycle hooks did not run serially, got {order_log!r}")
+            return 1
         for expected in [
             "hooks campfire session-start",
             "hooks campfire prompt-submit",

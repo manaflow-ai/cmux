@@ -61,6 +61,13 @@ function looksLikeJavaScriptRuntime(value: string): boolean {
   return base === "node" || base === "bun" || base === "deno" || base === "tsx" || base === "ts-node";
 }
 
+function campfireScriptIndex(raw: string[]): number {
+  for (let index = 1; index < raw.length; index += 1) {
+    if (looksLikeCampfireScript(raw[index] || "")) return index;
+  }
+  return -1;
+}
+
 function normalizedLaunchArgv(): string[] {
   const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
   if (raw.length === 0) return [resolveExecutable("campfire")];
@@ -69,8 +76,9 @@ function normalizedLaunchArgv(): string[] {
     if (raw.length > 1 && looksLikeBunfsEntry(raw[1])) return [raw[0], ...raw.slice(2)];
     return raw;
   }
-  if (raw.length > 1 && looksLikeJavaScriptRuntime(raw[0]) && looksLikeCampfireScript(raw[1])) {
-    return [resolveExecutable("campfire"), ...raw.slice(2)];
+  if (raw.length > 1 && looksLikeJavaScriptRuntime(raw[0])) {
+    const scriptIndex = campfireScriptIndex(raw);
+    if (scriptIndex >= 0) return [resolveExecutable("campfire"), ...raw.slice(scriptIndex + 1)];
   }
   return [resolveExecutable("campfire"), ...raw.slice(1)];
 }
@@ -101,6 +109,11 @@ interface HookInvocation {
   cwd: string;
   payload: string;
   env: NodeJS.ProcessEnv;
+}
+
+interface SendHookOptions {
+  waitForExit?: boolean;
+  timeoutMs?: number;
 }
 
 function eventName(subcommand: string): string {
@@ -176,26 +189,44 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   };
 }
 
-async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
+async function sendHook(
+  subcommand: string,
+  ctx: ExtensionContext,
+  extra: Record<string, unknown> = {},
+  options: SendHookOptions = {},
+): Promise<void> {
   const invocation = hookInvocation(subcommand, ctx, extra);
   if (!invocation) return;
+  const waitForExit = options.waitForExit !== false;
   await new Promise<void>((resolve) => {
     let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     const settle = () => {
       if (settled) return;
       settled = true;
+      if (timeout) clearTimeout(timeout);
       resolve();
     };
     try {
       const child = spawn(invocation.cmux, ["hooks", "campfire", subcommand], {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
-        detached: true,
+        detached: !waitForExit,
       });
       child.on("error", settle);
       child.stdin.on("error", settle);
-      child.stdin.on("finish", settle);
-      child.unref();
+      if (waitForExit) {
+        child.on("close", settle);
+        timeout = setTimeout(() => {
+          try {
+            child.kill("SIGTERM");
+          } catch (_) {}
+          settle();
+        }, options.timeoutMs ?? 5000);
+      } else {
+        child.stdin.on("finish", settle);
+        child.unref();
+      }
       child.stdin.end(invocation.payload);
     } catch (_) {
       settle();
@@ -263,7 +294,7 @@ export default function cmuxCampfireSessionExtension(api: ExtensionAPI) {
     if (!ctx) return;
     const payload = observerPayload(event);
     if (!payload) return;
-    void sendHook("notification", ctx, payload);
+    void sendHook("notification", ctx, payload, { waitForExit: false });
   });
 }
 """#
