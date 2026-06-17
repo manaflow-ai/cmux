@@ -821,9 +821,8 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
-        // `.onAppear` can re-fire for portal-hosted panes (issue #5303); only
-        // first-appearance setup is gated here. Other work below is idempotent,
-        // with real state changes handled by `.onChange` observers.
+        // `.onAppear` can re-fire for portal-hosted panes (issue #5303); only first-appearance setup is gated.
+        // Other work below is idempotent, with real state changes handled by `.onChange` observers.
         let isInitialAppearance = !didCompleteInitialBrowserPanelSetup
         performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
@@ -845,9 +844,7 @@ struct BrowserPanelView: View {
         startFocusModeShortcutHintMonitorIfNeeded()
     }
 
-    /// Runs the view-state initialization that should happen on first appearance,
-    /// independent of how many times SwiftUI fires `.onAppear` for the same view
-    /// instance.
+    /// Runs the view-state initialization that should happen once per view instance.
     ///
     /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
     /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
@@ -962,6 +959,8 @@ struct BrowserPanelView: View {
     private func handleCommandPaletteVisibilityChange(_ notification: Notification) {
         guard commandPaletteVisibilityNotificationMatchesPanelWindow(notification) else { return }
         applyPendingAddressBarFocusRequestIfNeeded()
+        guard notification.userInfo?["visible"] as? Bool == false, isFocused, isVisibleInUI, isCurrentPaneOwner else { return }
+        reconcileFocusedPanelState(reason: "autoFocusMode.commandPaletteClosed", isPanelFocused: true)
     }
 
     private func handleProfileChange() {
