@@ -1,4 +1,6 @@
 import AppKit
+import CmuxTerminalCore
+import CmuxTerminalEngine
 import ObjectiveC.runtime
 
 @MainActor
@@ -36,6 +38,11 @@ private struct MainWindowRouteSnapshot {
 
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
+// The retire sweep is the MainWindowRouteRetiring witness: the terminal
+// surface registry (CmuxTerminalEngine) calls it through the seam instead of
+// reaching up to AppDelegate.shared.
+extension AppDelegate: MainWindowRouteRetiring {}
+
 extension AppDelegate {
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
@@ -50,7 +57,7 @@ extension AppDelegate {
         for workspace in manager.tabs {
             for panel in workspace.panels.values {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
-                if TerminalSurfaceRegistry.shared.surface(id: terminalPanel.id) === terminalPanel.surface {
+                if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
                     return true
                 }
             }

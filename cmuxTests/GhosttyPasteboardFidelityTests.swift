@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminalServices
 import AppKit
 
 #if canImport(cmux_DEV)
@@ -64,7 +65,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -78,7 +79,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -92,7 +93,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -106,7 +107,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -120,7 +121,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             richText
         )
     }
@@ -133,7 +134,7 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "test?"
         )
     }
@@ -154,9 +155,9 @@ final class GhosttyPasteboardFidelityTests: XCTestCase {
             """
         )
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))

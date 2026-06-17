@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -69,11 +70,11 @@ enum CLIProcessRunner {
         let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
-            stdoutBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading))
+            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
             stdoutFinished.signal()
         }
         DispatchQueue.global(qos: .utility).async {
-            stderrBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading))
+            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
             stderrFinished.signal()
         }
 
@@ -166,11 +167,11 @@ enum CLIProcessRunner {
         let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
-            stdoutBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading))
+            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
             stdoutFinished.signal()
         }
         DispatchQueue.global(qos: .utility).async {
-            stderrBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading))
+            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
             stderrFinished.signal()
         }
 

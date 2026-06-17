@@ -1,7 +1,9 @@
+import type { Locale } from "../i18n/routing";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-};
+} & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
 
 export type Shortcut = {
   id: string;
@@ -76,6 +78,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
+      {
+        id: "newBrowserWorkspace",
+        combos: [["⌥", "⌘", "N"]],
+        description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },
+        note: {
+          en: "like New Workspace, but the first surface is a browser pane with the address bar focused",
+          ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
+        },
+      },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
         id: "goToWorkspace",
@@ -169,6 +180,20 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "canvas",
+    titleKey: "canvas",
+    blurbKey: "canvasBlurb",
+    shortcuts: [
+      { id: "toggleCanvasLayout", combos: [["⌃", "⌘", "C"]], description: { en: "Toggle canvas layout", ja: "キャンバスレイアウトを切り替え" } },
+      { id: "canvasRevealFocusedPane", combos: [["⌃", "⌘", "R"]], description: { en: "Reveal focused pane", ja: "フォーカス中のペインを表示" } },
+      { id: "canvasOverview", combos: [["⌃", "⌘", "O"]], description: { en: "Toggle overview zoom", ja: "全体表示を切り替え" } },
+      { id: "canvasZoomIn", combos: [["⌥", "⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
+      { id: "canvasZoomOut", combos: [["⌥", "⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
+      { id: "canvasZoomReset", combos: [["⌥", "⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      { id: "canvasTidy", combos: [["⌃", "⌘", "T"]], description: { en: "Tidy panes into a grid", ja: "ペインをグリッドに整列" } },
+    ],
+  },
+  {
     id: "browser",
     titleKey: "browser",
     shortcuts: [
@@ -181,6 +206,54 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "R"]],
         description: { en: "Reload page", ja: "ページを再読み込み" },
         note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
+      },
+      {
+        id: "browserHardReload",
+        combos: [["⌘", "⇧", "R"]],
+        description: {
+          ar: "تحديث الصفحة قسريًا",
+          bs: "Prisilno osvježi stranicu",
+          da: "Hård genindlæsning af side",
+          de: "Seite hart neu laden",
+          en: "Hard refresh page",
+          es: "Recarga completa de la página",
+          fr: "Actualisation forcée de la page",
+          it: "Aggiorna forzatamente la pagina",
+          ja: "ページを強制再読み込み",
+          km: "ផ្ទុកទំព័រឡើងវិញដោយបង្ខំ",
+          ko: "페이지 강력 새로고침",
+          no: "Tvungen oppdatering av siden",
+          pl: "Twarde odświeżenie strony",
+          "pt-BR": "Atualização forçada da página",
+          ru: "Жёсткое обновление страницы",
+          th: "รีเฟรชหน้าแบบบังคับ",
+          tr: "Sayfayı zorla yenile",
+          uk: "Примусове оновлення сторінки",
+          "zh-CN": "强制刷新页面",
+          "zh-TW": "強制重新整理頁面",
+        },
+        note: {
+          ar: "المتصفح المركّز",
+          bs: "fokusirani preglednik",
+          da: "fokuseret browser",
+          de: "fokussierter Browser",
+          en: "focused browser",
+          es: "navegador enfocado",
+          fr: "navigateur ciblé",
+          it: "browser attivo",
+          ja: "フォーカス中のブラウザ",
+          km: "កម្មវិធីរុករកដែលកំពុងផ្តោត",
+          ko: "포커스된 브라우저",
+          no: "fokusert nettleser",
+          pl: "aktywna przeglądarka",
+          "pt-BR": "navegador em foco",
+          ru: "браузер в фокусе",
+          th: "เบราว์เซอร์ที่โฟกัสอยู่",
+          tr: "odaklanan tarayıcı",
+          uk: "браузер у фокусі",
+          "zh-CN": "聚焦的浏览器",
+          "zh-TW": "聚焦的瀏覽器",
+        },
       },
       { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },

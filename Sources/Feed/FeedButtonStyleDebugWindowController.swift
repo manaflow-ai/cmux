@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum FeedButtonDebugVisualStyle: String, CaseIterable, Identifiable {

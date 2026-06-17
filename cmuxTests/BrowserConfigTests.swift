@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import AppKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -8,11 +9,21 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Network
+import CmuxBrowserPanel
+import CmuxSettings
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares a legacy duplicate of BrowserThemeMode; with
+// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
+// type for theme tests and the package type for browser search settings.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -1297,8 +1308,13 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
 
+        guard let bypass = AppDelegate.shared?.browserFirstResponderBypass else {
+            XCTFail("Expected AppDelegate.shared for the first-responder bypass the swizzle reads")
+            return
+        }
+
         _ = window.makeFirstResponder(nil)
-        cmuxWithWindowFirstResponderBypass {
+        bypass.withBypass {
             XCTAssertFalse(
                 window.makeFirstResponder(responder),
                 "Bypass scope should block transient first-responder changes during devtools auto-restore"
@@ -4905,7 +4921,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateReplacesQueryPlaceholder() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?q={query}&src=cmux",
             query: "hello world"
         ))
@@ -4916,7 +4933,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateReplacesPercentPlaceholder() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?term=%s",
             query: "c++ && swift"
         ))
@@ -4926,7 +4944,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateAppendsQueryItemWhenPlaceholderIsMissing() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?source=cmux",
             query: "hello world"
         ))
@@ -4937,7 +4956,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateFallbackEscapesPlusSigns() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?source=cmux",
             query: "c++ && swift"
         ))
@@ -4949,11 +4969,12 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateRejectsNonHTTPURLs() {
-        XCTAssertNil(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        XCTAssertNil(store.searchURL(
             fromTemplate: "file:///tmp/search?q={query}",
             query: "hello world"
         ))
-        XCTAssertFalse(BrowserSearchSettings.isValidSearchURLTemplate("cmux://search?q={query}"))
+        XCTAssertFalse(store.isValidSearchURLTemplate("cmux://search?q={query}"))
     }
 
     func testCurrentSearchConfigurationUsesCustomProvider() throws {
@@ -4966,11 +4987,11 @@ final class BrowserSearchEngineTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(BrowserSearchEngine.custom.rawValue, forKey: BrowserSearchSettings.searchEngineKey)
-        defaults.set("Kagi Fast", forKey: BrowserSearchSettings.customSearchEngineNameKey)
-        defaults.set("https://kagi.com/search?q={query}", forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+        defaults.set(BrowserSearchEngine.custom.rawValue, forKey: BrowserSearchSettingsStore.searchEngineKey)
+        defaults.set("Kagi Fast", forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
+        defaults.set("https://kagi.com/search?q={query}", forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
 
-        let configuration = BrowserSearchSettings.currentConfiguration(defaults: defaults)
+        let configuration = BrowserSearchSettingsStore(defaults: defaults).currentConfiguration
         let url = try XCTUnwrap(configuration.searchURL(query: "swift actors"))
 
         XCTAssertEqual(configuration.displayName, "Kagi Fast")
@@ -4980,7 +5001,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCurrentSearchConfigurationFallsBackForInvalidCustomURLTemplate() throws {
-        let configuration = BrowserSearchSettings.configuration(
+        let configuration = BrowserSearchSettingsStore().configuration(
             engineRaw: BrowserSearchEngine.custom.rawValue,
             customName: "",
             customURLTemplate: "ftp://search.example.test?q={query}"
@@ -5016,8 +5037,8 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.removeObject(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 
     func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() {
@@ -5030,11 +5051,11 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(false, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertFalse(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(false, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertFalse(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
 
-        defaults.set(true, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(true, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 }
 
@@ -5146,9 +5167,11 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
     func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
-        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        let key = SettingCatalog().sidebar.makePullRequestsClickable
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        XCTAssertTrue(settings.value(for: key))
+        defaults.set(true, forKey: key.userDefaultsKey); XCTAssertTrue(settings.value(for: key))
+        defaults.set(false, forKey: key.userDefaultsKey); XCTAssertFalse(settings.value(for: key))
     }
     func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
@@ -5229,32 +5252,53 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 }
 
 
-final class BrowserNavigableURLResolutionTests: XCTestCase {
-    func testResolvesFileSchemeAsNavigableURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
-        XCTAssertTrue(resolved.isFileURL)
-        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+@Suite struct BrowserNavigableURLResolutionTests {
+    @Test func resolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
-    func testResolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("api.localhost:3000"))
-        XCTAssertEqual(resolved.scheme, "http")
-        XCTAssertEqual(resolved.host, "api.localhost")
-        XCTAssertEqual(resolved.port, 3000)
+    @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
+        #expect(resolved.scheme == "http")
+        #expect(resolved.host == "api.localhost")
+        #expect(resolved.port == 3000)
 
-        let nested = try XCTUnwrap(resolveBrowserNavigableURL("deep.api.localhost/path"))
-        XCTAssertEqual(nested.scheme, "http")
-        XCTAssertEqual(nested.host, "deep.api.localhost")
-        XCTAssertEqual(nested.path, "/path")
+        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        #expect(nested.scheme == "http")
+        #expect(nested.host == "deep.api.localhost")
+        #expect(nested.path == "/path")
     }
 
-    func testRejectsNonWebNonFileScheme() {
-        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
-        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    @Test func rejectsNonWebNonFileScheme() {
+        #expect(resolveBrowserNavigableURL("mailto:test@example.com") == nil)
+        #expect(resolveBrowserNavigableURL("ftp://example.com/file.html") == nil)
     }
 
-    func testRejectsHostOnlyFileURL() {
-        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
+        // URL(string: "example.com:8443") parses "example.com" as a scheme, so
+        // the resolver must recover the bare host:port shape instead of
+        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
+        // the omnibar inline completion displays history hosts this way).
+        let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
+        #expect(resolved.scheme == "https")
+        #expect(resolved.host == "example.com")
+        #expect(resolved.port == 8443)
+
+        let withPath = try #require(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        #expect(withPath.scheme == "https")
+        #expect(withPath.port == 8443)
+        #expect(withPath.path == "/admin")
+    }
+
+    @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
+        #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
+        #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
+    }
+
+    @Test func rejectsHostOnlyFileURL() {
+        #expect(resolveBrowserNavigableURL("file://example.html") == nil)
     }
 }
 

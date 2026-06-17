@@ -1,6 +1,8 @@
 import AppKit
 import CMUXMobileCore
+import CmuxFileOpen
 import CmuxSettingsUI
+import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
@@ -75,7 +77,7 @@ final class HostSettingsActions: SettingsHostActions {
         // falling back to the OS default. Opening the config file directly
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
-        PreferredEditorSettings.open(configFileURL)
+        PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
     func sendFeedback() {
@@ -140,6 +142,11 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func setMenuBarOnly(_ enabled: Bool) -> Bool {
+        MenuBarOnlySettings.setEnabled(enabled)
+        return true
+    }
+
     func openMobilePairingWindow() {
         MobilePairingWindowController.shared.show()
     }
@@ -176,7 +183,7 @@ final class HostSettingsActions: SettingsHostActions {
     func setSidebarFontSize(_ points: Double) async -> Bool {
         await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
-            points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
+            points: CmuxGhosttyConfigSettingEditor().clampedSidebarFontSize(points),
             reloadSource: "settings.sidebar.fontSize"
         )
     }
@@ -194,13 +201,13 @@ final class HostSettingsActions: SettingsHostActions {
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool {
         await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
-            points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
+            points: CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(points),
             reloadSource: "settings.terminal.tabBarFontSize"
         )
     }
 
     func formattedFontSize(_ points: Double) -> String {
-        CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
@@ -308,7 +315,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// - Returns: `true` on success, `false` if the write failed (a generic
     ///   warning is logged here; the Settings UI surfaces a save-failed message).
     private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
-        let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        let formatted = CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
         guard await fontConfigWriter.write(key: key, value: formatted) else {
             hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
             return false

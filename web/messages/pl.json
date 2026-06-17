@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Włącza haki integracji cmux dla Amp. Po wyłączeniu dołączona wtyczka pozostaje nieaktywna bez konieczności jej usuwania.",
-          "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed."
+          "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed.",
+          "workspaceAutoNaming": "Opcjonalne automatyczne nazywanie przestrzeni roboczych i kart przez AI na podstawie treści rozmów agenta. Po włączeniu cmux podsumowuje obsługiwane sesje agentów w krótkie tytuły przy użyciu własnego pliku binarnego każdego agenta; ręczne zmiany nazw zawsze mają pierwszeństwo.",
+          "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje."
         },
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
+          "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
+        },
+        "fileExplorer": {
+          "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
+          "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli."
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Dwukrotne kliknięcie pliku: preview (domyślne), defaultEditor (domyślna aplikacja macOS) albo preferredEditor (polecenie app.preferredEditor).",
       "shortcutsWhenIntro": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule when w stylu VS Code), indeksowane identyfikatorem akcji cmux. Przypisanie uruchamia się — i koliduje z innym przypisaniem tego samego skrótu — tylko wtedy, gdy jego klauzula jest spełniona. Pomiń klauzulę, aby zachować wbudowany kontekst akcji. Słownictwo klauzul:",
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",
@@ -922,6 +934,8 @@
         "surfaces": "Surface'y",
         "surfacesBlurb": "Surface'y to karty wewnątrz panelu.",
         "splitPanes": "Dzielone panele",
+        "canvas": "Kanwa",
+        "canvasBlurb": "Swobodny tryb układu 2D, w którym panele unoszą się na nieskończonej, przesuwalnej kanwie. Polecenia wyrównania i rozmieszczania są dostępne z palety poleceń.",
         "browser": "Przeglądarka",
         "notifications": "Powiadomienia",
         "find": "Znajdź",

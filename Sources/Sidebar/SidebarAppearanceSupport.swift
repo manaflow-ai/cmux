@@ -1,6 +1,9 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import Foundation
 import SwiftUI
+import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
@@ -47,10 +50,25 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
-func titlebarControlForegroundNSColor(
-    opacity: CGFloat,
-    appearance: WindowAppearanceSnapshot = .currentFromUserDefaults()
-) -> NSColor {
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let app = GhosttyApp.shared
+    let bestMatch = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+    let colorScheme: ColorScheme = bestMatch == .darkAqua ? .dark : .light
+    let appearance = WindowAppearanceResolver(
+        terminalAppearance: WindowTerminalAppearanceSnapshot(
+            backgroundColor: app.defaultBackgroundColor,
+            backgroundOpacity: app.defaultBackgroundOpacity,
+            backgroundBlur: app.defaultBackgroundBlur,
+            usesHostLayerBackground: app.usesHostLayerBackground
+        )
+    ).currentFromUserDefaults(defaults: .standard, colorScheme: colorScheme)
+    return titlebarControlForegroundNSColor(
+        opacity: opacity,
+        appearance: appearance
+    )
+}
+
+func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
     cmuxReadableForegroundNSColor(
         on: appearance.compositedTerminalBackgroundColor,
         opacity: opacity
@@ -255,7 +273,7 @@ struct SidebarWorkspaceRowBackgroundStyle {
 }
 
 func sidebarWorkspaceRowExplicitRailNSColor(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     colorScheme: ColorScheme
 ) -> NSColor? {
@@ -271,7 +289,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
 }
 
 func sidebarWorkspaceRowBackgroundStyle(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,

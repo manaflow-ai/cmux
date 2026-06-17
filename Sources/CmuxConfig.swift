@@ -3,6 +3,7 @@ import CmuxFileWatch
 import Combine
 import CryptoKit
 import Foundation
+import CmuxSettings
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -172,7 +173,7 @@ struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
     /// falling back to top), `"top"` (immediately after the anchor), or
     /// `"end"` (after the last member). When omitted,
     /// falls back to the global default
-    /// (`WorkspaceGroupNewWorkspacePlacementSettings.resolved()`).
+    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
     var newWorkspacePlacement: String?
 }
 
@@ -2031,7 +2032,7 @@ final class CmuxConfigStore: ObservableObject {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
-        tabManager.$selectedTabId
+        tabManager.selectedTabIdPublisher
             .compactMap { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -2047,7 +2048,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &trackingCancellables)
 
-        tabManager.$tabs
+        tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()

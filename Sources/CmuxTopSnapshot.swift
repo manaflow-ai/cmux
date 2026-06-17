@@ -117,7 +117,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable {
+nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
     let attributionReason: String

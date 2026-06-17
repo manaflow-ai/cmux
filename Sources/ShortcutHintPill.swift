@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 enum ShortcutHintAnimation {

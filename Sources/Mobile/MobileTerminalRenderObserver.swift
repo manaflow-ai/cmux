@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxTerminalEngine
 import Foundation
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.
@@ -172,7 +173,7 @@ final class MobileTerminalRenderObserver {
         guard shouldEmitRenderGridEvents else { return }
         let renderSurfaceIDs: Set<UUID>
         if surfaceIDs.isEmpty, shouldEmitGlobal {
-            renderSurfaceIDs = Set(TerminalSurfaceRegistry.shared.allSurfaces().map(\.id))
+            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         } else {
             renderSurfaceIDs = surfaceIDs
         }
@@ -183,7 +184,7 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        guard let surface = TerminalSurfaceRegistry.shared.surface(id: surfaceID),
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return

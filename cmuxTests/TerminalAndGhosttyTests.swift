@@ -1,9 +1,13 @@
 import XCTest
+import CmuxTerminalServices
 import Testing
 import CmuxControlSocket
+import CmuxFoundation
+import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -11,6 +15,7 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,8 +49,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testCapturedStandardClipboardWriteDoesNotTouchGeneralPasteboard() {
@@ -54,8 +59,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("existing clipboard text", forType: .string)
         let initialChangeCount = pasteboard.changeCount
 
-        let captured = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
-            GhosttyPasteboardHelper.writeString(
+        let captured = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
                 "/tmp/cmux-screen.txt",
                 to: GHOSTTY_CLIPBOARD_STANDARD
             )
@@ -72,15 +77,15 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("existing clipboard text", forType: .string)
 
-        _ = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
-            GhosttyPasteboardHelper.writeString(
+        _ = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
                 "/tmp/cmux-screen.txt",
                 to: GHOSTTY_CLIPBOARD_STANDARD
             )
             return true
         }
 
-        GhosttyPasteboardHelper.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
+        GhosttyApp.terminalPasteboard.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
         XCTAssertEqual(pasteboard.string(forType: .string), "normal clipboard text")
     }
 
@@ -93,7 +98,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from public.plain-text"
         )
     }
@@ -119,7 +124,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString(koreanText, forType: utf8Type)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -138,7 +143,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>\(chineseText)</p>", forType: .html)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             chineseText
         )
     }
@@ -155,7 +160,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("plain ascii", forType: legacyType)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "plain ascii"
         )
     }
@@ -173,7 +178,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from rtf fallback"
         )
     }
@@ -246,7 +251,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
     }
 
     func testPublicURLPastePreservesOriginalURLText() throws {
@@ -259,7 +264,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
         XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), rawURL)
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -292,9 +297,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -316,9 +321,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -344,9 +349,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -368,8 +373,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testJPEGClipboardFallsBackToImagePath() throws {
@@ -395,7 +400,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)
         )
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".jpeg"))
@@ -421,9 +426,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -453,9 +458,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -477,8 +482,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testRTFDClipboardWithVisibleTextPrefersText() throws {
@@ -502,8 +507,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testImageOnlyPasteboardProducesTempFileURL() throws {
@@ -511,7 +516,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setData(try make1x1PNG(color: .red), forType: .png)
 
-        let fileURL = try XCTUnwrap(cmuxPasteboardImageFileURLForTesting(pasteboard))
+        let fileURL = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveImageFileURLIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         XCTAssertEqual(fileURL.pathExtension, "png")
@@ -525,7 +530,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         try Data("report".utf8).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([fileURL])
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([fileURL])
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
@@ -1768,51 +1773,6 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         return false
     }
 }
-
-@MainActor
-final class FeedbackComposerMessageEditorViewTests: XCTestCase {
-    func testLongMessageCreatesScrollableDocumentContent() {
-        let editor = FeedbackComposerMessageEditorView(
-            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
-        )
-        editor.placeholder = "Message"
-        editor.layoutSubtreeIfNeeded()
-
-        editor.textView.string = (0..<80)
-            .map { "feedback line \($0)" }
-            .joined(separator: "\n")
-        editor.refreshTextLayout()
-        editor.layoutSubtreeIfNeeded()
-
-        XCTAssertGreaterThan(
-            editor.textView.frame.height,
-            editor.scrollView.contentSize.height + 40
-        )
-    }
-
-    func testTrailingBlankLineContributesToScrollableDocumentHeight() {
-        let editor = FeedbackComposerMessageEditorView(
-            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
-        )
-        editor.layoutSubtreeIfNeeded()
-
-        let messageWithoutTrailingBlankLine = (0..<20)
-            .map { "feedback line \($0)" }
-            .joined(separator: "\n")
-        editor.textView.string = messageWithoutTrailingBlankLine
-        editor.refreshTextLayout()
-        let heightWithoutTrailingBlankLine = editor.textView.frame.height
-
-        editor.textView.string = messageWithoutTrailingBlankLine + "\n"
-        editor.refreshTextLayout()
-
-        XCTAssertGreaterThan(
-            editor.textView.frame.height,
-            heightWithoutTrailingBlankLine + 5
-        )
-    }
-}
-
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
@@ -5677,340 +5637,6 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 }
-
-final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
-    func testTrimsTrailingPeriodAfterMarkdownFile() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "~/ClaudeCode/feature-spec-template.md."
-            ),
-            "~/ClaudeCode/feature-spec-template.md"
-        )
-    }
-
-    func testTrimsTrailingCommaInList() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/first.txt,"
-            ),
-            "/tmp/fixtures/first.txt"
-        )
-    }
-
-    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt)"
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testPreservesBalancedParensInMiddleOfPath() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft)/notes.txt"
-            ),
-            "/tmp/fixtures/report (draft)/notes.txt"
-        )
-    }
-
-    func testStripsMultipleTrailingPunctuationCharacters() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft).md).,!?\""
-            ),
-            "/tmp/fixtures/report (draft).md"
-        )
-    }
-
-    func testTrimsTrailingClosingQuote() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt\""
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
-        let strippedPath = "/tmp/cmux-cmdclick-path.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "\(strippedPath).",
-                cwd: "/tmp",
-                existingPaths: [strippedPath]
-            ),
-            strippedPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
-        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
-        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    // MARK: - Relative path + trailing punctuation (bug #4569)
-
-    func testResolveQuicklookResolvesRelativeMarkdownPathWithTrailingDot() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/specs/2026-05-22-test.md.",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveTerminalOpenURLFilePathResolvesAbsoluteMarkdownPathWithTrailingDot() {
-        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
-
-        XCTAssertEqual(
-            cmuxResolveTerminalOpenURLFilePathForTesting(
-                "\(existingFile).",
-                cwd: "/Users/dev/project",
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveTerminalOpenURLFilePathResolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
-        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
-
-        XCTAssertEqual(
-            cmuxResolveTerminalOpenURLFilePathForTesting(
-                "\"\(existingFile).\"",
-                cwd: "/Users/dev/project",
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/src/main.swift"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "src/main.swift,",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookReturnsNilForRelativePathThatDoesNotExist() {
-        XCTAssertNil(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/nonexistent.md.",
-                cwd: "/Users/dev/project",
-                existingPaths: []
-            )
-        )
-    }
-}
-
-// MARK: - Scheme detection gate for file-path-before-URL resolution (bug #4569)
-
-final class TerminalOpenURLSchemeGateTests: XCTestCase {
-    func testRelativePathWithTrailingDotHasNoScheme() {
-        XCTAssertNil(URL(string: "docs/specs/2026-05-22-test.md.")?.scheme)
-    }
-
-    func testBareDomainWithSlashHasNoScheme() {
-        // resolveBrowserNavigableURL handles these, but they have no scheme
-        XCTAssertNil(URL(string: "example.com/docs")?.scheme)
-    }
-
-    func testHTTPSURLHasScheme() {
-        XCTAssertEqual(URL(string: "https://example.com/path")?.scheme, "https")
-    }
-
-    func testFileURLHasScheme() {
-        XCTAssertEqual(URL(string: "file:///tmp/test.md")?.scheme, "file")
-    }
-
-    func testMailtoURLHasScheme() {
-        XCTAssertEqual(URL(string: "mailto:test@example.com")?.scheme, "mailto")
-    }
-
-    func testAbsolutePathHasNoScheme() {
-        // Absolute paths are filtered by isAbsolutePath before the scheme check,
-        // but verify URL(string:) doesn't synthesize a scheme for them.
-        XCTAssertNil(URL(string: "/tmp/test.md")?.scheme)
-    }
-}
-
-
-final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
-    func testLeftShiftPressReturnsPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testLeftShiftReleaseReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightControlRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightOptionRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightCommandRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x36,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testCapsLockUsesLogicalModifierState() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testNonModifierKeyReturnsNil() {
-        XCTAssertNil(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x00,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            )
-        )
-    }
-}
-
 
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
