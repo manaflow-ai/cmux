@@ -20,7 +20,7 @@ struct WorkspaceBackButton: View {
                 if unreadCount > 0 {
                     Text(countText)
                         // Smaller than the chevron, on a small mono circle.
-                        .font(.caption2.weight(.bold))
+                        .font(.caption2.weight(.semibold))
                         .monospacedDigit()
                         // Number contrasts the circle: dark on the white circle
                         // (dark bar) / light on the black circle (light bar).
