@@ -20,7 +20,14 @@ struct TerminalHardwareKeyResolver {
             TerminalHardwareKeyCommand(input: UIKeyCommand.inputEnd, modifierFlags: []),
             TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageUp, modifierFlags: []),
             TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageDown, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: []),
+            // NOTE: plain Delete is intentionally NOT a key command. A
+            // `UIKeyCommand` for `inputDelete` intercepts BOTH the hardware and the
+            // software keyboard's Delete and fires only once per press — UIKeyCommands
+            // do not auto-repeat — which broke hold-to-repeat Backspace. Plain Delete
+            // is handled by `TerminalInputTextView.deleteBackward()` instead (forwards
+            // DEL to the Mac and auto-repeats while held, given `hasText == true`).
+            // Option+Delete (delete-word) stays a key command: it is a distinct
+            // hardware shortcut that `deleteBackward` cannot express.
             TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
             TerminalHardwareKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: []),
             TerminalHardwareKeyCommand(input: "\t", modifierFlags: []),
