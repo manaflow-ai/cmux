@@ -155,6 +155,10 @@ while [ "$attempt" -le "$max_attempts" ]; do
       retry_reason="Swift crash prompt"
     elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
       retry_reason="XCTest startup hang"
+    elif grep -Fq 'Early unexpected exit, operation never finished bootstrapping' "$log_path"; then
+      retry_reason="XCTest bootstrap exit"
+    elif grep -Fq 'Timed out after 120.0s while initiating control session with daemon.' "$log_path"; then
+      retry_reason="XCTest daemon startup timeout"
     fi
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
