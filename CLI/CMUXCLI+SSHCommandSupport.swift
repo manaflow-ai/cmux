@@ -44,11 +44,21 @@ extension CMUXCLI {
 /// newest size and, when a delivery fails, retries the latest size with a
 /// bounded backoff instead of dropping it.
 ///
-/// All mutable state is touched only from `noteResize`/`cancel`/`deliver`, which
-/// in production all run on a single serial dispatch queue (the signal source's
-/// target queue), so no additional locking is required. The `scheduleAfter` and
-/// `send` seams are injected so the coalescing/retry state machine can be driven
-/// deterministically in tests without real time or a live socket.
+/// The coalescing/retry state (`pendingSize`, `lastDeliveredSize`,
+/// `deliveryScheduled`, `retryCount`) is touched only from
+/// `noteResize`/`deliver`, which in production run on a single serial dispatch
+/// queue (the signal source's target queue), so that state needs no locking.
+///
+/// `cancel()` is the exception: it must be callable synchronously from the
+/// attach teardown thread (bridge EOF / `defer`) so an already-scheduled retry
+/// cannot fire after teardown and send a `workspace.remote.pty_resize` on the
+/// shared socket once the session is gone. The `cancelled` flag is therefore
+/// guarded by `stateLock` and observed by every scheduling/delivery decision; a
+/// retry block that has not yet started bails as soon as `cancel()` returns.
+///
+/// The `scheduleAfter` and `send` seams are injected so the coalescing/retry
+/// state machine can be driven deterministically in tests without real time or
+/// a live socket.
 final class SSHPTYResizeCoordinator {
     /// Schedules `block` to run after `delay`. Production wires this to the
     /// signal source's serial queue via `asyncAfter`.
@@ -63,7 +73,12 @@ final class SSHPTYResizeCoordinator {
     private var lastDeliveredSize: (cols: Int, rows: Int)?
     private var deliveryScheduled = false
     private var retryCount = 0
+
+    // `cancelled` and `signalSource` are reachable from both the serial queue
+    // and the teardown thread, so they are guarded by `stateLock`.
+    private let stateLock = NSLock()
     private var cancelled = false
+    private var signalSource: DispatchSourceSignal?
 
     let coalesceDelay: DispatchTimeInterval
     let maxRetries: Int
@@ -111,10 +126,32 @@ final class SSHPTYResizeCoordinator {
         )
     }
 
+    /// Owns the SIGWINCH source so `cancel()` can tear it down synchronously.
+    /// Wired once by `startSSHPTYResizeSource` right after the source is built.
+    func bindSignalSource(_ source: DispatchSourceSignal) {
+        stateLock.lock()
+        let alreadyCancelled = cancelled
+        if !alreadyCancelled {
+            signalSource = source
+        }
+        stateLock.unlock()
+        // If cancellation already raced ahead of binding, don't keep a live
+        // source around.
+        if alreadyCancelled {
+            source.cancel()
+        }
+    }
+
+    private var isCancelled: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return cancelled
+    }
+
     /// Record a new terminal size and schedule a coalesced delivery.
     /// Invoked from the signal source event handler, which runs on the queue.
     func noteResize() {
-        guard !cancelled else { return }
+        guard !isCancelled else { return }
         let size = sizeProvider()
         guard size.cols > 0, size.rows > 0 else { return }
         pendingSize = size
@@ -124,15 +161,22 @@ final class SSHPTYResizeCoordinator {
         scheduleDelivery(after: coalesceDelay)
     }
 
-    /// Stop further delivery. Invoked from the signal source cancel handler,
-    /// which also runs on the queue.
+    /// Stop further delivery. Safe to call synchronously from any thread; once it
+    /// returns, no not-yet-started retry will send another resize. Idempotent.
     func cancel() {
+        stateLock.lock()
+        let already = cancelled
         cancelled = true
-        pendingSize = nil
+        let source = signalSource
+        signalSource = nil
+        stateLock.unlock()
+        if !already {
+            source?.cancel()
+        }
     }
 
     private func scheduleDelivery(after delay: DispatchTimeInterval) {
-        guard !cancelled, !deliveryScheduled else { return }
+        guard !isCancelled, !deliveryScheduled else { return }
         deliveryScheduled = true
         scheduleAfter(delay) { [weak self] in
             self?.deliver()
@@ -141,7 +185,7 @@ final class SSHPTYResizeCoordinator {
 
     private func deliver() {
         deliveryScheduled = false
-        guard !cancelled, let size = pendingSize else { return }
+        guard !isCancelled, let size = pendingSize else { return }
         // The newest size already reached the remote; nothing to do.
         if let last = lastDeliveredSize, last == size {
             pendingSize = nil

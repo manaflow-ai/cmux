@@ -11610,7 +11610,7 @@ struct CMUXCLI {
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
-        let resizeSource = startSSHPTYResizeSource(
+        let resizeCoordinator = startSSHPTYResizeSource(
             client: client,
             workspaceId: workspaceId,
             surfaceID: surfaceID,
@@ -11619,7 +11619,7 @@ struct CMUXCLI {
             attachmentToken: attachmentToken,
             socketLock: controlSocketLock
         )
-        defer { resizeSource.cancel() }
+        defer { resizeCoordinator.cancel() }
 
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -11648,7 +11648,7 @@ struct CMUXCLI {
             if count > 0 {
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                resizeSource.cancel()
+                resizeCoordinator.cancel()
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
@@ -11661,7 +11661,7 @@ struct CMUXCLI {
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    resizeSource.cancel()
+                    resizeCoordinator.cancel()
                     try handleSSHPTYBridgeEOF(
                         client: client,
                         workspaceId: workspaceId,
@@ -11906,7 +11906,7 @@ struct CMUXCLI {
         attachmentID: String,
         attachmentToken: String,
         socketLock: NSLock
-    ) -> DispatchSourceSignal {
+    ) -> SSHPTYResizeCoordinator {
         signal(SIGWINCH, SIG_IGN)
         let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
         var baseParams: [String: Any] = [
@@ -11929,9 +11929,12 @@ struct CMUXCLI {
         )
         let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: queue)
         source.setEventHandler { coordinator.noteResize() }
-        source.setCancelHandler { coordinator.cancel() }
+        // The coordinator owns the source so `cancel()` (called synchronously on
+        // bridge EOF / teardown) can stop scheduled retries before they send a
+        // resize on the now-torn-down session.
+        coordinator.bindSignalSource(source)
         source.resume()
-        return source
+        return coordinator
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
