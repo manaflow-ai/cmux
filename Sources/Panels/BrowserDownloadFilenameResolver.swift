@@ -8,6 +8,33 @@ nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
 }
 
 nonisolated struct BrowserDownloadFilenameResolver: Sendable {
+    func shouldForceDownload(
+        mimeType: String?,
+        contentDisposition: String?
+    ) -> Bool {
+        if Self.contentDispositionRequestsAttachment(contentDisposition) {
+            return true
+        }
+        guard let normalizedMIMEType = Self.normalizedMIMEType(mimeType) else {
+            return false
+        }
+        return Self.forceDownloadMIMETypes.contains(normalizedMIMEType)
+    }
+
+    func navigationResponseDownloadReason(
+        mimeType: String?,
+        canShowMIMEType: Bool,
+        contentDisposition: String?
+    ) -> String? {
+        if shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
+            return "content-disposition"
+        }
+        if shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
+            return "forceDownloadMIME"
+        }
+        return canShowMIMEType ? nil : "cannotShowMIME"
+    }
+
     func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .allow
@@ -133,6 +160,31 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
 
     private var defaultFilename: String {
         String(localized: "browser.download.defaultFilename", defaultValue: "download")
+    }
+
+    private static let forceDownloadMIMETypes: Set<String> = [
+        "application/gzip",
+        "application/octet-stream",
+        "application/x-gzip",
+        "application/x-zip-compressed",
+        "application/zip",
+        "text/csv",
+    ]
+
+    private static func normalizedMIMEType(_ mimeType: String?) -> String? {
+        guard let rawType = mimeType?.split(separator: ";", maxSplits: 1).first else {
+            return nil
+        }
+        let normalized = rawType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func contentDispositionRequestsAttachment(_ contentDisposition: String?) -> Bool {
+        guard let rawType = contentDisposition?.split(separator: ";", maxSplits: 1).first else {
+            return false
+        }
+        return rawType.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("attachment") == .orderedSame
     }
 
     private func hasImageExtension(_ filename: String, matching imageType: UTType) -> Bool {
