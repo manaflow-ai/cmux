@@ -32,6 +32,20 @@ extension CMUXCLI {
     }
 }
 
+/// A resize send failed at the transport layer (timeout / socket error) before a
+/// complete response was read. The shared control socket may now hold a pending
+/// late reply, so the resize must not be retried on it. Terminal for the
+/// coordinator's retry loop.
+struct SSHPTYResizeTransportError: Error {}
+
+/// The remote/app rejected the resize with a complete response (`ok:false` or an
+/// unparseable but fully-consumed line). The socket is in sync, so the retry loop
+/// may safely re-send the latest size — this is the stale/blocked remote path
+/// from issue #6306.
+struct SSHPTYResizeProtocolRejection: Error {
+    let response: String
+}
+
 /// Coalesces and retries SSH-PTY resize delivery (`workspace.remote.pty_resize`).
 ///
 /// A SIGWINCH burst during a split/divider drag would previously fire one
@@ -101,6 +115,17 @@ final class SSHPTYResizeCoordinator {
 
     /// Production convenience initializer wiring the send to a `SocketClient`
     /// (serialized by `socketLock`) and scheduling on `queue`.
+    ///
+    /// The send is issued at the raw `send(command:)` layer rather than through
+    /// `sendV2` so the coordinator can tell a clean protocol rejection apart from
+    /// a transport failure. `send(command:)` only returns once it has consumed a
+    /// complete response line, so a thrown error (timeout / socket error) means
+    /// the shared control socket may still have a pending late reply. Retrying on
+    /// that socket could misattribute the late reply to a later request (the
+    /// control protocol does not match response ids), so transport failures are
+    /// surfaced as `SSHPTYResizeTransportError` and not retried. A returned line
+    /// means the socket is back in sync, so an `ok:false` rejection is safe to
+    /// retry — which is the stale/blocked remote path from issue #6306.
     convenience init(
         client: SocketClient,
         baseParams: [String: Any],
@@ -115,9 +140,37 @@ final class SSHPTYResizeCoordinator {
                 var params = baseParams
                 params["cols"] = cols
                 params["rows"] = rows
+                let request: [String: Any] = [
+                    "id": UUID().uuidString,
+                    "method": "workspace.remote.pty_resize",
+                    "params": params,
+                ]
+                guard let requestData = try? JSONSerialization.data(withJSONObject: request),
+                      let requestLine = String(data: requestData, encoding: .utf8) else {
+                    // Encoding can't fail for our own payload; if it somehow
+                    // does, the socket was never touched — terminal, no retry.
+                    throw SSHPTYResizeTransportError()
+                }
+
+                let raw: String
                 socketLock.lock()
-                defer { socketLock.unlock() }
-                _ = try client.sendV2(method: "workspace.remote.pty_resize", params: params)
+                do {
+                    raw = try client.send(command: requestLine)
+                    socketLock.unlock()
+                } catch {
+                    socketLock.unlock()
+                    throw SSHPTYResizeTransportError()
+                }
+
+                // A complete response line was consumed, so the socket is in
+                // sync. ok:true → delivered; anything else is a protocol-level
+                // rejection that is safe to retry on the same socket.
+                if let data = raw.data(using: .utf8),
+                   let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let ok = response["ok"] as? Bool, ok {
+                    return
+                }
+                throw SSHPTYResizeProtocolRejection(response: raw)
             },
             scheduleAfter: { delay, block in
                 queue.asyncAfter(deadline: .now() + delay, execute: block)
@@ -197,6 +250,14 @@ final class SSHPTYResizeCoordinator {
         do {
             try send(size.cols, size.rows)
             delivered = true
+        } catch is SSHPTYResizeTransportError {
+            // The control socket may be desynced after a transport failure;
+            // retrying could misread a late reply as a later request's result.
+            // Drop this attempt but keep pendingSize so a fresh SIGWINCH retries
+            // once the socket is healthy again.
+            log("ssh-pty resize transport failure (\(size.cols)x\(size.rows)); not retrying on possibly-desynced socket")
+            retryCount = 0
+            return
         } catch {
             delivered = false
             log("ssh-pty resize delivery failed (\(size.cols)x\(size.rows), attempt \(retryCount + 1)): \(error)")
