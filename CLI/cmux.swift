@@ -11929,10 +11929,7 @@ struct CMUXCLI {
         )
         let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: queue)
         source.setEventHandler { coordinator.noteResize() }
-        // The coordinator owns the source so `cancel()` (called synchronously on
-        // bridge EOF / teardown) can stop scheduled retries before they send a
-        // resize on the now-torn-down session.
-        coordinator.bindSignalSource(source)
+        coordinator.bindSignalSource(source) // lets cancel() tear down retries synchronously
         source.resume()
         return coordinator
     }
