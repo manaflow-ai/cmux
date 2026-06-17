@@ -23,8 +23,13 @@ for pkg in "$@"; do
   case "$pkg" in
   CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
     status=0
-    output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
-    printf '%s\n' "$output"
+    output_file="$(mktemp)"
+    set +e
+    swift test --package-path "$pkgdir" 2>&1 | tee "$output_file"
+    status=${PIPESTATUS[0]}
+    set -e
+    output="$(cat "$output_file")"
+    rm -f "$output_file"
     if [ "$status" -ne 0 ]; then
       if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
         && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \

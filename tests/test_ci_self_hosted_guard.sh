@@ -257,7 +257,12 @@ check_app_hosted_xctest_socket_isolation() {
     exit 1
   fi
 
-  echo "PASS: app-hosted XCTest jobs use isolated control sockets"
+  if ! grep -Fq 'CMUX_APP_HOST_XCODEBUILD_LOCK_DIR:-/tmp/cmux-ci-app-host-xcodebuild.lock' "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh"; then
+    echo "FAIL: app-hosted XCTest wrapper must serialize app-host xcodebuild on each self-hosted Mac"
+    exit 1
+  fi
+
+  echo "PASS: app-hosted XCTest jobs use isolated control sockets and host lock"
 }
 
 check_signing_intermediate_imports() {

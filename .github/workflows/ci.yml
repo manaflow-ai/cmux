@@ -105,6 +105,9 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate app-host xcodebuild host lock
+        run: ./tests/test_ci_app_host_xcodebuild_lock.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
       - name: Validate cmux scheme test configuration
@@ -686,7 +689,7 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -697,8 +700,12 @@ jobs:
             packages: CmuxControlSocket CmuxFileWatch CmuxFoundation CmuxGit CmuxProcess CmuxSettings CmuxSettingsUI CmuxSocketControl CmuxUpdater CMUXAgentLaunch
           - group: command-palette
             packages: CmuxCommandPalette
-          - group: terminal
-            packages: CmuxTerminal CmuxTerminalCore CmuxTerminalEngine CmuxTerminalServices
+          - group: terminal-core
+            packages: CmuxTerminal CmuxTerminalCore
+          - group: terminal-engine
+            packages: CmuxTerminalEngine
+          - group: terminal-services
+            packages: CmuxTerminalServices
     env:
       CMUX_SWIFT_PACKAGES: ${{ matrix.packages }}
     steps:
