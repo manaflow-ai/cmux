@@ -91,6 +91,18 @@ struct WorkspaceShellView: View {
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
+                    // Only on the pushed compact stack (where a back button
+                    // exists): show how many OTHER workspaces are unread, right
+                    // next to the system back button. The badge coexists with the
+                    // back button (it does not replace it), so the swipe-back
+                    // gesture is preserved.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            WorkspaceBackUnreadBadge(
+                                count: unreadWorkspaceCount(excluding: workspaceID)
+                            )
+                        }
+                    }
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
@@ -265,6 +277,13 @@ struct WorkspaceShellView: View {
     }
 
     @ViewBuilder
+    /// Count of workspaces with unread activity, excluding the one currently
+    /// open (you are looking at it, so it should not count toward "waiting back
+    /// in the list"). Drives the back-button unread badge.
+    private func unreadWorkspaceCount(excluding workspaceID: MobileWorkspacePreview.ID?) -> Int {
+        store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
+    }
+
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
