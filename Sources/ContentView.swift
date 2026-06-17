@@ -3,10 +3,9 @@ import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
-import CmuxFeedbackUI
 import CmuxFoundation
 import CmuxPanes
-import CmuxSocketControl
+import CmuxSettings
 import CmuxWorkspaces
 import Bonsplit
 import Combine
@@ -15,7 +14,6 @@ import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
-import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarRemoteRender

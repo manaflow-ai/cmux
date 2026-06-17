@@ -1,7 +1,6 @@
 import Combine
 import CmuxFoundation
 import CmuxSettings
-import CmuxSocketControl
 import Foundation
 import os
 

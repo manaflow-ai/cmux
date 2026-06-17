@@ -18,7 +18,6 @@ import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
-import CmuxSocketControl
 import Combine
 import CryptoKit
 import Darwin

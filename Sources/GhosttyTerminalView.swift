@@ -4,9 +4,8 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
-import CmuxSocketControl
-import CmuxWorkspaces
 import CmuxSettings
+import CmuxWorkspaces
 import CmuxTestSupport
 import SwiftUI
 import AppKit
