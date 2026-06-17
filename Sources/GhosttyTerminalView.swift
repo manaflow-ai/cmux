@@ -7583,12 +7583,46 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    private var allowExplicitScrollbarSync = false
+    /// Single source of truth for whether passive scrollbar packets may move the viewport.
+    ///
+    /// The AppKit wrapper treats `contentView.bounds.origin.y == 0` as live-bottom.
+    /// A user wheel event creates a one-packet explicit sync window; `synchronizeScrollView()`
+    /// then resolves the state from the actual AppKit pixel target so row and point thresholds
+    /// cannot diverge.
+    private enum ScrollFollowState: Equatable {
+        case followingOutput
+        case reviewingScrollback
+        case awaitingExplicitScrollbarSync(previousWasReviewing: Bool)
+
+        var allowsScrollbarSync: Bool {
+            switch self {
+            case .followingOutput, .awaitingExplicitScrollbarSync:
+                return true
+            case .reviewingScrollback:
+                return false
+            }
+        }
+
+        var isAwaitingExplicitScrollbarSync: Bool {
+            if case .awaitingExplicitScrollbarSync = self {
+                return true
+            }
+            return false
+        }
+
+        var isReviewingScrollback: Bool {
+            switch self {
+            case .followingOutput:
+                return false
+            case .reviewingScrollback:
+                return true
+            case .awaitingExplicitScrollbarSync(let previousWasReviewing):
+                return previousWasReviewing
+            }
+        }
+    }
+
+    private var scrollFollowState: ScrollFollowState = .followingOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8074,7 +8108,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
+            self?.beginExplicitScrollbarSync()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10576,33 +10610,31 @@ final class GhosttySurfaceScrollView: NSView {
                 // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
                 let distanceFromBottom = currentOrigin.y
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+                let isAtBottom = !isReviewingScrollback(distanceFromBottom: distanceFromBottom)
 
-                // Update userScrolledAwayFromBottom based on current position.
                 // During an explicit wheel-driven sync, preserve the intent from the
                 // target scrollbar packet instead of letting the pre-sync bottom
                 // position clear the review state before the viewport moves.
-                if isAtBottom && !allowExplicitScrollbarSync {
-                    userScrolledAwayFromBottom = false
+                let isExplicitScrollbarSync = scrollFollowState.isAwaitingExplicitScrollbarSync
+                if isAtBottom && !isExplicitScrollbarSync {
+                    scrollFollowState = .followingOutput
                 }
 
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
-
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                // Passive bottom packets should not override a scrollback review, but the
+                // first scrollbar packet caused by the user's own wheel input should still
+                // move the viewport to the requested position.
+                if scrollFollowState.allowsScrollbarSync && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
-                if allowExplicitScrollbarSync {
-                    userScrolledAwayFromBottom = targetOrigin.y > Self.scrollToBottomThreshold
+                if isExplicitScrollbarSync {
+                    scrollFollowState = resolvedScrollFollowState(distanceFromBottom: targetOrigin.y)
                 }
                 lastSentRow = Int(scrollbar.offset)
             }
         }
 
-        allowExplicitScrollbarSync = false
+        restorePreviousScrollFollowStateIfExplicitSyncCouldNotResolve()
 
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -10622,12 +10654,8 @@ final class GhosttySurfaceScrollView: NSView {
         let distanceFromBottom = visibleRect.origin.y
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if distanceFromBottom > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else {
-            userScrolledAwayFromBottom = false
-        }
+        // Track if user has scrolled away from bottom to review scrollback.
+        scrollFollowState = resolvedScrollFollowState(distanceFromBottom: distanceFromBottom)
 
         let row = Int(scrollOffset / cellHeight)
 
@@ -10636,16 +10664,35 @@ final class GhosttySurfaceScrollView: NSView {
         _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
     }
 
+    private func resolvedScrollFollowState(distanceFromBottom: CGFloat) -> ScrollFollowState {
+        isReviewingScrollback(distanceFromBottom: distanceFromBottom)
+            ? .reviewingScrollback
+            : .followingOutput
+    }
+
+    private func isReviewingScrollback(distanceFromBottom: CGFloat) -> Bool {
+        distanceFromBottom > Self.scrollToBottomThreshold
+    }
+
+    private func beginExplicitScrollbarSync() {
+        guard !scrollFollowState.isAwaitingExplicitScrollbarSync else { return }
+        scrollFollowState = .awaitingExplicitScrollbarSync(
+            previousWasReviewing: scrollFollowState.isReviewingScrollback
+        )
+    }
+
+    private func restorePreviousScrollFollowStateIfExplicitSyncCouldNotResolve() {
+        guard case .awaitingExplicitScrollbarSync(let previousWasReviewing) = scrollFollowState else {
+            return
+        }
+        scrollFollowState = previousWasReviewing ? .reviewingScrollback : .followingOutput
+    }
+
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
-        }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
