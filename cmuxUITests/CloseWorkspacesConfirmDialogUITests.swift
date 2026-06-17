@@ -178,6 +178,73 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         clickCancelOnCloseWorkspacesAlert(app: app)
     }
 
+    func testCmdShiftWTargetsFocusedWindowWorkspaceWhenMultipleWindowsAreOpen() {
+        let app = XCUIApplication()
+        let recorderPath = "/tmp/cmux-ui-test-close-workspace-focused-window-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: recorderPath)
+        configureSocketLaunchEnvironment(app)
+        app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = recorderPath
+        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for focused-window workspace close test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket to respond at \(socketPath). diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
+        )
+
+        let focusedWindowId = requireUUID(from: socketCommand("current_window"), context: "initial current_window")
+        let focusedWorkspaceId = requireUUID(
+            from: socketCommand("new_workspace focused-window-target"),
+            context: "new workspace in focused window"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), focusedWorkspaceId)
+
+        _ = requireUUID(from: socketCommand("new_window"), context: "new_window")
+        let otherWorkspaceId = requireUUID(
+            from: socketCommand("new_workspace other-window-target"),
+            context: "new workspace in other window"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), otherWorkspaceId)
+
+        XCTAssertEqual(socketCommand("focus_window \(focusedWindowId)"), "OK")
+        XCTAssertTrue(
+            waitForKeyWindow(focusedWindowId, timeout: 5.0),
+            "Expected focus_window to make the first cmux window key before Cmd+Shift+W. windows=\(socketCommand("list_windows") ?? "<nil>")"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), focusedWorkspaceId)
+
+        app.typeKey("w", modifierFlags: [.command, .shift])
+
+        let target = waitForJSONKey(
+            "closeConfirmationTargetWorkspaceId",
+            equals: focusedWorkspaceId,
+            atPath: recorderPath,
+            timeout: 5.0
+        )
+        XCTAssertEqual(
+            target?["closeConfirmationTargetWindowId"],
+            focusedWindowId,
+            "Cmd+Shift+W should target the selected workspace in the focused/key window, not the other cmux window. recorder=\(target ?? loadJSON(atPath: recorderPath) ?? [:])"
+        )
+
+        let presentation = waitForJSONKey(
+            "closeConfirmationHostWindowId",
+            equals: focusedWindowId,
+            atPath: recorderPath,
+            timeout: 5.0
+        )
+        XCTAssertEqual(
+            presentation?["closeConfirmationPresentation"],
+            "sheet",
+            "Close workspace confirmation should attach to the same focused window that owns the target workspace. recorder=\(presentation ?? loadJSON(atPath: recorderPath) ?? [:])"
+        )
+
+        clickCancelOnCloseWorkspaceAlert(app: app)
+    }
+
     private func configureSocketLaunchEnvironment(_ app: XCUIApplication) {
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -222,7 +289,22 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             }
         )
         if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready {
+            return true
+        }
+        if let diagnostics = loadJSON(atPath: diagnosticsPath),
+           controlSocketDiagnosticsReportReady(diagnostics) {
+            if let expectedPath = diagnostics["socketExpectedPath"],
+               !expectedPath.isEmpty,
+               FileManager.default.fileExists(atPath: expectedPath) {
+                socketPath = expectedPath
+                return true
+            } else if let readyCandidate = socketCandidates().first(where: { FileManager.default.fileExists(atPath: $0) }) {
+                socketPath = readyCandidate
+                return true
+            }
+        }
+        return false
     }
 
     private func socketCandidates() -> [String] {
@@ -262,6 +344,46 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             .split(separator: "\n")
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .count
+    }
+
+    private func requireUUID(
+        from response: String?,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> String {
+        guard let response,
+              let uuid = response
+                  .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+                  .map(String.init)
+                  .first(where: { UUID(uuidString: $0) != nil }) else {
+            XCTFail("Expected UUID in \(context) response. response=\(response ?? "<nil>")", file: file, line: line)
+            return ""
+        }
+        return uuid
+    }
+
+    private func waitForKeyWindow(_ windowId: String, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.keyWindowId() == windowId
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func keyWindowId() -> String? {
+        guard let response = socketCommand("list_windows") else { return nil }
+        for line in response.split(separator: "\n") {
+            let parts = line
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: " ")
+                .map(String.init)
+            guard parts.first == "*", parts.count >= 3 else { continue }
+            return parts[2]
+        }
+        return nil
     }
 
     private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
@@ -356,12 +478,37 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         }
     }
 
+    private func clickCancelOnCloseWorkspaceAlert(app: XCUIApplication) {
+        let dialog = closeWorkspaceDialog(app: app)
+        if dialog.exists {
+            dialog.buttons["Cancel"].firstMatch.click()
+            return
+        }
+        let alert = closeWorkspaceAlert(app: app)
+        if alert.exists {
+            alert.buttons["Cancel"].firstMatch.click()
+            return
+        }
+        let anyDialog = app.dialogs.firstMatch
+        if anyDialog.exists, anyDialog.buttons["Cancel"].exists {
+            anyDialog.buttons["Cancel"].firstMatch.click()
+        }
+    }
+
     private func closeWorkspacesDialog(app: XCUIApplication) -> XCUIElement {
         app.dialogs.containing(.staticText, identifier: "Close workspaces?").firstMatch
     }
 
     private func closeWorkspacesAlert(app: XCUIApplication) -> XCUIElement {
         app.alerts.containing(.staticText, identifier: "Close workspaces?").firstMatch
+    }
+
+    private func closeWorkspaceDialog(app: XCUIApplication) -> XCUIElement {
+        app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch
+    }
+
+    private func closeWorkspaceAlert(app: XCUIApplication) -> XCUIElement {
+        app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch
     }
 
     private final class ControlSocketClient {
