@@ -28,10 +28,24 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        if let hibernationState = panel.agentHibernationState {
-            hibernationBody(hibernationState)
-        } else {
-            terminalBody
+        Group {
+            if let hibernationState = panel.agentHibernationState {
+                hibernationBody(hibernationState)
+            } else {
+                terminalBody
+            }
+        }
+        .overlay {
+            hibernatedActivePaneBoundaryOverlay
+        }
+    }
+
+    @ViewBuilder
+    private var hibernatedActivePaneBoundaryOverlay: some View {
+        if panel.agentHibernationState != nil && isFocused && isVisibleInUI {
+            Rectangle()
+                .strokeBorder(appearance.dividerColor, lineWidth: 2)
+                .allowsHitTesting(false)
         }
     }
 

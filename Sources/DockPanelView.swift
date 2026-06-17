@@ -711,13 +711,14 @@ private struct DockControlsLayoutView: View {
                             snapshot: snapshot,
                             ordinal: index + 1,
                             terminalHeight: heights[index],
-                            dividerColor: dividerColor,
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
                             terminalContent: {
                                 if let attachment = terminalAttachment(snapshot.id) {
                                     DockTerminalView(
                                         attachment: attachment,
+                                        isFocused: snapshot.isFocused,
+                                        activePaneBoundaryColor: dividerNSColor,
                                         onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
                                         onTriggerFlash: { onTriggerFlash(snapshot.id) }
                                     )
@@ -781,7 +782,6 @@ private struct DockControlSectionView<TerminalContent: View>: View {
     let snapshot: DockControlSnapshot
     let ordinal: Int
     let terminalHeight: CGFloat
-    let dividerColor: Color
     let onFocus: () -> Void
     let onRestart: () -> Void
     @ViewBuilder let terminalContent: () -> TerminalContent
@@ -792,13 +792,6 @@ private struct DockControlSectionView<TerminalContent: View>: View {
             terminalContent()
                 .frame(height: terminalHeight)
                 .clipped()
-        }
-        .overlay {
-            if snapshot.isFocused {
-                Rectangle()
-                    .strokeBorder(dividerColor, lineWidth: 2)
-                    .allowsHitTesting(false)
-            }
         }
         .accessibilityIdentifier("DockControl.\(snapshot.id)")
     }
@@ -848,6 +841,8 @@ private struct DockControlSectionView<TerminalContent: View>: View {
 
 private struct DockTerminalView: View {
     let attachment: DockTerminalAttachment
+    let isFocused: Bool
+    let activePaneBoundaryColor: NSColor
     let onKeyboardFocusIntent: (NSWindow?) -> Void
     let onTriggerFlash: () -> Void
 
@@ -858,6 +853,8 @@ private struct DockTerminalView: View {
             isActive: true,
             isVisibleInUI: true,
             portalZPriority: 1,
+            showsActivePaneBoundary: isFocused,
+            activePaneBoundaryColor: activePaneBoundaryColor,
             searchState: attachment.searchState,
             reattachToken: attachment.reattachToken,
             onFocus: { _ in

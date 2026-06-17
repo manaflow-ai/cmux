@@ -1156,9 +1156,19 @@ struct BrowserPanelView: View {
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(browserSwiftUIActivePaneBoundaryOverlay)
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var browserSwiftUIActivePaneBoundaryOverlay: some View {
+        if isFocused && isVisibleInUI && !panel.shouldRenderWebView {
+            Rectangle()
+                .strokeBorder(Color(nsColor: activePaneBoundaryColor), lineWidth: 2)
+                .allowsHitTesting(false)
+        }
     }
 
     private var browserPanelLifecycleView: some View {
@@ -7526,6 +7536,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
+        let previousShowsActivePaneBoundary = coordinator.desiredShowsActivePaneBoundary
+        let previousActivePaneBoundaryColor = coordinator.desiredActivePaneBoundaryColor
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
@@ -7703,6 +7715,23 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+            }
+            let shouldUpdateExistingEntryState =
+                !shouldBindNow &&
+                (
+                    previousVisible != coordinator.desiredPortalVisibleInUI ||
+                    previousZPriority != coordinator.desiredPortalZPriority ||
+                    previousShowsActivePaneBoundary != coordinator.desiredShowsActivePaneBoundary ||
+                    previousActivePaneBoundaryColor != coordinator.desiredActivePaneBoundaryColor
+                )
+            if shouldUpdateExistingEntryState {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: webView,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority,
+                    showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                    activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
+                )
             }
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,

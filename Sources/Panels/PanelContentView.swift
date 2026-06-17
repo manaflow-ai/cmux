@@ -140,10 +140,20 @@ struct PanelContentView: View {
 
     @ViewBuilder
     private var activePaneBoundaryOverlay: some View {
-        if isFocused && isVisibleInUI {
+        if shouldShowSwiftUIActivePaneBoundary {
             Rectangle()
                 .strokeBorder(appearance.dividerColor, lineWidth: 2)
                 .allowsHitTesting(false)
+        }
+    }
+
+    private var shouldShowSwiftUIActivePaneBoundary: Bool {
+        guard isFocused && isVisibleInUI else { return false }
+        switch panel.panelType {
+        case .terminal, .browser:
+            return false
+        case .markdown, .filePreview, .rightSidebarTool, .agentSession, .project, .extensionBrowser:
+            return true
         }
     }
 
