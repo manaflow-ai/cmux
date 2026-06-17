@@ -148,4 +148,12 @@ struct DockControlDefinitionDecodingTests {
         #expect(firstIdentity.sourcePath == dockConfig.standardizedFileURL.path)
         #expect(firstIdentity.baseDirectory == root.path)
     }
+
+    @Test("Project config parent traversal stops at the filesystem root")
+    @MainActor
+    func projectConfigParentTraversalStopsAtRoot() {
+        #expect(DockSplitStore.parentDirectoryPath(for: "/") == nil)
+        #expect(DockSplitStore.parentDirectoryPath(for: "/..") == nil)
+        #expect(DockSplitStore.parentDirectoryPath(for: "/Users") == "/")
+    }
 }

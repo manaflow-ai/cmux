@@ -145,20 +145,22 @@ extension DockSplitStore {
 
     private static func projectConfigURL(rootDirectory: String?) -> URL? {
         guard let rootDirectory = rootDirectory.flatMap(existingDirectory) else { return nil }
-        var candidate = URL(fileURLWithPath: rootDirectory, isDirectory: true)
+        var candidatePath = (rootDirectory as NSString).standardizingPath
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         while true {
-            let configURL = candidate
+            let configURL = URL(fileURLWithPath: candidatePath, isDirectory: true)
                 .appendingPathComponent(".cmux", isDirectory: true)
                 .appendingPathComponent("dock.json", isDirectory: false)
             if FileManager.default.fileExists(atPath: configURL.path) {
                 return configURL
             }
-            let parent = candidate.deletingLastPathComponent()
-            if parent.path == candidate.path || candidate.path == homePath {
+            if candidatePath == homePath {
                 return nil
             }
-            candidate = parent
+            guard let parentPath = parentDirectoryPath(for: candidatePath) else {
+                return nil
+            }
+            candidatePath = parentPath
         }
     }
 
@@ -195,5 +197,13 @@ extension DockSplitStore {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             .standardizedFileURL
             .path
+    }
+
+    static func parentDirectoryPath(for path: String) -> String? {
+        let normalized = (path as NSString).standardizingPath
+        guard normalized != "/" else { return nil }
+        let parent = (normalized as NSString).deletingLastPathComponent
+        guard !parent.isEmpty, parent != normalized else { return nil }
+        return parent
     }
 }
