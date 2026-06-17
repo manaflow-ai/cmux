@@ -50,8 +50,12 @@ struct TerminalComposerView: View {
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
     @State private var pickerSelection: [PhotosPickerItem] = []
-    /// Drives the photo picker's presentation from the attach button.
+    /// Drives the photo picker's presentation from the attach menu.
     @State private var isPickerPresented = false
+    /// Drives the camera capture sheet from the attach menu.
+    @State private var isCameraPresented = false
+    /// Drives the Files (document) importer from the attach menu.
+    @State private var isFileImporterPresented = false
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -271,18 +275,43 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                Button {
-                    isPickerPresented = true
+                Menu {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button {
+                            isCameraPresented = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.composer.attach.camera", defaultValue: "Camera"),
+                                systemImage: "camera"
+                            )
+                        }
+                    }
+                    Button {
+                        isPickerPresented = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.composer.attach.photos", defaultValue: "Photos"),
+                            systemImage: "photo.on.rectangle"
+                        )
+                    }
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.composer.attach.files", defaultValue: "Files"),
+                            systemImage: "folder"
+                        )
+                    }
                 } label: {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .semibold))
                         .frame(width: controlHeight, height: controlHeight)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
                 .mobileGlassCircle()
                 .accessibilityIdentifier("MobileComposerAttach")
-                .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
+                .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Add Attachment"))
 
                 // The field and its trailing action share ONE rounded glass container —
                 // iMessage's layout, where the circular up-arrow lives INSIDE the
@@ -347,6 +376,23 @@ struct TerminalComposerView: View {
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
             stagePickedItems(items)
+        }
+        .fullScreenCover(isPresented: $isCameraPresented) {
+            CameraImagePicker { data in
+                isCameraPresented = false
+                guard let data else { return }
+                stageCapturedImageData(data)
+            }
+            .ignoresSafeArea()
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: true
+        ) { result in
+            if case let .success(urls) = result {
+                stageImportedFileURLs(urls)
+            }
         }
     }
 
@@ -546,6 +592,73 @@ struct TerminalComposerView: View {
                 }
             }
             pickerSelection = []
+            // A new chip grows the band; ask the host to re-measure.
+            requestHeightRemeasure()
+        }
+    }
+
+    /// Stage a photo captured by the camera. The capture arrives as JPEG bytes;
+    /// write them to a temp file so they go through the same downsample/encode/cap
+    /// path as picked photos, then delete the temp file.
+    private func stageCapturedImageData(_ data: Data) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jpg")
+        guard (try? data.write(to: url)) != nil else { return }
+        stageImageURLs([url])
+    }
+
+    /// Stage image files chosen from the Files app. The importer hands back
+    /// security-scoped URLs; copy each into a temp file under our own control (so
+    /// the staging task can read it after the importer's scope ends), then stage
+    /// the copies through the shared path.
+    private func stageImportedFileURLs(_ urls: [URL]) {
+        var temps: [URL] = []
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let temp = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(url.pathExtension.isEmpty ? "img" : url.pathExtension)
+            if (try? FileManager.default.copyItem(at: url, to: temp)) != nil {
+                temps.append(temp)
+            }
+        }
+        guard !temps.isEmpty else { return }
+        stageImageURLs(temps)
+    }
+
+    /// Shared staging for already-on-disk image files (camera captures and Files
+    /// imports), mirroring ``stagePickedItems(_:)`` but starting from temp file
+    /// URLs this view owns. Enforces the same count/byte caps and session-generation
+    /// guard, downsamples off the main thread, and removes each temp file after.
+    private func stageImageURLs(_ urls: [URL]) {
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.task?.cancel()
+        stagingTask.task = Task { @MainActor in
+            for url in urls {
+                defer { try? FileManager.default.removeItem(at: url) }
+                if Task.isCancelled { break }
+                let staged = pendingAttachments
+                guard staged.count < Self.maxAttachmentCount else { break }
+                let stagedBytes = staged.reduce(0) { $0 + $1.data.count }
+                guard stagedBytes < Self.maxTotalAttachmentBytes else { break }
+                if let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
+                   fileSize > Self.maxRawInputBytes {
+                    continue
+                }
+                guard let prepared = await Self.prepare(url: url) else { continue }
+                if Task.isCancelled { break }
+                guard let id = store.addPendingAttachment(
+                    prepared.data,
+                    format: prepared.format,
+                    forTerminalID: terminalID,
+                    ifSessionGeneration: sessionGeneration
+                ) else { continue }
+                if let thumbnailData = prepared.thumbnail, let thumbnail = UIImage(data: thumbnailData) {
+                    thumbnailCache.set(thumbnail, for: id)
+                }
+            }
             // A new chip grows the band; ask the host to re-measure.
             requestHeightRemeasure()
         }
