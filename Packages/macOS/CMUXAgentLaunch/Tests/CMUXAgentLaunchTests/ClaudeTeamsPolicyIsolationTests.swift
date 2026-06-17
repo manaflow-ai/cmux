@@ -3,8 +3,8 @@ import Testing
 
 @Suite("Claude Teams policy isolation")
 struct ClaudeTeamsPolicyIsolationTests {
-    @Test("Drops equals-style tmux mode without stopping later flags")
-    func dropsEqualsStyleTmuxModeWithoutStoppingLaterFlags() {
+    @Test("Treats equals-style tmux as prompt boundary")
+    func treatsEqualsStyleTmuxAsPromptBoundary() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -20,15 +20,12 @@ struct ClaudeTeamsPolicyIsolationTests {
             ) == [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "claude-teams",
-                "--model",
-                "sonnet",
-                "--dangerously-skip-permissions",
             ]
         )
     }
 
-    @Test("Drops split tmux mode without stopping later flags")
-    func dropsSplitTmuxModeWithoutStoppingLaterFlags() {
+    @Test("Treats split tmux as prompt boundary")
+    func treatsSplitTmuxAsPromptBoundary() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -38,28 +35,6 @@ struct ClaudeTeamsPolicyIsolationTests {
                     "classic",
                     "--model",
                     "sonnet",
-                ],
-                launcher: "claudeTeams",
-                fallbackKind: "claude"
-            ) == [
-                "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                "claude-teams",
-                "--model",
-                "sonnet",
-            ]
-        )
-    }
-
-    @Test("Treats non-mode equals tmux as prompt boundary")
-    func treatsNonModeEqualsTmuxAsPromptBoundary() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                    "claude-teams",
-                    "--tmux=fix",
-                    "--permission-mode",
-                    "bypassPermissions",
                 ],
                 launcher: "claudeTeams",
                 fallbackKind: "claude"
