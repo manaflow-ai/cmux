@@ -821,19 +821,18 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
-        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
-        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
-        // setup call is idempotent and cheap, and genuine state transitions are
-        // already handled by the dedicated `.onChange` observers on `body`, so
-        // re-running this per appear is harmless once the heavy/one-time work is
-        // gated out.
+        // `.onAppear` can re-fire for portal-hosted panes (issue #5303); only
+        // first-appearance setup is gated here. Other work below is idempotent,
+        // with real state changes handled by `.onChange` observers.
+        let isInitialAppearance = !didCompleteInitialBrowserPanelSetup
         performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
-        panel.noteWebViewVisibility(
-            isVisibleInUI && isCurrentPaneOwner,
-            reason: "view.onAppear"
-        )
+        let effectiveVisibility = isVisibleInUI && isCurrentPaneOwner
+        panel.noteWebViewVisibility(effectiveVisibility, reason: "view.onAppear")
+        if isInitialAppearance && effectiveVisibility && isFocused {
+            panel.clearBrowserAutoFocusModeSuppression(reason: "view.onAppear.focused")
+        }
         panel.refreshAppearanceDrivenColors()
         panel.setBrowserThemeMode(browserThemeMode)
         syncURLFromPanel()
@@ -974,10 +973,11 @@ struct BrowserPanelView: View {
 
     private func handlePanelVisibilityChange(_ visibleInUI: Bool) {
         let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-        panel.noteWebViewVisibility(
-            effectiveVisibility,
-            reason: effectiveVisibility ? "view.visible" : "view.hidden"
-        )
+        panel.noteWebViewVisibility(effectiveVisibility, reason: effectiveVisibility ? "view.visible" : "view.hidden")
+        if effectiveVisibility && isFocused {
+            panel.clearBrowserAutoFocusModeSuppression(reason: "view.visible.focused")
+            reconcileFocusedPanelState(reason: "autoFocusMode.viewVisible", isPanelFocused: true)
+        }
         if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
