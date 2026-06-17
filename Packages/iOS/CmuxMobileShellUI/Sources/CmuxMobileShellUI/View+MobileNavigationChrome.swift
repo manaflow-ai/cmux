@@ -16,17 +16,20 @@ extension View {
     /// blur bar on iOS 18) lets the terminal / chat behind it show through,
     /// instead of the previous opaque terminal-colored fill.
     ///
-    /// We intentionally do NOT set a *visible* opaque toolbar background and do
-    /// NOT hide the background either: the system bar's own material IS the
-    /// glass, and the panes are extended under it (`ignoresSafeArea(.top)` on the
-    /// terminal, automatic scroll-content inset for chat/browser) so content
-    /// renders behind it. Keep the dark color scheme so the title and toolbar
+    /// Use a translucent blur *material* as the bar background (rather than the
+    /// system default or an opaque fill) so content behind the bar is visibly
+    /// blurred — the "frosted glass" look. The pane backgrounds are extended
+    /// under the bar (terminal bg ignores the top safe area; chat/browser scroll
+    /// content insets under it automatically) so there is dark content for the
+    /// material to blur. Keep the dark color scheme so the title and toolbar
     /// buttons stay light and legible over the dark panes.
     @ViewBuilder
     func mobileTerminalNavigationChrome() -> some View {
         #if os(iOS)
         self
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         #else
         self
