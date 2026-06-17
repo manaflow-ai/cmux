@@ -88,6 +88,27 @@ def main() -> int:
         print("FAIL: helper did not report idle timeout")
         return 1
 
+    direct_output_child = "import sys; sys.stdout.write('x' * 262144); sys.stdout.flush()"
+    direct_output_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", direct_output_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    if direct_output_result.returncode != 0:
+        print(direct_output_result.stdout, end="")
+        print(direct_output_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: expected direct output child exit 0, got {direct_output_result.returncode}")
+        return 1
+    if direct_output_result.stdout.count("x") != 262144:
+        print(direct_output_result.stderr, end="", file=sys.stderr)
+        print(
+            f"FAIL: direct helper output was truncated to {direct_output_result.stdout.count('x')} bytes"
+        )
+        return 1
+
     with tempfile.TemporaryDirectory() as tmp:
         log_path = Path(tmp) / "helper.log"
         log_child = "print('child-log-line', flush=True)"

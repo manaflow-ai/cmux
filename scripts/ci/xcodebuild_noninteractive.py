@@ -80,13 +80,21 @@ def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) 
         log_file.write(chunk)
         log_file.flush()
 
-    try:
-        os.write(stdout_fd, chunk)
-    except BlockingIOError:
-        # GitHub log streaming can apply backpressure during very noisy
-        # xcodebuild phases. Keep the timeout loop moving; the full output is
-        # still persisted to the per-attempt log file.
+        try:
+            os.write(stdout_fd, chunk)
+        except BlockingIOError:
+            # GitHub log streaming can apply backpressure during very noisy
+            # xcodebuild phases. Keep the timeout loop moving; the full output
+            # is still persisted to the per-attempt log file.
+            return
         return
+
+    view = memoryview(chunk)
+    while view:
+        written = os.write(stdout_fd, view)
+        if written <= 0:
+            return
+        view = view[written:]
 
 
 def main() -> int:
@@ -104,10 +112,11 @@ def main() -> int:
     if log_path:
         log_file = open(log_path, "ab", buffering=0)
     stdout_fd = sys.stdout.fileno()
-    try:
-        os.set_blocking(stdout_fd, False)
-    except OSError:
-        pass
+    if log_file is not None:
+        try:
+            os.set_blocking(stdout_fd, False)
+        except OSError:
+            pass
 
     pid, fd = pty.fork()
     if pid == 0:
