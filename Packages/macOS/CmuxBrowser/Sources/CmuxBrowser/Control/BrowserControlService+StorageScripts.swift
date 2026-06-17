@@ -22,14 +22,14 @@ extension BrowserControlService {
     /// - Parameter params: the v2 request parameters.
     /// - Returns: `"session"` or `"local"`.
     public func storageType(params: [String: Any]) -> String {
-        let type = (Self.trimmedString(params["storage"]) ?? Self.trimmedString(params["type"]) ?? "local").lowercased()
+        let type = (trimmedString(params["storage"]) ?? trimmedString(params["type"]) ?? "local").lowercased()
         return (type == "session") ? "session" : "local"
     }
 
     /// Reads a JSON parameter as a non-empty trimmed string, matching the
     /// controller's `v2String` accessor (trims whitespace/newlines, returns `nil`
     /// for a missing, non-string, or empty-after-trim value).
-    private static func trimmedString(_ raw: Any?) -> String? {
+    private func trimmedString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
