@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import signal
 import shlex
 import subprocess
 import sys
@@ -21,7 +23,8 @@ def main() -> int:
     if not command:
         parser.error("command is required")
 
-    process = subprocess.Popen(command)
+    use_process_group = hasattr(os, "killpg")
+    process = subprocess.Popen(command, start_new_session=use_process_group)
     try:
         return process.wait(timeout=args.timeout)
     except subprocess.TimeoutExpired:
@@ -30,11 +33,17 @@ def main() -> int:
             file=sys.stderr,
             flush=True,
         )
-        process.terminate()
+        if use_process_group:
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            process.kill()
+            if use_process_group:
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
             process.wait()
         return 124
 

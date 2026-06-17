@@ -553,7 +553,7 @@ jobs:
   xctest-shard:
     needs: [detect-changes, debug-app-build]
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
-    runs-on: ${{ matrix.requires_display && (vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x') || (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -695,7 +695,7 @@ jobs:
   swift-package-tests:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.app == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ matrix.requires_display && (vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x') || (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
