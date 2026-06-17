@@ -277,11 +277,29 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  # Capture the built app's entitlements now. The actual (re)signing is deferred
-  # until after cmuxd is copied into Resources/bin below, so the bundle seal stays
-  # valid and every nested CLI helper gets signed.
+  # Ad-hoc signing entitlements for the staging app: ONLY get-task-allow, which an
+  # ad-hoc binary may carry without a provisioning profile. We deliberately do NOT
+  # reuse the built app's entitlements: xcodebuild bakes in restricted keys
+  # (keychain-access-groups, application-identifier, team-identifier) that REQUIRE a
+  # provisioning profile. The auto-generated "Mac Team Provisioning Profile" expires
+  # 7 days after each build, after which AMFI refuses to launch the app ("can't be
+  # opened"; amfid Code=-413 "No matching profile found"). Signing ad-hoc with no
+  # restricted entitlements removes the profile dependency entirely, so the staging
+  # build keeps launching indefinitely. Trade-off: the app uses the ad-hoc default
+  # keychain access group, so its auth tokens re-save once after switching modes.
   STAGING_APP_ENT_TMP="$(mktemp -t cmux-staging-ent).plist"
-  /usr/bin/codesign -d --entitlements ":$STAGING_APP_ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+  cat > "$STAGING_APP_ENT_TMP" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+  # Drop the soon-to-expire auto-generated provisioning profile; ad-hoc needs none.
+  rm -f "$STAGING_APP_PATH/Contents/embedded.provisionprofile"
 fi
 APP_PATH="$STAGING_APP_PATH"
 
@@ -303,73 +321,46 @@ if [[ -x "$CMUXD_SRC" ]]; then
 fi
 
 # Inside-out re-sign now that Resources/bin is fully populated (incl. cmuxd).
-# Prefer a stable dev-cert signature (keeps TCC grants across rebuilds); fall
-# back to ad-hoc. CLI helpers are signed with MINIMAL entitlements: the app-level
-# entitlements include the restricted `keychain-access-groups`, which a standalone
-# CLI helper cannot satisfy (no reachable provisioning profile) and which makes
-# AMFI SIGKILL the helper ("Killed: 9") on every exec.
-CMUX_SIGN_IDENTITY="${CMUX_SIGN_IDENTITY:-Apple Development: sean@mobility-labs.com}"
-CMUX_HELPER_ENT="$PWD/cmux-helper.entitlements"
-# The friendly cert name can match MULTIPLE certs (e.g. a stale + a freshly
-# created Apple Development cert with identical names). `codesign --sign <name>`
-# then fails with "ambiguous", and a single head -n1 hash may resolve to the
-# unusable one — whose failure, if swallowed, leaves the bundle on its stale
-# pre-PlistBuddy signature so AMFI SIGKILLs it on launch ("can't be opened").
-# Collect EVERY matching hash and try each until one produces a signature that
-# actually verifies.
-CMUX_SIGN_HASHES=()
-while IFS= read -r _hash; do
-  [[ -n "$_hash" ]] && CMUX_SIGN_HASHES+=("$_hash")
-done < <(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
-  | grep -F "$CMUX_SIGN_IDENTITY" | awk '{print $2}')
+# The staging app is ALWAYS signed ad-hoc. A dev-cert (Apple Development)
+# signature embeds a "Mac Team Provisioning Profile" that expires 7 days after
+# every build; once it lapses, AMFI refuses to launch the app ("can't be opened";
+# amfid Code=-413 "No matching profile found") — the weekly-recurring breakage
+# this path used to cause. Ad-hoc signing carries no profile and never expires.
+# Nested CLI helpers are signed ad-hoc with NO entitlements (the app-level
+# get-task-allow is harmless but pointless on a helper); the app bundle is signed
+# ad-hoc with the minimal get-task-allow entitlements written above.
 
 sign_staging_helpers() {
-  local identity="$1" helper
+  local helper
   for helper in "$APP_PATH/Contents/Resources/bin"/*; do
     [[ -f "$helper" && -x "$helper" ]] || continue
     /usr/bin/file -b "$helper" | grep -q "Mach-O" || continue
-    if [[ "$identity" != "-" && -f "$CMUX_HELPER_ENT" ]]; then
-      /usr/bin/codesign --force --options runtime --timestamp=none --sign "$identity" --entitlements "$CMUX_HELPER_ENT" "$helper" >/dev/null 2>&1 || true
-    else
-      /usr/bin/codesign --force --options runtime --timestamp=none --sign "$identity" "$helper" >/dev/null 2>&1 || true
-    fi
+    /usr/bin/codesign --force --options runtime --timestamp=none --sign - "$helper" >/dev/null 2>&1 || true
   done
 }
 
-# Sign nested helpers + the app bundle with one identity, then VERIFY the seal.
-# Returns 0 only if the resulting signature validates, so a swallowed codesign
-# failure can never ship an unlaunchable, AMFI-killed bundle. Diagnostic output
-# from a failed sign is surfaced (not redirected to /dev/null) so a future
-# breakage is debuggable from the reloads.sh log.
+# Ad-hoc sign nested helpers + the app bundle, then VERIFY the seal. Returns 0
+# only if the resulting signature validates, so a swallowed codesign failure can
+# never ship an unlaunchable, AMFI-killed bundle. Diagnostic output from a failed
+# sign is surfaced (not redirected to /dev/null) so a future breakage is
+# debuggable from the reloads.sh log.
 sign_and_verify_staging_app() {
-  local identity="$1" sign_err
-  sign_staging_helpers "$identity"
-  if [[ "$identity" != "-" && -s "${STAGING_APP_ENT_TMP:-}" ]]; then
-    sign_err="$(/usr/bin/codesign --force --sign "$identity" --timestamp=none --generate-entitlement-der --entitlements "$STAGING_APP_ENT_TMP" "$APP_PATH" 2>&1)" \
+  local sign_err
+  sign_staging_helpers
+  if [[ -s "${STAGING_APP_ENT_TMP:-}" ]]; then
+    sign_err="$(/usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der --entitlements "$STAGING_APP_ENT_TMP" "$APP_PATH" 2>&1)" \
       || { echo "$sign_err" >&2; return 1; }
   else
-    sign_err="$(/usr/bin/codesign --force --sign "$identity" --timestamp=none --generate-entitlement-der "$APP_PATH" 2>&1)" \
+    sign_err="$(/usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" 2>&1)" \
       || { echo "$sign_err" >&2; return 1; }
   fi
   /usr/bin/codesign --verify --verbose=2 "$APP_PATH" >/dev/null 2>&1
 }
 
 CMUX_SIGNED_OK=0
-if [[ "${#CMUX_SIGN_HASHES[@]}" -gt 0 ]]; then
-  for _hash in "${CMUX_SIGN_HASHES[@]}"; do
-    if sign_and_verify_staging_app "$_hash"; then
-      echo "==> Signed staging app with identity $_hash"
-      CMUX_SIGNED_OK=1
-      break
-    fi
-    echo "==> warning: identity $_hash did not produce a valid signature; trying next" >&2
-  done
-fi
-if [[ "$CMUX_SIGNED_OK" -eq 0 ]]; then
-  echo "==> warning: no Developer identity produced a valid signature; falling back to ad-hoc" >&2
-  if sign_and_verify_staging_app -; then
-    CMUX_SIGNED_OK=1
-  fi
+if sign_and_verify_staging_app; then
+  echo "==> Signed staging app ad-hoc (no provisioning profile; never expires)"
+  CMUX_SIGNED_OK=1
 fi
 rm -f "${STAGING_APP_ENT_TMP:-}"
 if [[ "$CMUX_SIGNED_OK" -eq 0 ]]; then
