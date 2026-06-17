@@ -19,6 +19,16 @@ ALLOWED_IGNORED_PREFIXES = (
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
+XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
+XCODE_PACKAGE_REFERENCE_TOKENS = (
+    "XCRemoteSwiftPackageReference",
+    "repositoryURL",
+    "minimumVersion",
+    "exactVersion",
+    "revision",
+    "branch",
+    "requirement =",
+)
 PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
@@ -192,6 +202,27 @@ def file_text_at(ref: str, path: str) -> str:
         return ""
 
 
+def xcode_package_reference_changed(
+    merge_base: str | None,
+    changed_files: set[str],
+) -> bool:
+    if merge_base is None or XCODE_PROJECT_FILE not in changed_files:
+        return False
+    diff = git_stdout(
+        "diff",
+        "--unified=0",
+        f"{merge_base}..HEAD",
+        "--",
+        XCODE_PROJECT_FILE,
+    )
+    for line in diff.splitlines():
+        if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+            continue
+        if any(token in line for token in XCODE_PACKAGE_REFERENCE_TOKENS):
+            return True
+    return False
+
+
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile == XCODE_PACKAGE_RESOLVED:
         return True
@@ -253,6 +284,15 @@ def main() -> int:
                 or has_remote_dependency(root, graph, remote_memo, set())
             ):
                 changed_dependency_roots.add(root)
+
+    if (
+        xcode_package_reference_changed(merge_base, changed_files)
+        and XCODE_PACKAGE_RESOLVED not in changed_files
+    ):
+        errors.append(
+            f"{XCODE_PROJECT_FILE} changed SwiftPM package references without "
+            f"matching Xcode Package.resolved diff: {XCODE_PACKAGE_RESOLVED}"
+        )
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
         rel = gitignore.as_posix()

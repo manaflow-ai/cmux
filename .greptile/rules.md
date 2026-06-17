@@ -61,6 +61,6 @@ Pass for intentional source files, configs, localization catalogs, review rules,
 
 ## SwiftPM Package.resolved
 
-For SwiftPM package, `.gitignore`, workflow, and dependency changes, flag cmux-owned package `.gitignore` files that ignore `Package.resolved`, or external dependency resolution changes that omit the relevant package-local `Package.resolved` diff.
+For SwiftPM package, Xcode project, `.gitignore`, workflow, and dependency changes, flag cmux-owned package `.gitignore` files that ignore `Package.resolved`, external dependency resolution changes that omit the relevant package-local `Package.resolved` diff, or Xcode project package-reference changes that omit the root Xcode `Package.resolved` diff.
 
 The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.
