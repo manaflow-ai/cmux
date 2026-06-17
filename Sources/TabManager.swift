@@ -3279,16 +3279,49 @@ class TabManager: ObservableObject {
     }
 
 
+    /// Braille spinner glyphs that CLI tools (pnpm, npm, cargo, codex, ora-based
+    /// Node spinners, …) cycle through frame-by-frame in the terminal title.
+    /// Stripping a leading glyph from this set collapses consecutive animation
+    /// frames to one stable title so they can be deduped (issue #6291). Limited
+    /// to braille glyphs because they effectively never lead a real title — so
+    /// stripping them can't corrupt a legitimate title.
+    nonisolated static let terminalTitleSpinnerCharacters: Set<Character> = [
+        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+        "⠉", "⠁", "⠈", "⠐", "⠠", "⢀", "⡀", "⠄", "⠂",
+        "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷",
+    ]
+
+    /// Collapses a raw terminal title to a stable form by stripping any run of
+    /// leading spinner glyphs plus the whitespace that follows them, then
+    /// whitespace-trimming. Frame N and frame N+1 of a spinner-updating title
+    /// that differ only in the leading glyph map to the same string, which lets
+    /// callers drop redundant updates (issue #6291). Pure and `nonisolated` so
+    /// both the off-main title action handler and tests can call it.
+    nonisolated static func stableTerminalPanelTitle(_ rawTitle: String) -> String {
+        var remainder = Substring(rawTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+        while let first = remainder.first, terminalTitleSpinnerCharacters.contains(first) {
+            remainder = remainder.dropFirst()
+            while let next = remainder.first, next == " " || next == "\t" {
+                remainder = remainder.dropFirst()
+            }
+        }
+        return remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.stableTerminalPanelTitle(title)
         guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        // Drop redundant spinner-frame updates: the same stable title is already
+        // queued for this panel, so re-flushing it would only thrash the main
+        // thread (issue #6291).
+        if pendingPanelTitleUpdates[key] == trimmed { return }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()

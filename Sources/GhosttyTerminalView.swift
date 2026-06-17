@@ -2876,8 +2876,17 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
-                let change = GhosttyTitleChange(tabId: tabId, surfaceId: surfaceId, title: title)
                 DispatchQueue.main.async {
+                    // Collapse frame-by-frame spinner titles (pnpm, cargo, codex,
+                    // …) to a stable form and skip posting when nothing
+                    // meaningful changed. This stops redundant title posts from
+                    // flooding the panel-title coalescer and the toolbar
+                    // command-text updater, which starved sidebar hit-testing
+                    // (issue #6291).
+                    let stable = TabManager.stableTerminalPanelTitle(title)
+                    guard surfaceView.lastPublishedTerminalTitle != stable else { return }
+                    surfaceView.lastPublishedTerminalTitle = stable
+                    let change = GhosttyTitleChange(tabId: tabId, surfaceId: surfaceId, title: stable)
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
@@ -3413,6 +3422,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// The most recent terminal title posted through `.ghosttyDidSetTitle`,
+    /// already collapsed to its stable (spinner-stripped) form. Used to drop
+    /// frame-by-frame spinner title updates at the source so they never reach
+    /// the workspace panel-title coalescer or the toolbar command-text updater
+    /// (issue #6291). Main-thread only (mutated from the title action handler's
+    /// main-queue hop).
+    var lastPublishedTerminalTitle: String = ""
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
