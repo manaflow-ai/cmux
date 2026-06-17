@@ -13,17 +13,24 @@ struct WorkspaceBackButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: "chevron.backward")
                     .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
                 if unreadCount > 0 {
                     Text(countText)
-                        .font(.body.weight(.semibold))
+                        // Smaller than the chevron, on a small mono circle.
+                        .font(.caption2.weight(.bold))
                         .monospacedDigit()
+                        // Number contrasts the circle: dark on the white circle
+                        // (dark bar) / light on the black circle (light bar).
+                        .foregroundStyle(Color(.systemBackground))
+                        .padding(2)
+                        .frame(minWidth: 18, minHeight: 18)
+                        // White/black circle (adapts), not the accent blue.
+                        .background(.primary, in: .circle)
                 }
             }
-            // Neutral label color (adapts white/black), not the accent blue.
-            .foregroundStyle(.primary)
             .contentShape(.rect)
         }
         .accessibilityLabel(accessibilityLabel)
