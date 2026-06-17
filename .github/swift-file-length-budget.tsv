@@ -10,7 +10,7 @@
 11731	Sources/GhosttyTerminalView.swift
 11388	Sources/Panels/BrowserPanel.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7931	Sources/Panels/BrowserPanelView.swift
+7937	Sources/Panels/BrowserPanelView.swift
 7356	cmuxTests/WorkspaceUnitTests.swift
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
@@ -23,7 +23,7 @@
 5526	cmuxTests/BrowserConfigTests.swift
 4516	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
-4401	cmuxTests/BrowserPanelTests.swift
+4473	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift

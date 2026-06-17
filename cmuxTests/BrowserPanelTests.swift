@@ -4188,7 +4188,8 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
 
     private func makeCoordinator(
         panelId: UUID = UUID(),
-        isFocused: Bool = true
+        isFocused: Bool = true,
+        onSubmit: @escaping (OmnibarLiveFieldSnapshot?) -> Void = { _ in }
     ) -> OmnibarTextFieldRepresentable.Coordinator {
         var text = ""
         var focused = isFocused
@@ -4208,7 +4209,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
                 inlineCompletion: nil,
                 placeholder: "",
                 onTap: {},
-                onSubmit: { _ in },
+                onSubmit: onSubmit,
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },
@@ -4397,5 +4398,76 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             NSRange(location: 0, length: textLength),
             "Explicit omnibar focus requests such as Cmd+L must still select the whole URL"
         )
+    }
+
+    private func makeReturnKeyEvent() -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        )
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/6250: AppKit
+    /// invokes `OmnibarNativeTextField.performKeyEquivalent` across the entire
+    /// window view hierarchy, so the coordinator's `handleKeyEvent` runs even
+    /// when the WKWebView holds first responder and the omnibar is not being
+    /// edited. A physical Return in that state must NOT submit (which would
+    /// hard-navigate the pane to its buffer URL and abort in-flight web work).
+    /// `editor == nil` models the web-focused state where the field has no live
+    /// field editor.
+    func testReturnDoesNotSubmitWhenOmnibarIsNotBeingEdited() {
+        var submitCount = 0
+        let coordinator = makeCoordinator(onSubmit: { _ in submitCount += 1 })
+        guard let returnEvent = makeReturnKeyEvent() else {
+            XCTFail("Failed to build Return key event")
+            return
+        }
+
+        let handled = coordinator.handleKeyEvent(returnEvent, editor: nil)
+
+        XCTAssertFalse(handled, "An unfocused omnibar must not claim Return")
+        XCTAssertEqual(
+            submitCount,
+            0,
+            "An unfocused omnibar must not submit/navigate on a physical Return (#6250)"
+        )
+    }
+
+    /// The legitimate focused-submit path must keep working: when the omnibar is
+    /// actually being edited (a live field editor exists), Return still submits.
+    func testReturnStillSubmitsWhenOmnibarIsBeingEdited() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after focusing the omnibar")
+            return
+        }
+
+        var submitCount = 0
+        let coordinator = makeCoordinator(onSubmit: { _ in submitCount += 1 })
+        coordinator.parentField = field
+        guard let returnEvent = makeReturnKeyEvent() else {
+            XCTFail("Failed to build Return key event")
+            return
+        }
+
+        let handled = coordinator.handleKeyEvent(returnEvent, editor: editor)
+
+        XCTAssertTrue(handled, "A focused omnibar must claim Return")
+        XCTAssertEqual(submitCount, 1, "A focused omnibar must still submit on Return")
     }
 }
