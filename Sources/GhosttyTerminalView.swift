@@ -4937,6 +4937,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(hiddenInHierarchy ? 1 : 0)"
                 )
 #endif
+                terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                    reason: "becomeFirstResponder.hiddenOrTiny"
+                )
             }
         }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
@@ -9767,6 +9770,10 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")
 #endif
         reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus", force: true)
+    }
+
+    fileprivate func scheduleSuppressedFirstResponderFocusReapply(reason: String) {
+        scheduleAutomaticFirstResponderApply(reason: reason)
     }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
