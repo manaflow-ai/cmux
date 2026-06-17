@@ -207,7 +207,8 @@ jobs:
           DEVICE_FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          python3 - <<'PY' > /tmp/simulator.env
+          simulator_env="$RUNNER_TEMP/simulator-${DEVICE_FAMILY}.env"
+          python3 - <<'PY' > "$simulator_env"
           import json
           import os
           import subprocess
@@ -227,8 +228,8 @@ jobs:
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
-          cat /tmp/simulator.env
-          cat /tmp/simulator.env >> "$GITHUB_ENV"
+          cat "$simulator_env"
+          cat "$simulator_env" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
