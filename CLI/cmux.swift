@@ -11898,6 +11898,40 @@ struct CMUXCLI {
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
     }
 
+    private static let sshPTYResizeRetryDelays: [TimeInterval] = [0.05, 0.15, 0.35]
+
+    private func sendSSHPTYResize(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceID: String?,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        cols: Int,
+        rows: Int,
+        socketLock: NSLock
+    ) throws {
+        socketLock.lock()
+        defer { socketLock.unlock() }
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionID,
+            "attachment_id": attachmentID,
+            "attachment_token": attachmentToken,
+            "cols": cols,
+            "rows": rows,
+        ]
+        if let surfaceID {
+            params["surface_id"] = surfaceID
+            params["allow_moved_surface"] = true
+        }
+        _ = try client.sendV2(
+            method: "workspace.remote.pty_resize",
+            params: params,
+            responseTimeout: 2.0
+        )
+    }
+
     private func startSSHPTYResizeSource(
         client: SocketClient,
         workspaceId: String,
@@ -11908,27 +11942,40 @@ struct CMUXCLI {
         socketLock: NSLock
     ) -> DispatchSourceSignal {
         signal(SIGWINCH, SIG_IGN)
+        let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        var resizeGeneration: UInt64 = 0
+
+        func sendLatestResize(attempt: Int, generation: UInt64) {
+            let size = self.currentCLITerminalSize()
+            do {
+                try self.sendSSHPTYResize(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    attachmentToken: attachmentToken,
+                    cols: size.cols,
+                    rows: size.rows,
+                    socketLock: socketLock
+                )
+            } catch {
+                guard attempt < Self.sshPTYResizeRetryDelays.count else { return }
+                let delay = Self.sshPTYResizeRetryDelays[attempt]
+                queue.asyncAfter(deadline: .now() + delay) {
+                    guard generation == resizeGeneration else { return }
+                    sendLatestResize(attempt: attempt + 1, generation: generation)
+                }
+            }
+        }
+
         let source = DispatchSource.makeSignalSource(
             signal: SIGWINCH,
-            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
+            queue: queue
         )
         source.setEventHandler {
-            let size = self.currentCLITerminalSize()
-            socketLock.lock()
-            defer { socketLock.unlock() }
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": attachmentToken,
-                "cols": size.cols,
-                "rows": size.rows,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+            resizeGeneration &+= 1
+            sendLatestResize(attempt: 0, generation: resizeGeneration)
         }
         source.resume()
         return source
