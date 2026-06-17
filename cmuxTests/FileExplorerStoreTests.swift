@@ -601,6 +601,85 @@ struct FileExplorerStoreTests {
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
     }
+
+    // MARK: - SSH argument composition (proxied-host regression)
+
+    /// Regression for the remote file explorer failing with "SSH command failed"
+    /// on proxied hosts (e.g. Coder `*.coder` ProxyCommand). The workspace's
+    /// `ssh_options` arrive carrying `ControlMaster=auto`/`ControlPersist=600`; if
+    /// the explorer passes those through, each probe negotiates its own master
+    /// through the slow ProxyCommand and times out. The probe must instead force
+    /// `ControlMaster=no` (reuse the warm master via the inherited `ControlPath`),
+    /// drop `ControlMaster`/`ControlPersist`, and use the same `ConnectTimeout=6`
+    /// as every other cmux background-SSH path.
+    @Test
+    func testFileExplorerSSHArgumentsReuseMasterInsteadOfNegotiatingOwn() {
+        let connection = SSHFileExplorerConnection(
+            destination: "builder@nt-8-a100-80g.coder",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-501-%C",
+                "StrictHostKeyChecking=accept-new",
+            ]
+        )
+
+        let args = ProcessSSHFileExplorerTransport.sshArguments(
+            connection: connection,
+            command: "ls -1paF '/home/builder' 2>/dev/null"
+        )
+
+        func optionValues(_ args: [String]) -> [String] {
+            var values: [String] = []
+            var index = 0
+            while index < args.count {
+                if args[index] == "-o", index + 1 < args.count {
+                    values.append(args[index + 1])
+                    index += 2
+                } else {
+                    index += 1
+                }
+            }
+            return values
+        }
+        let options = optionValues(args)
+
+        // Reuses an existing master, never negotiates a new one.
+        #expect(options.contains("ControlMaster=no"))
+        #expect(!options.contains("ControlMaster=auto"))
+        #expect(!options.contains { $0.lowercased().hasPrefix("controlpersist") })
+        // ControlPath is kept so the warm master socket is reused.
+        #expect(options.contains("ControlPath=/tmp/cmux-ssh-501-%C"))
+        // Matches the timeout used by every other cmux background-SSH path.
+        #expect(options.contains("ConnectTimeout=6"))
+        #expect(!options.contains("ConnectTimeout=5"))
+        // StrictHostKeyChecking is not duplicated when already inherited.
+        #expect(options.filter { $0.lowercased().hasPrefix("stricthostkeychecking") }.count == 1)
+        // The destination and command are still the final two arguments.
+        #expect(args.dropLast().last == "builder@nt-8-a100-80g.coder")
+        #expect(args.last == "ls -1paF '/home/builder' 2>/dev/null")
+    }
+
+    /// The opaque "SSH command failed" message hid the actual failure during the
+    /// proxied-host investigation. The explorer must surface the meaningful stderr
+    /// line while skipping benign ProxyCommand/login banners.
+    @Test
+    func testSSHErrorSurfacesMeaningfulStderrLine() {
+        let stderr = """
+        👋 Your workspace is outdated! Update it here: https://example.com/ws
+        Warning: Permanently added 'host' (ED25519) to the list of known hosts.
+        ssh: connect to host nt-8-a100-80g.coder port 22: Operation timed out
+        """
+        let description = FileExplorerError.sshCommandFailed(stderr).errorDescription
+        #expect(description?.contains("Operation timed out") == true)
+        #expect(description?.contains("workspace is outdated") == false)
+
+        // With no usable detail, it falls back to the generic message.
+        let blank = FileExplorerError.sshCommandFailed("   \n  ").errorDescription
+        #expect(blank == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
+    }
 }
 
 @MainActor

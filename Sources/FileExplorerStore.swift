@@ -652,7 +652,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return result.stdout
     }
 
-    private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
+    static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
         var args: [String] = []
         if let port = connection.port {
             args += ["-p", String(port)]
