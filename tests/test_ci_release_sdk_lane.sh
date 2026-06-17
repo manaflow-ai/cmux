@@ -39,7 +39,7 @@ require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
   'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
-  "release must build the app on macOS 26"
+  "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
 
 require_job_contains \
   "$CI_FILE" \
