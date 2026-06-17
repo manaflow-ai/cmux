@@ -95,6 +95,25 @@ struct SettingsSearchIndexTests {
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }
 
+    @Test func localizedAutoNamingAliasesRemainSearchableWithoutAgentPickerCollision() {
+        let index = SettingsSearchIndex(
+            catalog: SettingCatalog(),
+            curatedEntries: [
+                .init(
+                    section: .automation,
+                    id: "workspace-auto-naming",
+                    title: "Workspace Auto-Naming",
+                    synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent 命名 エージェント",
+                    anchorPath: "automation.workspaceAutoNaming"
+                ),
+            ]
+        )
+
+        #expect(index.match("命名 エージェント").contains { $0.id == "setting:automation:workspace-auto-naming" })
+        #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+    }
+
     @Test func unknownPathHasNoAnchor() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "totally.bogus.path") == nil)

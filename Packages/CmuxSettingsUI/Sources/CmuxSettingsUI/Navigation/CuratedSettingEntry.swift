@@ -31,15 +31,25 @@ public struct CuratedSettingEntry: Sendable, Hashable {
     /// `"terminal.copyOnSelect copy on selection clipboard"`.
     public let synonyms: String
 
+    /// Dotted cmux.json path used as the scroll/highlight anchor.
+    ///
+    /// When `nil`, ``SettingsSearchIndex`` falls back to dotted tokens
+    /// in ``synonyms`` for existing entries. Set this when localized
+    /// synonyms contain additional dotted search terms that should not
+    /// become row anchors.
+    public let anchorPath: String?
+
     public init(
         section: SettingsSectionID,
         id: String,
         title: String,
-        synonyms: String
+        synonyms: String,
+        anchorPath: String? = nil
     ) {
         self.section = section
         self.id = id
         self.title = title
         self.synonyms = synonyms
+        self.anchorPath = anchorPath
     }
 }

@@ -118,7 +118,16 @@ extension Array where Element == CuratedSettingEntry {
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
-            .init(section: .automation, id: "workspace-auto-naming", title: String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"), synonyms: "automation.workspaceAutoNaming autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary agent picker naming agent"),
+            .init(
+                section: .automation,
+                id: "workspace-auto-naming",
+                title: String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.automation.workspace-auto-naming",
+                    defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary agent picker naming agent"
+                ),
+                anchorPath: "automation.workspaceAutoNaming"
+            ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 

@@ -98,18 +98,24 @@ public struct SettingsSearchIndex: Sendable {
 
         self.entries = built
 
-        // Curated synonym strings lead with the setting's dotted
-        // cmux.json path (e.g. "sidebar.showBranchDirectory git …"),
-        // which is exactly what a row declares via its
-        // configurationReview. Index every dotted token to the curated
-        // entry's anchor id so a row can map its path to a scroll target.
+        // Existing curated synonym strings lead with the setting's
+        // dotted cmux.json path (e.g. "sidebar.showBranchDirectory
+        // git …"), which is exactly what a row declares via its
+        // configurationReview. New entries can set `anchorPath`
+        // explicitly when localized search synonyms also contain
+        // secondary dotted tokens that should not become row anchors.
         // First writer wins: a dotted path is owned by one setting.
         var pathAnchors: [String: String] = [:]
         for entry in curatedEntries {
             let anchorID = "setting:\(entry.section.rawValue):\(entry.id)"
-            for token in entry.synonyms.split(separator: " ") where token.contains(".") {
-                let path = String(token)
-                if pathAnchors[path] == nil { pathAnchors[path] = anchorID }
+            let anchorPaths = entry.anchorPath.map { [$0] }
+                ?? entry.synonyms.split(separator: " ").compactMap { token in
+                    token.contains(".") ? String(token) : nil
+                }
+            for path in anchorPaths {
+                if pathAnchors[path] == nil {
+                    pathAnchors[path] = anchorID
+                }
             }
         }
         self.pathAnchorIDs = pathAnchors
