@@ -1051,7 +1051,7 @@ struct BrowserPanelView: View {
             isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
             isAddressBarFocused: addressBarFocused,
             isAutoFocusModeSuppressedUntilFocusGain: panel.isBrowserAutoFocusModeSuppressedUntilFocusGain
-        ) {
+        ) && !isCommandPaletteVisibleForPanelWindow() {
             panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: true)
         }
     }

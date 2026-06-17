@@ -65,6 +65,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.socketControlMode",
         "automation.suppressSubagentNotifications",
         "automation.workspaceAutoNaming",
+        "browser.autoFocusMode",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
