@@ -32,6 +32,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onReenterWindow = { [weak coordinator = context.coordinator] in
+                coordinator?.handleViewReenteredWindow()
+            }
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
             applyBackground(to: webView)
@@ -58,6 +61,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onReenterWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.handleViewReenteredWindow()
+        }
         webView.setValue(false, forKey: "drawsBackground")
         applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
@@ -102,6 +108,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
     }
 
@@ -238,6 +245,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onReenterWindow = nil
             }
             self.webView = nil
             isLoaded = false
@@ -727,7 +735,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// from the window WebKit can reclaim the WebContent process,
         /// leaving the panel permanently blank with no user-facing reload.
         func handleViewReenteredWindow() {
-            // Intentionally empty until the fix commit.
+            // A deliberate reattach is not a crash loop, so restore the full
+            // recovery budget. If the shell was lost while detached (WebContent
+            // process reclaimed, or the in-place recovery budget was exhausted),
+            // reload it so the document repaints instead of staying blank. A
+            // shell that is still loaded — alive but merely unpainted — is left
+            // intact; the host view's repaint nudge handles that case.
+            webContentProcessRecoveryAttempts = 0
+            guard !isLoaded, !isShellLoading else { return }
+            loadShell(
+                theme: lastTheme ?? pendingTheme,
+                initialMarkdown: lastMarkdown ?? pendingMarkdown
+            )
         }
 
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
