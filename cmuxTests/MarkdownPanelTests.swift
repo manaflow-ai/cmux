@@ -237,9 +237,34 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, openedPanelId)
         let panel = try XCTUnwrap(workspace.markdownPanel(for: openedPanelId))
         XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertNotNil(manager.focusedMarkdownPanelForFind)
 
         // The crux: the global find action must be handled (not silently dropped).
         XCTAssertTrue(manager.startSearch())
+        XCTAssertEqual(panel.displayMode, .text)
+    }
+
+    // Companion to the routing test: a preview-mode panel handles startFind() by
+    // switching to text mode so the native NSTextView find bar can be presented.
+    func testMarkdownStartFindSwitchesPreviewToTextMode() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nNeedle body.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.displayMode, .preview)
+        // The request is always handled; preview mode flips to text so the native
+        // find bar (NSTextView, usesFindPanel == true) can be presented.
+        XCTAssertTrue(panel.startFind())
+        XCTAssertEqual(panel.displayMode, .text)
+        // A second invocation while already in text mode is still handled.
+        XCTAssertTrue(panel.startFind())
         XCTAssertEqual(panel.displayMode, .text)
     }
 
