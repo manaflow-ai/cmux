@@ -174,7 +174,6 @@
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift
-577	cmuxTests/AppearanceSettingsTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
