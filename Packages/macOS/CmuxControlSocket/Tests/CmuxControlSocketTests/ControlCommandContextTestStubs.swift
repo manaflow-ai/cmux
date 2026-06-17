@@ -492,6 +492,7 @@ extension ControlMobileHostContext {
     }
 
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileHostStatusPublic(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
@@ -499,4 +500,19 @@ extension ControlMobileHostContext {
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
+    func controlMobileAttachTicketCreate(params: [String: JSONValue]) async -> ControlCallResult { mobileHostStubResult }
+    func controlMobileTerminalPasteImage(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileChatDispatch(method: String, params: [String: JSONValue]) async -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceClose(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceGroupSetCollapsed(
+        params: [String: JSONValue],
+        isCollapsed: Bool
+    ) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileNotificationDismiss(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileNotificationReconcile(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileDogfoodFeedbackSubmit(params: [String: JSONValue]) async -> ControlCallResult { mobileHostStubResult }
 }

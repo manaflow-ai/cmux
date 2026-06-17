@@ -31,21 +31,43 @@
 /// `v2MainSync` hops the legacy command bodies used disappear once the domain
 /// moves onto the coordinator.
 ///
-/// The worker-lane mobile method (`mobile.attach_ticket.create`) blocks/awaits
-/// on the socket worker and is deliberately NOT part of this seam; it stays on
-/// the app-side worker path. So do the DEBUG-only and mobile-data-plane-only
-/// verbs (`mobile.dev_stack_auth.configure`, `mobile.terminal.paste_image`,
-/// `workspace.create`/`workspace.action` mobile wrappers, `dogfood.feedback.*`),
-/// which are dispatched only from the mobile RPC handler, not `processV2Command`.
+/// ## Two entrypoints, one seam
+///
+/// Both the v2 control socket (`processV2Command`, sync, main-actor) and the
+/// mobile data-plane RPC handler (`mobileHostHandleRPC`, async) dispatch the
+/// mobile-host domain. The coordinator owns the dispatch table for both:
+/// ``ControlCommandCoordinator/handleMobileHost(_:)`` answers the verbs reachable
+/// from `processV2Command` (the eight shared verbs plus `mobile.terminal.paste` /
+/// `terminal.paste` and the local debug `chat.sessions.dump`), and
+/// ``ControlCommandCoordinator/handleMobileHostRPC(_:)`` answers the full RPC
+/// surface (every verb above plus the attach-ticket / paste-image / workspace
+/// create-action-close-group / chat / notification-sync / dogfood-feedback verbs
+/// the phone reaches only through the data plane). Every method is a thin
+/// pass-through to a seam method below; the app conformance runs the EXACT legacy
+/// body and bridges its Foundation payload to a ``JSONValue``.
+///
+/// The methods that block or await on app state are `async` here (attach-ticket
+/// mint, chat history, dogfood-feedback persistence); the rest are synchronous,
+/// matching the legacy bodies exactly.
 @MainActor
 public protocol ControlMobileHostContext: AnyObject {
-    /// `mobile.host.status` — host identity, route status, advertised
-    /// capabilities, and the resolved workspace count (the `processV2Command`
-    /// path includes private metadata, matching the legacy default argument).
+    /// `mobile.host.status` (v2 control socket) — host identity, route status,
+    /// advertised capabilities, and the resolved workspace count. The
+    /// `processV2Command` path includes private metadata, matching the legacy
+    /// default argument (`includePrivateMetadata: true`).
     ///
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.host.status` (mobile data-plane RPC) — the public-status variant
+    /// the phone receives over the RPC handler, omitting private metadata
+    /// (`includePrivateMetadata: false`), matching the legacy
+    /// `mobileHostHandleRPC` argument.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileHostStatusPublic(params: [String: JSONValue]) -> ControlCallResult
 
     /// `mobile.workspace.list` — the iOS-facing workspace/terminal list, scoped
     /// to a single window when a target selector is present and flattened across
@@ -98,4 +120,92 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.terminal.paste` / `terminal.paste` — paste text into the resolved
+    /// terminal surface as a bracketed paste.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
+    /// dump, for diagnosing inconsistent phone-side chat state.
+    ///
+    /// - Returns: The fully-built command result.
+    func controlMobileChatSessionsDump() -> ControlCallResult
+
+    /// `mobile.attach_ticket.create` — mint a short-lived attach ticket for the
+    /// paired phone. Awaits the socket worker, so it is `async`.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileAttachTicketCreate(params: [String: JSONValue]) async -> ControlCallResult
+
+    /// `mobile.terminal.paste_image` / `terminal.paste_image` — paste a decoded
+    /// image into the resolved terminal surface.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTerminalPasteImage(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `workspace.create` — create a workspace from the mobile data plane.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `workspace.action` — the mobile-gated workspace action wrapper
+    /// (pin/unpin/rename/mark-read).
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.chat.*` — the iOS agent-chat verbs (sessions / history / send /
+    /// interrupt / answer). Awaits transcript I/O, so it is `async`.
+    ///
+    /// - Parameters:
+    ///   - method: The full `mobile.chat.*` method name.
+    ///   - params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileChatDispatch(method: String, params: [String: JSONValue]) async -> ControlCallResult
+
+    /// `workspace.close` — close a workspace from the mobile data plane.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileWorkspaceClose(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `workspace.group.collapse` / `workspace.group.expand` — set a workspace
+    /// group's collapsed state from the mobile data plane.
+    ///
+    /// - Parameters:
+    ///   - params: The decoded request params.
+    ///   - isCollapsed: `true` for collapse, `false` for expand.
+    /// - Returns: The fully-built command result.
+    func controlMobileWorkspaceGroupSetCollapsed(
+        params: [String: JSONValue],
+        isCollapsed: Bool
+    ) -> ControlCallResult
+
+    /// `notification.dismiss` (mobile data plane) — mark notifications read on the
+    /// Mac in response to a phone-side banner dismiss (cross-device dismiss-sync).
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileNotificationDismiss(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `notification.reconcile` (mobile data plane) — the foreground reconcile
+    /// sweep reporting which phone-delivered banners this Mac handled.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileNotificationReconcile(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `dogfood.feedback.submit` — the privileged agent-feedback sink. Persists a
+    /// bundle off the main actor, so it is `async`.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileDogfoodFeedbackSubmit(params: [String: JSONValue]) async -> ControlCallResult
 }
