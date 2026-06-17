@@ -2425,9 +2425,9 @@ struct BrowserPanelView: View {
         isBrowserImportHintPopoverPresented = false
     }
 
-    /// Treat content as blank only if neither WebKit nor the panel model has a nonblank URL.
+    /// Treat content as blank only if there is no live, committed, or pending nonblank URL.
     private func isBrowserContentBlankForOmnibar() -> Bool {
-        panel.preferredURLStringForOmnibar() == nil
+        panel.isShowingBlankBrowserPage
     }
 
     private func autoFocusOmnibarIfBlank() {
