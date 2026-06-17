@@ -13,7 +13,7 @@ extension AgentLaunchSanitizer {
         policy.optionalValueChoices["--prompt-suggestions"] = ["true", "false"]
         policy.greedyOptionalValueOptions.formUnion(["--remote-control", "--worktree", "-w"])
         policy.droppedOptions.subtract(["--tmux", "--worktree", "-w"])
-        policy.droppedOptionPrefixes.removeAll { $0 == "--worktree=" }
+        policy.droppedOptionPrefixes.removeAll { $0 == "--tmux=" || $0 == "--worktree=" }
         policy.promptBoundaryOptions = ["--tmux"]
         return policy
     }()

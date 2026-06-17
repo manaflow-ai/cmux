@@ -20,7 +20,10 @@ extension AgentLaunchSanitizer {
 }
 
 private func promptBoundaryOption(_ arg: String, options: Set<String>) -> String? {
-    options.contains(arg) ? arg : nil
+    if options.contains(arg) { return arg }
+    guard let equals = arg.firstIndex(of: "=") else { return nil }
+    let option = String(arg[..<equals])
+    return options.contains(option) ? option : nil
 }
 
 func isOptionToken(_ arg: String) -> Bool {
@@ -28,6 +31,10 @@ func isOptionToken(_ arg: String) -> Bool {
 }
 
 private func promptBoundaryModeEnd(_ args: [String], index: Int) -> Int? {
+    if args[index].hasPrefix("--tmux=") {
+        let value = String(args[index].dropFirst("--tmux=".count))
+        return knownTmuxModeValues.contains(value) ? index + 1 : nil
+    }
     guard args[index] == "--tmux",
           index + 1 < args.count,
           knownTmuxModeValues.contains(args[index + 1]) else {

@@ -50,6 +50,26 @@ struct ClaudeTeamsPolicyIsolationTests {
         )
     }
 
+    @Test("Treats non-mode equals tmux as prompt boundary")
+    func treatsNonModeEqualsTmuxAsPromptBoundary() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--tmux=fix",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ],
+                launcher: "claudeTeams",
+                fallbackKind: "claude"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+            ]
+        )
+    }
+
     @Test("Plain Claude still drops worktree selectors")
     func plainClaudeStillDropsWorktreeSelectors() {
         #expect(
