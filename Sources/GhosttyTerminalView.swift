@@ -9794,6 +9794,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     fileprivate func scheduleSuppressedFirstResponderFocusReapplyIfReady(reason: String) {
         guard pendingSuppressedFirstResponderFocusReapply else { return }
+        guard !pendingAutomaticFirstResponderApply else { return }
         guard isActive, surfaceView.desiredFocus, surfaceView.isVisibleInUI else { return }
         guard currentTerminalSurfaceOwnsFirstResponder() else { return }
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
