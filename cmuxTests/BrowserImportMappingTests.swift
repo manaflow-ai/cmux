@@ -1,5 +1,6 @@
 import XCTest
 import CmuxBrowser
+import CmuxBrowserImport
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -278,7 +279,7 @@ final class BrowserImportMappingTests: XCTestCase {
             warnings: []
         )
 
-        let lines = BrowserImportOutcomeFormatter.lines(for: outcome)
+        let lines = outcome.formattedLines
 
         XCTAssertTrue(lines.contains("You -> You"))
         XCTAssertTrue(lines.contains("austin -> austin"))
@@ -331,7 +332,7 @@ final class BrowserImportMappingTests: XCTestCase {
         displayName: String,
         profiles: [InstalledBrowserProfile]
     ) -> InstalledBrowserCandidate {
-        let descriptor = try! XCTUnwrap(InstalledBrowserDetector.allBrowserDescriptors.first(where: { $0.id == descriptorID }))
+        let descriptor = try! XCTUnwrap(BrowserImportBrowserDescriptor.allBrowserDescriptors.first(where: { $0.id == descriptorID }))
         return InstalledBrowserCandidate(
             descriptor: BrowserImportBrowserDescriptor(
                 id: descriptor.id,

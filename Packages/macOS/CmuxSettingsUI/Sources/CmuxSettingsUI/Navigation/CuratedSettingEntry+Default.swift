@@ -8,14 +8,13 @@ extension Array where Element == CuratedSettingEntry {
     /// `SettingsSearchAliasIndex.settingAliases` tables in
     /// `Sources/SettingsNavigation.swift` and
     /// `Sources/SettingsSearchAliases.swift`. Roughly one row per
-    /// high-signal setting; the surface area is meant to mirror what
-    /// users actually search for, not the full catalog. Catalog keys
-    /// not present here still fall back to a dotted-id index entry in
-    /// ``SettingsSearchIndex``.
+    /// high-signal setting; the surface area is meant to mirror visible
+    /// rows users actually search for.
     ///
-    /// Strings are English-only until the package ships an
-    /// `xcstrings` catalog. Tests and hosts that want a different set
-    /// of entries pass their own array via
+    /// Most strings are English-only until the package ships an
+    /// `xcstrings` catalog; newer entries use the same localized
+    /// strings as their rows when available. Tests and hosts that want
+    /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static var cmuxDefault: [CuratedSettingEntry] {
         [
@@ -42,7 +41,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
-            .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config"),
+            .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
@@ -53,12 +52,26 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
             .init(section: .app, id: "palette-search-all", title: "Command Palette Searches All Surfaces", synonyms: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
+            .init(
+                section: .app,
+                id: "canvas-pane-gap",
+                title: String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"),
+                paths: ["canvas.paneGap"],
+                synonyms: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"
+            ),
+            .init(
+                section: .app,
+                id: "canvas-snapping",
+                title: String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"),
+                paths: ["canvas.snappingEnabled"],
+                synonyms: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"
+            ),
             .init(section: .app, id: "dock-badge", title: "Dock Badge", synonyms: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
             .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
-            .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable done agent"),
+            .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // Terminal
@@ -118,6 +131,20 @@ extension Array where Element == CuratedSettingEntry {
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
+            .init(
+                section: .automation,
+                id: "workspace-auto-naming",
+                title: String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+                detailText: [
+                    String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
+                    String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                    String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
+                    String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                    String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
+                ].joined(separator: " "),
+                paths: ["automation.workspaceAutoNaming"],
+                synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"
+            ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
@@ -145,7 +172,15 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
             // Keyboard shortcuts
-            .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged"),
+            .init(
+                section: .keyboardShortcuts,
+                id: "shortcuts",
+                title: "Keyboard Shortcuts",
+                synonyms: [
+                    "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged split left split right split up split down new pane new split move surface move tab focus pane resize pane close tab close workspace next previous select workspace",
+                    Self.keyboardShortcutActionSynonyms,
+                ].joined(separator: " ")
+            ),
             .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
@@ -163,5 +198,12 @@ extension Array where Element == CuratedSettingEntry {
             // Reset
             .init(section: .reset, id: "reset-all", title: "Reset All Settings", synonyms: "factory reset restore defaults clear preferences"),
         ]
+    }
+
+    private static var keyboardShortcutActionSynonyms: String {
+        ShortcutAction.allCases
+            .filter { $0 != .showHideAllWindows }
+            .map(\.displayName)
+            .joined(separator: " ")
     }
 }

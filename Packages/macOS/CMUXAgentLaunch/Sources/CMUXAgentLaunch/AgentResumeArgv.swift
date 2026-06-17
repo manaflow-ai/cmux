@@ -146,7 +146,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
             if tail.first == "claude-teams" { tail.removeFirst() }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail) else {
+            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: tail) else {
                 return .resolved(nil)
             }
             return .resolved([parts.executable, "claude-teams", "--resume", sessionId] + preserved)
