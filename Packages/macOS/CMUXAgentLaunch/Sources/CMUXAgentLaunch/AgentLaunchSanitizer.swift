@@ -24,7 +24,7 @@ public enum AgentLaunchSanitizer {
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
-        var promptBoundaryOptions: Set<String> = []; var postPromptBoundaryOptions: Set<String> = []
+        var promptBoundaryOptions: Set<String> = []
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false

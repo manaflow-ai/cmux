@@ -1,10 +1,10 @@
 import CMUXAgentLaunch
 import Testing
 
-@Suite("Claude Teams prompt boundary recovery")
+@Suite("Claude Teams prompt boundary isolation")
 struct ClaudeTeamsPromptBoundaryRecoveryTests {
-    @Test("Recovers restore-safe flags after tmux payload for remote-control launches")
-    func recoversRestoreSafeFlagsAfterTmuxPayloadForRemoteControlLaunches() {
+    @Test("Drops post-boundary flags for remote-control launches")
+    func dropsPostBoundaryFlagsForRemoteControlLaunches() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -13,10 +13,9 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
                     "--remote-control-session-name-prefix",
                     "cmux-team",
                     "--tmux",
-                    "side effect should be dropped",
+                    "please",
                     "--permission-mode",
-                    "auto",
-                    "initial team prompt",
+                    "bypassPermissions",
                 ],
                 launcher: "claudeTeams",
                 fallbackKind: "claude"
@@ -25,14 +24,12 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
                 "claude-teams",
                 "--remote-control-session-name-prefix",
                 "cmux-team",
-                "--permission-mode",
-                "auto",
             ]
         )
     }
 
-    @Test("Recovers restore-safe flags at end of argv")
-    func recoversRestoreSafeFlagsAtEndOfArgv() {
+    @Test("Drops post-boundary flags at end of argv")
+    func dropsPostBoundaryFlagsAtEndOfArgv() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
@@ -54,10 +51,6 @@ struct ClaudeTeamsPromptBoundaryRecoveryTests {
                 "claude-teams",
                 "--remote-control-session-name-prefix",
                 "cmux-team",
-                "--model",
-                "sonnet",
-                "--permission-mode",
-                "auto",
             ]
         )
     }

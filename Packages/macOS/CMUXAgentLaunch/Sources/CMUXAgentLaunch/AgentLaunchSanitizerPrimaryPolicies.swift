@@ -98,7 +98,6 @@ extension AgentLaunchSanitizer {
             "--no-session-persistence"
         ],
         promptBoundaryOptions: ["--tmux"],
-        postPromptBoundaryOptions: ["--fallback-model", "--model", "--permission-mode"],
         skipClaudeHookSettings: true
     )
 
