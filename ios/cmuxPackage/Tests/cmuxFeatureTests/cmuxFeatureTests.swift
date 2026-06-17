@@ -85,7 +85,7 @@ final class TerminalOutputCollector {
 // Auth error mapping + cached-session recovery are now owned and tested by
 // CmuxAuthRuntime (AuthErrorMapperTests). The display-safe error and
 // cached-session-validation assertions moved there with the AuthCoordinator
-// lift; see Packages/CmuxAuthRuntime/Tests.
+// lift; see Packages/Shared/CmuxAuthRuntime/Tests.
 
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(
