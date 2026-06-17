@@ -826,9 +826,14 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        if let markdownPanel = focusedMarkdownPanelForFind {
+            return markdownPanel.startFind()
+        }
+        return false
     }
 
     func searchSelection() {
@@ -851,8 +856,11 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:next")
             return
         }
-
-        focusedBrowserPanel?.findNext()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findNext()
+            return
+        }
+        focusedMarkdownPanelForFind?.findNext()
     }
 
     func findPrevious() {
@@ -860,8 +868,11 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:previous")
             return
         }
-
-        focusedBrowserPanel?.findPrevious()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findPrevious()
+            return
+        }
+        focusedMarkdownPanelForFind?.findPrevious()
     }
 
     @discardableResult
@@ -941,8 +952,11 @@ class TabManager: ObservableObject {
             panel.searchState = nil
             return
         }
-
-        focusedBrowserPanel?.hideFind()
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.hideFind()
+            return
+        }
+        focusedMarkdownPanelForFind?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -2910,6 +2924,15 @@ class TabManager: ObservableObject {
               let panel = tab.panels[panelId] as? MarkdownPanel,
               panel.displayMode == .preview else { return nil }
         return panel
+    }
+
+    /// Returns the focused panel if it's a MarkdownPanel, in any display mode.
+    /// Used for find (Cmd+F) routing, which is valid in both preview and text
+    /// modes (unlike zoom, which only applies to the preview WKWebView).
+    var focusedMarkdownPanelForFind: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
     }
 
     @discardableResult

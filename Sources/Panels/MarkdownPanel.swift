@@ -82,6 +82,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    /// Set when a Cmd+F find was requested before the text editor's `NSTextView`
+    /// was mounted (e.g. the panel was in preview mode). Applied once the text
+    /// view attaches to a window via ``focus()`` / ``retryPendingFocus()``.
+    private var pendingFindRequest: Bool = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -235,6 +239,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
         applyPendingSearchNeedleIfPossible()
+        applyPendingFindIfPossible()
     }
 
     func unfocus() {
@@ -416,6 +421,72 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         pendingSearchNeedle = nil
+    }
+
+    // MARK: - Find (Cmd+F)
+
+    /// Opens the native macOS find bar for this panel in response to the global
+    /// `find` action (Cmd+F). The find bar lives on the text-editor `NSTextView`
+    /// (which already has `usesFindPanel == true`), so a preview-mode panel first
+    /// switches to text mode — `WKWebView` exposes no native find UI on macOS.
+    /// Returns `true` because the request is always handled (immediately, or
+    /// deferred until the text view mounts).
+    @discardableResult
+    func startFind() -> Bool {
+        switch displayMode {
+        case .text:
+            return presentFindBar()
+        case .preview:
+            // Defer the find-bar presentation until the text editor mounts and
+            // attaches its NSTextView (focus()/retryPendingFocus()).
+            pendingFindRequest = true
+            setDisplayMode(.text)
+            return true
+        }
+    }
+
+    /// Advances to the next find match. No-op when the find bar is not active.
+    func findNext() {
+        textView?.performTextFinderAction(Self.findActionSender(.nextMatch))
+    }
+
+    /// Returns to the previous find match. No-op when the find bar is not active.
+    func findPrevious() {
+        textView?.performTextFinderAction(Self.findActionSender(.previousMatch))
+    }
+
+    /// Hides the native find bar. No-op when the find bar is not active.
+    func hideFind() {
+        pendingFindRequest = false
+        textView?.performTextFinderAction(Self.findActionSender(.hideFindInterface))
+    }
+
+    @discardableResult
+    private func presentFindBar() -> Bool {
+        guard let textView else {
+            // Text view not mounted yet; apply once it attaches.
+            pendingFindRequest = true
+            return true
+        }
+        pendingFindRequest = false
+        textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(Self.findActionSender(.showFindInterface))
+        return true
+    }
+
+    private func applyPendingFindIfPossible() {
+        guard pendingFindRequest, let textView, textView.window != nil else { return }
+        pendingFindRequest = false
+        textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(Self.findActionSender(.showFindInterface))
+    }
+
+    /// Builds a menu-item sender carrying the `NSTextFinder.Action` tag that
+    /// `NSTextView.performTextFinderAction(_:)` reads to pick the find action.
+    private static func findActionSender(_ action: NSTextFinder.Action) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        return item
     }
 
     // MARK: - File watcher

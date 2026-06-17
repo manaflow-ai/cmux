@@ -15,7 +15,7 @@
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6223	cmuxTests/GhosttyConfigTests.swift
-6154	Sources/TabManager.swift
+6177	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
@@ -56,7 +56,7 @@
 1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1574	cmuxTests/MarkdownPanelTests.swift
+1647	cmuxTests/MarkdownPanelTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1512	cmuxTests/RestorableAgentSessionIndexTests.swift
@@ -200,6 +200,7 @@
 527	CLI/CLISocketPathResolver.swift
 527	Packages/macOS/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
+523	Sources/Panels/MarkdownPanel.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
