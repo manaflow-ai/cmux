@@ -134,7 +134,7 @@ final class HostSettingsActions: SettingsHostActions {
         let window = NSWindow(contentViewController: hostingController)
         window.title = String(localized: "settings.config.windowTitle", defaultValue: "Config")
         window.identifier = NSUserInterfaceItemIdentifier(configWindowIdentifier)
-        window.isReleasedWhenClosed = false
+        window.isReleasedWhenClosed = true
         window.setContentSize(NSSize(width: 980, height: 680))
         window.center()
         configWindow = window

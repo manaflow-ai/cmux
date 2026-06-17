@@ -4,35 +4,32 @@ import Observation
 import SwiftUI
 
 @MainActor
-final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
+final class TaskManagerWindowController: ReleasingWindowController {
     static let shared = TaskManagerWindowController()
 
     private let model = CmuxTaskManagerModel()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 940, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.taskManager")
         window.title = String(localized: "taskManager.windowTitle", defaultValue: "Task Manager")
         window.center()
         window.contentView = NSHostingView(rootView: CmuxTaskManagerView(model: model))
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return window
     }
 
     func show() {
-        guard let window else { return }
+        let window = managedWindow()
         if !window.isVisible {
             window.center()
         }
@@ -42,7 +39,7 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 
-    func windowWillClose(_ notification: Notification) {
+    override func managedWindowWillClose(_ window: NSWindow) {
         model.stop()
     }
 }
