@@ -14,6 +14,8 @@ ALLOWED_IGNORED_PREFIXES = (
     "ghostty/",
 )
 
+XCODE_PACKAGE_RESOLVED = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+
 SKIPPED_DIRS = {
     ".build",
     ".git",
@@ -38,6 +40,27 @@ def is_allowed_vendor_path(path: str) -> bool:
     return path.startswith(ALLOWED_IGNORED_PREFIXES)
 
 
+def has_skipped_part(path: str) -> bool:
+    return any(part in SKIPPED_DIRS for part in Path(path).parts)
+
+
+def package_roots() -> set[str]:
+    roots: set[str] = set()
+    for manifest in git_ls_files("*Package.swift"):
+        if is_allowed_vendor_path(manifest) or has_skipped_part(manifest):
+            continue
+        roots.add(Path(manifest).parent.as_posix())
+    return roots
+
+
+def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
+    if lockfile == XCODE_PACKAGE_RESOLVED:
+        return True
+    if has_skipped_part(lockfile):
+        return False
+    return Path(lockfile).parent.as_posix() in roots
+
+
 def ignores_package_resolved(gitignore: Path) -> bool:
     ignored = False
 
@@ -59,12 +82,13 @@ def ignores_package_resolved(gitignore: Path) -> bool:
 
 def main() -> int:
     errors: list[str] = []
+    roots = package_roots()
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
         rel = gitignore.as_posix()
         if rel.startswith("./"):
             rel = rel[2:]
-        if any(part in SKIPPED_DIRS for part in gitignore.parts):
+        if has_skipped_part(rel):
             continue
         if not ignores_package_resolved(gitignore):
             continue
@@ -77,7 +101,7 @@ def main() -> int:
     for lockfile in git_ls_files("*Package.resolved"):
         if is_allowed_vendor_path(lockfile):
             continue
-        if lockfile.startswith("Packages/") or lockfile.startswith("ios/") or lockfile.startswith("cmux.xcodeproj/"):
+        if is_expected_lockfile_path(lockfile, roots):
             continue
         errors.append(f"Unexpected cmux Package.resolved location: {lockfile}")
 
