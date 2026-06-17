@@ -8,8 +8,8 @@ fi
 log_dir="${RUNNER_TEMP:-/tmp}"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-2}"
-export CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}"
-echo "App-host xcodebuild timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
+export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
+echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
@@ -32,7 +32,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
   if [ "$status" -ne 0 ]; then
     if [ "$attempt" -lt "$max_attempts" ] && { [ "$status" -eq 124 ] || grep -Fq 'The test runner hung before establishing connection.' "$log_path"; }; then
       if [ "$status" -eq 124 ]; then
-        echo "Retrying app-host xcodebuild after ${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS}s timeout (attempt $attempt/$max_attempts)" >&2
+        echo "Retrying app-host xcodebuild after ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout (attempt $attempt/$max_attempts)" >&2
       else
         echo "Retrying app-host xcodebuild after XCTest startup hang (attempt $attempt/$max_attempts)" >&2
       fi

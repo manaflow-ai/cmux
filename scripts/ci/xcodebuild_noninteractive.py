@@ -23,15 +23,17 @@ def child_exit_code(status: int) -> int:
     return 1
 
 
-def timeout_seconds() -> float | None:
-    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS")
+def idle_timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS")
+    if raw is None:
+        raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS")
     if not raw:
         return None
     try:
         seconds = float(raw)
     except ValueError:
         print(
-            "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS must be numeric",
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS must be numeric",
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -80,7 +82,7 @@ def main() -> int:
         )
         return 2
 
-    timeout = timeout_seconds()
+    timeout = idle_timeout_seconds()
     deadline = time.monotonic() + timeout if timeout else None
 
     pid, fd = pty.fork()
@@ -119,6 +121,8 @@ def main() -> int:
             break
 
         os.write(sys.stdout.fileno(), chunk)
+        if timeout:
+            deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
         if SWIFT_CRASH_PROMPT in prompt_window:
             # The Swift crash backtracer asks for one key. Send q to choose the
@@ -128,7 +132,7 @@ def main() -> int:
 
     if timed_out:
         assert timeout is not None
-        print(f"Timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
+        print(f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
         terminate_child(pid)
         return TIMEOUT_EXIT_CODE
 

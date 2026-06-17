@@ -65,7 +65,7 @@ def main() -> int:
     )
     timeout_env = {
         **os.environ,
-        "CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS": "0.2",
+        "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.2",
     }
     timeout_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", timeout_child],
@@ -81,13 +81,13 @@ def main() -> int:
         print(timeout_result.stderr, end="", file=sys.stderr)
         print(f"FAIL: expected timeout exit 124, got {timeout_result.returncode}")
         return 1
-    if "Timed out after 0.2s" not in timeout_result.stderr:
+    if "Idle timed out after 0.2s" not in timeout_result.stderr:
         print(timeout_result.stdout, end="")
         print(timeout_result.stderr, end="", file=sys.stderr)
-        print("FAIL: helper did not report timeout")
+        print("FAIL: helper did not report idle timeout")
         return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and times out stuck children")
+    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and idle-times out stuck children")
     return 0
 
 
