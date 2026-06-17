@@ -64,6 +64,11 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
+    /// Extra blank top padding for the terminal/chat, on top of the safe area, so
+    /// the first rows sit clear of the Dynamic Island / nav bar with breathing
+    /// room instead of being jammed against them.
+    private var terminalTopPadding: CGFloat { 20 }
+
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -149,11 +154,13 @@ struct WorkspaceDetailView: View {
         // would otherwise stay on the old session).
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Extra top inset so the first transcript rows clear the Dynamic Island /
+        // nav bar instead of hiding behind the opaque top; content still scrolls
+        // up under the glass.
+        .safeAreaPadding(.top, terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                newWorkspaceToolbarButton
+            ToolbarItem(placement: .topBarTrailing) {
                 terminalPickerToolbarButton
             }
         }
@@ -165,25 +172,33 @@ struct WorkspaceDetailView: View {
     /// the toggle tracks the tab the user is looking at. Surface ids are
     /// stable across relaunch/restore, so this per-tab match survives a
     /// restart.
+    /// The agent-chat toggle as a menu row, so chat is reached "internally" from
+    /// the terminal picker menu instead of a dedicated top-bar button (which
+    /// freed the middle of the bar for the workspace title). Shown only when the
+    /// visible tab has a session (or chat is already on).
     @ViewBuilder
-    private var chatToggleButton: some View {
+    private var chatToggleMenuItem: some View {
         if isChatMode || sessionForSelectedTerminal != nil {
-            Button {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode.toggle()
-                }
-                pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
-            } label: {
-                Image(systemName: isChatMode
-                    ? "bubble.left.and.bubble.right.fill"
-                    : "bubble.left.and.bubble.right")
+            Button(action: toggleChatMode) {
+                Label(
+                    L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"),
+                    systemImage: isChatMode
+                        ? "checkmark.circle.fill"
+                        : "bubble.left.and.bubble.right"
+                )
             }
-            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
-            .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
-            // Toggling off when the chosen session vanished still works
-            // because the button stays shown while isChatMode is true.
+            .accessibilityIdentifier("MobileAgentChatMenuItem")
             .disabled(!isChatMode && chosenChatSession == nil)
         }
+    }
+
+    /// Flip between the terminal and the inline agent chat, pinning/unpinning the
+    /// chosen session. Shared by the (legacy) toolbar button and the menu row.
+    private func toggleChatMode() {
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode.toggle()
+        }
+        pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
     }
 
     /// Identity for the session refetch: workspace plus connection epoch.
@@ -251,9 +266,7 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .principal) {
                 glassTitle(browser.title ?? workspace.name)
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                newWorkspaceToolbarButton
+            ToolbarItem(placement: .topBarTrailing) {
                 terminalPickerToolbarButton
             }
         }
@@ -308,19 +321,17 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
-                // Extend the terminal under the Liquid Glass nav bar so the grid
-                // renders full-height behind it and you can actually SEE terminal
-                // content through the glass. The grid is bottom-anchored, so
-                // recent output stays clear at the bottom and older rows show
-                // through / pass under the glass on scrollback. Applied to the
-                // surface (not the enclosing Group) so the Group's layout frame
-                // stays inside the safe area and the connection-status pill
-                // overlay below still anchors under the header, not behind it.
-                .ignoresSafeArea(.container, edges: .top)
+                // Keep the grid INSIDE the top safe area and add extra blank top
+                // padding so the first rows sit clear of the Dynamic Island and
+                // the nav bar instead of being stuck in the non-visible area
+                // behind them. The padded region shows the terminal background
+                // (the window-filling `.background` below extends under the bar),
+                // so it reads as blank terminal color, and the glass title pill
+                // floats over it.
+                .padding(.top, terminalTopPadding)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .ignoresSafeArea(.container, edges: .top)
             }
             #else
             TerminalPalette.background
@@ -380,9 +391,7 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .principal) {
                 glassTitle(workspace.name)
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                newWorkspaceToolbarButton
+            ToolbarItem(placement: .topBarTrailing) {
                 terminalPickerToolbarButton
             }
             #else
@@ -475,6 +484,13 @@ struct WorkspaceDetailView: View {
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
+        }
+
+        // Agent chat lives here (not a dedicated top-bar button) so the bar's
+        // middle stays free for the workspace title. Only present when the
+        // visible tab has a session (or chat is already on).
+        Section {
+            chatToggleMenuItem
         }
 
         Section {
