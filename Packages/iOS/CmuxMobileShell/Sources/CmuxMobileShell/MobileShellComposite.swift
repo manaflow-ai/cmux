@@ -280,6 +280,75 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.orderedForUnifiedList(merged)
     }
 
+    /// The online, non-active Macs the aggregator should fetch workspace lists
+    /// from for the unified list, derived from ``deviceTreeDevices`` (registry,
+    /// else locally paired Macs) gated by ``presenceMap`` online state.
+    ///
+    /// A device is included when: it is not the active heavy Mac; presence
+    /// reports it online (a device the presence service has never seen is
+    /// excluded, mirroring the merge in ``unifiedWorkspaces``); and it advertises
+    /// a dialable, Stack-auth-trusted route. The chosen instance is the
+    /// most-recently-seen reachable one, matching ``reconnectableInstance``.
+    /// Empty while the flag is off so the aggregator stays inert.
+    var unifiedAggregatorTargets: [MultiMacWorkspaceAggregator.Target] {
+        guard unifiedMultiMacEnabled else { return [] }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        var targets: [MultiMacWorkspaceAggregator.Target] = []
+        for device in deviceTreeDevices {
+            guard !device.deviceId.isEmpty else { continue }
+            // The active Mac is served by the heavy client; never list it here.
+            if let activeDeviceID, device.deviceId == activeDeviceID { continue }
+            // Presence gating, same rule as the unified merge: only an online
+            // device contributes; an unknown (nil summary) device does not.
+            guard presenceMap.deviceSummary(deviceId: device.deviceId)?.online == true else { continue }
+            // Pick the freshest reachable, Stack-auth-trusted instance/route.
+            let candidates = device.instances.compactMap { instance -> (RegistryAppInstance, CmxAttachRoute)? in
+                guard let route = Self.firstStackAuthReconnectRoute(
+                    instance.routes,
+                    supportedKinds: supportedKinds
+                ) else { return nil }
+                return (instance, route)
+            }
+            guard let chosen = candidates.max(by: { $0.0.lastSeenAt < $1.0.lastSeenAt }) ?? candidates.first else {
+                continue
+            }
+            let route = chosen.1
+            targets.append(
+                MultiMacWorkspaceAggregator.Target(
+                    deviceId: device.deviceId,
+                    displayName: device.displayName ?? device.deviceId,
+                    route: route
+                )
+            )
+        }
+        return targets
+    }
+
+    /// Refresh the unified multi-Mac aggregator's per-device workspace slices
+    /// from the current online, non-active Macs, and prune any device that is no
+    /// longer a live target (went offline, or became the active heavy Mac).
+    ///
+    /// This is the single production driver for the aggregator: the connect /
+    /// activation completion, presence events, and pull-to-refresh all funnel
+    /// through it. A no-op while the flag is off (``unifiedAggregatorTargets`` is
+    /// empty), so FLAG OFF never opens a list client.
+    public func refreshUnifiedAggregator() async {
+        guard unifiedMultiMacEnabled else { return }
+        await multiMacAggregator.refresh(targets: unifiedAggregatorTargets)
+    }
+
+    /// Fire-and-forget kick for the aggregator from a hot path (heavy connect
+    /// completion, presence event) that must not block on N list RPCs. Coalesces
+    /// onto the single in-flight refresh task; a no-op while the flag is off.
+    private func kickUnifiedAggregatorRefresh() {
+        guard unifiedMultiMacEnabled else { return }
+        if let existing = unifiedAggregatorRefreshTask, !existing.isCancelled { return }
+        unifiedAggregatorRefreshTask = Task { @MainActor [weak self] in
+            defer { self?.unifiedAggregatorRefreshTask = nil }
+            await self?.refreshUnifiedAggregator()
+        }
+    }
+
     /// Order the unified list: pinned workspaces first, then by `lastActivityAt`
     /// descending (most recent first), with a stable id tiebreak so the order
     /// is deterministic across Macs and refreshes. Workspaces with no
@@ -781,6 +850,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Void, Never>?
+    /// Non-blocking driver for the unified multi-Mac aggregator (other Macs'
+    /// workspace lists). Connect/activation completion and presence events kick
+    /// this so the heavy path is never blocked on N list RPCs; rapid kicks
+    /// coalesce onto the single in-flight task. Cancelled on sign-out/deinit.
+    private var unifiedAggregatorRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -945,6 +1019,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        unifiedAggregatorRefreshTask?.cancel()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -1046,6 +1121,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // next account never sees the previous user's other Macs' workspaces.
         activeDeviceID = nil
         activatingDeviceID = nil
+        unifiedAggregatorRefreshTask?.cancel()
+        unifiedAggregatorRefreshTask = nil
         multiMacAggregator.reset()
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
@@ -1821,6 +1898,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func applyPresenceUpdate(_ update: PresenceUpdate) {
         presenceMap.apply(update)
+        // A presence change can bring another Mac online (it should now appear in
+        // the unified list) or take one offline (its slice must be pruned). Kick
+        // the aggregator so the unified list tracks live presence. No-op while the
+        // flag is off; coalesces with any in-flight refresh.
+        kickUnifiedAggregatorRefresh()
         switch update {
         case .routes(let instance), .online(let instance):
             // Both events can carry fresh attach routes (online = a host that
@@ -2082,6 +2164,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
+        // Bind the heavy connection to the KNOWN cross-Mac target. The heavy
+        // `connect()` already set `activeDeviceID` from `connectedMacDeviceID`,
+        // but on a synthetic `manual-…` ticket (a route lacking
+        // `mobile.attach_ticket.create`) that heuristic resolves to the
+        // PREVIOUSLY-active Mac, because the new target is not yet marked active
+        // in the paired-Mac store (that upsert happens below, after this connect
+        // returned). The registry path has the real device id in hand, so bind
+        // it directly instead of relying on the heuristic — this is what
+        // `activateMac`/`selectScopedWorkspace`'s `activeDeviceID == target`
+        // guard and the aggregator's slice attribution both depend on. Skip
+        // synthetic `manual-` ids, which carry no real device identity.
+        if !device.deviceId.hasPrefix("manual-") {
+            activeDeviceID = device.deviceId
+        }
         if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
             do {
                 try await pairedMacStore.upsert(
@@ -2100,6 +2196,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         await loadPairedMacs()
         await loadRegistryDevices()
+        // The active heavy Mac just changed: re-derive the aggregator targets so
+        // the newly-active Mac is pruned from the slices (it is served by the
+        // heavy client now) and the previously-active Mac is fetched as a target.
+        await refreshUnifiedAggregator()
     }
 
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
@@ -2206,6 +2306,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if case let .hostPort(host, port) = route.endpoint {
                 return (host, port)
             }
+        }
+        return nil
+    }
+
+    /// The first route, in reconnect-preference order, that this build can dial
+    /// AND that is trusted to carry the Stack-account token (so a Stack-authed
+    /// `mobile.workspace.list` over it can authorize). Used to build the
+    /// aggregator's per-Mac list-client targets. Returns `nil` when no such
+    /// route exists, so an untrusted-only Mac contributes no aggregator slice.
+    static func firstStackAuthReconnectRoute(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> CmxAttachRoute? {
+        let supportedKinds = Set(supportedKinds)
+        for route in routes.sorted(by: routeSortsBefore) {
+            if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
+                continue
+            }
+            guard case .hostPort = route.endpoint else { continue }
+            guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else { continue }
+            return route
         }
         return nil
     }
@@ -3683,6 +3804,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     markMacConnectionHealthy()
+                    // Now that the active Mac is bound, populate the unified list
+                    // with the OTHER online Macs' workspaces. Fire-and-forget so
+                    // the heavy connect return is not blocked on N list RPCs.
+                    kickUnifiedAggregatorRefresh()
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
@@ -5627,17 +5752,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `mobile.workspace.list` calls. Returns immediately when not connected, so an
     /// offline pull cannot hang the spinner on a transport timeout.
     public func refreshWorkspaces() async {
-        guard connectionState == .connected, remoteClient != nil else { return }
-        if let inFlight = pullToRefreshTask {
-            await inFlight.value
-            return
+        // Pull-to-refresh also re-syncs the OTHER online Macs' lists (flag on),
+        // so a pull updates the whole unified list, not just the active Mac.
+        // Awaited alongside the active-Mac reload so the spinner reflects both.
+        async let aggregatorRefresh: Void = refreshUnifiedAggregator()
+        if connectionState == .connected, remoteClient != nil {
+            if let inFlight = pullToRefreshTask {
+                await inFlight.value
+            } else {
+                let task = Task { @MainActor [weak self] in
+                    defer { self?.pullToRefreshTask = nil }
+                    await self?.reloadWorkspaceListFromMac()
+                }
+                pullToRefreshTask = task
+                await task.value
+            }
         }
-        let task = Task { @MainActor [weak self] in
-            defer { self?.pullToRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
-        }
-        pullToRefreshTask = task
-        await task.value
+        await aggregatorRefresh
     }
 
     private func stopTerminalRefreshPolling() {

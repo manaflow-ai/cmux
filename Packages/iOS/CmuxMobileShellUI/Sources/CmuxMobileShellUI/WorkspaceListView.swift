@@ -77,6 +77,10 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    /// Whether the flag-off top-left device-tree picker sheet is presented. Used
+    /// only in single-Mac mode (`!showsMacChips`); in unified multi-Mac mode the
+    /// device tree is demoted into Settings ("Manage Devices") instead.
+    @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
@@ -175,6 +179,15 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
+            // Single-Mac (flag-off) parity: keep the prominent top-left device
+            // picker exactly as today. The unified multi-Mac list (flag on)
+            // demotes the tree into Settings ("Manage Devices") instead, since the
+            // unified workspace list is the primary navigation there.
+            if !showsMacChips, store != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    devicesButton
+                }
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter)
                 newWorkspaceButton
@@ -192,21 +205,47 @@ struct WorkspaceListView: View {
             TerminalShortcutsSettingsView()
         }
         .sheet(isPresented: $showingSettings) {
-            // The device tree ("Manage devices") now lives inside Settings rather
-            // than a top-left toolbar button: it is a secondary management surface,
-            // not the primary navigation (the unified workspace list is). The
-            // workspace-select closure is forwarded so opening a workspace from the
-            // tree dismisses Settings and the device sheet and reveals it.
+            // In unified multi-Mac mode the device tree ("Manage Devices") lives
+            // inside Settings rather than a top-left toolbar button: it is a
+            // secondary management surface, not the primary navigation (the
+            // unified workspace list is). The workspace-select closure is
+            // forwarded so opening a workspace from the tree dismisses Settings
+            // and the device sheet and reveals it. In single-Mac (flag-off) mode
+            // the tree stays a top-left toolbar button (see below), so
+            // `selectWorkspace` is NOT forwarded and the "Manage Devices" Settings
+            // entry stays hidden — Settings matches today exactly.
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
                 signOut: signOut,
                 store: store,
-                selectWorkspace: selectWorkspace
+                selectWorkspace: showsMacChips ? selectWorkspace : nil
             )
+        }
+        // Single-Mac (flag-off) parity: present the device tree at the
+        // workspace-list level (a single sheet, not nested under Settings), so
+        // selecting a workspace dismisses straight back to the workspace shell and
+        // reveals the opened workspace rather than leaving a parent sheet covering
+        // it. Suppressed in unified multi-Mac mode, where the tree is in Settings.
+        .sheet(isPresented: $showingDeviceTree) {
+            if let store, !showsMacChips {
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+            }
         }
         #endif
     }
+
+    #if os(iOS)
+    private var devicesButton: some View {
+        Button {
+            showingDeviceTree = true
+        } label: {
+            Image(systemName: "rectangle.stack")
+        }
+        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+    }
+    #endif
 
     /// Flat presentation: a pinned-first list with no group headers. Used when the
     /// Mac has no groups (or lacks the capability) or while searching.

@@ -66,9 +66,20 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    /// When true, `mobile.attach_ticket.create` is answered with a
+    /// method-not-found error, so the client falls back to a synthetic
+    /// `manual-…` ticket — modeling a route/host without that RPC. Used by the
+    /// cross-Mac activation binding regression test.
+    private var failAttachTicketCreate = false
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
+    }
+
+    /// Make `mobile.attach_ticket.create` fail with method-not-found so the
+    /// client mints a synthetic manual ticket (the synthetic-ticket path).
+    func setFailAttachTicketCreate(_ fail: Bool) {
+        failAttachTicketCreate = fail
     }
 
     func count(of method: String) -> Int {
@@ -118,6 +129,12 @@ actor LivenessHostRouter {
 
     func response(method: String?, id: String?) async -> Data? {
         switch method {
+        case "mobile.attach_ticket.create" where failAttachTicketCreate:
+            return try? Self.errorFrame(
+                id: id,
+                message: "method not found",
+                code: "method_not_found"
+            )
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
@@ -183,11 +200,15 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, message: String, code: String? = nil) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
