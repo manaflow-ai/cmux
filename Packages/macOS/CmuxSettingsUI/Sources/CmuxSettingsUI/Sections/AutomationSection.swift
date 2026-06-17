@@ -314,6 +314,12 @@ public struct AutomationSection: View {
                             .tag(AutoNamingLanguage.autoValue)
                         Text(String(localized: "settings.automation.autoNamingLanguage.system", defaultValue: "System language"))
                             .tag(AutoNamingLanguage.systemValue)
+                        // A valid BCP-47 tag set via cmux.json that isn't in the
+                        // common list still needs a matching menu entry, or the
+                        // picker shows a blank selection and overwrites it.
+                        if let custom = autoNamingLanguageCustomTag {
+                            Text(autoNamingLanguageDisplayName(custom)).tag(custom)
+                        }
                         Section(String(localized: "settings.automation.autoNamingLanguage.section.languages", defaultValue: "Languages")) {
                             ForEach(AutoNamingLanguage.commonTags, id: \.self) { tag in
                                 Text(autoNamingLanguageDisplayName(tag)).tag(tag)
@@ -354,6 +360,20 @@ public struct AutomationSection: View {
         Locale.current.localizedString(forIdentifier: tag)
             ?? Locale.current.localizedString(forLanguageCode: tag)
             ?? tag
+    }
+
+    /// The current Title Language value when it is a custom BCP-47 tag (not
+    /// `auto`/`system` and not already in the common list), so the picker can
+    /// surface a matching entry instead of a blank selection.
+    private var autoNamingLanguageCustomTag: String? {
+        let value = autoNamingLanguageModel.current
+        guard value != AutoNamingLanguage.autoValue,
+              value != AutoNamingLanguage.systemValue,
+              !AutoNamingLanguage.commonTags.contains(value),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     /// Subtitle under the Title Language row describing the current selection.

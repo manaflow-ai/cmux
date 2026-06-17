@@ -359,7 +359,10 @@ struct AutoNamingEngine: Sendable {
         ]
         if let currentTitle, !currentTitle.isEmpty {
             lines.append("The current title is: \(currentTitle)")
-            lines.append("If that still accurately describes the conversation's main topic, output it EXACTLY as given.")
+            // Reuse must respect the language requirement above: otherwise an
+            // existing English title would be kept verbatim even when the user
+            // language (or an explicit override) calls for another language.
+            lines.append("If that still accurately describes the conversation's main topic AND already follows the language requirement above, output it EXACTLY as given; otherwise write a new title following that language requirement.")
             lines.append("")
         }
         lines.append("Conversation excerpt:")
