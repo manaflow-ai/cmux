@@ -168,9 +168,13 @@ extension BrowserPanel {
 
         // Media events do not bubble, but capture-phase listeners on `document`
         // still observe them as the event travels down to the target element.
+        // `volumechange` is included because muting/unmuting or changing volume
+        // flips the audibility predicate (#6100) without firing a play/pause
+        // event; the other events cover playback start/stop for keep-alive.
         const events = [
           "play", "playing", "pause", "ended", "emptied",
-          "waiting", "stalled", "suspend", "abort", "loadeddata"
+          "waiting", "stalled", "suspend", "abort", "loadeddata",
+          "volumechange"
         ];
         for (let i = 0; i < events.length; i++) {
           document.addEventListener(events[i], report, true);
