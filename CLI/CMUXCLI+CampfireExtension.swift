@@ -225,36 +225,16 @@ function observerBridge(): { listeners: Set<(event: CampfireObserverEvent) => vo
   return created;
 }
 
-function capabilityLabel(capability: string | undefined): string {
-  switch (capability) {
-    case "queue:add":
-      return "queue a prompt";
-    case "queue:run-now":
-      return "run a prompt now";
-    case "session:interrupt":
-      return "interrupt the agent";
-    case "shell:exec":
-      return "run a shell command";
-    case "tools:contribute":
-      return "add tools or skills";
-    case "files:list":
-      return "browse files";
-    default:
-      return capability || "do something";
-  }
-}
-
-function observerNotification(event: CampfireObserverEvent): string | null {
-  const name = firstString(event.displayName) || "Someone";
+function observerPayload(event: CampfireObserverEvent): Record<string, unknown> | null {
   switch (event.type) {
     case "join.requested":
-      return `${name} is waiting to join the campfire session`;
     case "permission.asked":
-      return `${name} asked to ${capabilityLabel(event.capability)}`;
     case "relay.error":
-      // Do not surface the raw upstream reason in a user-facing notification;
-      // keep it generic per cmux's user-facing error privacy policy.
-      return "Campfire relay error: connection failed";
+      return {
+        campfire_event_type: event.type,
+        display_name: firstString(event.displayName),
+        capability: firstString(event.capability),
+      };
     default:
       return null;
   }
@@ -281,9 +261,9 @@ export default function cmuxCampfireSessionExtension(api: ExtensionAPI) {
   observerBridge().listeners.add((event) => {
     const ctx = activeContext;
     if (!ctx) return;
-    const message = observerNotification(event);
-    if (!message) return;
-    void sendHook("notification", ctx, { message, title: "Campfire" });
+    const payload = observerPayload(event);
+    if (!payload) return;
+    void sendHook("notification", ctx, payload);
   });
 }
 """#
