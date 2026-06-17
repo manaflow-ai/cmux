@@ -36,6 +36,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        // Backstop for DEV/staging builds: decline Sparkle's silent install-on-quit so the public
+        // release can never be installed over a locally-built app. Returning false tells Sparkle
+        // not to handle the installation itself.
+        if suppressesPublicUpdates {
+            log.append("declining silent install-on-quit on dev/staging build: \(item.displayVersionString)")
+            model.clearDetectedUpdate()
+            return false
+        }
         model.clearDetectedUpdate()
         model.setState(.installing(.init(
             isAutoUpdate: true,
@@ -61,7 +69,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         // DEV / staging builds are off the public release train. If Sparkle still surfaces an
         // update here (e.g. a manual "Check for Updates", or a probe that started before the
         // launch gate landed), clear it instead of recording so the pill never appears.
-        if UpdateController.isDevLikeBundleIdentifier(bundleIdentifier) {
+        if suppressesPublicUpdates {
             model.clearDetectedUpdate()
             log.append("ignoring found update on dev/staging build: \(item.displayVersionString)")
             return

@@ -14,8 +14,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
-    /// The running bundle's identifier, used to gate the public update train off DEV/staging builds.
-    let bundleIdentifier: String?
+    /// Whether this build is excluded from the public Sparkle release train (DEV/staging outside
+    /// the test harness). When true the driver vetoes any found update so the public release can
+    /// never be surfaced or installed over a locally-built app.
+    let suppressesPublicUpdates: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
 
@@ -26,11 +28,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, bundleIdentifier: String? = Bundle.main.bundleIdentifier) {
+    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, suppressesPublicUpdates: Bool = false) {
         self.model = model
         self.log = log
         self.clock = clock
-        self.bundleIdentifier = bundleIdentifier
+        self.suppressesPublicUpdates = suppressesPublicUpdates
         super.init()
     }
 
@@ -67,7 +69,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         // before the launch gate landed) surfaces a public-release update, never present the
         // install UI. Decline the update and stay idle so a local build can't install the
         // public release. The controller already blocks our explicit check entry points.
-        if UpdateController.isDevLikeBundleIdentifier(bundleIdentifier) {
+        if suppressesPublicUpdates {
             log.append("declining found update on dev/staging build: \(appcastItem.displayVersionString)")
             reply(.dismiss)
             model.clearDetectedUpdate()

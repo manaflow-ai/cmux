@@ -25,6 +25,10 @@ public final class UpdateController {
     private let fileManager: FileManager
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
+    /// Whether this build is excluded from the public Sparkle release train (DEV/staging bundle
+    /// id, outside the UI-test/XCTest harness). When true the updater is never started, no
+    /// public appcast is queried, and no public release can be surfaced or installed.
+    private let suppressesPublicUpdates: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -72,17 +76,23 @@ public final class UpdateController {
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
                 defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
+        let suppressesPublicUpdates = Self.shouldSuppressPublicUpdates(
+            bundleIdentifier: hostBundle.bundleIdentifier,
+            environment: environment
+        )
+        self.suppressesPublicUpdates = suppressesPublicUpdates
         settings.apply(to: defaults)
 
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock, bundleIdentifier: hostBundle.bundleIdentifier)
+        let driver = UpdateDriver(model: model, log: log, clock: clock, suppressesPublicUpdates: suppressesPublicUpdates)
         self.driver = driver
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
@@ -250,7 +260,7 @@ public final class UpdateController {
         // even from a manual "Check for Updates" / custom-UI / attempt-install path. Report
         // "up to date" and bail before starting the updater so the public release can never be
         // surfaced or installed over a locally-built app.
-        if Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier) {
+        if suppressesPublicUpdates {
             cancelReadinessRetry()
             recheckTask?.cancel()
             isForceInstalling = false
@@ -313,6 +323,14 @@ public final class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     public func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
+        // Root gate: DEV/staging builds are off the public release train. Never start Sparkle, so
+        // no scheduled check, automatic download, or silent install-on-quit can reach the public
+        // release over a locally-built app. (The UI-test/XCTest harness is exempt; see
+        // `shouldSuppressPublicUpdates`.)
+        if suppressesPublicUpdates {
+            log.append("updater not started (dev/staging build off public release train)")
+            return
+        }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -351,10 +369,10 @@ public final class UpdateController {
     }
 
     private func startLaunchUpdateProbeIfNeeded() {
-        // DEV / staging builds are produced from local source and are not on the public release
-        // train, so they must never query the public appcast or surface the "Update Available"
-        // pill. Tear down any background probe and bail before touching Sparkle.
-        if Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier) {
+        // Defense in depth: `startUpdaterIfNeeded` already returns early for suppressed builds, so
+        // this is normally unreachable on DEV/staging. Keep the guard so the probe can never query
+        // the public appcast or surface the "Update Available" pill if reached another way.
+        if suppressesPublicUpdates {
             backgroundProbeTask?.cancel()
             backgroundProbeTask = nil
             model.clearDetectedUpdate()
@@ -401,6 +419,39 @@ public final class UpdateController {
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
             || bundleIdentifier == "com.cmuxterm.app.staging"
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
+    }
+
+    /// Whether this build should be fully excluded from the public Sparkle release train.
+    ///
+    /// True for DEV/staging bundle ids, EXCEPT under the UI-test / XCTest harness — those runs
+    /// deliberately exercise the update UI on a debug bundle via `CMUX_UI_TEST_*` injection, so
+    /// suppressing the updater there would break `UpdatePillUITests` and friends.
+    public nonisolated static func shouldSuppressPublicUpdates(
+        bundleIdentifier: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard isDevLikeBundleIdentifier(bundleIdentifier) else { return false }
+        return !isUpdateTestHarnessActive(environment: environment)
+    }
+
+    /// Whether a UI-test / XCTest harness is driving this process. Mirrors the harness detection
+    /// used elsewhere (`CMUX_UI_TEST_*` env injected by XCUITest launches, plus in-process XCTest
+    /// indicators).
+    public nonisolated static func isUpdateTestHarnessActive(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return true
+        }
+        let xctestIndicators = [
+            "XCTestConfigurationFilePath",
+            "XCTestBundlePath",
+            "XCTestSessionIdentifier",
+        ]
+        return xctestIndicators.contains { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     private func recordUITestTimestamp(key: String) {
