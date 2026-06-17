@@ -148,6 +148,83 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
+    /// `VerticalTabsSidebar.body` decides whether to show the default workspaces
+    /// sidebar or an extension sidebar on every render. It used to do that with
+    /// `descriptor(for:).id == defaultWorkspacesID`, which rebuilds the full
+    /// `descriptors` list — constructing a `SettingCatalog` twice and scanning
+    /// the custom-sidebars directory — on every body pass. That per-pass cost was
+    /// the multiplier behind the sustained ~100% CPU re-render loop in #5970.
+    /// `resolvesToDefaultSidebar(effectiveProviderId:)` is the cheap replacement;
+    /// these tests pin that it routes identically to the old descriptor lookup
+    /// for every effective selection.
+    @Test
+    func resolvesToDefaultSidebarMatchesDescriptorRoutingForBuiltInViews() {
+        for betaEnabled in [false, true] {
+            withExtensionsBeta(betaEnabled) {
+                for builtInID in Self.builtInViewIDs {
+                    let cheap = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: builtInID)
+                    let viaDescriptor = CmuxExtensionSidebarSelection.descriptor(for: builtInID).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID
+                    #expect(
+                        cheap == viaDescriptor,
+                        "Routing mismatch for \(builtInID) (extensionsBeta=\(betaEnabled)): cheap=\(cheap) descriptor=\(viaDescriptor)"
+                    )
+                }
+                // The default view routes to the workspaces sidebar; every bundled
+                // preset routes to an extension sidebar.
+                #expect(
+                    CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                        effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
+                    )
+                )
+                for presetID in Self.builtInViewIDs.dropFirst() {
+                    #expect(
+                        !CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: presetID),
+                        "Bundled preset \(presetID) must route to an extension sidebar, not the default"
+                    )
+                }
+            }
+        }
+    }
+
+    /// The hosted-extensions provider only appears in `effectiveProviderId`'s
+    /// output while the Extensions beta is on, and then it must route to an
+    /// extension sidebar (not the default). Matches the descriptor lookup.
+    @Test
+    func resolvesToDefaultSidebarRoutesHostedExtensionToExtensionSidebar() {
+        withExtensionsBeta(true) {
+            let hosted = CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+            #expect(!CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: hosted))
+            #expect(
+                CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: hosted)
+                    == (CmuxExtensionSidebarSelection.descriptor(for: hosted).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+            )
+        }
+    }
+
+    /// An unknown/stale provider id (e.g. a deleted custom sidebar) has no
+    /// renderable provider, so routing falls back to the default workspaces
+    /// sidebar — exactly as `descriptor(for:)`'s `?? .defaultWorkspaces` did.
+    @Test
+    func resolvesToDefaultSidebarFallsBackForUnknownProvider() {
+        withExtensionsBeta(true) {
+            let unknown = "com.example.cmux.sidebar.does-not-exist-\(UUID().uuidString)"
+            #expect(CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: unknown))
+            #expect(
+                CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: unknown)
+                    == (CmuxExtensionSidebarSelection.descriptor(for: unknown).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+            )
+
+            // A custom-prefixed selection whose backing file does not exist also
+            // falls back to the default sidebar.
+            let missingCustom = CmuxExtensionSidebarSelection.customSidebarProviderPrefix
+                + "missing-\(UUID().uuidString)"
+            #expect(CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: missingCustom))
+        }
+    }
+
     private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
             CmuxSidebarProviderWorkspace(

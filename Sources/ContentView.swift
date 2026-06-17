@@ -9619,7 +9619,12 @@ enum CmuxExtensionSidebarSelection {
     /// the same suite and key the store persists to, so the catalog stays the
     /// single definition of the key, decode, and default.
     static var isEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.extensions
+        // Read the single beta-features section, not the whole `SettingCatalog`.
+        // Constructing the full catalog allocates ~20 sub-sections (including
+        // `AutomationCatalogSection`/`SecretFileKey`) just to reach one flag;
+        // doing that on the SwiftUI body's hot path turned the sidebar
+        // re-render into a CPU catastrophe (issue #5970).
+        let key = BetaFeaturesCatalogSection().extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
@@ -9636,7 +9641,9 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.customSidebars
+        // See ``isEnabled``: read only the beta-features section so a body-path
+        // access does not allocate the entire `SettingCatalog` (issue #5970).
+        let key = BetaFeaturesCatalogSection().customSidebars
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
@@ -9737,6 +9744,33 @@ enum CmuxExtensionSidebarSelection {
         descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
     }
 
+    /// Whether an already-`effectiveProviderId`-resolved selection renders the
+    /// built-in default workspaces sidebar. This mirrors
+    /// `descriptor(for:).id == defaultWorkspacesID` exactly for an effective id,
+    /// but WITHOUT building the full ``descriptors`` list — which constructs a
+    /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
+    /// enumerates the custom-sidebars directory. Those are far too expensive to
+    /// run on every SwiftUI body pass; doing so was the multiplier behind the
+    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
+    /// most two `fileExists` probes run here, so it is safe for the body.
+    ///
+    /// The input must be ``effectiveProviderId``'s output: that already routes a
+    /// hosted/custom selection back to the default sidebar while its feature gate
+    /// is off, so this only needs to confirm the resolved id maps to a renderable
+    /// non-default view.
+    static func resolvesToDefaultSidebar(effectiveProviderId id: String) -> Bool {
+        if id == defaultProviderId { return true }
+        if id == hostedExtensionsProviderId { return false }
+        if id.hasPrefix(customSidebarProviderPrefix) {
+            // A custom selection survives only while its backing file exists;
+            // otherwise the descriptor lookup falls back to the default sidebar.
+            return customSidebarFileURL(forProviderId: id) == nil
+        }
+        // Bundled preset providers are always registered regardless of any beta
+        // flag; an unknown/stale id has no provider and falls back to default.
+        return provider(for: id) == nil
+    }
+
     static func provider(for providerId: String) -> (any CmuxSidebarProvider)? {
         providers.first { $0.descriptor.id == providerId }
     }
@@ -9812,6 +9846,59 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+}
+
+/// Memoizes the merged per-workspace sidebar-observation publishers the
+/// extension-sidebar `.onReceive` handlers subscribe to.
+///
+/// The handlers feed `refreshExtensionSidebarSnapshot()`, which bumps an
+/// `@State` token the sidebar body reads. The publishers used to be rebuilt
+/// inline on every body pass (`Publishers.MergeMany(...).receive(on:)...`),
+/// producing a brand-new publisher instance each render. SwiftUI re-subscribes
+/// `.onReceive` to a new publisher instance, and these chains replay their
+/// current value on subscription (`@Published`/`CurrentValueSubject` semantics),
+/// so each render re-fired the handler → bumped the token → invalidated the body
+/// → rebuilt the publisher → re-subscribed … a self-sustaining ~100% CPU loop
+/// (issue #5970).
+///
+/// Caching the composed publishers and only rebuilding them when the workspace
+/// set actually changes hands `.onReceive` a *stable* instance, so it subscribes
+/// once and the chain's `removeDuplicates()` then suppresses no-op replays. This
+/// is plain memoization on a non-observed reference type, so reading/refreshing
+/// it from a view-building method does not itself drive SwiftUI invalidation.
+@MainActor
+private final class ExtensionSidebarObservationPublishers {
+    private var cachedWorkspaceIds: [UUID] = []
+    private var built = false
+
+    private(set) var immediate: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
+    private(set) var debounced: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
+
+    /// Rebuilds the merged publishers only when the workspace identity set
+    /// changes; otherwise leaves the cached (stable) instances in place.
+    func refresh(
+        tabs: [Workspace],
+        coalesceInterval: RunLoop.SchedulerTimeType.Stride
+    ) {
+        let workspaceIds = tabs.map(\.id)
+        if built && workspaceIds == cachedWorkspaceIds { return }
+        built = true
+        cachedWorkspaceIds = workspaceIds
+
+        guard !tabs.isEmpty else {
+            immediate = Empty<Void, Never>().eraseToAnyPublisher()
+            debounced = Empty<Void, Never>().eraseToAnyPublisher()
+            return
+        }
+
+        immediate = Publishers.MergeMany(tabs.map(\.sidebarImmediateObservationPublisher))
+            .receive(on: RunLoop.main)
+            .eraseToAnyPublisher()
+        debounced = Publishers.MergeMany(tabs.map(\.sidebarObservationPublisher))
+            .receive(on: RunLoop.main)
+            .debounce(for: coalesceInterval, scheduler: RunLoop.main)
+            .eraseToAnyPublisher()
     }
 }
 
@@ -9973,6 +10060,12 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    /// Stable, memoized merged observation publishers for the extension
+    /// sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
+    /// re-subscribed `.onReceive` to a fresh publisher every render, replaying
+    /// the current value and re-bumping `extensionSidebarUpdateToken` in a
+    /// ~100% CPU loop (issue #5970). See ``ExtensionSidebarObservationPublishers``.
+    @State private var extensionSidebarObservationPublishers = ExtensionSidebarObservationPublishers()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -10371,7 +10464,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10657,8 +10750,19 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        // Refresh the cached, stable observation publishers before the branches
+        // wire their `.onReceive` handlers, so each render hands `.onReceive` the
+        // same publisher instance unless the workspace set changed (issue #5970).
+        extensionSidebarObservationPublishers.refresh(
+            tabs: renderContext.tabs,
+            coalesceInterval: Self.extensionSidebarObservationCoalesceInterval
+        )
+        return extensionSidebarScrollAreaContent(renderContext: renderContext)
+    }
+
+    @ViewBuilder
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
@@ -10668,17 +10772,10 @@ struct VerticalTabsSidebar: View {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarObservationPublishers.immediate) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-                    .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarObservationPublishers.debounced) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
@@ -10840,17 +10937,10 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarObservationPublishers.immediate) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                        .receive(on: RunLoop.main)
-                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-                ) { _ in
+            .onReceive(extensionSidebarObservationPublishers.debounced) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             .onReceive(
@@ -10866,26 +10956,6 @@ struct VerticalTabsSidebar: View {
         extensionSidebarUpdateToken &+= 1
     }
 
-    private func extensionSidebarImmediateObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarImmediateObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
-    }
-
-    private func extensionSidebarDebouncedObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
-    }
-
     private func extensionSidebarRenderModel(
         renderContext: WorkspaceListRenderContext,
         now: Date
@@ -10899,8 +10969,12 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxSidebarProviderSnapshot,
         now: Date
     ) -> CmuxSidebarProviderRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
-        if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
+        // Look up the provider directly by the effective id instead of round-
+        // tripping through `descriptor(for:)`, which rebuilds the full
+        // `descriptors` list (SettingCatalog + custom-sidebars directory scan)
+        // on every TimelineView tick. See issue #5970.
+        let providerId = effectiveExtensionSidebarProviderId
+        if let provider = CmuxExtensionSidebarSelection.provider(for: providerId) {
             let context = CmuxSidebarProviderRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxContextualSidebarProvider {
                 return contextualProvider.render(snapshot: snapshot, context: context)
@@ -10908,7 +10982,7 @@ struct VerticalTabsSidebar: View {
             return provider.render(snapshot: snapshot)
         }
         return CmuxSidebarProviderRenderModel(
-            providerId: descriptor.id,
+            providerId: providerId,
             snapshotSequence: snapshot.sequence,
             sections: []
         )
