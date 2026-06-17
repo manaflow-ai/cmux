@@ -2077,15 +2077,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let tabManager else { return [] }
             var descriptors: [PaneMemoryDescriptor] = []
             for workspace in tabManager.tabs {
+                // Remote workspaces run their processes on another host, so their
+                // tty/memory is not on this Mac — never attribute or (especially)
+                // kill against a local device for them.
+                guard !workspace.isRemoteWorkspace else { continue }
                 let workspaceTitle = workspace.title
                 let reportedTTYs = workspace.surfaceTTYNames
                 for panel in workspace.panels.values {
                     guard let terminalPanel = panel as? TerminalPanel else { continue }
                     let surface = terminalPanel.surface
                     guard surface.hasLiveSurface else { continue }
-                    // Prefer the shell-reported tty (reliable, socket `report_tty`);
-                    // fall back to the libghostty accessor.
-                    let ttyName = reportedTTYs[terminalPanel.id] ?? surface.controllingTTYName()
+                    // Prefer the LIVE libghostty PTY as the attribution authority
+                    // for this destructive path; fall back to the shell-reported
+                    // tty only when the live accessor has no value yet. The
+                    // reported map can be stale after session restore / surface
+                    // recreation, so it must not override the live device.
+                    let ttyName = surface.controllingTTYName() ?? reportedTTYs[terminalPanel.id]
                     guard let ttyName, !ttyName.isEmpty else { continue }
                     descriptors.append(PaneMemoryDescriptor(
                         workspaceId: workspace.id,

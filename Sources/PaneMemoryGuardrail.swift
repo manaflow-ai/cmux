@@ -36,6 +36,9 @@ struct PaneMemorySample: Sendable {
     /// target. Derived from the highest-footprint processes on the tty (not
     /// merely the foreground group) so a background leak is killed correctly.
     let runawayProcessGroupIDs: [Int]
+    /// The member pids of `runawayProcessGroupIDs` captured this scan, used to
+    /// revalidate the delayed SIGKILL against pid/pgid reuse.
+    let runawayMemberPIDs: [Int]
     let foregroundCommand: String?
 
     var key: PaneMemoryPaneKey { descriptor.key }
@@ -81,9 +84,11 @@ struct PaneMemoryGuardrailEngine {
     var warnedWorkspaceIds: Set<UUID> { Set(warnedPanes.map(\.workspaceId)) }
 
     struct Output: Equatable {
-        /// A pane that crossed the threshold this tick and whose banner has not
-        /// been dismissed — present it once (edge-trigger).
-        var bannerToPresent: PaneMemoryWarning?
+        /// Every pane currently warned and not dismissed, highest-memory first.
+        /// The monitor shows one banner at a time and pulls the next from this
+        /// list when the active one is dismissed/handled, so simultaneous
+        /// runaways each get an actionable banner (not just a badge).
+        var presentableWarnings: [PaneMemoryWarning]
         /// Workspaces that currently own at least one warned pane (badge set).
         var warnedWorkspaceIds: Set<UUID>
         /// Panes that dropped below the clear level this tick.
@@ -97,18 +102,12 @@ struct PaneMemoryGuardrailEngine {
         warnedPanes.formIntersection(liveKeys)
         dismissedPanes.formIntersection(liveKeys)
 
-        var bannerToPresent: PaneMemoryWarning?
         var clearedPanes: Set<PaneMemoryPaneKey> = []
 
         for sample in samples {
             let key = sample.key
             if sample.memoryBytes >= thresholdBytes {
-                if warnedPanes.insert(key).inserted, !dismissedPanes.contains(key) {
-                    // First crossing (or first since it cleared) — fire once.
-                    if bannerToPresent == nil {
-                        bannerToPresent = sample.warning
-                    }
-                }
+                warnedPanes.insert(key)
             } else if sample.memoryBytes < clearBytes {
                 warnedPanes.remove(key)
                 dismissedPanes.remove(key)
@@ -117,8 +116,13 @@ struct PaneMemoryGuardrailEngine {
             // In the hysteresis band [clearBytes, thresholdBytes): keep state.
         }
 
+        let presentableWarnings = samples
+            .filter { warnedPanes.contains($0.key) && !dismissedPanes.contains($0.key) }
+            .sorted { $0.memoryBytes > $1.memoryBytes }
+            .map(\.warning)
+
         return Output(
-            bannerToPresent: bannerToPresent,
+            presentableWarnings: presentableWarnings,
             warnedWorkspaceIds: warnedWorkspaceIds,
             clearedPanes: clearedPanes
         )
@@ -146,19 +150,36 @@ struct PaneMemoryGuardrailEngine {
 // MARK: - Process-group killer
 
 enum PaneMemoryProcessKiller {
-    /// SIGTERM the pane's foreground process group(s) now, then SIGKILL after a
-    /// short grace. Negative pid targets the whole process group, so the runaway
-    /// job and its descendants die while the pane's shell (a different group)
-    /// stays alive. ESRCH on an already-dead group is harmless.
-    static func terminate(processGroupIDs: [Int], graceSeconds: TimeInterval = 3) {
-        let pgids = processGroupIDs.filter { $0 > 1 }
+    /// SIGTERM the pane's runaway process group(s) now, then escalate to SIGKILL
+    /// after a short grace. `kill(-pgid, …)` targets the whole group so the
+    /// runaway job and its descendants die while the pane's shell (a different
+    /// group) stays alive. ESRCH on an already-dead group/pid is harmless.
+    ///
+    /// The delayed SIGKILL does NOT blindly re-signal the captured pgids — a
+    /// group can fully exit during the grace window and its id be reused by an
+    /// unrelated process. Instead it re-validates each captured member pid and
+    /// only force-kills the ones still alive whose process group is unchanged,
+    /// so a reused pid/pgid is never force-killed.
+    static func terminate(
+        processGroupIDs: [Int],
+        memberPIDs: [Int],
+        graceSeconds: TimeInterval = 3
+    ) {
+        let pgids = Set(processGroupIDs.filter { $0 > 1 })
         guard !pgids.isEmpty else { return }
         for pgid in pgids {
             _ = kill(pid_t(-pgid), SIGTERM)
         }
+        let members = memberPIDs.filter { $0 > 1 }
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + graceSeconds) {
-            for pgid in pgids {
-                _ = kill(pid_t(-pgid), SIGKILL)
+            for pid in members {
+                // Still alive?
+                guard kill(pid_t(pid), 0) == 0 else { continue }
+                // Still in one of the originally targeted groups? (Guards against
+                // pid reuse / the pid having re-parented into another group.)
+                let currentPGID = getpgid(pid_t(pid))
+                guard currentPGID > 1, pgids.contains(Int(currentPGID)) else { continue }
+                _ = kill(pid_t(pid), SIGKILL)
             }
         }
     }
@@ -262,19 +283,25 @@ final class PaneMemoryGuardrail: ObservableObject {
                     memoryBytes: 0,
                     residentBytes: 0,
                     runawayProcessGroupIDs: [],
+                    runawayMemberPIDs: [],
                     foregroundCommand: nil
                 )
             }
             let pids = snapshot.pids(forTTYName: ttyName)
             let summary = snapshot.summary(for: pids)
-            let memoryByPGID: [(memoryBytes: Int64, processGroupID: Int?)] = pids.map { pid in
+            let processes: [(pid: Int, memoryBytes: Int64, processGroupID: Int?)] = pids.map { pid in
                 let process = snapshot.process(pid: pid)
-                return (process?.memoryBytes ?? 0, process?.processGroupID)
+                return (pid, process?.memoryBytes ?? 0, process?.processGroupID)
             }
             let killTargets = Self.killTargetProcessGroupIDs(
-                processes: memoryByPGID,
+                processes: processes.map { (memoryBytes: $0.memoryBytes, processGroupID: $0.processGroupID) },
                 totalMemoryBytes: summary.memoryBytes
             )
+            let killTargetSet = Set(killTargets)
+            let memberPIDs = processes
+                .filter { ($0.processGroupID).map(killTargetSet.contains) ?? false }
+                .map(\.pid)
+                .sorted()
             let foregroundCommand = descriptor.foregroundPID
                 .flatMap { snapshot.process(pid: $0)?.name }
             return PaneMemorySample(
@@ -282,6 +309,7 @@ final class PaneMemoryGuardrail: ObservableObject {
                 memoryBytes: summary.memoryBytes,
                 residentBytes: summary.residentBytes,
                 runawayProcessGroupIDs: killTargets,
+                runawayMemberPIDs: memberPIDs,
                 foregroundCommand: foregroundCommand
             )
         }
@@ -326,27 +354,24 @@ final class PaneMemoryGuardrail: ObservableObject {
         cmuxDebugLog(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
-            "fired=\(output.bannerToPresent != nil ? 1 : 0)"
+            "presentable=\(output.presentableWarnings.count)"
         )
 #endif
 
-        // Banner lifecycle.
+        // Banner lifecycle. One banner at a time; `presentableWarnings` is the
+        // queue of warned-and-undismissed panes (highest memory first).
         if let active = activeBanner {
-            let activeKey = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-            if output.clearedPanes.contains(activeKey) || lastSamplesByKey[activeKey] == nil {
-                // Cleared below the hysteresis floor, or the pane vanished
-                // (closed/killed) while other panes kept the scan non-empty.
+            // Keep showing the active pane only while it is still presentable
+            // (warned, not dismissed, not vanished); otherwise drop it so the
+            // next queued warning can take its place.
+            if let refreshed = output.presentableWarnings.first(where: { $0.panelId == active.panelId && $0.workspaceId == active.workspaceId }) {
+                if refreshed != active { activeBanner = refreshed }
+            } else {
                 activeBanner = nil
-            } else if let refreshed = lastSamplesByKey[activeKey], refreshed.memoryBytes >= thresholdBytes {
-                // Keep the on-screen memory figure current while it stays high.
-                let refreshedWarning = refreshed.warning
-                if refreshedWarning != active {
-                    activeBanner = refreshedWarning
-                }
             }
         }
-        if activeBanner == nil, let toPresent = output.bannerToPresent {
-            activeBanner = toPresent
+        if activeBanner == nil {
+            activeBanner = output.presentableWarnings.first
         }
 
         if output.warnedWorkspaceIds != lastWarnedWorkspaceIds {
@@ -366,11 +391,15 @@ final class PaneMemoryGuardrail: ObservableObject {
     func killActivePaneProcess() {
         guard let active = activeBanner else { return }
         let key = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-        let pgids = lastSamplesByKey[key]?.runawayProcessGroupIDs ?? []
+        let sample = lastSamplesByKey[key]
+        let pgids = sample?.runawayProcessGroupIDs ?? []
         if pgids.isEmpty {
             onRequestClosePane?(active.workspaceId, active.panelId)
         } else {
-            PaneMemoryProcessKiller.terminate(processGroupIDs: pgids)
+            PaneMemoryProcessKiller.terminate(
+                processGroupIDs: pgids,
+                memberPIDs: sample?.runawayMemberPIDs ?? []
+            )
         }
         engine.acknowledgeHandled(key)
         activeBanner = nil

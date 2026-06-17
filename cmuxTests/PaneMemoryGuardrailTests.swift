@@ -31,6 +31,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             memoryBytes: bytes,
             residentBytes: bytes,
             runawayProcessGroupIDs: pgids,
+            runawayMemberPIDs: pgids,
             foregroundCommand: command
         )
     }
@@ -39,25 +40,26 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         let output = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 1)], thresholdBytes: threshold)
-        XCTAssertNil(output.bannerToPresent)
+        XCTAssertTrue(output.presentableWarnings.isEmpty)
         XCTAssertTrue(output.warnedWorkspaceIds.isEmpty)
     }
 
-    func testEdgeTriggersOnceOnCrossing() {
+    func testWarnedPaneStaysPresentableWhileHigh() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
 
         let first = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertEqual(first.bannerToPresent?.panelId, pane)
+        XCTAssertEqual(first.presentableWarnings.map(\.panelId), [pane])
         XCTAssertEqual(first.warnedWorkspaceIds, [ws])
 
-        // Still high next tick: no new banner (edge-trigger), badge persists.
+        // Still high next tick: still presentable (the monitor keeps showing the
+        // same active banner; it does not re-fire a second one).
         let second = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertNil(second.bannerToPresent)
+        XCTAssertEqual(second.presentableWarnings.map(\.panelId), [pane])
         XCTAssertEqual(second.warnedWorkspaceIds, [ws])
     }
 
-    func testDismissSuppressesBannerButKeepsBadge() {
+    func testDismissRemovesFromPresentableButKeepsBadge() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         _ = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
@@ -65,7 +67,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         engine.dismiss(PaneMemoryPaneKey(workspaceId: ws, panelId: pane))
         // Drop into the hysteresis band so the pane re-evaluates without clearing.
         let banded = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 7)], thresholdBytes: threshold)
-        XCTAssertNil(banded.bannerToPresent)
+        XCTAssertTrue(banded.presentableWarnings.isEmpty, "dismissed pane is not re-presented")
         XCTAssertEqual(banded.warnedWorkspaceIds, [ws], "badge persists through the hysteresis band")
     }
 
@@ -86,9 +88,9 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         XCTAssertTrue(cleared.clearedPanes.contains(key))
         XCTAssertTrue(cleared.warnedWorkspaceIds.isEmpty)
 
-        // Re-crossing fires the banner again.
+        // Re-crossing makes it presentable again (dismissal was reset on clear).
         let reWarn = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertEqual(reWarn.bannerToPresent?.panelId, pane)
+        XCTAssertEqual(reWarn.presentableWarnings.map(\.panelId), [pane])
     }
 
     func testClosedPaneDropsBadge() {
@@ -99,9 +101,10 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         // Pane is gone from the live set: warned state must not linger.
         let output = engine.ingest(samples: [], thresholdBytes: threshold)
         XCTAssertTrue(output.warnedWorkspaceIds.isEmpty)
+        XCTAssertTrue(output.presentableWarnings.isEmpty)
     }
 
-    func testSingleBannerWithMultipleSimultaneousCrossings() {
+    func testSimultaneousCrossingsAreAllPresentableHighestFirst() {
         var engine = PaneMemoryGuardrailEngine()
         let wsA = UUID(), paneA = UUID(), wsB = UUID(), paneB = UUID()
         let output = engine.ingest(
@@ -111,8 +114,21 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             ],
             thresholdBytes: threshold
         )
-        XCTAssertNotNil(output.bannerToPresent)
+        // Both are presentable (each gets a banner in turn), highest memory first.
+        XCTAssertEqual(output.presentableWarnings.map(\.panelId), [paneB, paneA])
         XCTAssertEqual(output.warnedWorkspaceIds, [wsA, wsB])
+
+        // After the first (paneB) is dismissed, paneA remains the next banner —
+        // the follow-up runaway is NOT lost (autoreview P2 regression guard).
+        engine.dismiss(PaneMemoryPaneKey(workspaceId: wsB, panelId: paneB))
+        let next = engine.ingest(
+            samples: [
+                sample(workspace: wsA, pane: paneA, memoryGB: 9),
+                sample(workspace: wsB, pane: paneB, memoryGB: 10)
+            ],
+            thresholdBytes: threshold
+        )
+        XCTAssertEqual(next.presentableWarnings.map(\.panelId), [paneA])
     }
 
     // MARK: - tty-based attribution summation (the guardrail's core measurement)
