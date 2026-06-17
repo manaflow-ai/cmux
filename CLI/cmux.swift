@@ -22235,10 +22235,12 @@ struct CMUXCLI {
             // launcher) plus OPENCODE_PORT so the attach command resolves the
             // `opencode` binary and reaches the right server.
             var respawnStartupEnv: [String: String] = [:]
-            if let path = ProcessInfo.processInfo.environment["PATH"] {
+            if let path = ProcessInfo.processInfo.environment["PATH"],
+               !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 respawnStartupEnv["PATH"] = path
             }
-            if let port = ProcessInfo.processInfo.environment["OPENCODE_PORT"] {
+            if let port = ProcessInfo.processInfo.environment["OPENCODE_PORT"],
+               !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 respawnStartupEnv["OPENCODE_PORT"] = port
             }
             if !respawnStartupEnv.isEmpty {

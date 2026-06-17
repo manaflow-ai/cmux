@@ -7364,7 +7364,9 @@ final class Workspace: Identifiable, ObservableObject {
         // Merge the caller-supplied startup environment on top — keys passed
         // through startup_environment (e.g. PATH, OPENCODE_PORT from the
         // __tmux-compat respawn-pane shim) take precedence over inherited env.
-        let initialEnvironmentOverrides = inheritedOverrides.merging(startupEnvironment) { _, new in new }
+        let initialEnvironmentOverrides = inheritedOverrides.merging(
+            Self.sanitizedWorkspaceEnvironment(startupEnvironment)
+        ) { _, new in new }
         let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
