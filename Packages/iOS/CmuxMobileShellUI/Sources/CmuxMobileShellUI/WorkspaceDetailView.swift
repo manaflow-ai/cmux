@@ -152,10 +152,8 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // Agent-chat toggle stays a top-level button (shown only when the
-                // visible tab has a session), sitting where New Workspace used to
-                // be — next to the terminal picker. New Workspace moved into the
-                // picker menu.
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -252,10 +250,8 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // Agent-chat toggle stays a top-level button (shown only when the
-                // visible tab has a session), sitting where New Workspace used to
-                // be — next to the terminal picker. New Workspace moved into the
-                // picker menu.
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -368,10 +364,8 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // Agent-chat toggle stays a top-level button (shown only when the
-                // visible tab has a session), sitting where New Workspace used to
-                // be — next to the terminal picker. New Workspace moved into the
-                // picker menu.
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
