@@ -344,26 +344,6 @@ public struct SocketControlSettings {
         }
     }
 
-    /// The default socket path for the current build variant (before override handling).
-    public static func defaultSocketPath(
-        bundleIdentifier: String?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        isDebugBuild: Bool,
-        currentUserID: uid_t = getuid(),
-        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
-    ) -> String {
-        SocketPathMarkerFiles.defaultSocketPath(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment,
-            isDebugBuild: isDebugBuild,
-            stableSocketPath: resolvedStableDefaultSocketPath(
-                currentUserID: currentUserID,
-                probeStableDefaultPathEntry: probeStableDefaultPathEntry
-            ),
-            baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        )
-    }
-
     /// The per-user stable socket path (`cmux-<uid>.sock` in ``CmuxStateDirectory``, `/tmp` fallback).
     public static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
         stableSocketDirectoryURL()?
