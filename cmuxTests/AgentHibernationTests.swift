@@ -746,33 +746,105 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     func testSupportedAgentSnapshotsHaveResumeCommandsForHibernation() {
-        let cwd = "/tmp/cmux-agent-hibernation"
         let sessionId = "session-123"
-        let launchCommands: [(RestorableAgentKind, AgentLaunchCommandSnapshot)] = [
-            (.claude, launch("claude", "/usr/local/bin/claude", cwd: cwd)),
-            (.codex, launch("codex", "/usr/local/bin/codex", cwd: cwd)),
-            (.opencode, launch("opencode", "/usr/local/bin/opencode", cwd: cwd)),
-            (.pi, launch("pi", "/usr/local/bin/pi", cwd: cwd)),
-            (.amp, launch("amp", "/usr/local/bin/amp", cwd: cwd)),
-            (.cursor, launch("cursor", "/usr/local/bin/cursor-agent", cwd: cwd)),
-            (.gemini, launch("gemini", "/usr/local/bin/gemini", cwd: cwd)),
-            (.rovodev, launch("rovodev", "/usr/local/bin/acli", arguments: ["/usr/local/bin/acli", "rovodev", "run"], cwd: cwd)),
-            (.hermesAgent, launch("hermes-agent", "/usr/local/bin/hermes", cwd: cwd)),
-            (.copilot, launch("copilot", "/usr/local/bin/copilot", cwd: cwd)),
-            (.codebuddy, launch("codebuddy", "/usr/local/bin/codebuddy", cwd: cwd)),
-            (.factory, launch("factory", "/usr/local/bin/droid", cwd: cwd)),
-            (.qoder, launch("qoder", "/usr/local/bin/qodercli", cwd: cwd)),
-        ]
 
-        for (kind, launchCommand) in launchCommands {
+        XCTAssertEqual(
+            Set(allBuiltInContinuationFixtures().map(\.kind)),
+            Set(allBuiltInRestorableAgentKindsForContinuation),
+            "Every built-in restorable agent kind must have a continuation fixture"
+        )
+
+        for fixture in allBuiltInContinuationFixtures() {
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: kind,
+                kind: fixture.kind,
                 sessionId: sessionId,
-                workingDirectory: cwd,
-                launchCommand: launchCommand
+                workingDirectory: fixture.cwd,
+                launchCommand: fixture.launchCommand
             )
-            XCTAssertNotNil(snapshot.resumeCommand, "\(kind.rawValue) should be resumable before hibernation can use it")
+            let resumeCommand = snapshot.resumeCommand
+            XCTAssertNotNil(resumeCommand, "\(fixture.kind.rawValue) should be resumable before hibernation can use it")
+            XCTAssertTrue(resumeCommand?.contains(sessionId) == true, "\(fixture.kind.rawValue) resume must reference the session id")
+            XCTAssertTrue(
+                resumeCommand?.contains("cd -- '\(fixture.cwd)'") == true,
+                "\(fixture.kind.rawValue) resume must preserve its working directory"
+            )
             XCTAssertFalse(snapshot.agentDisplayName.isEmpty)
+        }
+    }
+
+    func testBuiltInAgentForkSupportMatrixIsExplicitForHibernationAndSessionRestore() {
+        let forkableKinds: Set<RestorableAgentKind> = [.claude, .codex, .opencode]
+        let sessionId = "session-123"
+
+        for fixture in allBuiltInContinuationFixtures() {
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: fixture.kind,
+                sessionId: sessionId,
+                workingDirectory: fixture.cwd,
+                launchCommand: fixture.launchCommand
+            )
+            if forkableKinds.contains(fixture.kind) {
+                let forkCommand = snapshot.forkCommand
+                XCTAssertNotNil(forkCommand, "\(fixture.kind.rawValue) must keep its fork command")
+                XCTAssertTrue(forkCommand?.contains(sessionId) == true, "\(fixture.kind.rawValue) fork must reference the session id")
+                XCTAssertTrue(
+                    forkCommand?.contains("cd -- '\(fixture.cwd)'") == true,
+                    "\(fixture.kind.rawValue) fork must preserve its working directory"
+                )
+                XCTAssertNotNil(
+                    snapshot.forkStartupInput(temporaryDirectory: FileManager.default.temporaryDirectory),
+                    "\(fixture.kind.rawValue) fork must be launchable as terminal startup input"
+                )
+            } else {
+                XCTAssertNil(snapshot.forkCommand, "\(fixture.kind.rawValue) is resume-only unless a registry fork template is declared")
+            }
+        }
+    }
+
+    @MainActor
+    func testHibernatedSessionRestoreKeepsEveryBuiltInAgentWithoutRunningResume() throws {
+        for fixture in allBuiltInContinuationFixtures() {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourcePanel = try XCTUnwrap(source.terminalPanel(for: sourcePanelId))
+            let agent = SessionRestorableAgentSnapshot(
+                kind: fixture.kind,
+                sessionId: "session-\(fixture.kind.rawValue)",
+                workingDirectory: fixture.cwd,
+                launchCommand: fixture.launchCommand
+            )
+
+            sourcePanel.enterAgentHibernation(
+                agent: agent,
+                lastActivityAt: Date(timeIntervalSince1970: 10),
+                hibernatedAt: Date(timeIntervalSince1970: 20)
+            )
+            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let sourcePanelSnapshot = try XCTUnwrap(
+                snapshot.panels.first { $0.id == sourcePanelId },
+                "\(fixture.kind.rawValue) hibernated source panel should snapshot"
+            )
+            XCTAssertNotNil(
+                sourcePanelSnapshot.terminal?.hibernation,
+                "\(fixture.kind.rawValue) hibernation metadata should persist into the session snapshot"
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelSnapshot = try XCTUnwrap(
+                restored.sessionSnapshot(includeScrollback: false).panels.first { panel in
+                    panel.terminal?.agent?.kind == fixture.kind
+                },
+                "\(fixture.kind.rawValue) hibernated panel should restore"
+            )
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelSnapshot.id))
+
+            XCTAssertFalse(
+                restoredPanel.surface.debugInitialInputMetadata().hasInitialInput,
+                "\(fixture.kind.rawValue) hibernated restore must not auto-run the resume command"
+            )
+            XCTAssertEqual(restoredPanelSnapshot.terminal?.agent?.sessionId, "session-\(fixture.kind.rawValue)")
+            XCTAssertEqual(restoredPanelSnapshot.terminal?.agent?.workingDirectory, fixture.cwd)
         }
     }
 
@@ -1116,5 +1188,53 @@ final class AgentHibernationTests: XCTestCase {
             capturedAt: nil,
             source: nil
         )
+    }
+
+    private struct ContinuationFixture {
+        var kind: RestorableAgentKind
+        var cwd: String
+        var launchCommand: AgentLaunchCommandSnapshot
+    }
+
+    private var allBuiltInRestorableAgentKindsForContinuation: [RestorableAgentKind] {
+        [
+            .claude,
+            .codex,
+            .grok,
+            .pi,
+            .amp,
+            .cursor,
+            .gemini,
+            .kiro,
+            .antigravity,
+            .opencode,
+            .rovodev,
+            .hermesAgent,
+            .copilot,
+            .codebuddy,
+            .factory,
+            .qoder,
+        ]
+    }
+
+    private func allBuiltInContinuationFixtures(cwd: String = "/tmp/cmux-agent-hibernation") -> [ContinuationFixture] {
+        [
+            ContinuationFixture(kind: .claude, cwd: cwd, launchCommand: launch("claude", "/usr/local/bin/claude", cwd: cwd)),
+            ContinuationFixture(kind: .codex, cwd: cwd, launchCommand: launch("codex", "/usr/local/bin/codex", cwd: cwd)),
+            ContinuationFixture(kind: .grok, cwd: cwd, launchCommand: launch("grok", "/usr/local/bin/grok", cwd: cwd)),
+            ContinuationFixture(kind: .pi, cwd: cwd, launchCommand: launch("pi", "/usr/local/bin/pi", cwd: cwd)),
+            ContinuationFixture(kind: .amp, cwd: cwd, launchCommand: launch("amp", "/usr/local/bin/amp", cwd: cwd)),
+            ContinuationFixture(kind: .cursor, cwd: cwd, launchCommand: launch("cursor", "/usr/local/bin/cursor-agent", cwd: cwd)),
+            ContinuationFixture(kind: .gemini, cwd: cwd, launchCommand: launch("gemini", "/usr/local/bin/gemini", cwd: cwd)),
+            ContinuationFixture(kind: .kiro, cwd: cwd, launchCommand: launch("kiro", "/usr/local/bin/kiro-cli", arguments: ["/usr/local/bin/kiro-cli", "chat"], cwd: cwd)),
+            ContinuationFixture(kind: .antigravity, cwd: cwd, launchCommand: launch("antigravity", "/usr/local/bin/agy", cwd: cwd)),
+            ContinuationFixture(kind: .opencode, cwd: cwd, launchCommand: launch("opencode", "/usr/local/bin/opencode", cwd: cwd)),
+            ContinuationFixture(kind: .rovodev, cwd: cwd, launchCommand: launch("rovodev", "/usr/local/bin/acli", arguments: ["/usr/local/bin/acli", "rovodev", "run"], cwd: cwd)),
+            ContinuationFixture(kind: .hermesAgent, cwd: cwd, launchCommand: launch("hermes-agent", "/usr/local/bin/hermes", cwd: cwd)),
+            ContinuationFixture(kind: .copilot, cwd: cwd, launchCommand: launch("copilot", "/usr/local/bin/copilot", cwd: cwd)),
+            ContinuationFixture(kind: .codebuddy, cwd: cwd, launchCommand: launch("codebuddy", "/usr/local/bin/codebuddy", cwd: cwd)),
+            ContinuationFixture(kind: .factory, cwd: cwd, launchCommand: launch("factory", "/usr/local/bin/droid", cwd: cwd)),
+            ContinuationFixture(kind: .qoder, cwd: cwd, launchCommand: launch("qoder", "/usr/local/bin/qodercli", cwd: cwd)),
+        ]
     }
 }
