@@ -222,31 +222,44 @@ check_shared_test_products_use_xctestrun() {
 }
 
 check_app_hosted_xctest_socket_isolation() {
+  if [[ ! -x "$ROOT_DIR/scripts/ci/start-virtual-display.sh" || ! -x "$ROOT_DIR/scripts/ci/cleanup-virtual-display.sh" ]]; then
+    echo "FAIL: app-hosted XCTest virtual display helpers must exist and be executable"
+    exit 1
+  fi
+
   if ! awk '
 	    /^  xctest-focused-regressions:/ { in_job=1; next }
 	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /runs-on:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_display_runner=1 }
+	    in_job && /REQUESTED_RUNNER:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_display_guard=1 }
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
 	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_idle_timeout=1 }
 	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"1"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
-	    END { exit !(saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
+	    in_job && /scripts\/ci\/start-virtual-display\.sh xctest-focused/ { saw_vdisplay=1 }
+	    in_job && /scripts\/ci\/cleanup-virtual-display\.sh/ { saw_vdisplay_cleanup=1 }
+	    END { exit !(saw_display_runner && saw_display_guard && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper && saw_vdisplay && saw_vdisplay_cleanup) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-focused-regressions must use a unique CMUX_SOCKET_PATH, allow override, longer app-host idle timeout, one attempt, and the app-host wrapper"
+	    echo "FAIL: xctest-focused-regressions must use the display runner, identity guard, virtual display, unique CMUX_SOCKET_PATH, override, longer app-host idle timeout, one attempt, and the app-host wrapper"
 	    exit 1
 	  fi
 
   if ! awk '
 	    /^  xctest-shard:/ { in_job=1; next }
 	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /runs-on:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_display_runner=1 }
+	    in_job && /REQUESTED_RUNNER:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_display_guard=1 }
 	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
 	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
 	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_idle_timeout=1 }
 	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"1"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
-	    END { exit !(saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
+	    in_job && /scripts\/ci\/start-virtual-display\.sh "xctest-\$\{CMUX_XCTEST_SHARD_INDEX\}"/ { saw_vdisplay=1 }
+	    in_job && /scripts\/ci\/cleanup-virtual-display\.sh/ { saw_vdisplay_cleanup=1 }
+	    END { exit !(saw_display_runner && saw_display_guard && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper && saw_vdisplay && saw_vdisplay_cleanup) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-shard must use a per-shard CMUX_SOCKET_PATH, allow override, longer app-host idle timeout, one attempt, and the app-host wrapper"
+	    echo "FAIL: xctest-shard must use the display runner, identity guard, virtual display, per-shard CMUX_SOCKET_PATH, override, longer app-host idle timeout, one attempt, and the app-host wrapper"
 	    exit 1
 	  fi
 
@@ -266,7 +279,7 @@ check_app_hosted_xctest_socket_isolation() {
     exit 1
   fi
 
-  echo "PASS: app-hosted XCTest jobs use isolated control sockets and host lock"
+  echo "PASS: app-hosted XCTest jobs use display isolation, isolated control sockets, and host lock"
 }
 
 check_signing_intermediate_imports() {
