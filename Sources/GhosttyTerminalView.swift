@@ -9898,7 +9898,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    private func canReassertTerminalSurfaceFocus(reason: String, force: Bool) -> Bool {
+    private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
         let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
         guard requiresUsableGeometry else { return true }
 
@@ -9928,7 +9928,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
-        guard canReassertTerminalSurfaceFocus(reason: reason, force: force) else { return }
+        guard prepareTerminalSurfaceFocusReassertion(reason: reason, force: force) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
