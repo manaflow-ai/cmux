@@ -37,7 +37,9 @@ public final class MobileDisplaySettings {
     public static let profilePictureLeftShiftRange: ClosedRange<Double> = 0...24
     /// Debug slider range for the workspace profile picture size, in points.
     public static let profilePictureSizeRange: ClosedRange<Double> = 36...64
-    public static let defaultUnreadIndicatorLeftShift = 8.0
+    /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
+    /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
+    public static let defaultUnreadIndicatorLeftShift = 1.5
     public static let defaultProfilePictureLeftShift = 4.0
     public static let defaultProfilePictureSize = 45.0
 
