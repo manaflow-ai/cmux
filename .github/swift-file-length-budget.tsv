@@ -38,13 +38,13 @@
 2585	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
-2460	cmuxTests/CommandPaletteSearchEngineTests.swift
+2486	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2257	Sources/TerminalWindowPortal.swift
 2236	Sources/TerminalNotificationStore.swift
-2117	cmuxTests/CmuxConfigTests.swift
+2126	cmuxTests/CmuxConfigTests.swift
 2092	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2082	Sources/SessionPersistence.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
@@ -53,9 +53,9 @@
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
-1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
+1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
+1687	cmuxTests/MarkdownPanelTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
-1655	cmuxTests/MarkdownPanelTests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
@@ -159,6 +159,7 @@
 620	cmuxTests/TerminalNotificationQueueTests.swift
 615	cmuxTests/RemoteTmuxControlParserTests.swift
 614	Sources/PortScanner.swift
+612	cmuxUITests/FeedSidebarUITests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
@@ -173,7 +174,6 @@
 585	Sources/Cloud/VMClient.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
-578	cmuxUITests/FeedSidebarUITests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 574	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
@@ -209,6 +209,7 @@
 517	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
+513	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
