@@ -382,3 +382,33 @@ import Testing
     #expect(rolledBack)
     #expect(store.connectionError != nil)
 }
+
+@MainActor
+@Test func queuedDeleteSkipsAfterConnectionGenerationChanges() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.setIncludeSecondTerminal(true)
+    await router.holdNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    let sawHeldClose = try await pollUntil { await router.count(of: "surface.close") == 1 }
+    #expect(sawHeldClose)
+
+    store.deleteTerminal(id: "backup-terminal", in: "live-workspace")
+    store.deleteTerminal(id: "backup-workspace-terminal", in: "backup-workspace")
+    store.bumpConnectionGenerationForTesting()
+    await router.releaseAllHeld()
+
+    let sentStaleQueuedDelete = try await pollUntil(attempts: 60) {
+        await router.count(of: "surface.close") > 1
+    }
+    #expect(sentStaleQueuedDelete == false)
+    let closeCount = await router.count(of: "surface.close")
+    #expect(closeCount == 1)
+}

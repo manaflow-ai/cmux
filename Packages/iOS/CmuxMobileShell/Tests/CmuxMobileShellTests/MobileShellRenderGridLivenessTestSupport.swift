@@ -71,6 +71,7 @@ actor LivenessHostRouter {
     private var failNextWorkspaceListRequest = false
     private var failNextWorkspaceCloseRequest = false
     private var failNextSurfaceCloseRequest = false
+    private var holdNextSurfaceCloseRequest = false
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -102,6 +103,10 @@ actor LivenessHostRouter {
 
     func failNextSurfaceClose() {
         failNextSurfaceCloseRequest = true
+    }
+
+    func holdNextSurfaceClose() {
+        holdNextSurfaceCloseRequest = true
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -156,6 +161,11 @@ actor LivenessHostRouter {
             }
             return try? Self.resultFrame(id: id, result: [:])
         case "surface.close":
+            if holdNextSurfaceCloseRequest {
+                holdNextSurfaceCloseRequest = false
+                await park()
+                return nil
+            }
             if failNextSurfaceCloseRequest {
                 failNextSurfaceCloseRequest = false
                 return try? Self.errorFrame(id: id, message: "surface close failed")
