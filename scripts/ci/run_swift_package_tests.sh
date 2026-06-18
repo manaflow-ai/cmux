@@ -35,7 +35,9 @@ for pkg in "$@"; do
     output="$(cat "$output_file")"
     rm -f "$output_file"
     if [ "$status" -ne 0 ]; then
-      if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+      if [ "$status" -eq 124 ]; then
+        exit "$status"
+      elif printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
         && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
         && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
         echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."

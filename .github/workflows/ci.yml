@@ -113,6 +113,9 @@ jobs:
       - name: Validate command timeout helper
         run: python3 tests/test_ci_run_with_timeout.py
 
+      - name: Validate Swift package timeout tolerance
+        run: ./tests/test_ci_swift_package_timeout_tolerance.sh
+
       - name: Validate XCTest shard argument helper
         run: python3 tests/test_ci_xctest_shard_args.py
 
