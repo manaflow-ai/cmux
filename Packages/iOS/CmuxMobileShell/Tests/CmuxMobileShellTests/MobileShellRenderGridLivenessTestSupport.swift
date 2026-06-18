@@ -391,7 +391,7 @@ final class OutputCollector {
     }
 }
 
-func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
+func makeTicket(clock: TestClock, authToken: String? = nil) throws -> CmxAttachTicket {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -404,7 +404,8 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         macDisplayName: "Test Mac",
         macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
-        expiresAt: clock.now.addingTimeInterval(3600)
+        expiresAt: clock.now.addingTimeInterval(3600),
+        authToken: authToken
     )
 }
 
@@ -456,7 +457,8 @@ func makeConnectedStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
+    probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    authToken: String? = nil
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -465,7 +467,7 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(runtime: runtime)
     store.signIn()
-    let ticket = try makeTicket(clock: clock)
+    let ticket = try makeTicket(clock: clock, authToken: authToken)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
     return store

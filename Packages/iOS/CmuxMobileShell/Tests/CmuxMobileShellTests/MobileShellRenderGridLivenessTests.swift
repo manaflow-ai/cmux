@@ -315,6 +315,46 @@ import Testing
 }
 
 @MainActor
+@Test func remoteDeletesStayDisabledWithoutAttachToken() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "workspace.close.v1",
+        "mobile.delete.v1",
+    ])
+    await router.setIncludeSecondWorkspace(true)
+    await router.setIncludeSecondTerminal(true)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        authToken: nil
+    )
+    let originalWorkspaces = store.workspaces.map(\.id.rawValue)
+    let originalTerminals = store.selectedWorkspace?.terminals.map(\.id.rawValue)
+
+    #expect(store.supportsDeleteActions == false)
+
+    store.deleteWorkspace(id: "live-workspace")
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+
+    #expect(store.workspaces.map(\.id.rawValue) == originalWorkspaces)
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == originalTerminals)
+    let sentWorkspaceClose = try await pollUntil(attempts: 60) {
+        await router.count(of: "workspace.close") > 0
+    }
+    let sentSurfaceClose = try await pollUntil(attempts: 60) {
+        await router.count(of: "surface.close") > 0
+    }
+    #expect(sentWorkspaceClose == false)
+    #expect(sentSurfaceClose == false)
+}
+
+@MainActor
 @Test func workspaceDeleteRollsBackWhenCloseFails() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
