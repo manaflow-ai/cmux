@@ -569,12 +569,10 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             .focusRightSidebar,
             .toggleRightSidebar,
             .findInDirectory,
-            .fileExplorerOpenSelection,
-            .fileExplorerOpenSelectionFinderAlias,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
-            XCTFail("Focus Right Sidebar should be visible in keyboard shortcut settings")
+            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
             return
         }
 
