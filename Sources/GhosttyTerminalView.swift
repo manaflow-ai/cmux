@@ -2730,6 +2730,10 @@ class GhosttyApp {
             // dispatching this action callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
+                if let callbackSurfaceId,
+                   app.handleQuickTerminalChildExited(surfaceId: callbackSurfaceId) {
+                    return
+                }
                 if let callbackTabId,
                    let callbackSurfaceId,
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,

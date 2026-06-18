@@ -66,6 +66,10 @@ public struct TerminalSection: View {
         let models: [any SettingObservationStarting] = [
             scrollBar,
             copyOnSelect,
+            quickTerminalPosition,
+            quickTerminalPrimarySizeRatio,
+            quickTerminalSecondarySizeRatio,
+            quickTerminalAutoHide,
             autoResume,
             hibernation,
             idleSeconds,

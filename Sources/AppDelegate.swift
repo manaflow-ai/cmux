@@ -6513,6 +6513,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quickTerminalController.statusPayload()
     }
 
+    @discardableResult
+    func handleQuickTerminalChildExited(surfaceId: UUID) -> Bool {
+        quickTerminalController.handleChildExited(surfaceId: surfaceId)
+    }
+
     @objc func toggleQuickTerminal(_ sender: Any?) {
         _ = sender
         _ = toggleQuickTerminalVisibility()

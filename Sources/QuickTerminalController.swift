@@ -374,6 +374,15 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
         pendingTransitionAction = nil
     }
 
+    @discardableResult
+    func handleChildExited(surfaceId: UUID) -> Bool {
+        guard terminalSurface?.id == surfaceId else {
+            return false
+        }
+        teardown()
+        return true
+    }
+
     func windowDidResignKey(_ notification: Notification) {
         guard let panel = notification.object as? NSWindow, panel === self.panel else { return }
         guard panel.attachedSheet == nil else { return }
