@@ -549,17 +549,12 @@ jobs:
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket
-            CmuxFileWatch
             CmuxFoundation
             CmuxGit
-            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
-            CmuxSocketControl
             CmuxTerminal
             CmuxTerminalCore
-            CmuxTerminalEngine
-            CmuxTerminalServices
             CmuxUpdater
             CMUXAgentLaunch
           )
@@ -583,7 +578,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
+            CmuxTerminal|CmuxTerminalCore)
               status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
               printf '%s\n' "$output"
