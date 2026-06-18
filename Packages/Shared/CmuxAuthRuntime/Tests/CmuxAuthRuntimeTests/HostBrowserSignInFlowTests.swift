@@ -353,8 +353,15 @@ import Testing
     }
 
     @Test func attemptTimeoutDoesNotCancelValidationAfterCallbackArrives() async throws {
+        // Drive the abandoned-attempt timeout off a virtual clock so the result
+        // depends on the timeout deadline actually elapsing, not on a real timer
+        // racing a fixed wall-clock window. The callback arrives first and the
+        // validation parks inside the user fetch; advancing past the 1s attempt
+        // timeout while validation is parked must NOT cancel that validation
+        // (the callback path already cancelled the timeout before parking).
+        let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHarness(user: user, browserAttemptTimeout: 0.01)
+        let harness = makeHarness(user: user, browserAttemptTimeout: 1, clock: clock)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
@@ -364,7 +371,11 @@ import Testing
             await Task.yield()
         }
 
-        try await Task.sleep(for: .milliseconds(50))
+        // Past the 1s attempt timeout, but well under both the 30s slow-hint
+        // threshold and the 60s caller deadline, so only the abandoned-attempt
+        // timeout could fire. The callback already cancelled it, so this is a
+        // no-op for the parked validation.
+        clock.advance(by: .seconds(1))
         await harness.client.openUserGate()
 
         #expect(await attempt.value)
