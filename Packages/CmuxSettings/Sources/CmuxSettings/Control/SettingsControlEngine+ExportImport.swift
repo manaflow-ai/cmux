@@ -60,9 +60,18 @@ extension SettingsControlEngine {
             // A setting managed in cmux.json is re-applied on reload, so importing
             // it to UserDefaults would be a silent no-op — reject up front (the
             // same guard `set`/`unset` apply), keeping import all-or-nothing.
-            if descriptor.backend != .json, await stores.json.hasRawValue(atDottedPath: descriptor.id) {
-                errors.append(SettingsControlError.managedInJSON(key: id).message)
-                continue
+            if descriptor.backend != .json {
+                var managedPath: String?
+                for path in [descriptor.id] + descriptor.jsonAliases {
+                    if await stores.json.hasRawValue(atDottedPath: path) {
+                        managedPath = path
+                        break
+                    }
+                }
+                if let managedPath {
+                    errors.append(SettingsControlError.managedInJSON(key: managedPath).message)
+                    continue
+                }
             }
             do {
                 let normalized = try descriptor.validate(value)

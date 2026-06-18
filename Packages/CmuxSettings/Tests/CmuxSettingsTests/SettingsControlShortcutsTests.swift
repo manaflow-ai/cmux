@@ -12,6 +12,9 @@ struct SettingsControlShortcutsTests {
         let engine = harness.engine
 
         let row = try await engine.shortcutSet("openSettings", combo: "cmd+ctrl+0")
+        #expect(row.title == "Settings…")
+        #expect(row.group == "App")
+        #expect(row.description.contains("App group"))
         #expect(row.binding == "cmd+ctrl+0")
         #expect(row.isOverridden)
 

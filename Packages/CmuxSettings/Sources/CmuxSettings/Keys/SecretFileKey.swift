@@ -26,6 +26,12 @@ public struct SecretFileKey: Sendable, Equatable {
     /// The value returned when the secret file is absent or empty.
     public let defaultValue: String
 
+    /// Display metadata used by CLI and documentation surfaces.
+    public let metadata: SettingMetadata
+
+    /// Alternate cmux.json paths that manage this secret.
+    public let jsonAliases: [String]
+
     /// Creates a secret-file key.
     ///
     /// `fileName` must be a bare file name: ``SecretFileStore`` resolves it with
@@ -37,7 +43,17 @@ public struct SecretFileKey: Sendable, Equatable {
     ///   - id: The dotted identifier.
     ///   - fileName: The file name (no path separators, no `..`) under the store's base directory.
     ///   - defaultValue: The fallback when the file is missing or empty; defaults to `""`.
-    public init(id: String, fileName: String, defaultValue: String = "") {
+    ///   - title: Optional display title for CLI/docs output.
+    ///   - description: Optional explanatory text for CLI/docs output.
+    ///   - jsonAliases: Alternate cmux.json paths that manage this secret.
+    public init(
+        id: String,
+        fileName: String,
+        defaultValue: String = "",
+        title: String? = nil,
+        description: String? = nil,
+        jsonAliases: [String] = []
+    ) {
         precondition(
             !fileName.isEmpty
                 && !fileName.contains("/")
@@ -49,5 +65,7 @@ public struct SecretFileKey: Sendable, Equatable {
         self.id = id
         self.fileName = fileName
         self.defaultValue = defaultValue
+        self.metadata = SettingMetadata(id: id, title: title, description: description)
+        self.jsonAliases = jsonAliases
     }
 }

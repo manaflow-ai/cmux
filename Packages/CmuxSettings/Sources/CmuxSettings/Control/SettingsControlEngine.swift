@@ -61,10 +61,13 @@ public struct SettingsControlEngine: Sendable {
         let overridden = await descriptor.isOverridden(in: stores)
         return SettingDescription(
             id: descriptor.id,
+            title: descriptor.title,
+            description: descriptor.description,
             backend: descriptor.backend,
             type: descriptor.valueType.name,
             allowedValues: descriptor.valueType.enumCases,
             isSecret: descriptor.isSecret,
+            jsonAliases: descriptor.jsonAliases,
             value: value,
             defaultValue: descriptor.defaultValue,
             isOverridden: overridden,
@@ -77,9 +80,12 @@ public struct SettingsControlEngine: Sendable {
         let overridden = await descriptor.isOverridden(in: stores)
         return SettingRow(
             id: descriptor.id,
+            title: descriptor.title,
+            description: descriptor.description,
             backend: descriptor.backend,
             valueType: descriptor.valueType,
             isSecret: descriptor.isSecret,
+            jsonAliases: descriptor.jsonAliases,
             value: value,
             defaultValue: descriptor.defaultValue,
             isOverridden: overridden
@@ -114,8 +120,10 @@ public struct SettingsControlEngine: Sendable {
     /// those aliased managed settings are not detected here.
     private func ensureNotManagedInJSON(_ descriptor: CatalogSettingDescriptor) async throws {
         guard descriptor.backend != .json else { return }
-        if await stores.json.hasRawValue(atDottedPath: descriptor.id) {
-            throw SettingsControlError.managedInJSON(key: descriptor.id)
+        for path in [descriptor.id] + descriptor.jsonAliases {
+            if await stores.json.hasRawValue(atDottedPath: path) {
+                throw SettingsControlError.managedInJSON(key: path)
+            }
         }
     }
 

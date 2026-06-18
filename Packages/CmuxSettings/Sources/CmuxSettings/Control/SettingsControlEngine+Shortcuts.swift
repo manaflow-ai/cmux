@@ -248,6 +248,9 @@ extension SettingsControlEngine {
         let defaultBinding = action.defaultShortcut ?? .unbound
         return ShortcutRow(
             action: action.rawValue,
+            title: action.displayName,
+            group: action.group.title,
+            description: "Keyboard shortcut action in the \(action.group.title) group.",
             binding: effective.configIdentifier,
             defaultBinding: defaultBinding.configIdentifier,
             isOverridden: override != nil

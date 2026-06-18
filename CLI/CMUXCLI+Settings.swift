@@ -1,8 +1,9 @@
 import Foundation
 
 /// `cmux settings <list|get|set|unset|reset|describe|export|import>` and
-/// `cmux settings shortcuts <list|get|set|unset|reset>` — read and write every
-/// cmux setting and remap every keyboard shortcut from the command line.
+/// `cmux settings shortcuts <list|get|describe|set|unset|reset>` — read and
+/// write every cmux setting and remap every keyboard shortcut from the command
+/// line.
 ///
 /// This is the data half of `cmux settings`; the GUI half (`open` / `path` /
 /// `docs` / `<target>`) lives in `CMUXCLI+DocsSettings.swift`, which routes the
@@ -22,7 +23,7 @@ extension CMUXCLI {
     /// Shortcut sub-subcommands handled by the engine. Bare `settings shortcuts`
     /// keeps opening the GUI for backward compatibility.
     static let settingsControlShortcutSubcommands: Set<String> = [
-        "list", "get", "set", "unset", "reset",
+        "list", "get", "set", "unset", "reset", "describe",
     ]
 
     /// Whether `cmux settings <subcommand> …` should be handled by the
@@ -35,7 +36,7 @@ extension CMUXCLI {
             let rest = Array(args.dropFirst())
             return rest.contains("--all") || rest.contains { !$0.hasPrefix("--") }
         }
-        // `shortcuts <list|get|set|unset|reset>` manage bindings; bare
+        // `shortcuts <list|get|describe|set|unset|reset>` manage bindings; bare
         // `shortcuts` opens the GUI.
         if subcommand == "shortcuts", let next = args.dropFirst().first?.lowercased() {
             return Self.settingsControlShortcutSubcommands.contains(next)
@@ -178,6 +179,8 @@ extension CMUXCLI {
             return
         }
         print("\(key)")
+        if let title = payload["title"] as? String { print("  title:    \(title)") }
+        if let description = payload["description"] as? String { print("  info:     \(description)") }
         if let type = payload["type"] as? String { print("  type:     \(type)") }
         if let allowed = payload["allowedValues"] as? [String] {
             print("  allowed:  \(allowed.joined(separator: ", "))")
@@ -186,6 +189,9 @@ extension CMUXCLI {
         if let def = payload["default"] { print("  default:  \(Self.renderSettingValue(def))") }
         if let backend = payload["backend"] as? String { print("  backend:  \(backend)") }
         if let section = payload["section"] as? String { print("  section:  \(section)") }
+        if let aliases = payload["aliases"] as? [String], !aliases.isEmpty {
+            print("  aliases:  \(aliases.joined(separator: ", "))")
+        }
         if let overridden = payload["overridden"] as? Bool { print("  source:   \(overridden ? "set" : "default")") }
         if (payload["secret"] as? Bool) == true { print("  secret:   yes (value redacted)") }
     }
@@ -237,6 +243,20 @@ extension CMUXCLI {
             let action = try Self.requirePositional(rest, name: "action", usage: "cmux settings shortcuts get <action>")
             let payload = try client.sendV2(method: "settings.control.shortcuts.get", params: ["action": action])
             if jsonOutput { print(jsonString(payload)) } else { print((payload["binding"] as? String) ?? "none") }
+        case "describe":
+            let action = try Self.requirePositional(rest, name: "action", usage: "cmux settings shortcuts describe <action> [--json]")
+            let payload = try client.sendV2(method: "settings.control.shortcuts.get", params: ["action": action])
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print(action)
+                if let title = payload["title"] as? String { print("  title:    \(title)") }
+                if let group = payload["group"] as? String { print("  group:    \(group)") }
+                if let description = payload["description"] as? String { print("  info:     \(description)") }
+                if let binding = payload["binding"] as? String { print("  binding:  \(binding)") }
+                if let def = payload["default"] as? String { print("  default:  \(def)") }
+                if let overridden = payload["overridden"] as? Bool { print("  source:   \(overridden ? "set" : "default")") }
+            }
         case "set":
             // Strip only the known `--force` flag, then take <action> <combo>
             // positionally so a dash-prefixed combo is preserved.
@@ -274,17 +294,19 @@ extension CMUXCLI {
     private static func settingsRowLine(_ row: [String: Any]) -> String {
         let id = (row["id"] as? String) ?? "?"
         let value = row["value"].map(renderSettingValue) ?? ""
+        let title = (row["title"] as? String) ?? ""
         let backend = (row["backend"] as? String) ?? ""
         let source = (row["source"] as? String) ?? ((row["overridden"] as? Bool) == true ? "set" : "default")
-        return "\(id)\t\(value)\t[\(backend), \(source)]"
+        return "\(id)\t\(value)\t\(title)\t[\(backend), \(source)]"
     }
 
     private static func shortcutRowLine(_ row: [String: Any]) -> String {
         let action = (row["action"] as? String) ?? "?"
+        let title = (row["title"] as? String) ?? ""
         let binding = (row["binding"] as? String) ?? "none"
         let def = (row["default"] as? String) ?? "none"
         let suffix = ((row["overridden"] as? Bool) == true) ? "  (default: \(def))" : ""
-        return "\(action)\t\(binding)\(suffix)"
+        return "\(action)\t\(binding)\t\(title)\(suffix)"
     }
 
     /// Renders a JSON value for human output: scalars bare, structured values as
@@ -328,16 +350,16 @@ extension CMUXCLI {
         Read and write every cmux setting and keyboard shortcut, or open the GUI.
 
         Read/write subcommands (catalog-driven; require a running cmux app):
-          list [--json] [--keys]    List every setting (id, value, default, backend).
+          list [--json] [--keys]    List every setting (id, value, title, backend).
           get <key> [--json]        Print one setting's value.
           set <key> <value>         Set a value (validated against the catalog).
           unset <key>               Clear an override, reverting to the default.
           reset <key>               Same as unset.
           reset --all --yes         Clear every override.
-          describe <key> [--json]   Full metadata: type, allowed values, default, backend.
+          describe <key> [--json]   Full metadata: info, type, values, default, backend.
           export [--json] [--out f] Dump current settings (secrets omitted).
           import <file>             Apply a settings file (validated atomically).
-          shortcuts <subcommand>    Manage keyboard shortcuts (list/get/set/unset/reset).
+          shortcuts <subcommand>    Manage keyboard shortcuts (list/get/describe/set/unset/reset).
 
         Discover keys with `cmux settings list --keys`, inspect one with
         `cmux settings describe <key>`. Secret values are redacted on read.
@@ -375,6 +397,7 @@ extension CMUXCLI {
     Usage:
       cmux settings shortcuts list [--json]              Every action with its binding and default.
       cmux settings shortcuts get <action> [--json]      One action's current binding.
+      cmux settings shortcuts describe <action> [--json] Full metadata for one shortcut action.
       cmux settings shortcuts set <action> <combo>       Bind, e.g. set newTab "cmd+t" or a chord "ctrl+b c".
                                           [--force]       Reassign a binding already used by another action.
       cmux settings shortcuts unset <action>             Revert an action to its default.

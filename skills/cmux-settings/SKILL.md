@@ -5,7 +5,7 @@ description: "Read and write any cmux setting and remap any keyboard shortcut fr
 
 # cmux-settings
 
-`cmux settings` reads and writes **every** cmux setting and **every** keyboard shortcut from the command line, while the app is running. It is **catalog-driven**: the CLI derives the full set of keys, their types, allowed values, and defaults from the app's single source of truth (`SettingCatalog`). So you never hardcode a key list — you **discover** it at runtime, and the CLI automatically covers new settings as they are added.
+`cmux settings` reads and writes **every** cmux setting and **every** keyboard shortcut from the command line, while the app is running. It is **catalog-driven**: the CLI derives the full set of keys, their titles, descriptions, types, allowed values, defaults, aliases, and backends from the app's single source of truth (`SettingCatalog`). So you never hardcode a key list — you **discover** it at runtime, and the CLI automatically covers new settings as they are added.
 
 Changes apply **live** (no restart): a CLI write lands in exactly the same place the Settings window reads from (`UserDefaults`, `~/.config/cmux/cmux.json`, or a secret file) and the running app picks it up immediately.
 
@@ -18,7 +18,7 @@ Always discover before guessing a key name.
 cmux settings list --keys
 # Find the one you want (plain English -> key):
 cmux settings list --keys | rg -i 'sidebar|terminal|appearance'
-# Inspect one key fully — type, allowed values, default, current value, backend:
+# Inspect one key fully — title, description, type, allowed values, default, current value, backend, aliases:
 cmux settings describe app.appearance
 
 # 2. Set. Values are validated against the catalog (type / enum / range):
@@ -28,7 +28,7 @@ cmux settings set app.appearance dark
 cmux settings get app.appearance        # -> dark
 ```
 
-`cmux settings list --json` and `--json` on any read command give machine-readable output (stable, sorted). Use it to enumerate programmatically:
+`cmux settings list --json` and `--json` on any read command give machine-readable output (stable, sorted). Setting rows include `title`, `description`, and `aliases`; shortcut rows include `title`, `group`, and `description`. Use JSON output to enumerate programmatically:
 
 ```bash
 cmux settings list --json | jq -r '.settings[] | select(.type=="enum") | .id'
@@ -38,13 +38,13 @@ cmux settings list --json | jq -r '.settings[] | select(.type=="enum") | .id'
 
 | Command | What it does |
 |---|---|
-| `cmux settings list [--json] [--keys]` | Every setting with value, default, backend. `--keys` = flat key list. |
+| `cmux settings list [--json] [--keys]` | Every setting with value, title, default, backend. `--keys` = flat key list. |
 | `cmux settings get <key> [--json]` | Print one setting's value. |
 | `cmux settings set <key> <value>` | Set a value (validated). Quote values with spaces. |
 | `cmux settings unset <key>` | Clear an override, reverting to the default. |
 | `cmux settings reset <key>` | Same as unset. |
 | `cmux settings reset --all --yes` | Clear every override. |
-| `cmux settings describe <key> [--json]` | Type, allowed enum values, default, current value, backend, section. |
+| `cmux settings describe <key> [--json]` | Title, description, type, allowed enum values, default, current value, backend, section, aliases. |
 | `cmux settings export [--json] [--out file]` | Dump current settings (secrets omitted). |
 | `cmux settings import <file>` | Apply a settings file; validated atomically (all-or-nothing). |
 | `cmux settings shortcuts <subcommand>` | Manage keyboard shortcuts (below). |
@@ -83,6 +83,7 @@ Shortcuts live under `cmux settings shortcuts` and key off action ids (e.g. `new
 ```bash
 cmux settings shortcuts list                 # every action: current binding + default
 cmux settings shortcuts get newTab
+cmux settings shortcuts describe newTab      # action title, group, description, binding, default
 cmux settings shortcuts set newTab "cmd+t"
 cmux settings shortcuts set newTab "ctrl+b c"
 cmux settings shortcuts unset newTab         # revert to default

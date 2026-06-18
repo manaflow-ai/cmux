@@ -369,15 +369,15 @@ Settings subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `settings list [--json] [--keys]` | Catalog-driven: list every setting with value, default, and backend. `--keys` prints a flat, sorted key list. |
+| `settings list [--json] [--keys]` | Catalog-driven: list every setting with title, value, default, and backend. `--keys` prints a flat, sorted key list. JSON includes description and aliases. |
 | `settings get <key> [--json]` | Print one setting's value. Non-zero exit on unknown key. |
 | `settings set <key> <value>` | Validate against the catalog (type/enum/range) and write live. Non-zero exit + stderr on invalid value; never a silent no-op. |
 | `settings unset <key>` / `settings reset <key>` | Clear an override, reverting to the default. |
 | `settings reset --all --yes` | Clear every override atomically. |
-| `settings describe <key> [--json]` | Full metadata: type, allowed enum values, default, current value, backend, section. |
+| `settings describe <key> [--json]` | Full metadata: title, description, type, allowed enum values, default, current value, backend, section, aliases. |
 | `settings export [--json] [--out <file>]` | Dump current settings (secret values omitted). |
 | `settings import <file>` | Apply a settings file; validated atomically (all-or-nothing). |
-| `settings shortcuts <list\|get\|set\|unset\|reset>` | Read/remap keyboard shortcuts. `set` rejects a binding already used by another action unless `--force`. |
+| `settings shortcuts <list\|get\|describe\|set\|unset\|reset>` | Read/remap keyboard shortcuts. JSON list/describe output includes action title, group, and description. `set` rejects a binding already used by another action unless `--force`. |
 | `settings` / `settings open [target]` | Open the Settings window, launching cmux if needed, optionally to a target section. |
 | `settings path` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `settings docs` | Print the same output as `docs settings` without a socket. |

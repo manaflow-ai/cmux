@@ -140,6 +140,8 @@ extension TerminalController {
     private nonisolated static func settingRowPayload(_ row: SettingRow) -> [String: Any] {
         [
             "id": row.id,
+            "title": row.title,
+            "description": row.description,
             "value": row.value.jsonObject,
             "default": row.defaultValue.jsonObject,
             "backend": row.backend.displayName,
@@ -147,12 +149,15 @@ extension TerminalController {
             "overridden": row.isOverridden,
             "secret": row.isSecret,
             "source": row.source,
+            "aliases": row.jsonAliases,
         ]
     }
 
     private nonisolated static func describePayload(_ description: SettingDescription) -> [String: Any] {
         var payload: [String: Any] = [
             "id": description.id,
+            "title": description.title,
+            "description": description.description,
             "backend": description.backend.displayName,
             "type": description.type,
             "secret": description.isSecret,
@@ -160,6 +165,7 @@ extension TerminalController {
             "default": description.defaultValue.jsonObject,
             "overridden": description.isOverridden,
             "section": description.section,
+            "aliases": description.jsonAliases,
         ]
         if let allowed = description.allowedValues {
             payload["allowedValues"] = allowed
@@ -170,6 +176,9 @@ extension TerminalController {
     private nonisolated static func shortcutRowPayload(_ row: ShortcutRow) -> [String: Any] {
         [
             "action": row.action,
+            "title": row.title,
+            "group": row.group,
+            "description": row.description,
             "binding": row.binding,
             "default": row.defaultBinding,
             "overridden": row.isOverridden,

@@ -72,6 +72,29 @@ struct SettingsControlEngineTests {
         }
     }
 
+    @Test func describeAndListIncludeGeneratedMetadata() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+
+        let description = try await harness.engine.describe("app.appearance")
+        #expect(description.title == "Appearance")
+        #expect(description.description.contains("Appearance is an enum setting"))
+        #expect(description.description.contains("App section"))
+
+        let row = try #require(await harness.engine.list().first { $0.id == "app.appearance" })
+        #expect(row.title == description.title)
+        #expect(row.description == description.description)
+    }
+
+    @Test func describeIncludesConfigAliases() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+
+        let description = try await harness.engine.describe("sidebar.branchVerticalLayout")
+        #expect(description.jsonAliases == ["sidebar.branchLayout"])
+        #expect(description.description.contains("sidebar.branchLayout"))
+    }
+
     // MARK: - Round-trip per value type
 
     @Test func roundTripBool() async throws {
@@ -129,6 +152,31 @@ struct SettingsControlEngineTests {
         #expect(row.value == .string("dark"))
         let description = try await harness.engine.describe("app.appearance")
         #expect(description.allowedValues == ["system", "light", "dark"])
+    }
+
+    @Test func fileExplorerDoubleClickActionIsCatalogedAndRoundTrips() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+
+        let description = try await harness.engine.describe("fileExplorer.doubleClickAction")
+        #expect(description.allowedValues == ["preview", "defaultEditor", "preferredEditor"])
+
+        let row = try await harness.engine.set("fileExplorer.doubleClickAction", rawValue: "preferredEditor")
+        #expect(row.value == .string("preferredEditor"))
+        #expect(try await harness.engine.get("fileExplorer.doubleClickAction").value == .string("preferredEditor"))
+    }
+
+    @Test func diffViewerDefaultLayoutIsCatalogedAndRoundTripsThroughJSON() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+
+        let description = try await harness.engine.describe("diffViewer.defaultLayout")
+        #expect(description.backend == .json)
+        #expect(description.allowedValues == ["unified", "split"])
+
+        let row = try await harness.engine.set("diffViewer.defaultLayout", rawValue: "split")
+        #expect(row.value == .string("split"))
+        #expect(try await harness.engine.get("diffViewer.defaultLayout").value == .string("split"))
     }
 
     @Test func roundTripJSONCollection() async throws {
@@ -250,6 +298,20 @@ struct SettingsControlEngineTests {
         }
         // A setting that is NOT in cmux.json still writes normally.
         #expect(try await harness.engine.set("app.menuBarOnly", rawValue: "true").value == .bool(true))
+    }
+
+    @Test func rejectsWriteForAliasManagedSettingInCmuxJson() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let configURL = harness.tempDir.appendingPathComponent("cmux.json")
+        try #"{"sidebar":{"branchLayout":"inline"}}"#.write(to: configURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await harness.engine.set("sidebar.branchVerticalLayout", rawValue: "true")
+            Issue.record("Expected alias-managed setting write to throw.")
+        } catch let error as SettingsControlError {
+            #expect(error == .managedInJSON(key: "sidebar.branchLayout"))
+        }
     }
 
     @Test func rejectsSecretWriteWhenManagedInCmuxJson() async throws {

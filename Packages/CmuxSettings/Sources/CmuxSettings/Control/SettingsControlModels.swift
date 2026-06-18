@@ -2,10 +2,20 @@ import Foundation
 
 /// One row of `cmux settings list` / the result of `cmux settings get`.
 public struct SettingRow: Sendable, Equatable {
+    /// The stable dotted setting id.
     public let id: String
+    /// Short display title for the setting.
+    public let title: String
+    /// Human-readable explanation of the setting.
+    public let description: String
+    /// Where the current value persists.
     public let backend: SettingBackend
+    /// The value shape used for validation and CLI parsing.
     public let valueType: SettingValueType
+    /// Whether the value is redacted on read.
     public let isSecret: Bool
+    /// Alternate cmux.json paths that can manage this setting.
+    public let jsonAliases: [String]
     /// The current value (redacted when `isSecret`).
     public let value: SettingJSONValue
     public let defaultValue: SettingJSONValue
@@ -19,14 +29,27 @@ public struct SettingRow: Sendable, Equatable {
 
 /// The full metadata for `cmux settings describe <key>`.
 public struct SettingDescription: Sendable, Equatable {
+    /// The stable dotted setting id.
     public let id: String
+    /// Short display title for the setting.
+    public let title: String
+    /// Human-readable explanation of the setting.
+    public let description: String
+    /// Where the current value persists.
     public let backend: SettingBackend
+    /// The value type name used by CLI output.
     public let type: String
     /// The accepted raw values for an enum setting, else `nil`.
     public let allowedValues: [String]?
+    /// Whether the value is redacted on read.
     public let isSecret: Bool
+    /// Alternate cmux.json paths that can manage this setting.
+    public let jsonAliases: [String]
+    /// The current value, redacted when ``isSecret`` is true.
     public let value: SettingJSONValue
+    /// The fallback value when no override exists.
     public let defaultValue: SettingJSONValue
+    /// Whether a stored override exists.
     public let isOverridden: Bool
     /// The catalog section (the dotted-id prefix, e.g. `app`).
     public let section: String
@@ -77,6 +100,12 @@ public struct SettingsDocument: Sendable, Equatable {
 public struct ShortcutRow: Sendable, Equatable {
     /// The action id (e.g. `newTab`).
     public let action: String
+    /// User-facing action label.
+    public let title: String
+    /// Shortcut group shown in Settings.
+    public let group: String
+    /// Short explanation of what this shortcut row controls.
+    public let description: String
     /// The current binding as a config string (e.g. `cmd+t`, `ctrl+b c`, or
     /// `none` when unbound).
     public let binding: String

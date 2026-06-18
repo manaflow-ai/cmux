@@ -42,6 +42,17 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     /// existing users.
     public let legacyUserDefaultsKeys: [String]
 
+    /// Display metadata used by CLI and documentation surfaces.
+    public let metadata: SettingMetadata
+
+    /// Alternate cmux.json paths that manage this UserDefaults-backed setting.
+    ///
+    /// Some legacy config keys intentionally use a different public JSON path
+    /// than the catalog id. The control engine checks these aliases before
+    /// writing so it does not report success for a UserDefaults value that the
+    /// managed config layer will immediately override.
+    public let jsonAliases: [String]
+
     /// Creates a UserDefaults-backed setting key.
     ///
     /// - Parameters:
@@ -51,17 +62,25 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     ///   - userDefaultsKey: The actual UserDefaults key.
     ///   - suite: Optional suite name. `nil` is `UserDefaults.standard`.
     ///   - legacyUserDefaultsKeys: Renamed keys to migrate from on first read.
+    ///   - title: Optional display title for CLI/docs output.
+    ///   - description: Optional explanatory text for CLI/docs output.
+    ///   - jsonAliases: Alternate cmux.json paths that manage this setting.
     public init(
         id: String,
         defaultValue: Value,
         userDefaultsKey: String,
         suite: String? = nil,
-        legacyUserDefaultsKeys: [String] = []
+        legacyUserDefaultsKeys: [String] = [],
+        title: String? = nil,
+        description: String? = nil,
+        jsonAliases: [String] = []
     ) {
         self.id = id
         self.defaultValue = defaultValue
         self.userDefaultsKey = userDefaultsKey
         self.suite = suite
         self.legacyUserDefaultsKeys = legacyUserDefaultsKeys
+        self.metadata = SettingMetadata(id: id, title: title, description: description)
+        self.jsonAliases = jsonAliases
     }
 }

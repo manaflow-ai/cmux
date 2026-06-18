@@ -19,6 +19,10 @@ import Foundation
 public struct CatalogSettingDescriptor: Sendable {
     /// The dotted identifier (e.g. `app.appearance`).
     public let id: String
+    /// Short display title for the setting.
+    public let title: String
+    /// Human-readable explanation of the setting.
+    public let description: String
     /// Where the value persists.
     public let backend: SettingBackend
     /// The value's shape, derived from its static `Value` type.
@@ -27,6 +31,8 @@ public struct CatalogSettingDescriptor: Sendable {
     public let isSecret: Bool
     /// The key's default, as a value-typed JSON value.
     public let defaultValue: SettingJSONValue
+    /// Alternate cmux.json paths that can manage the same setting.
+    public let jsonAliases: [String]
 
     /// The placeholder substituted for a stored secret on read, so a secret's
     /// plaintext can never leak through `get` / `list` / `export`. A setting
@@ -112,6 +118,55 @@ public struct CatalogSettingDescriptor: Sendable {
         value == value.rounded() ? String(Int(value)) : String(value)
     }
 
+    private static func defaultDescription(
+        id: String,
+        title: String,
+        valueType: SettingValueType,
+        backend: SettingBackend,
+        isSecret: Bool,
+        jsonAliases: [String]
+    ) -> String {
+        let section = SettingMetadata.generatedTitle(for: SettingsControlEngine.section(of: id))
+        let typePhrase: String = {
+            switch valueType {
+            case .bool:
+                return "a boolean"
+            case .int:
+                return "an integer"
+            case .double:
+                return "a number"
+            case .string:
+                return "a string"
+            case .enumeration:
+                return "an enum"
+            case .json:
+                return "a JSON"
+            }
+        }()
+        let backendText: String = {
+            switch backend {
+            case .userDefaults:
+                return "UserDefaults"
+            case .json:
+                return "cmux.json"
+            case .secret:
+                return "a private secret file"
+            }
+        }()
+
+        var sentences = [
+            "\(title) is \(typePhrase) setting in the \(section) section.",
+            "It is stored in \(backendText).",
+        ]
+        if isSecret {
+            sentences.append("Values are redacted on read and omitted from export.")
+        }
+        if !jsonAliases.isEmpty {
+            sentences.append("cmux.json alias: \(jsonAliases.joined(separator: ", ")).")
+        }
+        return sentences.joined(separator: " ")
+    }
+
     /// Validates then writes `candidate`.
     public func set(_ candidate: SettingJSONValue, in stores: SettingsControlStores) async throws {
         let normalized = try validate(candidate)
@@ -167,11 +222,22 @@ extension CatalogSettingDescriptor {
 
     /// Wraps a `UserDefaults`-backed key.
     init<Value: SettingCodable>(defaultsKey key: DefaultsKey<Value>) {
+        let valueType = Self.valueType(for: Value.self)
         self.id = key.id
+        self.title = key.metadata.title
         self.backend = .userDefaults
         self.isSecret = false
-        self.valueType = Self.valueType(for: Value.self)
+        self.valueType = valueType
         self.defaultValue = SettingJSONValue(jsonObject: key.defaultValue.encodeForJSON())
+        self.jsonAliases = key.jsonAliases
+        self.description = key.metadata.description ?? Self.defaultDescription(
+            id: key.id,
+            title: key.metadata.title,
+            valueType: valueType,
+            backend: .userDefaults,
+            isSecret: false,
+            jsonAliases: key.jsonAliases
+        )
         self.readCurrent = { stores in
             let value = await stores.defaults.value(for: key)
             return SettingJSONValue(jsonObject: value.encodeForJSON())
@@ -196,11 +262,22 @@ extension CatalogSettingDescriptor {
 
     /// Wraps a `cmux.json`-backed key.
     init<Value: SettingCodable>(jsonKey key: JSONKey<Value>) {
+        let valueType = Self.valueType(for: Value.self)
         self.id = key.id
+        self.title = key.metadata.title
         self.backend = .json
         self.isSecret = false
-        self.valueType = Self.valueType(for: Value.self)
+        self.valueType = valueType
         self.defaultValue = SettingJSONValue(jsonObject: key.defaultValue.encodeForJSON())
+        self.jsonAliases = key.jsonAliases
+        self.description = key.metadata.description ?? Self.defaultDescription(
+            id: key.id,
+            title: key.metadata.title,
+            valueType: valueType,
+            backend: .json,
+            isSecret: false,
+            jsonAliases: key.jsonAliases
+        )
         self.readCurrent = { stores in
             let value = await stores.json.value(for: key)
             return SettingJSONValue(jsonObject: value.encodeForJSON())
@@ -235,10 +312,20 @@ extension CatalogSettingDescriptor {
     /// ``currentValue(in:)`` reports a redaction marker when present.
     init(secretKey key: SecretFileKey) {
         self.id = key.id
+        self.title = key.metadata.title
         self.backend = .secret
         self.isSecret = true
         self.valueType = .string
         self.defaultValue = .string(key.defaultValue)
+        self.jsonAliases = key.jsonAliases
+        self.description = key.metadata.description ?? Self.defaultDescription(
+            id: key.id,
+            title: key.metadata.title,
+            valueType: .string,
+            backend: .secret,
+            isSecret: true,
+            jsonAliases: key.jsonAliases
+        )
         self.readCurrent = { stores in
             let present = await stores.secret.hasValue(for: key)
             return .string(present ? Self.redactionMarker : key.defaultValue)
