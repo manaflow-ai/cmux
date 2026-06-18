@@ -939,7 +939,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
-        let unifiedFlag = unifiedMultiMacEnabled ?? MobileUnifiedMultiMacFlag.isEnabled()
+        let unifiedFlag = unifiedMultiMacEnabled ?? MobileUnifiedMultiMacFlag().isEnabled
         self.unifiedMultiMacEnabled = unifiedFlag
         self.multiMacAggregator = MultiMacWorkspaceAggregator(runtime: runtime)
         self.pairedMacStore = pairedMacStore

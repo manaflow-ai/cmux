@@ -16,7 +16,7 @@ public import Foundation
 ///
 /// This mirrors ``PresenceClient/resolvedServiceBaseURL(environment:defaults:isDebugBuild:)``:
 /// the resolution itself is parameterized so it is testable on any build.
-public enum MobileUnifiedMultiMacFlag {
+public struct MobileUnifiedMultiMacFlag {
     /// Env override, for tagged dev builds and CI.
     public static let enabledEnvKey = "CMUX_UNIFIED_MULTI_MAC"
     /// UserDefaults override, for QA/dogfood devices.
@@ -27,22 +27,31 @@ public enum MobileUnifiedMultiMacFlag {
     /// An explicit override (env first, then defaults) wins in either
     /// direction; absent any override the value is the build default (Debug on,
     /// Release off).
+    public let isEnabled: Bool
+
+    /// Resolves the flag for this process.
+    ///
+    /// An explicit override (env first, then defaults) wins in either
+    /// direction; absent any override the value is the build default (Debug on,
+    /// Release off). The resolution happens here so we store the resolved
+    /// `Bool` rather than a `UserDefaults`/environment reference (avoids
+    /// `Sendable` issues).
     /// - Parameters:
     ///   - environment: Process environment. Injected for testability.
     ///   - defaults: User defaults. Injected for testability.
     ///   - isDebugBuild: Whether this is a Debug build. Injected for testability.
-    public static func isEnabled(
+    public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
-        isDebugBuild: Bool = MobileUnifiedMultiMacFlag.isDebugBuild
-    ) -> Bool {
-        if let override = booleanOverride(environment[enabledEnvKey]) {
-            return override
+        isDebugBuild: Bool = MobileUnifiedMultiMacFlag.currentIsDebugBuild
+    ) {
+        if let override = MobileUnifiedMultiMacFlag.booleanOverride(environment[MobileUnifiedMultiMacFlag.enabledEnvKey]) {
+            isEnabled = override
+        } else if defaults.object(forKey: MobileUnifiedMultiMacFlag.enabledDefaultsKey) != nil {
+            isEnabled = defaults.bool(forKey: MobileUnifiedMultiMacFlag.enabledDefaultsKey)
+        } else {
+            isEnabled = isDebugBuild
         }
-        if defaults.object(forKey: enabledDefaultsKey) != nil {
-            return defaults.bool(forKey: enabledDefaultsKey)
-        }
-        return isDebugBuild
     }
 
     /// Parse an env-string override into a tri-state: `nil` when unset/blank,
@@ -65,7 +74,7 @@ public enum MobileUnifiedMultiMacFlag {
 
     /// Whether this is a Debug build (compile-time; parameterized above so the
     /// resolution itself is testable on any build).
-    public static var isDebugBuild: Bool {
+    public static var currentIsDebugBuild: Bool {
         #if DEBUG
         return true
         #else

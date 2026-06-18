@@ -14,58 +14,58 @@ import Testing
     }
 
     @Test func defaultsToBuildTypeWhenNoOverride() {
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: [:], defaults: emptyDefaults(), isDebugBuild: true
-        ) == true)
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        ).isEnabled == true)
+        #expect(MobileUnifiedMultiMacFlag(
             environment: [:], defaults: emptyDefaults(), isDebugBuild: false
-        ) == false)
+        ).isEnabled == false)
     }
 
     @Test func envOverrideWinsBothDirections() {
         // Force ON on a release build.
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: ["CMUX_UNIFIED_MULTI_MAC": "1"],
             defaults: emptyDefaults(),
             isDebugBuild: false
-        ) == true)
+        ).isEnabled == true)
         // Force OFF on a debug build.
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: ["CMUX_UNIFIED_MULTI_MAC": "false"],
             defaults: emptyDefaults(),
             isDebugBuild: true
-        ) == false)
+        ).isEnabled == false)
     }
 
     @Test func defaultsOverrideWinsOverBuildType() {
         let on = emptyDefaults()
         on.set(true, forKey: "unifiedMultiMacEnabled")
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: [:], defaults: on, isDebugBuild: false
-        ) == true)
+        ).isEnabled == true)
 
         let off = emptyDefaults()
         off.set(false, forKey: "unifiedMultiMacEnabled")
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: [:], defaults: off, isDebugBuild: true
-        ) == false)
+        ).isEnabled == false)
     }
 
     @Test func envOverrideBeatsDefaultsOverride() {
         let defaults = emptyDefaults()
         defaults.set(false, forKey: "unifiedMultiMacEnabled")
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: ["CMUX_UNIFIED_MULTI_MAC": "on"],
             defaults: defaults,
             isDebugBuild: false
-        ) == true)
+        ).isEnabled == true)
     }
 
     @Test func blankEnvIsIgnored() {
-        #expect(MobileUnifiedMultiMacFlag.isEnabled(
+        #expect(MobileUnifiedMultiMacFlag(
             environment: ["CMUX_UNIFIED_MULTI_MAC": "  "],
             defaults: emptyDefaults(),
             isDebugBuild: false
-        ) == false)
+        ).isEnabled == false)
     }
 }
