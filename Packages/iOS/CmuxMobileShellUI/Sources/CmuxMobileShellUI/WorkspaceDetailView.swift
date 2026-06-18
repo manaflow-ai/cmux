@@ -42,8 +42,10 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    /// Drives the rename-workspace sheet launched from the picker menu.
+    /// Drives the rename-workspace dialog launched from the picker menu, and its
+    /// editable text (seeded with the current name when presented).
     @State private var isRenamePresented = false
+    @State private var renameText = ""
     /// Captured at the moment the "View as Text" action is tapped so the
     /// sheet keeps showing the terminal the user asked about even if the
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
@@ -170,9 +172,11 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .sheet(isPresented: $isRenamePresented) {
-            renameSheet
-        }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
     }
 
     /// Top-level toolbar toggle between terminal and chat. Shown only when the
@@ -279,9 +283,11 @@ struct WorkspaceDetailView: View {
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
         )
-        .sheet(isPresented: $isRenamePresented) {
-            renameSheet
-        }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
     }
     #endif
 
@@ -419,9 +425,11 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isTextSheetPresented) {
             TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
-        .sheet(isPresented: $isRenamePresented) {
-            renameSheet
-        }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
         #endif
     }
 
@@ -785,17 +793,19 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     private func presentRenameFromMenu() {
         dismissTerminalKeyboardForChrome()
+        // Seed the dialog field with the current name each time it opens.
+        renameText = workspace.name
         isRenamePresented = true
     }
 
-    /// Rename sheet seeded with the current name; the trimmed result is forwarded
-    /// to the Mac, which echoes the new name back via the authoritative list sync.
-    private var renameSheet: some View {
-        WorkspaceRenameSheet(currentName: workspace.name) { newName in
-            let store = store
-            let id = workspace.id
-            Task { await store.renameWorkspace(id: id, title: newName) }
-        }
+    /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
+    /// it back via the authoritative list sync. Empty names are ignored.
+    private func commitRenameFromDialog() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let store = store
+        let id = workspace.id
+        Task { await store.renameWorkspace(id: id, title: trimmed) }
     }
     #endif
 
