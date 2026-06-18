@@ -9872,9 +9872,8 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 /// → rebuilt the publisher → re-subscribed … a self-sustaining ~100% CPU loop
 /// (issue #5970).
 ///
-/// Caching the composed publishers and rebuilding them only from explicit
-/// lifecycle callbacks keeps `.onReceive` stable when the workspace set is
-/// unchanged, avoiding subscription churn during ordinary body passes.
+/// Caching the composed publishers and rebuilding them from lifecycle callbacks
+/// keeps `.onReceive` stable across ordinary body passes.
 @MainActor
 private struct ExtensionSidebarObservationPublishers {
     private var cachedWorkspaceIds: [UUID] = []
@@ -10769,6 +10768,7 @@ struct VerticalTabsSidebar: View {
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
             }
+            .onDisappear { extensionSidebarObservationPublishers = ExtensionSidebarObservationPublishers() }
     }
 
     @ViewBuilder
