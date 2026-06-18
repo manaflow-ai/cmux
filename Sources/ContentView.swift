@@ -1243,7 +1243,7 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
-    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
+    private static let minimumContentWidthWithSidebar: CGFloat = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
     private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
@@ -1312,13 +1312,32 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return Self.maximumSidebarWidth(
+                availableWidth: resolvedAvailableWidth,
+                minimumWidth: minimumSidebarWidth
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return Self.maximumSidebarWidth(
+            availableWidth: fallbackScreenWidth,
+            minimumWidth: minimumSidebarWidth
+        )
+    }
+
+    static func maximumSidebarWidth(
+        availableWidth: CGFloat,
+        minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
+    ) -> CGFloat {
+        guard availableWidth.isFinite, availableWidth > 0 else {
+            return max(minimumWidth, CGFloat(SessionPersistencePolicy.maximumSidebarWidth))
+        }
+        let maximumPersistedWidth = CGFloat(SessionPersistencePolicy.maximumSidebarWidth)
+        let contentPreservingCap = availableWidth - Self.minimumContentWidthWithSidebar
+        let maximumWidth = min(maximumPersistedWidth, contentPreservingCap)
+        return max(minimumWidth, maximumWidth)
     }
 
     static func clampedSidebarWidth(
@@ -13290,30 +13309,18 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, canCloseWorkspace ? scaledCloseButtonWidth : 0)
+            // Keep the close button outside HStack width negotiation so
+            // wrapped titles receive a concrete row width.
+            .overlay(alignment: .topTrailing) {
                 if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: scaledFontSize(9), weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                    closeWorkspaceButton(
+                        tooltip: closeButtonTooltip,
+                        width: scaledCloseButtonWidth,
+                        hitSize: scaledCloseButtonHitSize
+                    )
                 }
             }
 
@@ -13692,6 +13699,30 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func closeWorkspaceButton(
+        tooltip: String,
+        width: CGFloat,
+        hitSize: CGFloat
+    ) -> some View {
+        Button(action: {
+            #if DEBUG
+            cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+            #endif
+            tabManager.closeWorkspaceWithConfirmation(tab)
+        }) {
+            Image(systemName: "xmark")
+                .font(.system(size: scaledFontSize(9), weight: .medium))
+                .foregroundColor(activeSecondaryColor(0.7))
+                .frame(width: width, height: hitSize, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(tooltip)
+        .opacity(showCloseButton ? 1 : 0)
+        .allowsHitTesting(showCloseButton)
+        .accessibilityHidden(!showCloseButton)
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
