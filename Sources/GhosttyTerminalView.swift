@@ -5110,7 +5110,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
-    @IBAction private func pasteAsPlainText(_ sender: Any?) {
+    // Intentionally non-private (like `paste(_:)`): a GhosttyNSView test double in
+    // AppDelegateShortcutRoutingTests overrides this, which a `private` IBAction
+    // would break ("method does not override"). SwiftLint's private_action hint
+    // does not apply here.
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
         guard performBindingAction("paste_from_clipboard") else { return }
