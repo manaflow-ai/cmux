@@ -226,7 +226,7 @@ extension CMUXCLI {
         outputPayload["pid"] = Int(ready.pid)
         outputPayload["log_path"] = logURL.path
         outputPayload["opened_browser"] = false
-        // The helper calls setsid() before emitting ready JSON, so the CLI can return after opening the pane.
+        // The helper calls setsid() just before emitting ready JSON, so cancellation during startup still reaches it.
         outputPayload["server_lifecycle"] = "session_detached"
 
         if !noOpen {
@@ -420,67 +420,56 @@ extension CMUXCLI {
 
     private func readLineData(from handle: FileHandle, timeout: TimeInterval) -> (data: Data, timedOut: Bool) {
         let maxReadyBytes = 1_048_576
-        let done = DispatchSemaphore(value: 0)
-        // Protects the one-shot readiness result shared by FileHandle's callback and the timeout path.
-        let lock = NSLock()
+        let fileDescriptor = handle.fileDescriptor
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
         var data = Data()
-        var result: (data: Data, timedOut: Bool)?
-        var didFinish = false
 
-        func finish(_ next: (data: Data, timedOut: Bool)) {
-            lock.lock()
-            guard !didFinish else {
-                lock.unlock()
-                return
+        while data.count < maxReadyBytes {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                return (data, true)
             }
-            didFinish = true
-            result = next
-            handle.readabilityHandler = nil
-            lock.unlock()
-            done.signal()
+
+            var pollDescriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = Int32(max(1, min(remaining * 1000, Double(Int32.max))))
+            let pollResult = Darwin.poll(&pollDescriptor, 1, timeoutMilliseconds)
+            if pollResult == 0 {
+                return (data, true)
+            }
+            if pollResult < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                return (data, false)
+            }
+            if pollDescriptor.revents & Int16(POLLNVAL) != 0 {
+                return (data, false)
+            }
+            if pollDescriptor.revents & Int16(POLLIN | POLLHUP | POLLERR) == 0 {
+                continue
+            }
+
+            let readCapacity = min(buffer.count, maxReadyBytes - data.count)
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(fileDescriptor, rawBuffer.baseAddress, readCapacity)
+            }
+            if bytesRead < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                return (data, false)
+            }
+            if bytesRead == 0 {
+                return (data, false)
+            }
+            if let newlineIndex = buffer[..<bytesRead].firstIndex(of: 10) {
+                data.append(contentsOf: buffer[..<newlineIndex])
+                return (data, false)
+            }
+            data.append(contentsOf: buffer[..<bytesRead])
         }
 
-        handle.readabilityHandler = { readableHandle in
-            let chunk = readableHandle.availableData
-            lock.lock()
-            guard !didFinish else {
-                lock.unlock()
-                return
-            }
-            if chunk.isEmpty {
-                let next = (data, false)
-                lock.unlock()
-                finish(next)
-                return
-            }
-            if let newlineIndex = chunk.firstIndex(of: 10) {
-                data.append(contentsOf: chunk[..<newlineIndex])
-                let next = (data, false)
-                lock.unlock()
-                finish(next)
-                return
-            }
-            data.append(chunk)
-            if data.count >= maxReadyBytes {
-                let next = (data, false)
-                lock.unlock()
-                finish(next)
-                return
-            }
-            lock.unlock()
-        }
-
-        let waitResult = done.wait(timeout: .now() + timeout)
-        if waitResult == .timedOut {
-            lock.lock()
-            let snapshot = data
-            lock.unlock()
-            finish((snapshot, true))
-        }
-
-        lock.lock()
-        let final = result ?? (Data(), false)
-        lock.unlock()
-        return final
+        return (data, false)
     }
 }

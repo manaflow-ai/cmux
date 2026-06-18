@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -47,6 +48,7 @@ XCODEBUILD_BUILD_TIMEOUT_SECONDS = 1800
 SCREENSHOT_TIMEOUT_SECONDS = 10
 INPUT_TIMEOUT_SECONDS = 30
 MAX_INPUT_BYTES = 65536
+STREAM_FRAME_INTERVAL_SECONDS = 1.0 / 30.0
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
@@ -833,6 +835,7 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
         self.send_header("cache-control", "no-store")
         self.end_headers()
         while True:
+            frame_started = time.monotonic()
             frame, _stale = self.state.capture_frame()
             if not frame:
                 return
@@ -845,6 +848,9 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 return
+            elapsed = time.monotonic() - frame_started
+            if elapsed < STREAM_FRAME_INTERVAL_SECONDS:
+                time.sleep(STREAM_FRAME_INTERVAL_SECONDS - elapsed)
 
     def write_json(self, payload, status=200):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -880,7 +886,6 @@ def parse_args(argv):
 
 
 def serve(args):
-    detach_from_cli_session()
     cwd = resolve_path(args.cwd, Path.cwd())
     device = select_device(args.device)
     log(f"selected simulator: {device.get('name')} ({device.get('udid')})")
@@ -920,6 +925,7 @@ def serve(args):
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
+    detach_from_cli_session()
     ready = {
         "url": url,
         "device": device,
