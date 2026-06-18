@@ -170,11 +170,9 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
-        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-option-digit-shortcut-routing"
         )
         KeyboardShortcutSettings.resetAll()
