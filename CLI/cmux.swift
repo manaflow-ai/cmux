@@ -2,7 +2,6 @@ import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
-import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
 import Darwin

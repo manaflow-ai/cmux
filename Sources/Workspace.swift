@@ -5,8 +5,8 @@ import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
-import CmuxSession
-import CmuxTerminalEngine
+import CmuxWorkspaces
+import CmuxTerminal
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -17,16 +17,12 @@ import CmuxBrowser
 import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
-import CmuxWorkspaceCore
-import CmuxWorkspaces
 import CmuxNotifications
-import CmuxSocketControl
 import Combine
 import CryptoKit
 import Darwin
 import Network
 import CoreText
-import CmuxTerminal
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {

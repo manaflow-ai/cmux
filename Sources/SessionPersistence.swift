@@ -2,7 +2,7 @@ import CoreGraphics
 import CmuxCore
 import Foundation
 import Bonsplit
-import CmuxSession
+import CmuxWorkspaces
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
