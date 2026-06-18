@@ -384,6 +384,75 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledStableCLIWithCallerWorkspaceFallsBackFromStaleEnvSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let socketDirectoryURL = fixedHomeURL
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: socketDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let defaultStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let staleEnvSocketPath = "/tmp/cmux-debug-stale-\(UUID().uuidString.lowercased()).sock"
+        let callerWorkspaceID = UUID().uuidString
+        let createdPaneID = UUID().uuidString
+        let createdSurfaceID = UUID().uuidString
+
+        let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "stable-\(UUID().uuidString.lowercased())",
+            bundleIdentifier: "com.cmuxterm.app",
+            bundleName: "cmux"
+        )
+        let defaultResponder = try UnixSocketResponder(
+            path: defaultStableSocketPath,
+            response: """
+            {"ok":true,"result":{"workspace_id":"\(callerWorkspaceID)","pane_id":"\(createdPaneID)","surface_id":"\(createdSurfaceID)","type":"terminal"}}
+            """
+        )
+        defer { defaultResponder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        environment["CMUX_SOCKET_PATH"] = staleEnvSocketPath
+        environment["CMUX_WORKSPACE_ID"] = callerWorkspaceID
+        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+
+        let result = runProcess(
+            executablePath: fakeStableCLIPath,
+            arguments: ["new-pane", "--type", "terminal", "--focus", "false"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            defaultResponder.receivedRequests.count,
+            1,
+            defaultResponder.receivedRequests.joined(separator: "\n")
+        )
+
+        let request = try XCTUnwrap(defaultResponder.receivedRequests.first)
+        let requestData = try XCTUnwrap(request.data(using: .utf8))
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: requestData, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "pane.create")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["workspace_id"] as? String, callerWorkspaceID)
+        XCTAssertEqual(params["type"] as? String, "terminal")
+        XCTAssertEqual(params["focus"] as? Bool, false)
+    }
+
     func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
