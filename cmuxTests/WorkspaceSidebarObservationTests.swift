@@ -74,18 +74,15 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // The sidebar `status`/`metadata` socket API lets agents and CI scripts
     // insert entries under arbitrary caller-chosen keys. With ~30 long-running
     // agent sessions over hours, an integration that uses ever-distinct keys
-    // grows these @Published dictionaries without bound, which both leaks memory
+    // grows these forwarded dictionaries without bound, which both leaks memory
     // (footprint climbed to 6–8 GB in https://github.com/manaflow-ai/cmux/issues/5845)
-    // and makes the per-tick `removeDuplicates` equality check and
+    // and makes the sidebar observation `removeDuplicates` equality check and
     // `sidebarStatusEntriesInDisplayOrder()` sort that feed the sidebar view
     // graph progressively more expensive on the main thread. They must stay
     // bounded like `logEntries` already is.
     func testStatusEntriesStayBoundedUnderUnboundedDistinctKeys() {
         let workspace = Workspace()
-        // Mirrors `Workspace.maxSidebarStatusEntries`; kept as a literal so this
-        // regression test compiles and fails on the assertion (not a missing
-        // symbol) in the pre-fix commit.
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         for index in 0..<(cap * 3) {
             workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
@@ -177,7 +174,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // ever-distinct-key workload keeps those maps growing without bound (#5845).
     func testStatusCapEvictionClearsCoupledAgentPIDState() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         // Every key is backed by a live agent PID, so the cap must still evict
         // the oldest and purge its coupled agent PID state. PIDs are recorded
@@ -216,7 +213,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // still be tracked instead of lost to a self-eviction (#5845).
     func testNewStatusSurvivesOwnTrimOverPlainTelemetry() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         // Fill the cap with high-priority plain telemetry.
         for index in 0..<cap {
@@ -248,7 +245,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // makes the command path skip recording its coupled PID (#5845).
     func testNewNonLiveStatusSelfEvictsAgainstFullLiveStatuses() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         // Fill the cap with live agent statuses (PID recorded before status).
         for index in 0..<cap {
@@ -281,7 +278,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // live agent. Statuses backed by a coupled agent PID must be retained (#5845).
     func testStatusCapRetainsLiveAgentBackedStatusOverNewerKeys() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         // Oldest possible timestamp, but backed by a live agent PID.
         workspace.statusEntries["claude_code"] = SidebarStatusEntry(
@@ -318,7 +315,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // decision (#5845).
     func testStatusCapRetainsLifecycleBackedStatusWithoutPID() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
         let panelId = UUID()
 
         // Oldest timestamp, no PID, but lifecycle-backed (needs input).
@@ -350,7 +347,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // because remote-connection handling reads them back (#5845).
     func testStatusCapNeverEvictsReservedCmuxOwnedKeys() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
         // Literal values of the cmux-owned reserved status keys.
         let reservedKeys = ["remote.error", "remote.port_conflicts"]
 
@@ -387,7 +384,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // trim, reintroducing the memory/CPU growth class (#5845).
     func testStatusCapClearsLifecycleStateForEvictedKeys() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
         let panelId = UUID()
 
         // Mirror FeedCoordinator: lifecycle recorded before the status entry.
@@ -420,7 +417,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // status self-evicts, and its PID must not be recreated as an orphan (#5845).
     func testDetachedAdoptionSkipsPIDWhenAdoptedStatusEvicted() {
         let workspace = Workspace()
-        let cap = 200
+        let cap = Workspace.maxSidebarStatusEntries
 
         for index in 0..<cap {
             let key = "live_\(index)"

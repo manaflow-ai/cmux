@@ -1,13 +1,14 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { navItems, flatNavItems } from "./docs-nav-items";
+import { navItemsForLocale, flatNavItems } from "./docs-nav-items";
 
 export function DocsPager() {
   const pathname = usePathname();
+  const locale = useLocale();
   const t = useTranslations("docs.navItems");
-  const flat = flatNavItems(navItems);
+  const flat = flatNavItems(navItemsForLocale(locale));
   const index = flat.findIndex((item) => item.href === pathname);
   const prev = index > 0 ? flat[index - 1] : null;
   const next = index < flat.length - 1 ? flat[index + 1] : null;
