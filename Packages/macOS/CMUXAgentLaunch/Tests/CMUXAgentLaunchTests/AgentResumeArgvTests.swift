@@ -84,6 +84,28 @@ struct AgentResumeArgvTests {
                 ]
             ) == .resolved(["cmux", "omo", "--session", "SID", "--model", "anthropic/claude-sonnet-4-6"])
         )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "opencode",
+                    "--agent",
+                    "tui-settings",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == [
+                "opencode",
+                "--session",
+                "SID",
+                "--agent",
+                "tui-settings",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+            ]
+        )
     }
 
     @Test("Captured executable path overrides the fallback executable")

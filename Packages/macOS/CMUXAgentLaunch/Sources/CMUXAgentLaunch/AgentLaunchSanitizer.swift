@@ -123,10 +123,9 @@ public enum AgentLaunchSanitizer {
         case "antigravity":
             return preserveOptions(args, policy: antigravityPolicy)
         case "opencode":
-            return preserveOptions(
-                args.filter { !isOpenCodeInternalArgument($0) },
-                policy: openCodePolicy
-            )
+            var tail = args
+            while let first = tail.first, isOpenCodeInternalArgument(first) { tail.removeFirst() }
+            return preserveOptions(tail, policy: openCodePolicy)
         case "rovodev":
             var tail = args
             if tail.first == "rovodev" {
