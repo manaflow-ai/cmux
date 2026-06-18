@@ -802,14 +802,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
-    /// Last daemon-authoritative effective grid (min across attached devices).
-    /// Kept for diagnostics and natural-grid reassertion. It constrains the iOS
-    /// render layer only while applying legacy raw-byte output, where the local
-    /// emulator must match the Mac PTY's producer grid.
+    /// Last daemon-authoritative effective grid. Diagnostic for render-grid
+    /// output; a temporary sizing constraint for legacy raw bytes.
     private var effectiveGrid: (cols: Int, rows: Int)?
-    /// True while the stream is applying legacy raw-byte output. Render-grid
-    /// output is viewport-shaped state and must keep filling the local
-    /// container; raw bytes must preserve the effective producer grid.
+    /// True while legacy raw bytes need the local emulator to match the
+    /// producer grid instead of the full local container.
     private var rawByteProducerGridPinningEnabled = false
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used for cursor, hit testing, and
@@ -2174,13 +2171,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Process terminal output after selecting the geometry policy required by
-    /// that output transport.
-    ///
-    /// - Parameter data: VT or PTY bytes to feed into the surface.
-    /// - Parameter preservesProducerGrid: `true` for legacy raw-byte fallback
-    ///   output that must match the Mac PTY grid; `false` for render-grid output
-    ///   that should fill the local iOS container.
+    /// Process terminal output using the geometry policy required by its
+    /// transport.
     public func processOutputAndWait(_ data: Data, preservesProducerGrid: Bool) async {
         setProducerGridPinningEnabled(preservesProducerGrid)
         await processOutputAndWait(data)
@@ -2884,10 +2876,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Re-arm the debounced viewport report after a round-trip returned no
-    /// effective grid. Bounded and display-link driven (the existing settle
-    /// machinery re-fires it); a confirmed `applyViewSize` resets the counter.
-    /// No-op once the cap is hit.
+    /// Re-arm a dropped viewport-report round trip. Bounded and display-link
+    /// driven; a confirmed `applyViewSize` resets the counter.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
@@ -2907,17 +2897,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        // Render-grid output treats the effective grid as remote diagnostics
-        // only; resizing to it is what created the keyboard-toolbar dead band.
-        // Raw-byte fallback still needs the local emulator grid to match the
-        // producer, so only that compatibility mode applies the pin.
+        // Only raw-byte fallback resizes to the producer grid. Render-grid
+        // output uses the effective grid for diagnostics/convergence only.
         if rawByteProducerGridPinningEnabled {
             setNeedsGeometrySync(reassertNaturalSize: false)
         }
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
     nonisolated private static func fitSurfaceToGrid(
         _ surface: ghostty_surface_t,
         cols: Int,
@@ -2935,10 +2921,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ghostty_surface_set_size(surface, requestedW, requestedH)
         var actual = ghostty_surface_size(surface)
 
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the raw-byte fallback on the exact daemon grid instead of
-        // occasionally rendering one column short.
+        // Confirm the reverse pixel mapping against Ghostty; padding/flooring
+        // can otherwise leave the raw-byte fallback one column short.
         var steps = 0
         while steps < 8,
               Int(actual.columns) < cols || Int(actual.rows) < rows {
@@ -2956,12 +2940,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (requestedW, requestedH, actual)
     }
 
-    /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
-        /// Pinned render size in points for raw-byte compatibility; nil means
-        /// fill the local container.
         let pinnedSize: CGSize?
     }
 
@@ -3084,16 +3065,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }
-        // Size the render layer to the EXACT pixel size libghostty rendered
-        // (grid-aligned: cols×cellW × rows×cellH), not the raw container. The
-        // present path discards any surface whose size != layer.bounds×scale,
-        // and ghostty floors the grid to whole cells, so a container-sized
-        // layer is up to ~one cell larger than the surface and EVERY frame is
-        // discarded (blank terminal). Using the measured full-container surface
-        // size makes them match so frames present. Raw-byte compatibility pins
-        // are already derived from the fitted surface px. Left-align +
-        // top-anchor either way; render-grid output only leaves the small
-        // sub-cell remainder below the last row for the toolbar to absorb.
+        // Size the render layer to libghostty's exact grid-aligned pixel size,
+        // not the raw container. The present path discards mismatched surface /
+        // layer sizes; raw-byte pins are already derived from fitted pixels.
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
@@ -3176,9 +3150,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.commit()
     }
 
-    /// Add / update a 1-pixel separator border around the raw-byte
-    /// compatibility pinned surface rect. Render-grid output keeps the border
-    /// hidden because that path fills the local container.
+    /// Draw the 1-pixel separator for raw-byte compatibility pinning only.
     private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool) {
         guard isLetterboxed else {
             letterboxBorderLayer?.isHidden = true
@@ -3209,9 +3181,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         border.isHidden = false
         border.strokeColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
         border.contentsScale = layer.contentsScale
-        if border.frame != layer.bounds {
-            border.frame = layer.bounds
-        }
+        if border.frame != layer.bounds { border.frame = layer.bounds }
 
         let scale = max(border.contentsScale, 1)
         let lineWidth = border.lineWidth
@@ -3224,9 +3194,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pathInset = max(lineWidth / 2, 0.5 / scale)
         let outline = alignedRect.insetBy(dx: pathInset, dy: pathInset)
         let path = UIBezierPath(rect: outline).cgPath
-        if border.path != path {
-            border.path = path
-        }
+        if border.path != path { border.path = path }
     }
 
     private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
