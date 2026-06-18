@@ -15,21 +15,19 @@ extension TerminalInputTextView {
 
     /// Apply the user's autocomplete preference to the keyboard input traits.
     ///
-    /// The terminal input proxy forwards normal `insertText` bytes directly to
-    /// the shell. Replacement-based traits such as autocorrection, smart
-    /// punctuation, and spell-checking can rewrite text after those bytes have
-    /// already been sent, so they stay off even when autocomplete is enabled.
-    /// `inlinePredictionType` is safe to toggle because accepting an inline
-    /// prediction appends text through the normal input path. Autocapitalization
-    /// is left untouched here — it stays off unconditionally (set once in
-    /// `init`). Called from `init` and on every
+    /// When disabled, the terminal input proxy keeps all correction traits off
+    /// so commands cannot be rewritten. When enabled, those traits return to the
+    /// system default so UIKit respects the user's global keyboard settings.
+    /// Autocapitalization is left untouched here — it stays off unconditionally
+    /// (set once in `init`). Called from `init` and on every
     /// ``TerminalKeyboardConfiguration/didChangeNotification``.
     func applyKeyboardTraits() {
-        autocorrectionType = .no
-        smartQuotesType = .no
-        smartDashesType = .no
-        smartInsertDeleteType = .no
-        spellCheckingType = .no
+        let enabled = keyboardConfiguration.autocompleteEnabled
+        autocorrectionType = enabled ? .default : .no
+        smartQuotesType = enabled ? .default : .no
+        smartDashesType = enabled ? .default : .no
+        smartInsertDeleteType = enabled ? .default : .no
+        spellCheckingType = enabled ? .default : .no
         inlinePredictionType = keyboardConfiguration.inlinePredictionType
     }
 

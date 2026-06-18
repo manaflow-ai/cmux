@@ -2098,13 +2098,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, the keyboard can show inline autocomplete suggestions in the terminal. Autocorrection and smart punctuation stay off so commands are never rewritten."
+            "value": "When on, the keyboard uses system autocomplete, autocorrection, spell-checking, and smart punctuation in the terminal. Autocapitalization stays off for shell commands."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンにすると、ターミナルでキーボードのインライン自動補完候補を表示できます。コマンドが書き換えられないよう、自動修正とスマート句読点はオフのままです。"
+            "value": "オンにすると、ターミナルでシステムの自動補完、自動修正、スペルチェック、スマート句読点を使用します。シェルコマンドのため、自動大文字入力はオフのままです。"
           }
         }
       }

@@ -1,14 +1,15 @@
-import CmuxMobileTerminal
 import Foundation
 import Testing
 import UIKit
 
+@testable import CmuxMobileTerminal
+
 /// Behavioral tests for ``TerminalKeyboardConfiguration``: the source of truth
-/// for whether the mobile terminal keyboard's inline autocomplete suggestions
+/// for whether the mobile terminal keyboard's autocomplete and correction traits
 /// are enabled (issue #6083). These verify the terminal-hardened default (off,
-/// with no write), the persistence round-trip in both directions, and the
-/// change-notification contract that drives the live input view's trait
-/// re-application.
+/// with no write), the persistence round-trip in both directions, the UIKit trait
+/// application, and the change-notification contract that drives the live input
+/// view's trait re-application.
 ///
 /// Each test injects a private `UserDefaults` suite so it never touches the live
 /// app-root settings.
@@ -64,10 +65,44 @@ struct TerminalKeyboardConfigurationTests {
         #expect(TerminalKeyboardConfiguration(defaults: defaults).autocompleteEnabled == true)
     }
 
-    @Test("autocomplete maps to explicit inline prediction traits")
-    func autocompleteMapsToExplicitInlinePredictionTraits() {
-        #expect(TerminalKeyboardConfiguration.inlinePredictionType(autocompleteEnabled: true) == .yes)
+    @Test("autocomplete maps to system-default inline prediction traits when enabled")
+    func autocompleteMapsToSystemDefaultInlinePredictionTraitsWhenEnabled() {
+        #expect(TerminalKeyboardConfiguration.inlinePredictionType(autocompleteEnabled: true) == .default)
         #expect(TerminalKeyboardConfiguration.inlinePredictionType(autocompleteEnabled: false) == .no)
+    }
+
+    @Test("autocomplete preference applies every configurable UIKit keyboard trait")
+    func autocompletePreferenceAppliesConfigurableKeyboardTraits() {
+        let config = TerminalKeyboardConfiguration(defaults: freshDefaults())
+        let view = TerminalInputTextView(keyboardConfiguration: config)
+
+        #expect(view.autocorrectionType == .no)
+        #expect(view.smartQuotesType == .no)
+        #expect(view.smartDashesType == .no)
+        #expect(view.smartInsertDeleteType == .no)
+        #expect(view.spellCheckingType == .no)
+        #expect(view.inlinePredictionType == .no)
+        #expect(view.autocapitalizationType == .none)
+
+        config.autocompleteEnabled = true
+
+        #expect(view.autocorrectionType == .default)
+        #expect(view.smartQuotesType == .default)
+        #expect(view.smartDashesType == .default)
+        #expect(view.smartInsertDeleteType == .default)
+        #expect(view.spellCheckingType == .default)
+        #expect(view.inlinePredictionType == .default)
+        #expect(view.autocapitalizationType == .none)
+
+        config.autocompleteEnabled = false
+
+        #expect(view.autocorrectionType == .no)
+        #expect(view.smartQuotesType == .no)
+        #expect(view.smartDashesType == .no)
+        #expect(view.smartInsertDeleteType == .no)
+        #expect(view.spellCheckingType == .no)
+        #expect(view.inlinePredictionType == .no)
+        #expect(view.autocapitalizationType == .none)
     }
 
     @Test("a real change posts exactly one notification; a no-op set posts none")

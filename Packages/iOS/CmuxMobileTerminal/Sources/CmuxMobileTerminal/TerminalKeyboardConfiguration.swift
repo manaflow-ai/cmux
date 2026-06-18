@@ -4,17 +4,16 @@ import Observation
 import UIKit
 #endif
 
-/// User preference for whether the system keyboard's inline autocomplete
-/// predictions are enabled in the mobile terminal input field.
+/// User preference for whether the system keyboard's autocomplete and
+/// correction traits are enabled in the mobile terminal input field.
 ///
-/// Terminals keep replacement-based traits off because they can rewrite shell
-/// commands after bytes have already been sent. The stored value defaults to
-/// `false`; when the user turns it on, ``TerminalInputTextView`` enables
-/// `inlinePredictionType` so the keyboard can show append-style autocomplete
-/// suggestions without enabling autocorrection, smart punctuation, or spell
-/// checking replacements. Autocapitalization is intentionally *not* part of this
-/// toggle and stays off regardless: capitalizing the first word of a command is
-/// never wanted.
+/// The stored value defaults to `false`, preserving terminal-hardened input
+/// where UIKit cannot rewrite shell commands. When the user turns it on,
+/// ``TerminalInputTextView`` restores autocomplete, autocorrection, smart
+/// punctuation, smart insert/delete, and spell-checking traits to their system
+/// defaults. Autocapitalization is intentionally *not* part of this toggle and
+/// stays off regardless: capitalizing the first word of a command is never
+/// wanted.
 ///
 /// Mirrors ``TerminalAccessoryConfiguration``'s persistence contract without
 /// exposing global runtime state: the app composition root owns one instance and
@@ -44,8 +43,8 @@ public final class TerminalKeyboardConfiguration {
     /// the dependency itself never changes — only ``autocompleteEnabled`` does.
     @ObservationIgnored private let defaults: UserDefaults
 
-    /// Whether the system keyboard's inline autocomplete predictions are enabled
-    /// in the terminal input field.
+    /// Whether the system keyboard's autocomplete and correction traits are
+    /// enabled in the terminal input field.
     ///
     /// Defaults to `false` (terminal-hardened: inline predictions off). Mutating
     /// it writes through to the injected ``UserDefaults`` and posts
@@ -61,20 +60,19 @@ public final class TerminalKeyboardConfiguration {
     #if canImport(UIKit)
     /// The UIKit inline-prediction trait represented by the current preference.
     ///
-    /// `true` maps to `.yes`, not `.default`, because the setting is an explicit
-    /// opt-in to inline suggestions while replacement-based traits stay forced
-    /// off.
+    /// `true` maps to `.default`, not `.yes`, so the app-level setting respects
+    /// the user's global keyboard settings once terminal hardening is disabled.
     public var inlinePredictionType: UITextInlinePredictionType {
         Self.inlinePredictionType(autocompleteEnabled: autocompleteEnabled)
     }
 
     /// Returns the UIKit inline-prediction trait for a stored preference value.
     ///
-    /// - Parameter autocompleteEnabled: Whether the user enabled terminal inline
-    ///   autocomplete suggestions.
-    /// - Returns: `.yes` when enabled and `.no` when disabled.
+    /// - Parameter autocompleteEnabled: Whether the user enabled terminal
+    ///   autocomplete and correction traits.
+    /// - Returns: `.default` when enabled and `.no` when disabled.
     public static func inlinePredictionType(autocompleteEnabled: Bool) -> UITextInlinePredictionType {
-        autocompleteEnabled ? .yes : .no
+        autocompleteEnabled ? .default : .no
     }
     #endif
 

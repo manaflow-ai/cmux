@@ -150,7 +150,7 @@ struct MobileSettingsView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.settings.autocompleteFooter",
-                        defaultValue: "When on, the keyboard can show inline autocomplete suggestions in the terminal. Autocorrection and smart punctuation stay off so commands are never rewritten."
+                        defaultValue: "When on, the keyboard uses system autocomplete, autocorrection, spell-checking, and smart punctuation in the terminal. Autocapitalization stays off for shell commands."
                     ))
                 }
 
@@ -305,9 +305,9 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// Binding to whether the terminal keyboard's inline autocomplete suggestions
-    /// are enabled. Reading the value in `body` (via the binding's getter)
-    /// registers `@Observable` tracking so the toggle reflects changes.
+    /// Binding to whether the terminal keyboard's autocomplete and correction
+    /// traits are enabled. Reading the value in `body` (via the binding's
+    /// getter) registers `@Observable` tracking so the toggle reflects changes.
     private var autocompleteBinding: Binding<Bool> {
         Binding(
             get: { keyboardConfiguration.autocompleteEnabled },
