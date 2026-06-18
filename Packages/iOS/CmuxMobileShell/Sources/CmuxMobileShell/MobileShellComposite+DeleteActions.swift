@@ -29,6 +29,7 @@ extension MobileShellComposite {
         let previousTerminalID = selectedTerminalID
         let neighborID = neighboringWorkspaceID(afterDeleting: id)
         let usesRemoteClient = remoteClient != nil
+        guard !usesRemoteClient || supportsWorkspaceDeleteActions else { return }
         deleteLocalWorkspace(id: id, neighborID: neighborID)
 
         guard usesRemoteClient else { return }
@@ -69,6 +70,7 @@ extension MobileShellComposite {
         }
         let removesLastKnownTerminal = workspace.terminals.count <= 1
         let usesRemoteClient = remoteClient != nil
+        guard !usesRemoteClient || supportsDeleteActions else { return }
         guard usesRemoteClient || !removesLastKnownTerminal || workspaces.count > 1 else {
             return
         }

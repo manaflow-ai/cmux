@@ -26,7 +26,7 @@ struct WorkspaceDetailContainer: View {
     /// serialized delete path as the workspace list so selection moves to a
     /// neighbor before the remote close reconciles.
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions || store.supportsDeleteActions else { return nil }
+        guard store.supportsWorkspaceDeleteActions else { return nil }
         let store = store
         return { id in store.deleteWorkspace(id: id) }
     }

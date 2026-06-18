@@ -264,7 +264,32 @@ import Testing
     #expect(oldMacStore.supportsWorkspaceActions)
     #expect(oldMacStore.supportsWorkspaceReadStateActions == false)
     #expect(oldMacStore.supportsWorkspaceCloseActions == false)
+    #expect(oldMacStore.supportsWorkspaceDeleteActions == false)
     #expect(oldMacStore.supportsDeleteActions == false)
+
+    let currentMacWithoutAttachTokenClock = TestClock()
+    let currentMacWithoutAttachTokenRouter = LivenessHostRouter()
+    let currentMacWithoutAttachTokenBox = TransportBox()
+    await currentMacWithoutAttachTokenRouter.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "workspace.close.v1",
+        "mobile.delete.v1",
+    ])
+    let currentMacWithoutAttachTokenStore = try await makeConnectedStore(
+        router: currentMacWithoutAttachTokenRouter,
+        box: currentMacWithoutAttachTokenBox,
+        clock: currentMacWithoutAttachTokenClock,
+        authToken: nil
+    )
+    let currentMacWithoutAttachTokenResolved = try await pollUntil {
+        await currentMacWithoutAttachTokenRouter.count(of: "mobile.host.status") >= 1
+    }
+    #expect(currentMacWithoutAttachTokenResolved)
+    #expect(currentMacWithoutAttachTokenStore.supportsWorkspaceCloseActions)
+    #expect(currentMacWithoutAttachTokenStore.supportsWorkspaceDeleteActions == false)
+    #expect(currentMacWithoutAttachTokenStore.supportsDeleteActions == false)
 
     let currentMacClock = TestClock()
     let currentMacRouter = LivenessHostRouter()
@@ -284,6 +309,7 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceActions)
     #expect(currentMacStore.supportsWorkspaceReadStateActions)
     #expect(currentMacStore.supportsWorkspaceCloseActions)
+    #expect(currentMacStore.supportsWorkspaceDeleteActions)
     #expect(currentMacStore.supportsDeleteActions)
 }
 
@@ -338,6 +364,7 @@ import Testing
     let originalTerminals = store.selectedWorkspace?.terminals.map(\.id.rawValue)
 
     #expect(store.supportsDeleteActions == false)
+    #expect(store.supportsWorkspaceDeleteActions == false)
 
     store.deleteWorkspace(id: "live-workspace")
     store.deleteTerminal(id: "live-terminal", in: "live-workspace")
