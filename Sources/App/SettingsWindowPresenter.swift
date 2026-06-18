@@ -12,7 +12,7 @@ struct SettingsWindowPresenter {
     private final class State: NSObject {
         var openWindow: (@MainActor () -> Void)?
         var parentWindowProvider: (@MainActor () -> NSWindow?)?
-        var settingsWindow: NSWindow?
+        weak var settingsWindow: NSWindow?
         var pendingNavigationTarget: SettingsNavigationTarget?
         var pendingContentNavigationTarget: SettingsNavigationTarget?
         var shouldOpenWhenConfigured = false
