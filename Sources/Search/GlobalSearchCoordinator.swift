@@ -54,10 +54,10 @@ final class GlobalSearchCoordinator {
         popover.isShown
     }
 
-    func search(query: String) async -> [SearchIndexHit] {
+    func search(query: String, limit: Int = 20) async -> [SearchIndexHit] {
         guard let index = await ensureIndex() else { return [] }
         do {
-            return try await index.search(query, limit: 20)
+            return try await index.search(query, limit: limit)
         } catch {
 #if DEBUG
             cmuxDebugLog("globalSearch.search failed error=\(error.localizedDescription)")
@@ -76,6 +76,10 @@ final class GlobalSearchCoordinator {
 
     func activate(_ hit: SearchIndexHit, query: String) {
         popover.dismiss()
+        AppDelegate.shared?.openGlobalSearchHit(hit, query: query)
+    }
+
+    func preview(_ hit: SearchIndexHit, query: String) {
         AppDelegate.shared?.openGlobalSearchHit(hit, query: query)
     }
 
