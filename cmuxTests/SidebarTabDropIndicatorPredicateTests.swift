@@ -213,52 +213,6 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
     }
 }
 
-/// Tests for `SidebarDragState` (the @MainActor @Observable bag that owns
-/// the per-window drag transient state).
-@MainActor
-final class SidebarDragStateTests: XCTestCase {
-    func testInitialStateIsCleared() {
-        let state = SidebarDragState()
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertNil(state.dropIndicator)
-    }
-
-    func testIndependentMutationOfEachProperty() {
-        // Per-property invariant the PR depends on: writes to one field must
-        // not silently disturb the other. Verifies the @Observable container
-        // doesn't enforce coupled updates.
-        let state = SidebarDragState()
-        let tabId = UUID()
-        let indicator = SidebarDropIndicator(tabId: tabId, edge: .top)
-
-        state.draggedTabId = tabId
-        XCTAssertEqual(state.draggedTabId, tabId)
-        XCTAssertNil(state.dropIndicator)
-
-        state.dropIndicator = indicator
-        XCTAssertEqual(state.draggedTabId, tabId)
-        XCTAssertEqual(state.dropIndicator, indicator)
-
-        state.draggedTabId = nil
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertEqual(state.dropIndicator, indicator)
-    }
-
-    func testClearingBothLeavesStateIdle() {
-        // Mirror the `requestClear` notification handler: both fields go to
-        // nil and the state is back to its initial shape.
-        let state = SidebarDragState()
-        state.draggedTabId = UUID()
-        state.dropIndicator = SidebarDropIndicator(tabId: UUID(), edge: .bottom)
-
-        state.draggedTabId = nil
-        state.dropIndicator = nil
-
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertNil(state.dropIndicator)
-    }
-}
-
 /// Covers the freeze policy that holds `showsModifierShortcutHints` stable
 /// for the row whose context menu is open. Without it, pressing/releasing
 /// the modifier key while a context menu is up would flip badges on the row

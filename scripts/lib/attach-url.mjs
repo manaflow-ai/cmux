@@ -6,7 +6,7 @@
 // `<scheme>://attach?v=<n>&payload=<b64>` URL the phone consumes.
 //
 // The scheme is channel-specific, mirroring `CmxPairingURLScheme` in
-// `Packages/CMUXMobileCore`: development builds register and emit
+// `Packages/Shared/CMUXMobileCore`: development builds register and emit
 // `cmux-ios-dev`, Release (TestFlight beta + App Store) emit `cmux-ios`. Both
 // callers here are dev-only (the debug-CLI QR renderer and the headless
 // dev-setup auto-pair mint), so the default is the dev scheme: a QR rendered by

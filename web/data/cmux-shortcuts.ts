@@ -1,7 +1,9 @@
+import type { Locale } from "../i18n/routing";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-};
+} & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
 
 export type Shortcut = {
   id: string;
@@ -142,6 +144,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
@@ -204,6 +207,54 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "R"]],
         description: { en: "Reload page", ja: "ページを再読み込み" },
         note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
+      },
+      {
+        id: "browserHardReload",
+        combos: [["⌘", "⇧", "R"]],
+        description: {
+          ar: "تحديث الصفحة قسريًا",
+          bs: "Prisilno osvježi stranicu",
+          da: "Hård genindlæsning af side",
+          de: "Seite hart neu laden",
+          en: "Hard refresh page",
+          es: "Recarga completa de la página",
+          fr: "Actualisation forcée de la page",
+          it: "Aggiorna forzatamente la pagina",
+          ja: "ページを強制再読み込み",
+          km: "ផ្ទុកទំព័រឡើងវិញដោយបង្ខំ",
+          ko: "페이지 강력 새로고침",
+          no: "Tvungen oppdatering av siden",
+          pl: "Twarde odświeżenie strony",
+          "pt-BR": "Atualização forçada da página",
+          ru: "Жёсткое обновление страницы",
+          th: "รีเฟรชหน้าแบบบังคับ",
+          tr: "Sayfayı zorla yenile",
+          uk: "Примусове оновлення сторінки",
+          "zh-CN": "强制刷新页面",
+          "zh-TW": "強制重新整理頁面",
+        },
+        note: {
+          ar: "المتصفح المركّز",
+          bs: "fokusirani preglednik",
+          da: "fokuseret browser",
+          de: "fokussierter Browser",
+          en: "focused browser",
+          es: "navegador enfocado",
+          fr: "navigateur ciblé",
+          it: "browser attivo",
+          ja: "フォーカス中のブラウザ",
+          km: "កម្មវិធីរុករកដែលកំពុងផ្តោត",
+          ko: "포커스된 브라우저",
+          no: "fokusert nettleser",
+          pl: "aktywna przeglądarka",
+          "pt-BR": "navegador em foco",
+          ru: "браузер в фокусе",
+          th: "เบราว์เซอร์ที่โฟกัสอยู่",
+          tr: "odaklanan tarayıcı",
+          uk: "браузер у фокусі",
+          "zh-CN": "聚焦的浏览器",
+          "zh-TW": "聚焦的瀏覽器",
+        },
       },
       { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
