@@ -13,6 +13,11 @@ final class TaskManagerWindowController: ReleasingWindowController {
         super.init()
     }
 
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 940, height: 600),
