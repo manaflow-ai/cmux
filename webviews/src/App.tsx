@@ -924,34 +924,36 @@ function ReviewTabs({
     .map((id) => itemById.get(id))
     .filter((item): item is DiffItem => item != null);
   return (
-    <div id="review-tabs" role="tablist" aria-label={label("diffViewer")}>
-      <button
-        type="button"
-        className="review-tab"
-        role="tab"
-        aria-selected={isOverviewReviewTab(activeTab)}
-        onClick={() => dispatch({ type: "set-active-review-tab", tab: overviewReviewTabId })}
-      >
-        <Icon name="documentPlus" />
-        <span>{label("reviewTab")}</span>
-      </button>
-      {openItems.map((item) => {
-        const name = fileName(item.fileDiff, label("untitled"));
-        return (
-          <button
-            key={item.id}
-            type="button"
-            className="review-tab review-tab-file"
-            role="tab"
-            aria-selected={activeTab === item.id}
-            title={name}
-            onClick={() => dispatch({ type: "set-active-review-tab", tab: item.id })}
-          >
-            <Icon name="code" />
-            <span>{name}</span>
-          </button>
-        );
-      })}
+    <div id="review-tabs">
+      <div className="review-tab-list" role="tablist" aria-label={label("diffViewer")}>
+        <button
+          type="button"
+          className="review-tab"
+          role="tab"
+          aria-selected={isOverviewReviewTab(activeTab)}
+          onClick={() => dispatch({ type: "set-active-review-tab", tab: overviewReviewTabId })}
+        >
+          <Icon name="documentPlus" />
+          <span>{label("reviewTab")}</span>
+        </button>
+        {openItems.map((item) => {
+          const name = fileName(item.fileDiff, label("untitled"));
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className="review-tab review-tab-file"
+              role="tab"
+              aria-selected={activeTab === item.id}
+              title={name}
+              onClick={() => dispatch({ type: "set-active-review-tab", tab: item.id })}
+            >
+              <Icon name="code" />
+              <span>{name}</span>
+            </button>
+          );
+        })}
+      </div>
       <button
         type="button"
         id="review-tab-add"

@@ -148,6 +148,14 @@ body {
   border-bottom: 1px solid var(--cmux-diff-hairline);
   overflow: hidden;
 }
+.review-tab-list {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
 .review-tab,
 .review-tab-icon {
   height: 28px;
