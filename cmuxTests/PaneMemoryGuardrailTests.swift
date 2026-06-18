@@ -30,7 +30,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             descriptor: descriptor,
             memoryBytes: bytes,
             residentBytes: bytes,
-            foregroundProcessGroupIDs: pgids,
+            memoryPressureProcessGroupIDs: pgids,
             foregroundCommand: command
         )
     }
@@ -112,7 +112,30 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             thresholdBytes: threshold
         )
         XCTAssertNotNil(output.bannerToPresent)
+        XCTAssertEqual(output.bannersToPresent.count, 2)
         XCTAssertEqual(output.warnedWorkspaceIds, [wsA, wsB])
+    }
+
+    func testEverySimultaneousCrossingIsDeliveredOnce() {
+        var engine = PaneMemoryGuardrailEngine()
+        let wsA = UUID(), paneA = UUID(), wsB = UUID(), paneB = UUID()
+        let first = engine.ingest(
+            samples: [
+                sample(workspace: wsA, pane: paneA, memoryGB: 9),
+                sample(workspace: wsB, pane: paneB, memoryGB: 10)
+            ],
+            thresholdBytes: threshold
+        )
+        XCTAssertEqual(Set(first.bannersToPresent.map(\.panelId)), [paneA, paneB])
+
+        let second = engine.ingest(
+            samples: [
+                sample(workspace: wsA, pane: paneA, memoryGB: 9),
+                sample(workspace: wsB, pane: paneB, memoryGB: 10)
+            ],
+            thresholdBytes: threshold
+        )
+        XCTAssertTrue(second.bannersToPresent.isEmpty)
     }
 
     // MARK: - tty-based attribution summation (the guardrail's core measurement)
@@ -151,9 +174,13 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         let summary = snapshot.summary(for: panePIDs)
         XCTAssertEqual(summary.memoryBytes, 9_005_000_000, "tree memory excludes the other tty")
 
-        // The kill target is the pane's foreground process group (200), where
-        // pgid == terminal pgid. The shell (pgid 100 != tpgid 200) is excluded.
-        let pgids = snapshot.foregroundProcessGroupIDs(for: panePIDs)
+        // The kill target is the high-memory process group (200), not the small
+        // shell group (100) that only shares the tty.
+        let pgids = PaneMemoryGuardrail.memoryPressureProcessGroupIDs(
+            in: snapshot,
+            pids: panePIDs,
+            clearBytes: Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        )
         XCTAssertEqual(pgids, [200])
     }
 }

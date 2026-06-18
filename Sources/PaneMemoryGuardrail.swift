@@ -33,8 +33,8 @@ struct PaneMemorySample: Sendable {
     let memoryBytes: Int64
     /// Resident bytes summed across the same process set (informational).
     let residentBytes: Int64
-    /// Foreground process-group ids under the pane's tty, used as the kill target.
-    let foregroundProcessGroupIDs: [Int]
+    /// Process-group ids that contribute enough memory to clear this pane's warning.
+    let memoryPressureProcessGroupIDs: [Int]
     let foregroundCommand: String?
 
     var key: PaneMemoryPaneKey { descriptor.key }
@@ -61,6 +61,7 @@ struct PaneMemoryWarning: Equatable, Identifiable, Sendable {
     let foregroundCommand: String?
 
     var id: UUID { panelId }
+    var key: PaneMemoryPaneKey { PaneMemoryPaneKey(workspaceId: workspaceId, panelId: panelId) }
 }
 
 // MARK: - Pure edge-trigger engine (unit-tested in isolation)
@@ -80,13 +81,17 @@ struct PaneMemoryGuardrailEngine {
     var warnedWorkspaceIds: Set<UUID> { Set(warnedPanes.map(\.workspaceId)) }
 
     struct Output: Equatable {
-        /// A pane that crossed the threshold this tick and whose banner has not
-        /// been dismissed — present it once (edge-trigger).
-        var bannerToPresent: PaneMemoryWarning?
+        /// Panes that crossed the threshold this tick and whose banners have not
+        /// been dismissed — present each once (edge-trigger).
+        var bannersToPresent: [PaneMemoryWarning]
         /// Workspaces that currently own at least one warned pane (badge set).
         var warnedWorkspaceIds: Set<UUID>
+        /// Panes currently in warned state.
+        var warnedPaneKeys: Set<PaneMemoryPaneKey>
         /// Panes that dropped below the clear level this tick.
         var clearedPanes: Set<PaneMemoryPaneKey>
+
+        var bannerToPresent: PaneMemoryWarning? { bannersToPresent.first }
     }
 
     mutating func ingest(samples: [PaneMemorySample], thresholdBytes: Int64) -> Output {
@@ -96,7 +101,7 @@ struct PaneMemoryGuardrailEngine {
         warnedPanes.formIntersection(liveKeys)
         dismissedPanes.formIntersection(liveKeys)
 
-        var bannerToPresent: PaneMemoryWarning?
+        var bannersToPresent: [PaneMemoryWarning] = []
         var clearedPanes: Set<PaneMemoryPaneKey> = []
 
         for sample in samples {
@@ -104,9 +109,7 @@ struct PaneMemoryGuardrailEngine {
             if sample.memoryBytes >= thresholdBytes {
                 if warnedPanes.insert(key).inserted, !dismissedPanes.contains(key) {
                     // First crossing (or first since it cleared) — fire once.
-                    if bannerToPresent == nil {
-                        bannerToPresent = sample.warning
-                    }
+                    bannersToPresent.append(sample.warning)
                 }
             } else if sample.memoryBytes < clearBytes {
                 warnedPanes.remove(key)
@@ -117,8 +120,9 @@ struct PaneMemoryGuardrailEngine {
         }
 
         return Output(
-            bannerToPresent: bannerToPresent,
+            bannersToPresent: bannersToPresent,
             warnedWorkspaceIds: warnedWorkspaceIds,
+            warnedPaneKeys: warnedPanes,
             clearedPanes: clearedPanes
         )
     }
@@ -145,10 +149,10 @@ struct PaneMemoryGuardrailEngine {
 // MARK: - Process-group killer
 
 enum PaneMemoryProcessKiller {
-    /// SIGTERM the pane's foreground process group(s) now, then SIGKILL after a
+    /// SIGTERM the pane's high-memory process group(s) now, then SIGKILL after a
     /// short grace. Negative pid targets the whole process group, so the runaway
-    /// job and its descendants die while the pane's shell (a different group)
-    /// stays alive. ESRCH on an already-dead group is harmless.
+    /// job and its descendants die without signaling unrelated groups in the
+    /// same pane. ESRCH on an already-dead group is harmless.
     static func terminate(processGroupIDs: [Int], graceSeconds: TimeInterval = 3) -> Task<Void, Never>? {
         let pgids = processGroupIDs.filter { $0 > 1 }
         guard !pgids.isEmpty else { return nil }
@@ -198,7 +202,7 @@ final class PaneMemoryGuardrail {
     /// Pushes the set of workspaces that should show a warning badge.
     @ObservationIgnored
     var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
-    /// Fallback when a pane has no foreground process group to signal: close it.
+    /// Fallback when a pane has no high-memory process group to signal: close it.
     @ObservationIgnored
     var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
 
@@ -216,6 +220,8 @@ final class PaneMemoryGuardrail {
     private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastWarnedWorkspaceIds: Set<UUID> = []
+    @ObservationIgnored
+    private var pendingBanners: [PaneMemoryWarning] = []
     @ObservationIgnored
     private var pendingKillTasksByKey: [PaneMemoryPaneKey: (id: UUID, task: Task<Void, Never>)] = [:]
 
@@ -263,7 +269,7 @@ final class PaneMemoryGuardrail {
         let thresholdBytes = thresholdBytes()
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeSamples(descriptors: descriptors)
+            Self.computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
         }
         scanApplyTask = Task { @MainActor [weak self] in
             let samples = await sampleTask.value
@@ -274,31 +280,75 @@ final class PaneMemoryGuardrail {
 
     /// Off-main: capture one process snapshot and attribute memory per pane by
     /// controlling-tty device (the snapshot already indexes pids by tty dev).
-    nonisolated static func computeSamples(descriptors: [PaneMemoryDescriptor]) -> [PaneMemorySample] {
+    nonisolated static func computeSamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64
+    ) -> [PaneMemorySample] {
         let snapshot = CmuxTopProcessSnapshot.capture()
+        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
             guard let ttyName = descriptor.ttyName else {
                 return PaneMemorySample(
                     descriptor: descriptor,
                     memoryBytes: 0,
                     residentBytes: 0,
-                    foregroundProcessGroupIDs: [],
+                    memoryPressureProcessGroupIDs: [],
                     foregroundCommand: nil
                 )
             }
             let pids = snapshot.pids(forTTYName: ttyName)
             let summary = snapshot.summary(for: pids)
-            let pgids = snapshot.foregroundProcessGroupIDs(for: pids).sorted()
+            let pgids = memoryPressureProcessGroupIDs(
+                in: snapshot,
+                pids: pids,
+                clearBytes: clearBytes
+            )
             let foregroundCommand = descriptor.foregroundPID
                 .flatMap { snapshot.process(pid: $0)?.name }
             return PaneMemorySample(
                 descriptor: descriptor,
                 memoryBytes: summary.memoryBytes,
                 residentBytes: summary.residentBytes,
-                foregroundProcessGroupIDs: pgids,
+                memoryPressureProcessGroupIDs: pgids,
                 foregroundCommand: foregroundCommand
             )
         }
+    }
+
+    nonisolated static func memoryPressureProcessGroupIDs(
+        in snapshot: CmuxTopProcessSnapshot,
+        pids: Set<Int>,
+        clearBytes: Int64
+    ) -> [Int] {
+        var totalBytes: Int64 = 0
+        var bytesByProcessGroup: [Int: Int64] = [:]
+        for pid in pids {
+            guard let process = snapshot.process(pid: pid) else { continue }
+            let memoryBytes = max(0, process.memoryBytes)
+            totalBytes = totalBytes.addingReportingOverflow(memoryBytes).overflow
+                ? Int64.max
+                : totalBytes + memoryBytes
+            guard let processGroupID = process.processGroupID, processGroupID > 1 else { continue }
+            let current = bytesByProcessGroup[processGroupID] ?? 0
+            bytesByProcessGroup[processGroupID] = current.addingReportingOverflow(memoryBytes).overflow
+                ? Int64.max
+                : current + memoryBytes
+        }
+
+        guard totalBytes > clearBytes else { return [] }
+        var selectedBytes: Int64 = 0
+        var selectedProcessGroups: [Int] = []
+        for (processGroupID, memoryBytes) in bytesByProcessGroup.sorted(by: {
+            if $0.value == $1.value { return $0.key < $1.key }
+            return $0.value > $1.value
+        }) where memoryBytes > 0 {
+            selectedProcessGroups.append(processGroupID)
+            selectedBytes = selectedBytes.addingReportingOverflow(memoryBytes).overflow
+                ? Int64.max
+                : selectedBytes + memoryBytes
+            if totalBytes - selectedBytes < clearBytes { break }
+        }
+        return selectedProcessGroups.sorted()
     }
 
     private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
@@ -316,9 +366,12 @@ final class PaneMemoryGuardrail {
         )
 #endif
 
+        enqueuePendingBanners(output.bannersToPresent)
+        pendingBanners.removeAll { !output.warnedPaneKeys.contains($0.key) }
+
         // Banner lifecycle.
         if let active = activeBanner {
-            let activeKey = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
+            let activeKey = active.key
             if output.clearedPanes.contains(activeKey) || lastSamplesByKey[activeKey] == nil {
                 activeBanner = nil
             } else if let refreshed = lastSamplesByKey[activeKey], refreshed.memoryBytes >= thresholdBytes {
@@ -329,9 +382,7 @@ final class PaneMemoryGuardrail {
                 }
             }
         }
-        if activeBanner == nil, let toPresent = output.bannerToPresent {
-            activeBanner = toPresent
-        }
+        presentNextPendingBannerIfNeeded()
 
         if output.warnedWorkspaceIds != lastWarnedWorkspaceIds {
             lastWarnedWorkspaceIds = output.warnedWorkspaceIds
@@ -343,15 +394,18 @@ final class PaneMemoryGuardrail {
 
     func dismissActiveBanner() {
         guard let active = activeBanner else { return }
-        engine.dismiss(PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId))
+        engine.dismiss(active.key)
+        pendingBanners.removeAll { $0.key == active.key }
         activeBanner = nil
+        presentNextPendingBannerIfNeeded()
     }
 
     func killActivePaneProcess() {
         guard let active = activeBanner else { return }
-        let key = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
+        let key = active.key
         let descriptor = paneProvider?().first { $0.key == key }
         engine.acknowledgeHandled(key)
+        pendingBanners.removeAll { $0.key == key }
         activeBanner = nil
         if engine.warnedWorkspaceIds != lastWarnedWorkspaceIds {
             lastWarnedWorkspaceIds = engine.warnedWorkspaceIds
@@ -359,13 +413,16 @@ final class PaneMemoryGuardrail {
         }
         guard let descriptor else {
             onRequestClosePane?(active.workspaceId, active.panelId)
+            presentNextPendingBannerIfNeeded()
             return
         }
+        let thresholdBytes = thresholdBytes()
         let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeSamples(descriptors: [descriptor]).first
+            Self.computeSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
         }
+        presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
-            let pgids = await sampleTask.value?.foregroundProcessGroupIDs ?? []
+            let pgids = await sampleTask.value?.memoryPressureProcessGroupIDs ?? []
             self?.finishKillActivePaneProcess(
                 key: key,
                 warning: active,
@@ -396,6 +453,28 @@ final class PaneMemoryGuardrail {
         }
     }
 
+    private func enqueuePendingBanners(_ warnings: [PaneMemoryWarning]) {
+        guard !warnings.isEmpty else { return }
+        let activeKey = activeBanner?.key
+        var queuedKeys = Set(pendingBanners.map(\.key))
+        for warning in warnings {
+            guard warning.key != activeKey, queuedKeys.insert(warning.key).inserted else {
+                continue
+            }
+            pendingBanners.append(warning)
+        }
+    }
+
+    private func presentNextPendingBannerIfNeeded() {
+        guard activeBanner == nil else { return }
+        while !pendingBanners.isEmpty {
+            let next = pendingBanners.removeFirst()
+            guard let refreshed = lastSamplesByKey[next.key] else { continue }
+            activeBanner = refreshed.warning
+            return
+        }
+    }
+
     // MARK: Clearing
 
     private func clearAll() {
@@ -404,6 +483,7 @@ final class PaneMemoryGuardrail {
         scanApplyTask?.cancel()
         scanApplyTask = nil
         if activeBanner != nil { activeBanner = nil }
+        pendingBanners.removeAll()
         lastSamplesByKey.removeAll()
         if !lastWarnedWorkspaceIds.isEmpty {
             lastWarnedWorkspaceIds = []
