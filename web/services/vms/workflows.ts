@@ -311,7 +311,12 @@ export function openAttachEndpoint(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* ensureUserVmRunning(
+      yield* requireUserVm(input.userId, input.providerVmId),
+      repo,
+      providers,
+      "attach",
+    );
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
     yield* storeEndpointLeases(vm, endpoint).pipe(
@@ -346,7 +351,12 @@ export function openSshEndpoint(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* ensureUserVmRunning(
+      yield* requireUserVm(input.userId, input.providerVmId),
+      repo,
+      providers,
+      "ssh",
+    );
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* providers.openSSH(vm.provider, input.providerVmId);
     yield* storeEndpointLeases(vm, endpoint).pipe(
@@ -367,6 +377,38 @@ export function openSshEndpoint(input: {
       metadata: { credentialKind: endpoint.credential.kind },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+function ensureUserVmRunning(
+  vm: CloudVmRow,
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  resumeSource: "attach" | "ssh",
+): Effect.Effect<CloudVmRow, VmWorkflowError, never> {
+  return Effect.gen(function* () {
+    if (vm.status !== "paused") return vm;
+    if (!vm.providerVmId) return vm;
+    const resume = providers.resume;
+    if (!resume) return vm;
+
+    yield* resume(vm.provider, vm.providerVmId);
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId: vm.providerVmId,
+      status: "running",
+    });
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.resumed",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { source: resumeSource },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return didUpdate ? { ...vm, status: "running" as const, updatedAt: new Date() } : vm;
   });
 }
 

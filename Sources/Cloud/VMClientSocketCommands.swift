@@ -131,6 +131,7 @@ extension TerminalController {
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
         [
+            "transport": endpoint.transport,
             "host": endpoint.host,
             "port": endpoint.port,
             "username": endpoint.username,

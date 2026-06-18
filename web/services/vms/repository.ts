@@ -224,7 +224,15 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 .from(cloudVms)
                 .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
                 .limit(1);
-              if (existing) return { inserted: false as const, vm: existing };
+              if (existing) {
+                if (existing.status !== "failed" && existing.status !== "destroyed") {
+                  return { inserted: false as const, vm: existing };
+                }
+                await tx
+                  .update(cloudVms)
+                  .set({ idempotencyKey: null, updatedAt: new Date() })
+                  .where(eq(cloudVms.id, existing.id));
+              }
             }
 
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`);
@@ -234,7 +242,15 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 .from(cloudVms)
                 .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
                 .limit(1);
-              if (existing) return { inserted: false as const, vm: existing };
+              if (existing) {
+                if (existing.status !== "failed" && existing.status !== "destroyed") {
+                  return { inserted: false as const, vm: existing };
+                }
+                await tx
+                  .update(cloudVms)
+                  .set({ idempotencyKey: null, updatedAt: new Date() })
+                  .where(eq(cloudVms.id, existing.id));
+              }
             }
 
             const [active] = await tx

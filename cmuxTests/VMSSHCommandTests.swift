@@ -25,10 +25,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
 
             switch method {
-            case "vm.attach_info":
+            case "vm.ssh_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -104,8 +103,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["vm.ssh_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
+
+        let createRequest = try XCTUnwrap(
+            requests.first { $0["method"] as? String == "workspace.create" },
+            "Expected workspace.create RPC request"
+        )
+        let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let initialScriptPath = initialCommand.trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+        let initialScript = try String(contentsOfFile: initialScriptPath, encoding: .utf8)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password() { rm -rf"), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_session_end() {"), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password;"), initialScript)
+        XCTAssertFalse(initialScript.contains("trap 'rm -rf \"$cmux_ssh_askpass_dir\"'"), initialScript)
+        try? FileManager.default.removeItem(atPath: initialScriptPath)
 
         let configureRequest = try XCTUnwrap(
             requests.first { $0["method"] as? String == "workspace.remote.configure" },
@@ -117,7 +130,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
         XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
         XCTAssertEqual(configureParams["skip_daemon_bootstrap"] as? Bool, true)
-        XCTAssertNotNil(configureParams["terminal_startup_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let decodedStartupCommand = decodedReusableShellStartupCommand(terminalStartupCommand)
+        XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+        XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
         XCTAssertNotNil(configureParams["relay_port"] as? Int)
     }
 
@@ -271,7 +287,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("ssh cmux@gateway.freestyle.sh -p 2222"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("password:  lease-token"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("password:  <redacted; run `cmux vm ssh \(vmID)` to connect>"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("lease-token"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info"]
