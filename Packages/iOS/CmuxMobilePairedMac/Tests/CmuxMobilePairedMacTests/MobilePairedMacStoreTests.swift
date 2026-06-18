@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxMobilePairedMac
 
@@ -131,5 +132,55 @@ import Testing
         let reopened = try MobilePairedMacStore(databaseURL: url)
         let all = try await reopened.loadAll()
         #expect(all.isEmpty)
+    }
+
+    /// A newer build can bump `PRAGMA user_version` above what this build knows.
+    /// Because schema migrations are additive (older builds keep reading the
+    /// columns/tables they know), opening that database from an older build must
+    /// still return the saved Macs, not strand the whole store and surface as a
+    /// total loss of the user's paired hosts on a downgrade/cross-build open.
+    @Test func futureSchemaVersionStillReadsExistingMacs() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        // A hand-typed manual host route (the store treats it like any other);
+        // `.tailscale` is a valid host/port kind, as in the other tests.
+        let route = try CmxAttachRoute(
+            id: "manual",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "192.168.1.50", port: 22)
+        )
+
+        // Seed the store at the current schema version with one manual host.
+        do {
+            let store = try MobilePairedMacStore(databaseURL: url)
+            try await store.upsert(
+                macDeviceID: "manual-192.168.1.50:22",
+                displayName: "Studio",
+                routes: [route],
+                markActive: true,
+                stackUserID: "user-1",
+                now: Date()
+            )
+        }
+
+        // Simulate a future build that wrote an additive schema and bumped the
+        // version beyond this build's understanding.
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        let futureVersion = MobilePairedMacStore.currentSchemaVersion + 98
+        #expect(
+            sqlite3_exec(handle, "PRAGMA user_version = \(futureVersion);", nil, nil, nil) == SQLITE_OK
+        )
+        sqlite3_close(handle)
+
+        // The current build must degrade gracefully and still read the host.
+        let reopened = try MobilePairedMacStore(databaseURL: url)
+        let all = try await reopened.loadAll(stackUserID: "user-1")
+        #expect(all.map(\.macDeviceID) == ["manual-192.168.1.50:22"])
+        #expect(all.first?.routes.first?.endpoint == .hostPort(host: "192.168.1.50", port: 22))
     }
 }
