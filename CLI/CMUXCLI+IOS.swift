@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 extension CMUXCLI {
@@ -54,13 +55,13 @@ extension CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
-    ) throws {
+    ) async throws {
         let subcommand = commandArgs.first?.lowercased()
         switch subcommand {
         case nil, "help":
             print(iosUsageText())
         case "run":
-            try runIOSRunCommand(
+            try await runIOSRunCommand(
                 commandArgs: Array(commandArgs.dropFirst()),
                 client: client,
                 jsonOutput: jsonOutput,
@@ -80,7 +81,7 @@ extension CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
-    ) throws {
+    ) async throws {
         var appPath: String?
         var bundleID: String?
         var xcodeWorkspace: String?
@@ -199,7 +200,7 @@ extension CMUXCLI {
 
         let scriptURL = try iosSimulatorServerScriptURL()
         let logURL = try iosLoopLogURL()
-        let ready = try launchIOSSimulatorServer(
+        let ready = try await launchIOSSimulatorServer(
             scriptURL: scriptURL,
             logURL: logURL,
             appPath: appPath,
@@ -221,8 +222,10 @@ extension CMUXCLI {
             terminateIOSSimulatorServer(pid: ready.pid)
             throw CLIError(message: String(localized: "cli.ios.error.invalidReadyPayload", defaultValue: "ios simulator server returned an invalid ready payload"))
         }
+        let outputURL = redactedSimulatorURL(url)
 
         var outputPayload = ready.payload
+        outputPayload["url"] = outputURL
         outputPayload["pid"] = Int(ready.pid)
         outputPayload["log_path"] = logURL.path
         outputPayload["opened_browser"] = false
@@ -258,7 +261,7 @@ extension CMUXCLI {
         }
 
         let ok = String(localized: "common.ok", defaultValue: "OK")
-        var parts = ["\(ok) url=\(url)", "pid=\(ready.pid)", "log=\(logURL.path)"]
+        var parts = ["\(ok) url=\(outputURL)", "pid=\(ready.pid)", "log=\(logURL.path)"]
         if let browserPayload = outputPayload["browser"] as? [String: Any] {
             if let surface = formatHandle(browserPayload, kind: "surface", idFormat: idFormat) {
                 parts.append("surface=\(surface)")
@@ -331,7 +334,7 @@ extension CMUXCLI {
         cwd: String?,
         inputCommand: String?,
         noBuild: Bool
-    ) throws -> (pid: Int32, payload: [String: Any]) {
+    ) async throws -> (pid: Int32, payload: [String: Any]) {
         let pythonPath = "/usr/bin/python3"
         guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
             throw CLIError(message: String(localized: "cli.ios.error.pythonMissing", defaultValue: "/usr/bin/python3 is required to run the cmux iOS simulator server"))
@@ -380,7 +383,7 @@ extension CMUXCLI {
         let pid = process.processIdentifier
 
         let readyTimeoutSeconds: TimeInterval = 30 * 60
-        let readyRead = readLineData(from: stdoutPipe.fileHandleForReading, timeout: readyTimeoutSeconds)
+        let readyRead = await readLineData(from: stdoutPipe.fileHandleForReading, timeout: readyTimeoutSeconds)
         if readyRead.timedOut {
             process.terminate()
             let format = String(
@@ -422,58 +425,72 @@ extension CMUXCLI {
         _ = Darwin.kill(pid, SIGTERM)
     }
 
-    private func readLineData(from handle: FileHandle, timeout: TimeInterval) -> (data: Data, timedOut: Bool) {
+    private func redactedSimulatorURL(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: #"([?&]token=)[^&#]+"#,
+            with: "$1<redacted>",
+            options: .regularExpression
+        )
+    }
+
+    private func readLineData(from handle: FileHandle, timeout: TimeInterval) async -> (data: Data, timedOut: Bool) {
         let maxReadyBytes = 1_048_576
         let fileDescriptor = handle.fileDescriptor
-        let deadline = Date().addingTimeInterval(timeout)
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        var data = Data()
+        return await withCheckedContinuation { continuation in
+            let queue = DispatchQueue(label: "com.cmux.ios.ready-line")
+            let readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
+            let timeoutSource = DispatchSource.makeTimerSource(queue: queue)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var data = Data()
+            var didFinish = false
 
-        while data.count < maxReadyBytes {
-            let remaining = deadline.timeIntervalSinceNow
-            if remaining <= 0 {
-                return (data, true)
+            func finish(_ result: (data: Data, timedOut: Bool)) {
+                guard !didFinish else { return }
+                didFinish = true
+                readSource.setEventHandler {}
+                timeoutSource.setEventHandler {}
+                readSource.cancel()
+                timeoutSource.cancel()
+                continuation.resume(returning: result)
             }
 
-            var pollDescriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
-            let timeoutMilliseconds = Int32(max(1, min(remaining * 1000, Double(Int32.max))))
-            let pollResult = Darwin.poll(&pollDescriptor, 1, timeoutMilliseconds)
-            if pollResult == 0 {
-                return (data, true)
-            }
-            if pollResult < 0 {
-                if errno == EINTR {
-                    continue
+            readSource.setEventHandler {
+                while data.count < maxReadyBytes {
+                    let readCapacity = min(buffer.count, maxReadyBytes - data.count)
+                    let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                        Darwin.read(fileDescriptor, rawBuffer.baseAddress, readCapacity)
+                    }
+                    if bytesRead < 0 {
+                        if errno == EINTR {
+                            continue
+                        }
+                        finish((data, false))
+                        return
+                    }
+                    if bytesRead == 0 {
+                        finish((data, false))
+                        return
+                    }
+                    if let newlineIndex = buffer[..<bytesRead].firstIndex(of: 10) {
+                        data.append(contentsOf: buffer[..<newlineIndex])
+                        finish((data, false))
+                        return
+                    }
+                    data.append(contentsOf: buffer[..<bytesRead])
+                    if bytesRead < readCapacity {
+                        return
+                    }
                 }
-                return (data, false)
-            }
-            if pollDescriptor.revents & Int16(POLLNVAL) != 0 {
-                return (data, false)
-            }
-            if pollDescriptor.revents & Int16(POLLIN | POLLHUP | POLLERR) == 0 {
-                continue
+                finish((data, false))
             }
 
-            let readCapacity = min(buffer.count, maxReadyBytes - data.count)
-            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
-                Darwin.read(fileDescriptor, rawBuffer.baseAddress, readCapacity)
+            timeoutSource.setEventHandler {
+                finish((data, true))
             }
-            if bytesRead < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                return (data, false)
-            }
-            if bytesRead == 0 {
-                return (data, false)
-            }
-            if let newlineIndex = buffer[..<bytesRead].firstIndex(of: 10) {
-                data.append(contentsOf: buffer[..<newlineIndex])
-                return (data, false)
-            }
-            data.append(contentsOf: buffer[..<bytesRead])
+
+            timeoutSource.schedule(deadline: .now() + timeout)
+            readSource.resume()
+            timeoutSource.resume()
         }
-
-        return (data, false)
     }
 }
