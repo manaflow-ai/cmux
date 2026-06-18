@@ -71,6 +71,8 @@ public final class AboutTitlebarDebugWindowController: NSWindowController, NSWin
         return window
     }
 
+    /// Releases the hosted view tree and controller-owned window reference when
+    /// AppKit is about to close the managed panel.
     public func windowWillClose(_ notification: Notification) {
         guard let closing = notification.object as? NSWindow, closing === window else {
             return
