@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Observation
 
@@ -146,33 +145,6 @@ struct PaneMemoryGuardrailEngine {
     }
 }
 
-// MARK: - Process-group killer
-
-enum PaneMemoryProcessKiller {
-    /// SIGTERM the pane's high-memory process group(s) now, then SIGKILL after a
-    /// short grace. Negative pid targets the whole process group, so the runaway
-    /// job and its descendants die without signaling unrelated groups in the
-    /// same pane. ESRCH on an already-dead group is harmless.
-    static func terminate(processGroupIDs: [Int], graceSeconds: TimeInterval = 3) -> Task<Void, Never>? {
-        let pgids = processGroupIDs.filter { $0 > 1 }
-        guard !pgids.isEmpty else { return nil }
-        for pgid in pgids {
-            _ = kill(pid_t(-pgid), SIGTERM)
-        }
-        let delayNanoseconds = UInt64(max(0, graceSeconds) * 1_000_000_000)
-        return Task.detached(priority: .userInitiated) { [pgids] in
-            // Bounded SIGTERM grace period before escalation; cancellation suppresses SIGKILL.
-            if delayNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: delayNanoseconds)
-            }
-            guard !Task.isCancelled else { return }
-            for pgid in pgids {
-                _ = kill(pid_t(-pgid), SIGKILL)
-            }
-        }
-    }
-}
-
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
@@ -270,7 +242,7 @@ final class PaneMemoryGuardrail {
         let thresholdBytes = thresholdBytes()
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
+            Self.computeCachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
         }
         scanApplyTask = Task { @MainActor [weak self] in
             let samples = await sampleTask.value
@@ -279,11 +251,18 @@ final class PaneMemoryGuardrail {
         }
     }
 
-    nonisolated static func computeSamples(
+    nonisolated static func computeCachedSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
     ) -> [PaneMemorySample] {
         computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.captureCached(maximumAge: 2))
+    }
+
+    nonisolated static func computeFreshSamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64
+    ) -> [PaneMemorySample] {
+        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.capture())
     }
 
     nonisolated static func computeSamples(
@@ -421,7 +400,7 @@ final class PaneMemoryGuardrail {
         }
         let thresholdBytes = thresholdBytes()
         let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
+            Self.computeFreshSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
         }
         presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
@@ -448,7 +427,21 @@ final class PaneMemoryGuardrail {
             return
         }
         pendingKillTasksByKey[key]?.task.cancel()
-        guard let task = PaneMemoryProcessKiller.terminate(processGroupIDs: pgids) else { return }
+        let descriptor = sample.descriptor
+        let killer = PaneMemoryProcessKiller()
+        guard let task = killer.terminate(
+            processGroupIDs: pgids,
+            validateBeforeSIGKILL: {
+                let freshSample = Self.computeFreshSamples(
+                    descriptors: [descriptor],
+                    thresholdBytes: thresholdBytes
+                ).first
+                guard let freshSample, freshSample.memoryBytes >= thresholdBytes else {
+                    return []
+                }
+                return Set(freshSample.memoryPressureProcessGroupIDs.filter { $0 > 1 })
+            }
+        ) else { return }
         let id = UUID()
         pendingKillTasksByKey[key] = (id: id, task: task)
         Task { @MainActor [weak self] in
