@@ -375,6 +375,9 @@ jobs:
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+            -parallel-testing-enabled NO
+            -parallel-testing-worker-count 1
+            -maximum-parallel-testing-workers 1
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")

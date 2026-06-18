@@ -180,8 +180,11 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    await store.connectPairingURL(try payload.encodedURL().absoluteString)
+    let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+    #expect(result == .needsUserApproval)
+    let acceptedResult = await store.acceptPairingVersionWarning()
 
+    #expect(acceptedResult == .connected)
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "Test Mac")
     #expect(store.macConnectionStatus == .connected)
@@ -502,7 +505,7 @@ final class TerminalOutputCollector {
 
     #expect(store.phase == .workspaces)
     #expect(store.connectionError == nil)
-    #expect(store.activeTicket == ticket)
+    #expect(store.activeTicket == try ticket.withCurrentPairingCompatibilityForTests())
     #expect(store.activeRoute == route)
 }
 
@@ -2664,8 +2667,29 @@ private func testRuntime(
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let payload = base64URLEncode(try encoder.encode(ticket))
+    let payload = base64URLEncode(try encoder.encode(try ticket.withCurrentPairingCompatibilityForTests()))
     return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
+}
+
+private extension CmxAttachTicket {
+    func withCurrentPairingCompatibilityForTests() throws -> CmxAttachTicket {
+        guard macPairingCompatibilityVersion == nil else { return self }
+        return try CmxAttachTicket(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: macUserEmail,
+            macUserID: macUserID,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
+    }
 }
 
 private func base64URLEncode(_ data: Data) -> String {
