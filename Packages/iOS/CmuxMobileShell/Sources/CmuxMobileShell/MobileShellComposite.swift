@@ -2616,6 +2616,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "source": .string("list_tap"),
         ])
         setSelectedWorkspaceID(id)
+        // Tapping into a workspace is a read receipt: clear its unread on the Mac
+        // (like opening a thread marks it read), so it drops out of the unread
+        // list and the back-button count. Only when the Mac advertises read-state
+        // actions and the workspace is actually unread, so older Macs and
+        // already-read workspaces send nothing.
+        if supportsWorkspaceReadStateActions, workspace?.hasUnread == true {
+            await setWorkspaceUnread(id: id, false)
+        }
     }
 
     public func sendTerminalInput() {
