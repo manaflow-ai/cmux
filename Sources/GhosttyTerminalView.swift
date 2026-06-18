@@ -9899,7 +9899,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func canReassertTerminalSurfaceFocus(reason: String, force: Bool) -> Bool {
-        guard pendingSuppressedFirstResponderFocusReapply else { return true }
+        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
+        guard requiresUsableGeometry else { return true }
 
         // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
         let portalSize = bounds.size
@@ -9918,6 +9919,7 @@ final class GhosttySurfaceScrollView: NSView {
                 "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
             )
 #endif
+            pendingSuppressedFirstResponderFocusReapply = true
             scheduleAutomaticFirstResponderApply(reason: "\(reason).hiddenOrTiny")
             return false
         }
