@@ -210,7 +210,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         #!/bin/sh
         printf '%s\\n' "$*" >> "$CMUX_TEST_LOG"
         if [ "$1" = "hooks" ]; then
-          cat >/dev/null
+          input=$(cat)
+          if [ -n "$input" ]; then
+            printf 'STDIN:%s\\n' "$input" >> "$CMUX_TEST_LOG"
+          fi
         fi
         exit 0
         """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
@@ -238,7 +241,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await send("session.status", { info: { ...info, status: { type: "error", message: "retry after rate limit" } } });
         await send("session.status", status("running"));
         await send("session.error", { info, error: { message: "upstream quota" } });
-        await send("permission.asked", { info, message: "approve" });
+        await send("permission.asked", { info, message: "--workspace" });
         mark("prompt-open");
         await send("session.updated", { info: { ...info, title: "metadata refresh" } });
         await send("session.idle", { info });
@@ -298,6 +301,13 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let log = try String(contentsOf: logURL, encoding: .utf8)
         let commands = log.split(separator: "\n").map(String.init)
+        let runtimeArgvCommands = commands.filter { $0.hasPrefix("hooks opencode runtime-") }
+        XCTAssertFalse(runtimeArgvCommands.contains { command in
+            command.contains("--workspace") || command.contains("--surface") || command.contains("--body")
+        }, log)
+        XCTAssertTrue(commands.contains { command in
+            command.hasPrefix("STDIN:") && command.contains(#""body":"--workspace""#)
+        }, log)
         let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
         XCTAssertEqual(errorNotifications.count, 3, log)
         let needsInputStatuses = commands.filter { $0.contains("hooks opencode runtime-status needs-input") }

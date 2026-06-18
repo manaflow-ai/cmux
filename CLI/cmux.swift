@@ -27400,7 +27400,11 @@ function runCmux(args, options = {}) {
   return spawnSync(cmuxExecutable(), cmuxArguments(args), options);
 }
 
-function runtimeHookPayload(ctx, event) {
+function hasCmuxRuntimeContext() {
+  return !!(process.env.CMUX_SOCKET_PATH || process.env.CMUX_SURFACE_ID);
+}
+
+function runtimeHookPayload(ctx, event, extra = {}) {
   const cwd = cwdFor(ctx, event);
   return {
     cwd,
@@ -27409,6 +27413,7 @@ function runtimeHookPayload(ctx, event) {
       cwd,
       event: event && event.type,
       hook_event_name: event && event.type,
+      ...extra,
     }),
   };
 }
@@ -27421,7 +27426,7 @@ function openCodeProcessPid() {
 
 function notifyOpenCode(kind, body, ctx, event) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!hasCmuxRuntimeContext()) return;
 
   const args = [
     "hooks",
@@ -27430,17 +27435,8 @@ function notifyOpenCode(kind, body, ctx, event) {
     kind,
   ];
   const trimmedBody = typeof body === "string" ? body.trim() : "";
-  if (trimmedBody) {
-    args.push("--body", trimmedBody);
-  }
-  if (process.env.CMUX_WORKSPACE_ID) {
-    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
-  }
-  if (process.env.CMUX_SURFACE_ID) {
-    args.push("--surface", process.env.CMUX_SURFACE_ID);
-  }
   try {
-    const payload = runtimeHookPayload(ctx, event);
+    const payload = runtimeHookPayload(ctx, event, trimmedBody ? { body: trimmedBody } : {});
     runCmux(args, {
       input: payload.input,
       encoding: "utf8",
@@ -27644,7 +27640,7 @@ function setIdleStatusAndStop(ctx, event) {
 function setStatus(descriptor, ctx, event) {
   if (!descriptor) return;
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!hasCmuxRuntimeContext()) return;
 
   const args = [
     "hooks",
@@ -27654,10 +27650,6 @@ function setStatus(descriptor, ctx, event) {
     "--pid",
     openCodeProcessPid(),
   ];
-  if (process.env.CMUX_WORKSPACE_ID) {
-    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
-  }
-  args.push("--surface", process.env.CMUX_SURFACE_ID);
   try {
     const payload = runtimeHookPayload(ctx, event);
     runCmux(args, {
@@ -27672,7 +27664,7 @@ function setStatus(descriptor, ctx, event) {
 
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
-  if (!process.env.CMUX_SURFACE_ID) return false;
+  if (!hasCmuxRuntimeContext()) return false;
 
   const sessionId = sessionIdFor(event);
   if (!sessionId) return false;
@@ -30358,7 +30350,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard def.name == "opencode",
                   let summary = openCodeRuntimeNotificationSummary(
                     kind: hookArgs.first,
-                    body: optionValue(hookArgs, name: "--body"),
+                    body: optionValue(hookArgs, name: "--body")
+                        ?? normalizedAgentHookNotificationMessage(parsedInput: input),
                     displayName: def.displayName
                   ) else {
                 print("{}")
