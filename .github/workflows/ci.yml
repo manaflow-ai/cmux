@@ -125,6 +125,9 @@ jobs:
       - name: Validate app-host xcodebuild host lock
         run: ./tests/test_ci_app_host_xcodebuild_lock.sh
 
+      - name: Validate submodule update lock cleanup
+        run: ./tests/test_ci_update_submodules_lock_cleanup.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
       - name: Validate cmux scheme test configuration
@@ -333,8 +336,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |
@@ -494,8 +502,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |
@@ -604,8 +617,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |
@@ -758,8 +776,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Validate display runner identity
         if: ${{ matrix.requires_display }}
@@ -1163,7 +1186,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |
@@ -1241,7 +1269,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |
@@ -1394,7 +1427,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |

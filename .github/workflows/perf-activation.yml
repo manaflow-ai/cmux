@@ -112,8 +112,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |

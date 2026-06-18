@@ -169,7 +169,13 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           persist-credentials: false
-          submodules: recursive
+          submodules: false
+
+      - name: Update submodules
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
