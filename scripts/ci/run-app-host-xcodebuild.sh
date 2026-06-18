@@ -15,60 +15,19 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
 # while it runs. Two hosts on one self-hosted Mac contend for that one session
 # and drop the test-runner channel. Enforce one app-host test at a time PER
-# MACHINE with a machine-local mutex. atomic mkdir is the lock (portable; no
-# util-linux flock dependency on macOS). The lock dir lives on local disk, so
-# different machines use different locks and cross-machine parallelism is kept.
-lock_dir="${CMUX_APP_HOST_TEST_LOCK_DIR:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
-lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-3600}"
-# Fallback only: break a lock whose owner pid is missing/unreadable once it is
-# older than this. The PRIMARY staleness signal is owner-process liveness below,
-# so an actively-running test of ANY duration is never broken.
-lock_orphan_seconds="${CMUX_APP_HOST_TEST_LOCK_ORPHAN_SECONDS:-3600}"
-lock_held=0
-release_test_lock() { [ "$lock_held" = "1" ] && rm -rf "$lock_dir" 2>/dev/null || true; }
-trap release_test_lock EXIT
-waited=0
-while :; do
-  # Ownership is proven ONLY by creating the dir ourselves (atomic mkdir).
-  if mkdir "$lock_dir" 2>/dev/null; then
-    echo "$$" >"$lock_dir/owner.pid" 2>/dev/null || true
-    lock_held=1
-    echo "Holding app-host test lock: ${lock_dir} (pid $$)"
-    break
-  fi
-  # Break the lock only when its owner process is genuinely gone, never on a
-  # wall-clock guess: a long but live xcodebuild must keep its lock.
-  owner_pid="$(cat "$lock_dir/owner.pid" 2>/dev/null || true)"
-  case "$owner_pid" in
-    ''|*[!0-9]*)
-      # No readable numeric owner pid (lock just created, or corrupt): fall back
-      # to an absolute age cap so a wedged lock cannot block the runner forever.
-      lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
-      if [ "$lock_age" -ge "$lock_orphan_seconds" ]; then
-        echo "WARN: breaking app-host test lock ${lock_dir}; no owner pid, age ${lock_age}s" >&2
-        rm -rf "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-      ;;
-    *)
-      if ! kill -0 "$owner_pid" 2>/dev/null; then
-        echo "WARN: breaking app-host test lock ${lock_dir}; owner pid ${owner_pid} is gone" >&2
-        rm -rf "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-      ;;
-  esac
-  if [ "$waited" -ge "$lock_wait_seconds" ]; then
-    # Never run a second GUI test host on this Mac. A live owner held the lock
-    # past the cap, so fail loudly (re-runnable) rather than run unlocked and
-    # recreate the testmanagerd contention this lock exists to prevent.
-    echo "FAIL: app-host test lock ${lock_dir} still held by live owner pid ${owner_pid:-unknown} after ${lock_wait_seconds}s; refusing to run a second GUI test host on this Mac (re-run the job)" >&2
-    exit 1
-  fi
-  [ "$waited" = "0" ] && echo "Waiting for app-host test lock ${lock_dir} (owner pid ${owner_pid:-unknown} holds this Mac)..."
-  sleep 5
-  waited=$(( waited + 5 ))
-done
+# MACHINE with a real kernel lock (fcntl.flock via app_host_test_lock.py): the
+# kernel releases it automatically when the holder exits, even on crash, so there
+# is no stale lock to detect and no recovery race. We re-exec ourselves under the
+# lock holder, which inherits the held lock fd across exec and keeps it for this
+# script's whole lifetime. Different machines use different local lock files, so
+# cross-machine parallelism is preserved.
+if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
+  lock_file="${CMUX_APP_HOST_TEST_LOCK_FILE:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
+  lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-3600}"
+  export CMUX_APP_HOST_TEST_LOCK_ACTIVE=1
+  exec python3 "$(dirname "$0")/app_host_test_lock.py" \
+    "$lock_file" "$lock_wait_seconds" "$0" "$@"
+fi
 
 # Resolve a CI-scoped root so app-host cleanup targets every CI app-host on this
 # Mac (this run AND orphans left by previous runs, which live under a different
