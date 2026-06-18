@@ -491,6 +491,12 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
+    var requiresPromptApproval: Bool {
+        approvalPolicy == .prompt
+    }
+}
+
 nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
@@ -1407,6 +1413,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
+
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
     var lastActivityAt: TimeInterval
@@ -1688,6 +1696,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
     var isPinned: Bool
     var isManuallyUnread: Bool
@@ -1705,6 +1717,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }
+
+extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
 enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
@@ -1800,6 +1814,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
@@ -1823,7 +1841,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// User-defined per-workspace environment variables (issue #5995). Optional
+    /// with a `nil` default so manifests written before this field decode cleanly.
+    var environment: [String: String]? = nil
 }
+
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID

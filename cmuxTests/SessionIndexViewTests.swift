@@ -341,6 +341,55 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
+    // The always-visible sidebar list is built from `scanAll()`, which loads
+    // only each agent's 30 most-recent sessions across ALL folders and then
+    // groups that already-capped pool by folder. A folder can therefore
+    // contribute ≤ collapsedRowLimit sessions to the in-memory list even
+    // though more exist on disk. "Show more" is the ONLY trigger for the
+    // complete folder-scoped query (`loadDirectorySnapshot`), so it must be
+    // offered for every directory section regardless of the truncated count —
+    // otherwise the rest of a folder's sessions are permanently unreachable.
+    func testDirectorySectionOffersShowMoreEvenWhenUnderRowLimit() {
+        let section = IndexSection(
+            key: .directory("/Users/me/dev/codexbarlite"),
+            title: "codexbarlite",
+            icon: .folder,
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testNoFolderDirectorySectionOffersShowMore() {
+        let section = IndexSection(
+            key: .directory(nil),
+            title: "(no folder)",
+            icon: .folder,
+            entries: [makeEntry(title: "x")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testAgentSectionUsesRowCountThresholdForShowMore() {
+        let under = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+        XCTAssertFalse(under.shouldOfferShowMore(rowLimit: 5))
+
+        let over = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: (0..<6).map { makeEntry(title: "s\($0)") }
+        )
+        XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()

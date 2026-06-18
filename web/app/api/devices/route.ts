@@ -20,6 +20,10 @@ import {
   type AuthedUser,
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
+import {
+  manualRoutesAreValid,
+  routesContainLoopback,
+} from "./route-classification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,6 +118,7 @@ function routesArray(value: unknown): unknown[] {
     .slice(0, MAX_ROUTES);
 }
 
+
 /**
  * Register (or refresh) a device and its running cmux app instance. Idempotent
  * per `(deviceId)` for the machine row and per `(deviceId, tag)` for the
@@ -135,10 +140,25 @@ export async function POST(request: Request): Promise<Response> {
   const deviceUuid = trimmedString(body.value.deviceId).toLowerCase();
   const platform = trimmedString(body.value.platform).toLowerCase();
   const displayName = trimmedString(body.value.displayName) || null;
-  const labels = recordOrEmpty(body.value.labels);
+  const rawLabels = recordOrEmpty(body.value.labels);
+  // `manual` is a server-controlled trust marker: it gates loopback/attachability
+  // validation AND is what `cmux remotes` uses to scope list/remove. Strip any
+  // client-supplied `manual` from the labels so a caller cannot set
+  // `labels.manual: true` while omitting the top-level `manual` flag to bypass
+  // route validation yet still have the row treated as a manual remote.
+  const { manual: _ignoredManualLabel, ...labels } = rawLabels;
+  void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
   const routes = routesArray(body.value.routes);
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);
+  // `manual: true` marks a user-initiated remote added through the cmux CLI
+  // (`cmux remotes add`) rather than a Mac self-registering its own live
+  // routes. The Mac self-registration legitimately advertises a `debug_loopback`
+  // route in DEBUG builds (for iOS Simulator dev pairing), so loopback
+  // rejection must be scoped to the manual path: a phone can never dial a
+  // manually-entered `127.0.0.1`/`localhost` host, so reject it here as the
+  // server-side trust boundary, mirroring the QR/deep-link loopback refusal.
+  const manual = body.value.manual === true;
 
   if (!UUID_RE.test(deviceUuid)) {
     return jsonResponse({ error: "invalid_device_id" }, 400);
@@ -149,6 +169,24 @@ export async function POST(request: Request): Promise<Response> {
   if (tag.length > MAX_TAG_LENGTH) {
     return jsonResponse({ error: "invalid_tag" }, 400);
   }
+  if (manual && routesContainLoopback(routes)) {
+    return jsonResponse({ error: "loopback_route_rejected" }, 400);
+  }
+  // For a user-initiated manual remote, enforce the full attach-route schema on
+  // the server (non-empty array; every entry a `tailscale` host:port with a
+  // 1-65535 port and a Tailscale-attachable host). This is the server-side
+  // mirror of the CLI/app check, so a direct authenticated API caller cannot
+  // register a remote that lists but cannot connect (empty routes, port 0, wrong
+  // kind, or a non-Tailscale host). Scoped to the manual path: the Mac's own
+  // self-registration advertises its real live routes and is not subject to it.
+  if (manual && !manualRoutesAreValid(routes)) {
+    return jsonResponse({ error: "non_attachable_route_rejected" }, 400);
+  }
+  // Persist the manual marker on the device so `cmux remotes` can scope list and
+  // remove to user-added remotes only, and never touch a self-registered Mac's
+  // registry row (deleting that would break the phone's reconnect). Stored in
+  // `labels` so it survives in GET without a schema change.
+  const deviceLabels = manual ? { ...labels, manual: true } : labels;
 
   const db = cloudDb();
   const now = new Date();
@@ -198,7 +236,7 @@ export async function POST(request: Request): Promise<Response> {
         userId: user.id,
         platform,
         displayName,
-        labels,
+        labels: deviceLabels,
         lastSeenAt: now,
         updatedAt: now,
       })
@@ -208,7 +246,7 @@ export async function POST(request: Request): Promise<Response> {
           userId: user.id,
           platform,
           displayName,
-          labels,
+          labels: deviceLabels,
           lastSeenAt: now,
           updatedAt: now,
         },
@@ -378,7 +416,7 @@ export async function DELETE(request: Request): Promise<Response> {
   // and break their phone reconnect. Never touches another team's row for the
   // same physical Mac.
   const db = cloudDb();
-  await db
+  const deletedRows = await db
     .delete(devices)
     .where(
       and(
@@ -386,7 +424,12 @@ export async function DELETE(request: Request): Promise<Response> {
         eq(devices.teamId, team.teamId),
         eq(devices.userId, user.id),
       ),
-    );
+    )
+    .returning({ id: devices.id });
 
-  return jsonResponse({ ok: true });
+  // Report whether a row was actually removed. The delete is intentionally a
+  // no-op (not an error) when the device does not exist or belongs to another
+  // member, but the CLI needs `deleted` to avoid printing success when nothing
+  // was removed (e.g. `cmux remotes remove <not-owned-uuid>`).
+  return jsonResponse({ ok: true, deleted: deletedRows.length });
 }
