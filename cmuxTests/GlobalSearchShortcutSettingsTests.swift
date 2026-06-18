@@ -292,4 +292,55 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
         XCTAssertNil(store.override(for: .globalSearch))
     }
+
+    func testQuickTerminalDefaultShortcutIsRemappableAndSystemWideSafe() {
+        let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .toggleQuickTerminal)
+
+        XCTAssertEqual(
+            defaultShortcut,
+            StoredShortcut(key: "`", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.toggleQuickTerminal))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleQuickTerminal))
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleQuickTerminal.normalizedRecordedShortcutResult(defaultShortcut),
+            .accepted(defaultShortcut)
+        )
+    }
+
+    func testQuickTerminalRejectsBareSystemWideShortcut() {
+        let bareShortcut = StoredShortcut(key: "`", command: false, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleQuickTerminal.normalizedRecordedShortcutResult(bareShortcut),
+            .rejected(.systemWideHotkeyRequiresModifier)
+        )
+    }
+
+    func testSettingsFileStoreParsesQuickTerminalShortcut() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-quick-terminal-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "toggleQuickTerminal": "cmd+ctrl+`"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .toggleQuickTerminal),
+            StoredShortcut(key: "`", command: true, shift: false, option: false, control: true)
+        )
+    }
 }
