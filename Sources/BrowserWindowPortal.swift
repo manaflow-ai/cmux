@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -2041,6 +2042,7 @@ final class WindowBrowserPortal: NSObject {
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
+    private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
@@ -2333,14 +2335,10 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
-            return glassTarget
-        }
-
-        guard let contentView = window.contentView else { return nil }
-
-        guard let themeFrame = contentView.superview else { return nil }
-        return (themeFrame, contentView)
+        guard let target = chromeComposition
+            .contentOverlayTargetResolver
+            .installationTarget(for: window) else { return nil }
+        return (target.container, target.reference)
     }
 
     private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
@@ -2987,12 +2985,13 @@ final class WindowBrowserPortal: NSObject {
     /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
     /// Used when a bind is deferred (host not yet in window) so stale portal syncs
     /// do not keep an old anchor visible.
-    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
-        entry.visibleInUI = visibleInUI
-        entry.zPriority = zPriority
+    @discardableResult
+    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) -> Bool {
+        guard var entry = entriesByWebViewId[webViewId],
+              entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return false }
+        entry.visibleInUI = visibleInUI; entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        return true
     }
 
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -3001,12 +3000,13 @@ final class WindowBrowserPortal: NSObject {
         return boundAnchor === anchorView
     }
 
-    func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        entry.visibleInUI = false
-        entry.zPriority = 0
+    @discardableResult func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") -> Bool {
+        guard var entry = entriesByWebViewId[webViewId] else { return false }
+        let previous = (entry.visibleInUI, entry.zPriority, entry.containerView?.isHidden ?? true)
+        entry.visibleInUI = false; entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
         synchronizeWebView(withId: webViewId, source: source)
+        return previous.0 || previous.1 != 0 || previous.2 != (entriesByWebViewId[webViewId]?.containerView?.isHidden ?? true)
     }
 
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
@@ -4091,8 +4091,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
-        postRegistryDidChange(for: webView)
+        if portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority) { postRegistryDidChange(for: webView) }
     }
 
     static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
@@ -4108,8 +4107,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.hideWebView(withId: webViewId, source: source)
-        postRegistryDidChange(for: webView)
+        if portal.hideWebView(withId: webViewId, source: source) { postRegistryDidChange(for: webView) }
     }
 
     static func discard(

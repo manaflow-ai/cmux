@@ -127,9 +127,9 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
-        case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
+        case .browserBack, .browserForward, .browserReload, .browserHardReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
             return .browserPanel
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
@@ -142,6 +142,7 @@ extension KeyboardShortcutSettings.Action {
 
 extension Notification.Name {
     static let debugBrowserReloadShortcutInvoked = Notification.Name("cmux.debugBrowserReloadShortcutInvoked")
+    static let debugBrowserHardReloadShortcutInvoked = Notification.Name("cmux.debugBrowserHardReloadShortcutInvoked")
 }
 
 extension AppDelegate {
@@ -150,6 +151,13 @@ extension AppDelegate {
         NotificationCenter.default.post(name: .debugBrowserReloadShortcutInvoked, object: panel)
 #endif
         panel.reload()
+    }
+
+    func hardReloadBrowserPanelForShortcut(_ panel: BrowserPanel) {
+#if DEBUG
+        NotificationCenter.default.post(name: .debugBrowserHardReloadShortcutInvoked, object: panel)
+#endif
+        panel.hardReload()
     }
 
     func shortcutEventBrowserPanel(_ event: NSEvent) -> BrowserPanel? {

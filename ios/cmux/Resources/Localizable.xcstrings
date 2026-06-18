@@ -715,6 +715,40 @@
         }
       }
     },
+    "mobile.composer.attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach Photo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を添付"
+          }
+        }
+      }
+    },
+    "mobile.composer.attachment.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を削除"
+          }
+        }
+      }
+    },
     "mobile.composer.close": {
       "extractionState": "manual",
       "localizations": {
@@ -728,6 +762,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "メッセージ作成を閉じる"
+          }
+        }
+      }
+    },
+    "mobile.composer.mic.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を開始"
+          }
+        }
+      }
+    },
+    "mobile.composer.mic.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を停止"
           }
         }
       }
@@ -1401,13 +1469,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid pairing code."
+            "value": "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングコードが無効です。"
+            "value": "これはcmuxのペアリングQRコードではありません。Macの「iPhoneをペアリング」ウインドウに表示されているコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.unrecognizedVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR needs a newer version of cmux. Update the app and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このQRコードには新しいバージョンのcmuxが必要です。アプリを更新してからもう一度お試しください。"
           }
         }
       }
@@ -1752,6 +1837,23 @@
         }
       }
     },
+    "mobile.settings.agentChatDemo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat Demo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットデモ"
+          }
+        }
+      }
+    },
     "mobile.settings.devices": {
       "extractionState": "manual",
       "localizations": {
@@ -1769,6 +1871,23 @@
         }
       }
     },
+    "mobile.settings.developer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発者"
+          }
+        }
+      }
+    },
     "mobile.settings.display": {
       "extractionState": "manual",
       "localizations": {
@@ -1782,6 +1901,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "表示"
+          }
+        }
+      }
+    },
+    "mobile.settings.profilePictureLeftness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile Picture Leftness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール画像の左寄せ"
+          }
+        }
+      }
+    },
+    "mobile.settings.pointsFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
+        }
+      }
+    },
+    "mobile.settings.profilePictureSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile Picture Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール画像のサイズ"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalLogDemo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Log Demo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルログデモ"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLeftness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Indicator Leftness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読インジケータの左寄せ"
           }
         }
       }
@@ -3503,6 +3707,23 @@
         }
       }
     },
+    "mobile.workspace.close.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
     "mobile.workspace.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -4574,6 +4795,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.updateApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux from the App Store (or TestFlight), then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store（またはTestFlight）でcmuxを更新してから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.hostUnreachableFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -5577,6 +5815,23 @@
         }
       }
     },
+    "terminal.shortcut.name.return": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リターン"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.tab": {
       "extractionState": "manual",
       "localizations": {
@@ -6236,6 +6491,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべて表示"
+          }
+        }
+      }
+    },
+    "mobile.workspace.agentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット"
+          }
+        }
+      }
+    },
+    "mobile.workspace.backUnreadCountFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d unread workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読のワークスペース %d 件"
+          }
+        }
+      }
+    },
+    "mobile.workspace.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
           }
         }
       }
