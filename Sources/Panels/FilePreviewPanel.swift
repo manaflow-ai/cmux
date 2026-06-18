@@ -1038,42 +1038,66 @@ enum FilePreviewTextSaver {
             currentFD = nextFD
         }
 
-        let fileFD = openRegularFileNoFollowingSymlinks(filename, inDirectoryFD: currentFD)
-        guard fileFD >= 0 else {
+        guard writeAtomicallyReplacingRegularFile(data, filename: filename, inDirectoryFD: currentFD) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: path))
-        }
-        defer { Darwin.close(fileFD) }
-        guard writeAll(data, toFileDescriptor: fileFD) else {
-            return .failed(fileExists: true)
         }
         return .saved
     }
 
-    private static func openRegularFileNoFollowingSymlinks(
-        _ filename: String,
+    private static func writeAtomicallyReplacingRegularFile(
+        _ data: Data,
+        filename: String,
         inDirectoryFD directoryFD: Int32
-    ) -> Int32 {
+    ) -> Bool {
         var statBuffer = stat()
         let statResult = filename.withCString {
             Darwin.fstatat(directoryFD, $0, &statBuffer, AT_SYMLINK_NOFOLLOW)
         }
+        let mode: mode_t
         if statResult == 0 {
-            guard isRegularFile(mode: statBuffer.st_mode) else { return -1 }
-            let fileFD = filename.withCString {
-                Darwin.openat(directoryFD, $0, O_WRONLY | O_TRUNC | O_CLOEXEC | O_NOFOLLOW)
+            guard isRegularFile(mode: statBuffer.st_mode) else { return false }
+            let existingFD = filename.withCString {
+                Darwin.openat(directoryFD, $0, O_WRONLY | O_CLOEXEC | O_NOFOLLOW)
             }
-            return validateOpenedRegularFile(fileFD)
+            guard validateOpenedRegularFile(existingFD) >= 0 else { return false }
+            Darwin.close(existingFD)
+            mode = statBuffer.st_mode & mode_t(0o777)
+        } else {
+            guard errno == ENOENT else { return false }
+            mode = mode_t(0o600)
         }
-        guard errno == ENOENT else { return -1 }
-        let fileFD = filename.withCString {
+
+        let tempName = ".\(filename).cmux-save-\(UUID().uuidString).tmp"
+        let tempFD = tempName.withCString {
             Darwin.openat(
                 directoryFD,
                 $0,
                 O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-                mode_t(0o600)
+                mode
             )
         }
-        return validateOpenedRegularFile(fileFD)
+        guard validateOpenedRegularFile(tempFD) >= 0 else { return false }
+        defer { Darwin.close(tempFD) }
+
+        var removeTemp = true
+        defer {
+            if removeTemp {
+                _ = tempName.withCString { Darwin.unlinkat(directoryFD, $0, 0) }
+            }
+        }
+
+        guard writeAll(data, toFileDescriptor: tempFD),
+              syncFileDescriptor(tempFD) else {
+            return false
+        }
+        let renamed = tempName.withCString { tempPointer in
+            filename.withCString { filenamePointer in
+                Darwin.renameat(directoryFD, tempPointer, directoryFD, filenamePointer)
+            }
+        }
+        guard renamed == 0 else { return false }
+        removeTemp = false
+        return true
     }
 
     private static func validateOpenedRegularFile(_ fileFD: Int32) -> Int32 {
@@ -1107,6 +1131,14 @@ enum FilePreviewTextSaver {
                 }
             }
             return true
+        }
+    }
+
+    private static func syncFileDescriptor(_ fileFD: Int32) -> Bool {
+        while true {
+            if Darwin.fsync(fileFD) == 0 { return true }
+            if errno == EINTR { continue }
+            return false
         }
     }
 }

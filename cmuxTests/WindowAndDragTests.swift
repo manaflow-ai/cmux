@@ -3177,6 +3177,33 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testTrustedWorkspaceNoteSavePreservesOriginalWhenAtomicTempCannotBeCreated() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notesDir = root.appendingPathComponent(".cmux/notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notesDir, withIntermediateDirectories: true)
+        defer {
+            _ = chmod(notesDir.path, 0o700)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let noteURL = notesDir.appendingPathComponent("note.md")
+        try "original".write(to: noteURL, atomically: true, encoding: .utf8)
+        XCTAssertEqual(chmod(notesDir.path, 0o500), 0)
+
+        let result = await FilePreviewTextSaver.saveTrustedWorkspaceNote(
+            content: "edited",
+            to: noteURL,
+            encoding: .utf8
+        )
+        guard case .failed(let fileExists) = result else {
+            XCTFail("Expected trusted note save to fail")
+            return
+        }
+        XCTAssertTrue(fileExists)
+        XCTAssertEqual(try String(contentsOf: noteURL, encoding: .utf8), "original")
+    }
+
     func testSaveTextContentWritesThroughSymlink() async throws {
         let targetURL = try temporaryTextFile(contents: "original", encoding: .utf8)
         let linkURL = FileManager.default.temporaryDirectory
