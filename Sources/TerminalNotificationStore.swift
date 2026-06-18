@@ -225,6 +225,7 @@ struct TerminalNotification: Identifiable, Hashable {
 final class TerminalNotificationStore: ObservableObject {
     private typealias NotificationAuthorizationStatusProvider = (@escaping (UNAuthorizationStatus) -> Void) -> Void
     private typealias PhoneForwardHandler = (TerminalNotification, Int) -> Bool
+    private typealias NotificationDismissHandler = (_ ids: [String], _ badgeCount: Int) -> Void
 
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
@@ -247,6 +248,13 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private static let defaultPhoneForwardHandler: PhoneForwardHandler = { notification, badgeCount in
         PhonePushClient.shared.forward(notification, badgeCount: badgeCount)
+    }
+    private static let defaultNotificationDismissHandler: NotificationDismissHandler = { ids, unreadCount in
+        MobileHostService.emitEvent(
+            topic: TerminalNotificationStore.dismissedEventTopic,
+            payload: ["ids": ids, "unread_count": unreadCount]
+        )
+        PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
     }
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
@@ -385,15 +393,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard !ids.isEmpty else { return }
         recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
         let unreadCount = indexes.unreadCount
-        // Live lane: nonisolated static fan-out; short-circuits when no phone is
-        // subscribed.
-        MobileHostService.emitEvent(
-            topic: Self.dismissedEventTopic,
-            payload: ["ids": ids, "unread_count": unreadCount]
-        )
-        // Cold lane: mirror the dismiss through APNs for every registered
-        // device, attached or not (no-op unless phone forwarding is on).
-        PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
+        notificationDismissHandler(ids, unreadCount)
     }
 
     /// A user-driven dismiss emit that also carries any stale superseded-banner
@@ -511,6 +511,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private var notificationAuthorizationStatusProvider = TerminalNotificationStore.defaultNotificationAuthorizationStatusProvider
     private var phoneForwardHandler = TerminalNotificationStore.defaultPhoneForwardHandler
+    private var notificationDismissHandler = TerminalNotificationStore.defaultNotificationDismissHandler
     private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -1834,7 +1835,7 @@ final class TerminalNotificationStore: ObservableObject {
             // desktop delivery, so a stale cached state cannot forward a banner
             // the Mac is no longer allowed to show.
             let queued = self.phoneForwardHandler(notification, self.indexes.unreadCount)
-            if queued {
+            if queued || !PhonePushClient.shared.willForwardReplacement() {
                 self.flushSupersededPhoneDismisses(for: notification)
             }
 
@@ -1910,7 +1911,7 @@ final class TerminalNotificationStore: ObservableObject {
             // Keep the coalesced fan-out bounded if usernoted stalls while a
             // notification flood is already waiting on one authorization read.
             guard pendingFallbackAuthorizationRefreshCompletions.count < Self.maxPendingFallbackAuthorizationRefreshCompletions else {
-                requestFallbackAuthorizationRefresh(completion)
+                completion(Self.overflowFallbackAuthorizationState(from: authorizationState))
                 return
             }
             pendingFallbackAuthorizationRefreshCompletions.append(completion)
@@ -1926,6 +1927,17 @@ final class TerminalNotificationStore: ObservableObject {
             for completion in completions {
                 completion(state)
             }
+        }
+    }
+
+    private static func overflowFallbackAuthorizationState(
+        from state: NotificationAuthorizationState
+    ) -> NotificationAuthorizationState {
+        switch state {
+        case .authorized, .denied, .provisional, .ephemeral:
+            return state
+        case .unknown, .notDetermined:
+            return .denied
         }
     }
 
@@ -2238,6 +2250,16 @@ final class TerminalNotificationStore: ObservableObject {
 
     func resetPhoneForwardHandlerForTesting() {
         phoneForwardHandler = Self.defaultPhoneForwardHandler
+    }
+
+    func configureNotificationDismissHandlerForTesting(
+        _ handler: @escaping (_ ids: [String], _ badgeCount: Int) -> Void
+    ) {
+        notificationDismissHandler = handler
+    }
+
+    func resetNotificationDismissHandlerForTesting() {
+        notificationDismissHandler = Self.defaultNotificationDismissHandler
     }
 
     func configureNotificationDeliveryHandlerForTesting(

@@ -198,6 +198,85 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(store.authorizationState == .denied)
     }
 
+    @Test func supersededPhoneDismissFlushesWhenForwardingTurnsOffDuringAuthorizationRefresh() async {
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let originalAuthorizationState = store.authorizationState
+        let originalNotifications = store.notifications
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalForwardEnabled = defaults.object(forKey: PhonePushSettings.forwardEnabledKey)
+        let originalForwardMode = defaults.object(forKey: PhonePushSettings.forwardModeKey)
+        let originalTombstones = defaults.object(forKey: TerminalNotificationStore.dismissedTombstoneDefaultsKey)
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let old = TerminalNotification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Old",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        var pendingStatusCompletions: [(UNAuthorizationStatus) -> Void] = []
+        var dismissedPayloads: [[String]] = []
+
+        func restore(_ value: Any?, forKey key: String) {
+            if let value {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        store.replaceNotificationsForTesting([old])
+        store.setAuthorizationStateForTesting(.unknown)
+        store.reloadDismissedTombstonesForTesting()
+        AppFocusState.overrideIsFocused = false
+        defaults.set(true, forKey: PhonePushSettings.forwardEnabledKey)
+        defaults.set(PhoneForwardingMode.always.rawValue, forKey: PhonePushSettings.forwardModeKey)
+        store.configureNotificationAuthorizationStatusProviderForTesting { completion in
+            pendingStatusCompletions.append(completion)
+        }
+        store.configurePhoneForwardHandlerForTesting { _, _ in false }
+        store.configureNotificationDismissHandlerForTesting { ids, _ in
+            dismissedPayloads.append(ids)
+        }
+        defer {
+            store.replaceNotificationsForTesting(originalNotifications)
+            store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.resetPhoneForwardHandlerForTesting()
+            store.resetNotificationDismissHandlerForTesting()
+            store.setAuthorizationStateForTesting(originalAuthorizationState)
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            restore(originalForwardEnabled, forKey: PhonePushSettings.forwardEnabledKey)
+            restore(originalForwardMode, forKey: PhonePushSettings.forwardModeKey)
+            restore(originalTombstones, forKey: TerminalNotificationStore.dismissedTombstoneDefaultsKey)
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        var authorizationUpdates = store.authorizationStateUpdates().makeAsyncIterator()
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Replacement",
+            subtitle: "",
+            body: ""
+        )
+
+        #expect(pendingStatusCompletions.count == 1)
+        defaults.set(false, forKey: PhonePushSettings.forwardEnabledKey)
+        pendingStatusCompletions[0](.authorized)
+        while let state = await authorizationUpdates.next() {
+            if state == .authorized {
+                break
+            }
+        }
+
+        #expect(dismissedPayloads == [[old.id.uuidString]])
+    }
+
     @Test func suppressedFeedbackCoalescesStaleAuthorizationRefreshes() async {
         let store = TerminalNotificationStore.shared
         let originalAuthorizationState = store.authorizationState
