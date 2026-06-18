@@ -124,7 +124,7 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: antigravityPolicy)
         case "opencode":
             return preserveOptions(
-                args.filter { !isOpenCodeInternalWorkerArgument($0) },
+                args.filter { !isOpenCodeInternalArgument($0) },
                 policy: openCodePolicy
             )
         case "rovodev":
@@ -558,9 +558,9 @@ public enum AgentLaunchSanitizer {
         return String(data: userData, encoding: .utf8)
     }
 
-    private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
+    private static func isOpenCodeInternalArgument(_ value: String) -> Bool {
         let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/$bunfs/") &&
-            normalized.contains("/src/cli/cmd/tui/worker.js")
+        return value == "tui-settings" || (normalized.contains("/$bunfs/") &&
+            normalized.contains("/src/cli/cmd/tui/worker.js"))
     }
 }
