@@ -3357,7 +3357,7 @@ struct CMUXCLI {
         return true
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -3457,6 +3457,15 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
+        if command == "ios",
+           iosCommandDoesNotNeedSocket(commandArgs) {
+            try await runIOSCommandWithoutSocket(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+            )
+            return
+        }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -5245,6 +5254,9 @@ struct CMUXCLI {
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
             try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "ios":
+            try await runIOSCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         // Markdown commands
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -5547,6 +5559,7 @@ struct CMUXCLI {
         "hooks",
         "identify",
         "is-webview-focused",
+        "ios",
         "join-pane",
         "jump-to-unread",
         "last-pane",
@@ -16235,6 +16248,8 @@ struct CMUXCLI {
               install-hooks     Install cmux hooks into ~/.codex/hooks.json
               uninstall-hooks   Remove cmux hooks from ~/.codex/hooks.json
             """
+        case "ios":
+            return iosUsageText()
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -34212,6 +34227,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func usage() -> String {
+        let iosRunSummary = iosRunUsageSummaryLine()
         return """
         cmux - control cmux via Unix socket
 
@@ -34245,6 +34261,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          \(iosRunSummary)
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -34363,6 +34380,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+          \(iosRunSummary)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
@@ -34460,12 +34478,12 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
         _ = signal(SIGPIPE, SIG_IGN)
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
