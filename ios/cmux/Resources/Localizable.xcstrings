@@ -1469,13 +1469,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid pairing code."
+            "value": "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングコードが無効です。"
+            "value": "これはcmuxのペアリングQRコードではありません。Macの「iPhoneをペアリング」ウインドウに表示されているコードをスキャンしてください。"
           }
         }
       }

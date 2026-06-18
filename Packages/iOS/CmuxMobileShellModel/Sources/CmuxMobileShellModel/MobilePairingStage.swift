@@ -4,7 +4,7 @@ import Foundation
 /// they are attempted. Surfacing each as its own check mark lets the user tell
 /// exactly which stage succeeded or failed instead of reading one opaque
 /// "could not connect" (https://github.com/manaflow-ai/cmux/issues/6084).
-public enum MobilePairingStage: Equatable, Sendable, CaseIterable {
+public enum MobilePairingStage: Equatable, Hashable, Sendable, CaseIterable {
     /// Reaching the Mac over the network: reachability, routing, the listener,
     /// and opening the transport to the address the pairing code points at. The
     /// first gate — nothing else can be attempted until it clears.
