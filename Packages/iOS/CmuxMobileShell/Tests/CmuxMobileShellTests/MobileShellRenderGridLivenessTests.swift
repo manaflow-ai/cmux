@@ -245,10 +245,10 @@ import Testing
 }
 
 /// Older Macs used `workspace.actions.v1` for rename/pin only. Newly added
-/// read-state and close actions need separate capability bits so a newer iPhone
-/// does not show controls that an older Mac will reject at runtime.
+/// read-state and delete actions need separate capability bits so a newer
+/// iPhone does not show controls that an older Mac will reject at runtime.
 @MainActor
-@Test func workspaceReadStateAndCloseCapabilitiesAreVersionGated() async throws {
+@Test func workspaceReadStateAndDeleteCapabilitiesAreVersionGated() async throws {
     let oldMacClock = TestClock()
     let oldMacRouter = LivenessHostRouter()
     let oldMacBox = TransportBox()
@@ -264,6 +264,32 @@ import Testing
     #expect(oldMacStore.supportsWorkspaceActions)
     #expect(oldMacStore.supportsWorkspaceReadStateActions == false)
     #expect(oldMacStore.supportsWorkspaceCloseActions == false)
+    #expect(oldMacStore.supportsWorkspaceDeleteActions == false)
+    #expect(oldMacStore.supportsDeleteActions == false)
+
+    let currentMacWithoutAttachTokenClock = TestClock()
+    let currentMacWithoutAttachTokenRouter = LivenessHostRouter()
+    let currentMacWithoutAttachTokenBox = TransportBox()
+    await currentMacWithoutAttachTokenRouter.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "workspace.close.v1",
+        "mobile.delete.v1",
+    ])
+    let currentMacWithoutAttachTokenStore = try await makeConnectedStore(
+        router: currentMacWithoutAttachTokenRouter,
+        box: currentMacWithoutAttachTokenBox,
+        clock: currentMacWithoutAttachTokenClock,
+        authToken: nil
+    )
+    let currentMacWithoutAttachTokenResolved = try await pollUntil {
+        await currentMacWithoutAttachTokenRouter.count(of: "mobile.host.status") >= 1
+    }
+    #expect(currentMacWithoutAttachTokenResolved)
+    #expect(currentMacWithoutAttachTokenStore.supportsWorkspaceCloseActions)
+    #expect(currentMacWithoutAttachTokenStore.supportsWorkspaceDeleteActions == false)
+    #expect(currentMacWithoutAttachTokenStore.supportsDeleteActions == false)
 
     let currentMacClock = TestClock()
     let currentMacRouter = LivenessHostRouter()
@@ -275,6 +301,7 @@ import Testing
         "workspace.actions.v1",
         "workspace.read_state.v1",
         "workspace.close.v1",
+        "mobile.delete.v1",
     ])
     let currentMacStore = try await makeConnectedStore(router: currentMacRouter, box: currentMacBox, clock: currentMacClock)
     let currentMacResolved = try await pollUntil { await currentMacRouter.count(of: "mobile.host.status") >= 1 }
@@ -282,4 +309,226 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceActions)
     #expect(currentMacStore.supportsWorkspaceReadStateActions)
     #expect(currentMacStore.supportsWorkspaceCloseActions)
+    #expect(currentMacStore.supportsWorkspaceDeleteActions)
+    #expect(currentMacStore.supportsDeleteActions)
+}
+
+@MainActor
+@Test func workspaceDeleteRefreshFailureDoesNotRollbackSuccessfulClose() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+
+    let workspaceListCountBeforeDelete = await router.count(of: "mobile.workspace.list")
+    await router.failNextWorkspaceListRefresh()
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.workspaces.map(\.id.rawValue) == ["backup-workspace"])
+
+    let sawClose = try await pollUntil { await router.count(of: "workspace.close") >= 1 }
+    #expect(sawClose)
+    let sawRefresh = try await pollUntil {
+        await router.count(of: "mobile.workspace.list") > workspaceListCountBeforeDelete
+    }
+    #expect(sawRefresh)
+    let stayedOnNeighbor = try await pollUntil {
+        store.selectedWorkspace?.id.rawValue == "backup-workspace"
+    }
+    #expect(stayedOnNeighbor)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
+@Test func remoteDeletesStayDisabledWithoutAttachToken() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "workspace.close.v1",
+        "mobile.delete.v1",
+    ])
+    await router.setIncludeSecondWorkspace(true)
+    await router.setIncludeSecondTerminal(true)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        authToken: nil
+    )
+    let originalWorkspaces = store.workspaces.map(\.id.rawValue)
+    let originalTerminals = store.selectedWorkspace?.terminals.map(\.id.rawValue)
+
+    #expect(store.supportsDeleteActions == false)
+    #expect(store.supportsWorkspaceDeleteActions == false)
+
+    store.deleteWorkspace(id: "live-workspace")
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+
+    #expect(store.workspaces.map(\.id.rawValue) == originalWorkspaces)
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == originalTerminals)
+    let sentWorkspaceClose = try await pollUntil(attempts: 60) {
+        await router.count(of: "workspace.close") > 0
+    }
+    let sentSurfaceClose = try await pollUntil(attempts: 60) {
+        await router.count(of: "surface.close") > 0
+    }
+    #expect(sentWorkspaceClose == false)
+    #expect(sentSurfaceClose == false)
+}
+
+@MainActor
+@Test func workspaceDeleteRollsBackWhenCloseFails() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.failNextWorkspaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"])
+
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.workspaces.map(\.id.rawValue) == ["backup-workspace"])
+
+    let rolledBack = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.selectedWorkspace?.id.rawValue == "live-workspace"
+    }
+    #expect(rolledBack)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func workspaceDeleteRollbackRestoresPendingAttachments() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.failNextWorkspaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let payload = Data("workspace-image".utf8)
+    store.addPendingAttachment(payload, format: "png", forTerminalID: "live-terminal")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").count == 1)
+
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").isEmpty)
+
+    let restored = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.pendingAttachments(forTerminalID: "live-terminal").first?.data == payload
+    }
+    #expect(restored)
+}
+
+@MainActor
+@Test func terminalDeleteRefreshFailureDoesNotRollbackSuccessfulClose() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedTerminalID?.rawValue == "live-terminal")
+
+    let workspaceListCountBeforeDelete = await router.count(of: "mobile.workspace.list")
+    await router.failNextWorkspaceListRefresh()
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["backup-terminal"])
+
+    let sawClose = try await pollUntil { await router.count(of: "surface.close") >= 1 }
+    #expect(sawClose)
+    let sawRefresh = try await pollUntil {
+        await router.count(of: "mobile.workspace.list") > workspaceListCountBeforeDelete
+    }
+    #expect(sawRefresh)
+    let stayedOnNeighbor = try await pollUntil {
+        store.selectedTerminalID?.rawValue == "backup-terminal"
+    }
+    #expect(stayedOnNeighbor)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
+@Test func terminalDeleteRollsBackWhenCloseFails() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    await router.failNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"])
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["backup-terminal"])
+
+    let rolledBack = try await pollUntil {
+        store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"]
+            && store.selectedTerminalID?.rawValue == "live-terminal"
+    }
+    #expect(rolledBack)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func terminalDeleteRollbackRestoresPendingAttachments() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    await router.failNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let payload = Data("terminal-image".utf8)
+    store.addPendingAttachment(payload, format: "jpg", forTerminalID: "live-terminal")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").count == 1)
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").isEmpty)
+
+    let restored = try await pollUntil {
+        store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"]
+            && store.pendingAttachments(forTerminalID: "live-terminal").first?.data == payload
+    }
+    #expect(restored)
+}
+
+@MainActor
+@Test func queuedDeleteSkipsAfterConnectionGenerationChanges() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.setIncludeSecondTerminal(true)
+    await router.holdNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    let sawHeldClose = try await pollUntil { await router.count(of: "surface.close") == 1 }
+    #expect(sawHeldClose)
+
+    store.deleteTerminal(id: "backup-terminal", in: "live-workspace")
+    store.deleteTerminal(id: "backup-workspace-terminal", in: "backup-workspace")
+    store.bumpConnectionGenerationForTesting()
+    await router.releaseAllHeld()
+
+    let sentStaleQueuedDelete = try await pollUntil(attempts: 60) {
+        await router.count(of: "surface.close") > 1
+    }
+    #expect(sentStaleQueuedDelete == false)
+    let closeCount = await router.count(of: "surface.close")
+    #expect(closeCount == 1)
+    let rolledBackQueuedDeletes = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.workspaces.first(where: { $0.id.rawValue == "live-workspace" })?.terminals.map(\.id.rawValue) == ["backup-terminal"]
+            && store.workspaces.first(where: { $0.id.rawValue == "backup-workspace" })?.terminals.map(\.id.rawValue) == ["backup-workspace-terminal"]
+    }
+    let workspaceSnapshot = store.workspaces
+        .map { "\($0.id.rawValue):\($0.terminals.map(\.id.rawValue))" }
+        .joined(separator: ", ")
+    #expect(rolledBackQueuedDeletes, "queued rollback state: \(workspaceSnapshot)")
 }

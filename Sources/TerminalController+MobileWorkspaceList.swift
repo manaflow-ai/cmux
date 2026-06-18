@@ -251,7 +251,8 @@ extension TerminalController {
     /// Mobile-gated close of one explicit workspace. The Mac remains
     /// authoritative: protected/last-workspace cases are rejected here and the
     /// phone refreshes afterward to snap back to the real list state.
-    func v2MobileWorkspaceClose(params: [String: Any]) -> V2CallResult {
+    func v2MobileWorkspaceClose(request: MobileHostRPCRequest) -> V2CallResult {
+        let params = request.params
         if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
@@ -271,19 +272,20 @@ extension TerminalController {
                 ])
                 return
             }
+            if MobileHostService.shared.workspaceCloseTicketAuthorizationError(
+                auth: request.auth,
+                workspaceID: workspaceID.uuidString
+            ) != nil {
+                result = mobileWorkspaceCloseProtectedResult(
+                    workspaceID: workspaceID,
+                    windowID: windowID
+                )
+                return
+            }
             guard tabManager.tabs.count > 1, tabManager.canCloseWorkspace(workspace) else {
-                result = .err(
-                    code: "protected",
-                    message: String(
-                        localized: "workspace.closeBlocked.message",
-                        defaultValue: "This workspace can't be closed right now."
-                    ),
-                    data: [
-                        "workspace_id": workspaceID.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
-                        "window_id": v2OrNull(windowID?.uuidString),
-                        "window_ref": v2Ref(kind: .window, uuid: windowID),
-                    ]
+                result = mobileWorkspaceCloseProtectedResult(
+                    workspaceID: workspaceID,
+                    windowID: windowID
                 )
                 return
             }
@@ -297,6 +299,25 @@ extension TerminalController {
             ])
         }
         return result
+    }
+
+    private func mobileWorkspaceCloseProtectedResult(
+        workspaceID: UUID,
+        windowID: UUID?
+    ) -> V2CallResult {
+        .err(
+            code: "protected",
+            message: String(
+                localized: "workspace.closeBlocked.message",
+                defaultValue: "This workspace can't be closed right now."
+            ),
+            data: [
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+            ]
+        )
     }
 
     /// The most recent activity line shown under a workspace row on the phone.

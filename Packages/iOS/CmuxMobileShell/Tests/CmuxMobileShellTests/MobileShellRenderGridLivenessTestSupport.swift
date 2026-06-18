@@ -66,6 +66,12 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var includeSecondWorkspace = false
+    private var includeSecondTerminal = false
+    private var failNextWorkspaceListRequest = false
+    private var failNextWorkspaceCloseRequest = false
+    private var failNextSurfaceCloseRequest = false
+    private var holdNextSurfaceCloseRequest = false
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -77,6 +83,30 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setIncludeSecondWorkspace(_ include: Bool) {
+        includeSecondWorkspace = include
+    }
+
+    func setIncludeSecondTerminal(_ include: Bool) {
+        includeSecondTerminal = include
+    }
+
+    func failNextWorkspaceListRefresh() {
+        failNextWorkspaceListRequest = true
+    }
+
+    func failNextWorkspaceClose() {
+        failNextWorkspaceCloseRequest = true
+    }
+
+    func failNextSurfaceClose() {
+        failNextSurfaceCloseRequest = true
+    }
+
+    func holdNextSurfaceClose() {
+        holdNextSurfaceCloseRequest = true
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -119,25 +149,28 @@ actor LivenessHostRouter {
     func response(method: String?, id: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": "Live Workspace",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "live-terminal",
-                                "title": "Terminal",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                ],
-            ])
+            if failNextWorkspaceListRequest {
+                failNextWorkspaceListRequest = false
+                return try? Self.errorFrame(id: id, message: "workspace list unavailable")
+            }
+            return try? Self.resultFrame(id: id, result: workspaceListResult())
+        case "workspace.close":
+            if failNextWorkspaceCloseRequest {
+                failNextWorkspaceCloseRequest = false
+                return try? Self.errorFrame(id: id, message: "workspace close failed")
+            }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "surface.close":
+            if holdNextSurfaceCloseRequest {
+                holdNextSurfaceCloseRequest = false
+                await park()
+                return nil
+            }
+            if failNextSurfaceCloseRequest {
+                failNextSurfaceCloseRequest = false
+                return try? Self.errorFrame(id: id, message: "surface close failed")
+            }
+            return try? Self.resultFrame(id: id, result: [:])
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
@@ -166,6 +199,54 @@ actor LivenessHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private func workspaceListResult() -> [String: Any] {
+        var liveTerminals: [[String: Any]] = [
+            [
+                "id": "live-terminal",
+                "title": "Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+        ]
+        if includeSecondTerminal {
+            liveTerminals.append([
+                "id": "backup-terminal",
+                "title": "Backup Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": false,
+            ])
+        }
+        var workspaces: [[String: Any]] = [
+            [
+                "id": "live-workspace",
+                "title": "Live Workspace",
+                "current_directory": "/Users/test/project",
+                "is_selected": true,
+                "terminals": liveTerminals,
+            ],
+        ]
+        if includeSecondWorkspace {
+            workspaces.append([
+                "id": "backup-workspace",
+                "title": "Backup Workspace",
+                "current_directory": "/Users/test/backup",
+                "is_selected": false,
+                "terminals": [
+                    [
+                        "id": "backup-workspace-terminal",
+                        "title": "Backup",
+                        "current_directory": "/Users/test/backup",
+                        "is_ready": true,
+                        "is_focused": true,
+                    ],
+                ],
+            ])
+        }
+        return ["workspaces": workspaces]
     }
 
     private func park() async {
@@ -310,7 +391,7 @@ final class OutputCollector {
     }
 }
 
-func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
+func makeTicket(clock: TestClock, authToken: String? = nil) throws -> CmxAttachTicket {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -321,8 +402,10 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         terminalID: "live-terminal",
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
-        expiresAt: clock.now.addingTimeInterval(3600)
+        expiresAt: clock.now.addingTimeInterval(3600),
+        authToken: authToken
     )
 }
 
@@ -374,7 +457,8 @@ func makeConnectedStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
+    probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    authToken: String? = "test-attach-token"
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -383,7 +467,7 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(runtime: runtime)
     store.signIn()
-    let ticket = try makeTicket(clock: clock)
+    let ticket = try makeTicket(clock: clock, authToken: authToken)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
     return store

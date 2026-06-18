@@ -13011,12 +13011,14 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
+        case "surface.close":
+            result = v2MobileSurfaceClose(request: request)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
-            result = v2MobileWorkspaceClose(params: request.params)
+            result = v2MobileWorkspaceClose(request: request)
         case "workspace.group.collapse":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
@@ -13133,8 +13135,10 @@ class TerminalController {
         let status = MobileHostService.shared.statusSnapshot()
         // Single source of truth shared with the mobile listener's public-status
         // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
-        // the iOS client uses to show or hide rename/pin.
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler),
+        // workspace.close.v1 (workspace row delete), and mobile.delete.v1 (the
+        // terminal row surface-close wrapper), which the iOS client uses to show
+        // or hide row actions.
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
@@ -13509,6 +13513,93 @@ class TerminalController {
             params: params,
             tabManager: tabManager,
             createdTerminalID: terminal.id.uuidString
+        )
+    }
+
+    private func v2MobileSurfaceClose(request: MobileHostRPCRequest) -> V2CallResult {
+        let params = request.params
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard v2UUID(params, "workspace_id") != nil else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        switch mobileTerminalAliasUUID(params: params) {
+        case .value:
+            break
+        case .missing, .invalid:
+            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
+        case .conflict:
+            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false),
+              let surfaceId = resolved.surfaceId,
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        let windowID = v2ResolveWindowId(tabManager: resolved.tabManager)
+        if MobileHostService.shared.surfaceCloseTicketAuthorizationError(
+            auth: request.auth,
+            workspaceID: resolved.workspace.id.uuidString,
+            surfaceID: surfaceId.uuidString
+        ) != nil {
+            return mobileSurfaceCloseProtectedResult(
+                workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId,
+                windowID: windowID
+            )
+        }
+
+        if resolved.workspace.panels.count <= 1 {
+            var closeWorkspaceParams = params
+            closeWorkspaceParams["workspace_id"] = resolved.workspace.id.uuidString
+            let closeWorkspaceRequest = MobileHostRPCRequest(
+                id: request.id,
+                method: "workspace.close",
+                params: closeWorkspaceParams,
+                auth: request.auth
+            )
+            return v2MobileWorkspaceClose(request: closeWorkspaceRequest)
+        }
+
+        // `mobileHostHandleRPC` already runs on the main actor and the surface is
+        // resolved above, so close it directly through the surviving primitive.
+        // The generic `surface.close` handler now lives in the control-socket
+        // coordinator; force past close-confirmation gating since the socket API
+        // is non-interactive.
+        guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceId, force: true) else {
+            return .err(code: "internal_error", message: "Failed to close surface", data: ["surface_id": surfaceId.uuidString])
+        }
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: resolved.workspace.id),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "window_id": v2OrNull(windowID?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowID),
+        ])
+    }
+
+    private func mobileSurfaceCloseProtectedResult(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        windowID: UUID?
+    ) -> V2CallResult {
+        .err(
+            code: "protected",
+            message: String(
+                localized: "workspace.closeBlocked.message",
+                defaultValue: "This workspace can't be closed right now."
+            ),
+            data: [
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                "surface_id": surfaceID.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceID),
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+            ]
         )
     }
 

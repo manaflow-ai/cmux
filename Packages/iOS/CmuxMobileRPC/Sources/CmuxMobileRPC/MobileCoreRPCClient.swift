@@ -245,11 +245,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let requestedWorkspaceID = stringParamSelection(params, keys: ["workspace_id"])
+        let requestedTerminalID = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
-        if workspaceSelection.hasConflict ||
-            terminalSelection.hasConflict ||
+        if requestedWorkspaceID.hasConflict ||
+            requestedTerminalID.hasConflict ||
             ticketCoverage.containsIgnoredAliasParameters(params) {
             return true
         }
@@ -262,10 +262,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
-                workspaceSelection: workspaceSelection.value
+                requestedWorkspaceID: requestedWorkspaceID.value
             )
         case "mobile.terminal.create", "terminal.create":
             return false
+        case "surface.close":
+            return !ticketCoverage.ticketCoversTerminalRequest(
+                ticket: ticket,
+                requestedWorkspaceID: requestedWorkspaceID.value,
+                requestedTerminalID: requestedTerminalID.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
@@ -273,8 +279,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.viewport", "terminal.viewport":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
-                workspaceSelection: workspaceSelection.value,
-                terminalSelection: terminalSelection.value
+                requestedWorkspaceID: requestedWorkspaceID.value,
+                requestedTerminalID: requestedTerminalID.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false

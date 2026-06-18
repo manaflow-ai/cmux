@@ -22,15 +22,13 @@ struct WorkspaceDetailContainer: View {
         return store.selectedWorkspace
     }
 
-    /// Close-workspace closure for the detail top-bar menu. Present only when the
-    /// connected Mac advertises `workspace.close.v1`, matching the workspace
-    /// list's gating so the menu item stays hidden on older Macs. Built as an
-    /// explicit closure literal (the compiler fails to type-check a
-    /// method-reference ternary inside the large `WorkspaceDetailView` init).
+    /// Close-workspace closure for the detail top-bar menu. Uses the same
+    /// serialized delete path as the workspace list so selection moves to a
+    /// neighbor before the remote close reconciles.
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions else { return nil }
+        guard store.supportsWorkspaceDeleteActions else { return nil }
         let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
+        return { id in store.deleteWorkspace(id: id) }
     }
 
     var body: some View {
@@ -41,7 +39,12 @@ struct WorkspaceDetailContainer: View {
                 workspace: workspace,
                 store: store,
                 createWorkspace: createWorkspace,
-                createTerminal: { store.createTerminal(in: workspace.id) },
+                createTerminal: {
+                    store.createTerminal(in: workspace.id)
+                },
+                deleteTerminal: { workspaceID, terminalID in
+                    store.deleteTerminal(id: terminalID, in: workspaceID)
+                },
                 closeWorkspace: closeWorkspaceClosure,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,

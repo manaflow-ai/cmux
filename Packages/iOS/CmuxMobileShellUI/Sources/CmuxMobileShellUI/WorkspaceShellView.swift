@@ -231,10 +231,17 @@ struct WorkspaceShellView: View {
         return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
     }
 
+    // Workspace row swipe-delete routes through `store.deleteWorkspace`, the same
+    // serialized mutation path the terminal picker uses (neighbor pre-selection
+    // before the close RPC, offline local removal, and selection restore + error
+    // copy on failure). The store gate includes both the host capability and
+    // the active attach-token authorization needed by the close RPC.
+    // `deleteWorkspace` is @MainActor and synchronous (it enqueues its own
+    // remote task), so the closure calls it directly.
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions else { return nil }
+        guard store.supportsWorkspaceDeleteActions else { return nil }
         let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
+        return { id in store.deleteWorkspace(id: id) }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real

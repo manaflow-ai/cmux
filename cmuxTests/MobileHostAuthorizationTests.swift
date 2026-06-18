@@ -651,6 +651,312 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
+    @Test func testWorkspaceScopedAttachTicketAcceptsWorkspaceCloseInWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+
+    @Test func testWorkspaceScopedAttachTicketRejectsWorkspaceCloseOutsideWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "other-workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testTerminalScopedAttachTicketRejectsWorkspaceCloseWithoutTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testTerminalScopedAttachTicketRejectsWorkspaceCloseWithTerminalAlias() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-close",
+            method: "workspace.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testWorkspaceCloseScopeHelperRejectsTerminalScopedAttachTicket() async throws {
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let payload = try await service.createAttachTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let error = service.workspaceCloseTicketAuthorizationError(
+            auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil),
+            workspaceID: "workspace"
+        )
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testMobileWorkspaceCloseHandlerProtectsTerminalScopedAttachTicket() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let payload = try await service.createAttachTicket(
+            workspaceID: workspace.id.uuidString,
+            terminalID: terminal.id.uuidString,
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-close",
+                method: "workspace.close",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil)
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            return #expect(Bool(false), "Terminal-scoped workspace.close should be protected")
+        }
+        #expect(error.code == "protected")
+        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    @Test func testMobileLastSurfaceCloseHandlerProtectsTerminalScopedWorkspaceTeardown() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let payload = try await service.createAttachTicket(
+            workspaceID: workspace.id.uuidString,
+            terminalID: terminal.id.uuidString,
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "surface-close",
+                method: "surface.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminal.id.uuidString,
+                ],
+                auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil)
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            return #expect(Bool(false), "Last-terminal surface.close should not tear down a terminal-scoped workspace")
+        }
+        #expect(error.code == "protected")
+        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
+        #expect(workspace.terminalPanel(for: terminal.id) != nil)
+    }
+
+    @Test func testMobileSurfaceCloseHandlerProtectsOtherTerminalInScopedWorkspace() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let service = MobileHostService.shared
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let allowedTerminal = try #require(workspace.focusedTerminalPanel)
+        let paneID = try #require(
+            workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        )
+        let otherTerminal = try #require(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        let payload = try await service.createAttachTicket(
+            workspaceID: workspace.id.uuidString,
+            terminalID: allowedTerminal.id.uuidString,
+            ttl: 3600
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "surface-close",
+                method: "surface.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": otherTerminal.id.uuidString,
+                ],
+                auth: MobileHostRPCAuth(attachToken: authToken, stackAccessToken: nil)
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            return #expect(Bool(false), "Terminal-scoped surface.close should not close a different terminal")
+        }
+        #expect(error.code == "protected")
+        #expect(workspace.terminalPanel(for: allowedTerminal.id) != nil)
+        #expect(workspace.terminalPanel(for: otherTerminal.id) != nil)
+    }
+
+    @Test func testTerminalScopedAttachTicketAcceptsSurfaceCloseForNamedTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+
+    @Test func testTerminalScopedAttachTicketRejectsSurfaceCloseForOtherTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "other-terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
+    @Test func testWorkspaceScopedAttachTicketRejectsSurfaceCloseOutsideWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "surface-close",
+            method: "surface.close",
+            params: [
+                "workspace_id": "other-workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
     @Test func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
         let request = MobileHostRPCRequest(
@@ -1060,6 +1366,9 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
+        // iOS gates terminal swipe-delete on `mobile.delete.v1`; workspace
+        // swipe-delete can also use `workspace.close.v1` for older compatible Macs.
+        #expect(capabilities.contains("mobile.delete.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
     }
 

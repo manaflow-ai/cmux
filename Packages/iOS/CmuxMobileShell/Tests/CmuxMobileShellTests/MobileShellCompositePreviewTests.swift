@@ -106,6 +106,46 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
     }
 
+    @Test func deleteSelectedWorkspaceSelectsNeighbor() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.deleteWorkspace(id: "workspace-main")
+
+        #expect(store.workspaces.map(\.id.rawValue) == ["workspace-docs"])
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+    }
+
+    @Test func deleteSelectedTerminalSelectsNeighbor() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.deleteTerminal(id: "terminal-build", in: "workspace-main")
+
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+        #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["terminal-agent", "terminal-tui"])
+        #expect(store.selectedTerminalID?.rawValue == "terminal-agent")
+    }
+
+    @Test func deleteLastTerminalClosesWorkspaceAndSelectsNeighbor() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        store.selectedWorkspaceID = "workspace-docs"
+
+        store.deleteTerminal(id: "terminal-notes", in: "workspace-docs")
+
+        #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main"])
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-build")
+    }
+
     @Test func createdTerminalIsAutoFocusSuppressedUntilConsumed() throws {
         let store = MobileShellComposite.preview()
         store.signIn()

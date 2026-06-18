@@ -262,7 +262,8 @@ struct WorkspaceListView: View {
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,
             setUnread: setUnread,
-            closeWorkspace: requestWorkspaceClose,
+            closeWorkspace: closeWorkspace,
+            requestCloseWorkspaceConfirmation: requestWorkspaceCloseConfirmation,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
                 confirmCloseWorkspace()
@@ -332,7 +333,7 @@ struct WorkspaceListView: View {
         #endif
     }
 
-    private var requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? {
+    private var requestWorkspaceCloseConfirmation: ((MobileWorkspacePreview.ID) -> Void)? {
         guard closeWorkspace != nil else {
             return nil
         }

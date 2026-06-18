@@ -342,9 +342,9 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated else { return }
-        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-        guard !startedUITestAttachURL,
+        let startedInjectedAttachURL = connectUITestAttachURLIfNeeded()
+        guard !startedInjectedAttachURL,
+              isAuthenticated,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
@@ -474,15 +474,19 @@ struct CMUXMobileRootView: View {
         //     kept intact for the XCUITest harness.
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
+        let dogfoodAttachURL = UITestConfig.dogfoodAttachURL
+        let injectedAttachURL: String?
+        if isAuthenticated, let dogfoodAttachURL {
+            injectedAttachURL = dogfoodAttachURL
+        } else {
+            injectedAttachURL = UITestConfig.attachURL
+        }
         guard !didConsumeUITestAttachURL,
-              isAuthenticated,
-              let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
+              let attachURL = injectedAttachURL else {
             return false
         }
         didConsumeUITestAttachURL = true
-        Task {
-            await store.connectPairingURL(attachURL)
-        }
+        connectAttachURL(attachURL)
         return true
         #else
         return false

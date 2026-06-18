@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let deleteActionsCapability = "mobile.delete.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
@@ -218,6 +219,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the current connection can authorize workspace delete requests.
+    ///
+    /// The Mac may advertise the close capability over a v2 QR connection that
+    /// has no attach token; scoped close RPCs intentionally reject that path, so
+    /// the UI must hide delete affordances until a minted token is present.
+    public var supportsWorkspaceDeleteActions: Bool {
+        hasActiveUnexpiredAttachTicket &&
+            (supportedHostCapabilities.contains(Self.workspaceCloseCapability) ||
+                supportedHostCapabilities.contains(Self.deleteActionsCapability))
+    }
+    /// Whether the current connection can authorize terminal delete requests.
+    ///
+    /// Terminal delete needs the mobile `surface.close` wrapper and an unexpired
+    /// attach token that the Mac can validate for the scoped close.
+    public var supportsDeleteActions: Bool {
+        hasActiveUnexpiredAttachTicket &&
+            supportedHostCapabilities.contains(Self.deleteActionsCapability)
+    }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
@@ -326,7 +345,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// terminals keeps each draft's own attachments (mirroring how the text draft
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
     /// Sent in order on the next submit and then cleared for that terminal.
-    private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+    var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
 
     /// Max number of staged attachments per terminal. Enforced in
     /// ``addPendingAttachment(_:format:forTerminalID:)`` against the CURRENT
@@ -460,7 +479,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the selection. A freshly created terminal therefore never steals the
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
-    private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     private let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
@@ -578,6 +597,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
+    var deleteMutationTask: Task<Void, Never>?
+    @ObservationIgnored var pendingDeleteRollbackHandlers: [
+        (id: UUID, rollback: @MainActor @Sendable () -> Void)
+    ]
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
@@ -585,7 +608,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
-    private var connectionGeneration: UUID
+    var deleteMutationTaskID: UUID?
+    var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -710,10 +734,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
+        self.deleteMutationTask = nil
+        self.pendingDeleteRollbackHandlers = []
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
+        self.deleteMutationTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
@@ -3135,6 +3162,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// production without standing up the full handshake.
     func bumpConnectionGenerationForTesting() {
         connectionGeneration = UUID()
+        rollbackPendingDeleteMutations()
     }
 
     /// Clear the sent text from wherever it now lives after a successful
@@ -3552,6 +3580,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         createTerminalTask = nil
         createTerminalTaskID = nil
+        rollbackPendingDeleteMutations()
+        deleteMutationTask?.cancel()
+        deleteMutationTask = nil
+        deleteMutationTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
@@ -3700,6 +3732,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = nil
     }
 
+    func applyDeleteError(message: String, guidance: String) {
+        connectionError = message
+        connectionErrorGuidance = guidance
+    }
+
     private func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
@@ -3822,12 +3859,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
     }
 
-    private func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
+    func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
         isCurrentRemoteConnection(client: client, generation: generation)
             && connectionState == .connected
     }
 
-    private func isCurrentRemoteConnection(client: MobileCoreRPCClient, generation: UUID) -> Bool {
+    func isCurrentRemoteConnection(client: MobileCoreRPCClient, generation: UUID) -> Bool {
         generation == connectionGeneration
             && client === remoteClient
             && isSignedIn
@@ -3869,7 +3906,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
-    private func syncSelectedTerminalForWorkspace() {
+    func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
@@ -5297,11 +5334,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 
-    private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
+    func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
         selectedWorkspaceID = id
     }
 
-    private func applyRemoteWorkspaceList(
+    func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false

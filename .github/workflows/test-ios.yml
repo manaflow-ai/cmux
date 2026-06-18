@@ -188,6 +188,53 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          has_ios_runtime() {
+            python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          try:
+              data = json.loads(subprocess.check_output([
+                  "xcrun", "simctl", "list", "runtimes", "available", "-j"
+              ], stderr=subprocess.DEVNULL))
+          except Exception:
+              sys.exit(1)
+
+          def is_ios_runtime(runtime):
+              platform = runtime.get("platform", "")
+              identifier = runtime.get("identifier", "")
+              name = runtime.get("name", "")
+              return (
+                  platform in {"iOS", "com.apple.platform.iphonesimulator"}
+                  or identifier.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                  or name.startswith("iOS ")
+              )
+
+          sys.exit(0 if any(
+              runtime.get("isAvailable", True) and is_ios_runtime(runtime)
+              for runtime in data.get("runtimes", [])
+          ) else 1)
+          PY
+          }
+
+          if has_ios_runtime; then
+            echo "iOS simulator runtime already available"
+            exit 0
+          fi
+
+          echo "No installed iOS simulator runtime; downloading iOS platform for ${DEVELOPER_DIR}"
+          xcodebuild -downloadPlatform iOS
+          if ! has_ios_runtime; then
+            echo "No available iOS simulator runtime after xcodebuild -downloadPlatform iOS" >&2
+            xcrun simctl list runtimes -j >&2 || true
+            exit 1
+          fi
+
       - name: Install zig
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
@@ -223,7 +270,45 @@ jobs:
           prefix = "iPad" if family == "ipad" else "iPhone"
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
-          selected = selected or next(d for d in devices if d.get("name", "").startswith(prefix))
+          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          if selected is None:
+              runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "available", "-j"])).get("runtimes", [])
+              def is_ios_runtime(runtime):
+                  platform = runtime.get("platform", "")
+                  identifier = runtime.get("identifier", "")
+                  name = runtime.get("name", "")
+                  return (
+                      platform in {"iOS", "com.apple.platform.iphonesimulator"}
+                      or identifier.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                      or name.startswith("iOS ")
+                  )
+              ios_runtimes = [r for r in runtimes if r.get("isAvailable", True) and is_ios_runtime(r)]
+              if not ios_runtimes:
+                  raise SystemExit("No available iOS simulator runtimes")
+              def version_key(runtime):
+                  return tuple(int(part) if part.isdigit() else 0 for part in runtime.get("version", "0").split("."))
+              runtime = max(ios_runtimes, key=version_key)
+              supported = {
+                  item.get("identifier") if isinstance(item, dict) else item
+                  for item in (runtime.get("supportedDeviceTypes") or [])
+              }
+              supported.discard(None)
+              device_types = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"])).get("devicetypes", [])
+              candidates = [
+                  device_type
+                  for device_type in device_types
+                  if device_type.get("name", "").startswith(prefix)
+                  and (not supported or device_type.get("identifier") in supported)
+              ]
+              device_type = next((d for name in preferred for d in candidates if d.get("name") == name), None)
+              device_type = device_type or next(iter(candidates), None)
+              if device_type is None:
+                  raise SystemExit(f"No available {prefix} simulator device types for {runtime.get('name', 'iOS')}")
+              name = f"{device_type['name']} (cmux CI)"
+              udid = subprocess.check_output([
+                  "xcrun", "simctl", "create", name, device_type["identifier"], runtime["identifier"]
+              ], text=True).strip()
+              selected = {"udid": udid, "name": name}
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
