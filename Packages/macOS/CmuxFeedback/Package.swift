@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxFeedback",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -16,6 +17,10 @@ let package = Package(
     targets: [
         .target(
             name: "CmuxFeedback",
+            resources: [
+                // Folded from CmuxFeedbackUI: the composer's localized strings.
+                .process("ComposerUI/Resources"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
