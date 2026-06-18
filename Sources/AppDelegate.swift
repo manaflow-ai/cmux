@@ -554,14 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
-        var closeObserver: NSObjectProtocol?
+        var closeObserver: MainWindowCloseObserver?
         weak var window: NSWindow?
-
-        deinit {
-            if let closeObserver {
-                NotificationCenter.default.removeObserver(closeObserver)
-            }
-        }
 
         init(
             windowId: UUID,
@@ -4529,7 +4523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
-            installMainWindowCloseObserver(for: existing, window: window)
+            existing.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4567,7 +4561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
-            installMainWindowCloseObserver(for: existing, window: window)
+            existing.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
             tabManager.window = window
             tabManager.windowId = windowId
@@ -4581,7 +4575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window: window
             )
             mainWindowContexts[key] = context
-            installMainWindowCloseObserver(for: context, window: window)
+            context.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
@@ -4605,26 +4599,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
-    }
-
-    private func installMainWindowCloseObserver(for context: MainWindowContext, window: NSWindow) {
-        if let closeObserver = context.closeObserver {
-            NotificationCenter.default.removeObserver(closeObserver)
-        }
-        context.closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] note in
-            guard let self, let closing = note.object as? NSWindow else { return }
-            self.unregisterMainWindow(closing)
-        }
-    }
-
-    private func removeMainWindowCloseObserver(from context: MainWindowContext) {
-        guard let closeObserver = context.closeObserver else { return }
-        NotificationCenter.default.removeObserver(closeObserver)
-        context.closeObserver = nil
     }
 
 #if DEBUG
@@ -5901,7 +5875,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
-        removeMainWindowCloseObserver(from: removed)
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
         }
@@ -5915,7 +5888,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
-        removeMainWindowCloseObserver(from: context)
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }

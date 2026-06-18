@@ -781,10 +781,6 @@ extension FeedButton.Kind: CaseIterable, Identifiable {
 final class FeedButtonStyleDebugWindowController: ReleasingWindowController {
     static let shared = FeedButtonStyleDebugWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 650),
@@ -806,9 +802,6 @@ final class FeedButtonStyleDebugWindowController: ReleasingWindowController {
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
 
     func show() {
         showManagedWindow()

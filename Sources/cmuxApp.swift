@@ -1568,10 +1568,6 @@ private enum DebugWindowConfigSnapshot {
 private final class DebugWindowControlsWindowController: ReleasingWindowController {
     static let shared = DebugWindowControlsWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
@@ -1588,11 +1584,6 @@ private final class DebugWindowControlsWindowController: ReleasingWindowControll
         window.contentView = NSHostingView(rootView: DebugWindowControlsView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 
     func show() {
@@ -1830,10 +1821,6 @@ private struct DebugWindowControlsView: View {
 private final class BrowserImportHintDebugWindowController: ReleasingWindowController {
     static let shared = BrowserImportHintDebugWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
@@ -1852,11 +1839,6 @@ private final class BrowserImportHintDebugWindowController: ReleasingWindowContr
         return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
     func show() {
         showManagedWindow()
     }
@@ -1864,10 +1846,6 @@ private final class BrowserImportHintDebugWindowController: ReleasingWindowContr
 
 private final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
     static let shared = BrowserProfilePopoverDebugWindowController()
-
-    private override init() {
-        super.init()
-    }
 
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
@@ -1888,11 +1866,6 @@ private final class BrowserProfilePopoverDebugWindowController: ReleasingWindowC
         window.contentView = NSHostingView(rootView: BrowserProfilePopoverDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 
     func show() {
@@ -2237,10 +2210,6 @@ private struct BrowserImportHintDebugView: View {
 private final class AboutWindowController: ReleasingWindowController {
     static let shared = AboutWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
@@ -2254,11 +2223,6 @@ private final class AboutWindowController: ReleasingWindowController {
         AppDelegate.shared?.aboutTitlebarDebugStore.applyCurrentOptions(to: window, for: .about)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 
     func show() {

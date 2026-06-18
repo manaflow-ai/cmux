@@ -122,9 +122,9 @@ final class MainWindowVisibilityController {
     }
 
     private var dependencies: Dependencies
-    private var appHiddenWindowRestoreTargets: [NSWindow] = []
-    private var dismissedWindowRestoreTargets: [NSWindow] = []
-    private var pendingApplicationActivationKeyRestoreTarget: NSWindow?
+    var appHiddenWindowRestoreTargets: [NSWindow] = []
+    var dismissedWindowRestoreTargets: [NSWindow] = []
+    var pendingApplicationActivationKeyRestoreTarget: NSWindow?
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -223,15 +223,6 @@ final class MainWindowVisibilityController {
             dependencies.windowOperations.isVisible(window) && !dependencies.windowOperations.isMiniaturized(window)
         }
         log("hide.capture", reason: reason, windows: appHiddenWindowRestoreTargets)
-    }
-
-    func discardClosedWindow(_ window: NSWindow) {
-        appHiddenWindowRestoreTargets.removeAll { $0 === window }
-        dismissedWindowRestoreTargets.removeAll { $0 === window }
-        if pendingApplicationActivationKeyRestoreTarget === window {
-            pendingApplicationActivationKeyRestoreTarget = nil
-        }
-        log("discardClosed", reason: .titlebarDismiss, windows: [window])
     }
 
     func dismissWindows(
@@ -493,7 +484,7 @@ final class MainWindowVisibilityController {
         return result
     }
 
-    private func log(_ event: String, reason: Reason, windows: [NSWindow]) {
+    func log(_ event: String, reason: Reason, windows: [NSWindow]) {
 #if DEBUG
         let windowTokens = windows.map { window -> String in
             let id = window.identifier?.rawValue ?? "<nil>"
