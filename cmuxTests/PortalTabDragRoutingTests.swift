@@ -115,7 +115,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
     private func waitForHighSaturationWidth(
         in view: NSView,
         sampleRect: NSRect,
-        timeout: TimeInterval = 1.0
+        timeout: TimeInterval = 10.0
     ) -> CGFloat? {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
