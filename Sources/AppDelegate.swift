@@ -2082,16 +2082,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for panel in workspace.panels.values {
                     guard let terminalPanel = panel as? TerminalPanel else { continue }
                     let surface = terminalPanel.surface
-                    guard surface.hasLiveSurface else { continue }
-                    let ttyName = surface.controllingTTYName()?
+                    let hasLiveSurface = surface.hasLiveSurface
+                    let ttyName = hasLiveSurface ? surface.controllingTTYName()?
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                        : nil
                     descriptors.append(PaneMemoryDescriptor(
                         workspaceId: workspace.id,
                         panelId: terminalPanel.id,
                         workspaceTitle: workspaceTitle,
                         paneTitle: terminalPanel.displayTitle,
                         ttyName: ttyName?.isEmpty == false ? ttyName : nil,
-                        foregroundPID: surface.foregroundProcessID()
+                        foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
                     ))
                 }
             }
