@@ -8364,7 +8364,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// the storage convention and at the `CmuxSurfaceType.note` public surface
     /// type. Note metadata lives in `<project>/.cmux/notes/index.json`; legacy
     /// `.cmux/notes/<slug>.md` files are still opened through the same store.
-    @discardableResult
+    @MainActor @discardableResult
     func newNoteSurface(
         inPane paneId: PaneID,
         slug: String,
@@ -8384,7 +8384,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    @discardableResult
+    @MainActor @discardableResult
     func openAttachedNoteForSurface(
         inPane paneId: PaneID,
         panelId: UUID,
@@ -8419,7 +8419,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    @discardableResult
+    @MainActor @discardableResult
     func openAttachedNoteForWorkspace(
         inPane paneId: PaneID,
         focus: Bool = true
@@ -8438,7 +8438,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    @discardableResult
+    @MainActor @discardableResult
     func openOrCreateNoteSurface(
         inPane paneId: PaneID,
         slug: String?,

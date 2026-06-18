@@ -1,4 +1,4 @@
-import CmuxFileWatch
+import CmuxFoundation
 import Foundation
 import SwiftUI
 

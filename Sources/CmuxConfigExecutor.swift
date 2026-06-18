@@ -1,5 +1,5 @@
 import AppKit
-import CmuxSocketControl
+import CmuxSettings
 import Foundation
 
 enum CmuxGitDiffAvailability {
