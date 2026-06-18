@@ -262,6 +262,6 @@ final class NotificationAuthorizationDeliveryTests {
         }
 
         #expect(store.authorizationState == .authorized)
-        #expect(feedbackTitles == ["Recordless 2"])
+        #expect(feedbackTitles == ["Recordless 1", "Recordless 2"])
     }
 }
