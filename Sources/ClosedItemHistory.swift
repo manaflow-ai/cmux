@@ -257,18 +257,20 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        let allItems = records.reversed().map(Self.menuItem(for:))
-        if let maxItemCount, maxItemCount >= 0, allItems.count > maxItemCount {
+        // Build items only for the records the menu will show — this runs in
+        // the App commands body on every menu rebuild, and `records` is
+        // unbounded persisted history.
+        if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
-                items: Array(allItems.prefix(maxItemCount)),
-                totalItemCount: allItems.count,
+                items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
+                totalItemCount: records.count,
                 isLimited: true
             )
         }
 
         return ClosedItemHistoryMenuSnapshot(
-            items: allItems,
-            totalItemCount: allItems.count,
+            items: records.reversed().map(Self.menuItem(for:)),
+            totalItemCount: records.count,
             isLimited: false
         )
     }
@@ -691,7 +693,13 @@ final class ClosedItemHistoryStore: ObservableObject {
         let candidates = [
             snapshot.customTitle,
             snapshot.title,
-            snapshot.directory.map { URL(fileURLWithPath: $0).lastPathComponent }
+            // String-only path math — NOT URL(fileURLWithPath:), which lstat()s
+            // the path to infer directory-ness. These snapshots can hold REMOTE
+            // working directories (closed remote-tmux tabs); stat'ing one on the
+            // main thread blocks on the autofs automounter (e.g. /home/…) for
+            // hundreds of ms per record, and this runs inside the App commands
+            // body on every menu rebuild.
+            snapshot.directory.map { ($0 as NSString).lastPathComponent }
         ]
         if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
             .first(where: { !$0.isEmpty }) {
@@ -737,7 +745,9 @@ final class ClosedItemHistoryStore: ObservableObject {
     private static func directoryTitleCandidate(_ directory: String) -> String? {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "." else { return nil }
-        return URL(fileURLWithPath: trimmed).lastPathComponent
+        // String-only path math — see title(for:): URL(fileURLWithPath:) would
+        // lstat() a possibly-remote path on the main thread.
+        return (trimmed as NSString).lastPathComponent
     }
 
     private static func normalizedTitleCandidate(_ candidate: String?) -> String? {
