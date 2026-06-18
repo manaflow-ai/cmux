@@ -7548,15 +7548,14 @@ struct CMUXCLI {
                 commandName
             ))
         }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+        if remaining.contains(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.create.error.unknownFlag",
-                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                    defaultValue: "%@: unknown flag. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
                 ),
                 locale: .current,
-                commandName,
-                unknown
+                commandName
             ))
         }
         var params: [String: Any] = [:]
@@ -7698,12 +7697,11 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.env.error.invalidAssignment",
-                    defaultValue: "%@: %@ entry '%@' must be in KEY=VALUE form"
+                    defaultValue: "%@: %@ entry must be in KEY=VALUE form"
                 ),
                 locale: .current,
                 commandName,
-                source,
-                raw
+                source
             ))
         }
         let key = String(raw[..<eq]).trimmingCharacters(in: .whitespaces)
@@ -7712,12 +7710,11 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.env.error.emptyKey",
-                    defaultValue: "%@: %@ entry '%@' has an empty key"
+                    defaultValue: "%@: %@ entry has an empty key"
                 ),
                 locale: .current,
                 commandName,
-                source,
-                raw
+                source
             ))
         }
         return (key, value)
@@ -7761,17 +7758,20 @@ struct CMUXCLI {
 
         let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+        if rem1.contains(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.env.error.unknownFlag",
-                    defaultValue: "workspace env: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask"
+                    defaultValue: "workspace env: unknown flag. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask"
                 ),
-                locale: .current,
-                unknown
+                locale: .current
             ))
         }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positionals = rem1.filter { !$0.hasPrefix("--") }
+        if positionals.count > 1 {
+            throw CLIError(message: String(localized: "cli.workspace.env.error.unexpectedExtraArgument", defaultValue: "workspace env: unexpected extra argument"))
+        }
+        let positional = positionals.first
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // Match reconnect/disconnect: default to the caller's workspace
         // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
@@ -8837,7 +8837,7 @@ struct CMUXCLI {
                 if destination == nil {
                     destination = arg
                 } else {
-                    throw CLIError(message: "ssh-tmux: unexpected extra argument '\(arg)'")
+                    throw CLIError(message: String(localized: "cli.ssh-tmux.error.unexpectedExtraArgument", defaultValue: "ssh-tmux: unexpected extra argument"))
                 }
                 index += 1
             }
