@@ -262,7 +262,7 @@ extension TerminalController: ControlSystemContext {
                 }
             }
 
-            FeedbackComposerBridge.openComposer(in: targetWindow)
+            FeedbackComposerBridge().openComposer(in: targetWindow)
         }
     }
 

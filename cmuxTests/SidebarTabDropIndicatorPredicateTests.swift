@@ -8,7 +8,7 @@ import CmuxFoundation
 @testable import cmux
 #endif
 
-/// Tests for `SidebarTabDropIndicatorPredicate.topVisible(forTabId:draggedTabId:dropIndicator:tabIds:)`.
+/// Tests for `SidebarTabDropIndicatorPredicate().topVisible(forTabId:draggedTabId:dropIndicator:tabIds:)`.
 ///
 /// This predicate is the snapshot the parent computes for each sidebar row to
 /// decide whether to draw the drop-line indicator above it. Lifting it out of
@@ -18,7 +18,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
     func testReturnsFalseWhenNoDragInProgress() {
         let rowId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: rowId,
                 draggedTabId: nil,
                 dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .top),
@@ -31,7 +31,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
     func testReturnsFalseWhenNoIndicator() {
         let rowId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: rowId,
                 draggedTabId: rowId,
                 dropIndicator: nil,
@@ -44,7 +44,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         let rowId = UUID()
         let draggedId = UUID()
         XCTAssertTrue(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: rowId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .top),
@@ -59,7 +59,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         // A .bottom indicator on this row paints the indicator above the *next*
         // row, not above this one.
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: rowId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .bottom),
@@ -76,7 +76,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         // above row 1, even though the indicator semantically points at row 0
         // with .bottom.
         XCTAssertTrue(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: middleId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: firstId, edge: .bottom),
@@ -90,7 +90,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         let otherId = UUID()
         let draggedId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: rowId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: otherId, edge: .top),
@@ -105,7 +105,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         let firstId = UUID()
         let draggedId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: firstId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: UUID(), edge: .bottom),
@@ -120,7 +120,7 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         let strayId = UUID()
         let draggedId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.topVisible(
+            SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: strayId,
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: UUID(), edge: .bottom),
@@ -130,13 +130,13 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
     }
 }
 
-/// Tests for `SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(...)`.
+/// Tests for `SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(...)`.
 /// The "empty area" sits below the workspace list and shows an indicator when
 /// the drop will append at the end of the list.
 final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
     func testReturnsFalseWhenNoDragInProgress() {
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: nil,
                 dropIndicator: SidebarDropIndicator(tabId: nil, edge: .top),
                 lastTabId: UUID()
@@ -146,7 +146,7 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
 
     func testReturnsFalseWhenNoIndicator() {
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: nil,
                 lastTabId: UUID()
@@ -158,7 +158,7 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
         // tabId == nil means "after the last row" — the empty area shows the
         // indicator regardless of which row was last.
         XCTAssertTrue(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: nil, edge: .top),
                 lastTabId: UUID()
@@ -169,7 +169,7 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
     func testReturnsTrueWhenIndicatorTargetsLastRowBottomEdge() {
         let lastId = UUID()
         XCTAssertTrue(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: lastId, edge: .bottom),
                 lastTabId: lastId
@@ -182,7 +182,7 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
         // row, not below — so the empty area below it should stay clear.
         let lastId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: lastId, edge: .top),
                 lastTabId: lastId
@@ -194,7 +194,7 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
         let middleId = UUID()
         let lastId = UUID()
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: middleId, edge: .bottom),
                 lastTabId: lastId
@@ -204,58 +204,12 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
 
     func testReturnsFalseWhenListIsEmpty() {
         XCTAssertFalse(
-            SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: UUID(), edge: .bottom),
                 lastTabId: nil
             )
         )
-    }
-}
-
-/// Tests for `SidebarDragState` (the @MainActor @Observable bag that owns
-/// the per-window drag transient state).
-@MainActor
-final class SidebarDragStateTests: XCTestCase {
-    func testInitialStateIsCleared() {
-        let state = SidebarDragState()
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertNil(state.dropIndicator)
-    }
-
-    func testIndependentMutationOfEachProperty() {
-        // Per-property invariant the PR depends on: writes to one field must
-        // not silently disturb the other. Verifies the @Observable container
-        // doesn't enforce coupled updates.
-        let state = SidebarDragState()
-        let tabId = UUID()
-        let indicator = SidebarDropIndicator(tabId: tabId, edge: .top)
-
-        state.draggedTabId = tabId
-        XCTAssertEqual(state.draggedTabId, tabId)
-        XCTAssertNil(state.dropIndicator)
-
-        state.dropIndicator = indicator
-        XCTAssertEqual(state.draggedTabId, tabId)
-        XCTAssertEqual(state.dropIndicator, indicator)
-
-        state.draggedTabId = nil
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertEqual(state.dropIndicator, indicator)
-    }
-
-    func testClearingBothLeavesStateIdle() {
-        // Mirror the `requestClear` notification handler: both fields go to
-        // nil and the state is back to its initial shape.
-        let state = SidebarDragState()
-        state.draggedTabId = UUID()
-        state.dropIndicator = SidebarDropIndicator(tabId: UUID(), edge: .bottom)
-
-        state.draggedTabId = nil
-        state.dropIndicator = nil
-
-        XCTAssertNil(state.draggedTabId)
-        XCTAssertNil(state.dropIndicator)
     }
 }
 
@@ -267,7 +221,7 @@ final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
     func testReturnsLiveWhenNoRowIsFrozen() {
         let rowId = UUID()
         XCTAssertTrue(
-            SidebarShortcutHintFreezePolicy.resolved(
+            SidebarShortcutHintFreezePolicy().resolved(
                 live: true,
                 currentTabId: rowId,
                 frozenTabId: nil,
@@ -275,7 +229,7 @@ final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            SidebarShortcutHintFreezePolicy.resolved(
+            SidebarShortcutHintFreezePolicy().resolved(
                 live: false,
                 currentTabId: rowId,
                 frozenTabId: nil,
@@ -287,7 +241,7 @@ final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
     func testReturnsFrozenWhenCurrentTabMatchesFrozenTab() {
         let rowId = UUID()
         XCTAssertFalse(
-            SidebarShortcutHintFreezePolicy.resolved(
+            SidebarShortcutHintFreezePolicy().resolved(
                 live: true,
                 currentTabId: rowId,
                 frozenTabId: rowId,
@@ -296,7 +250,7 @@ final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
             "When this row is frozen, the modifier flipping live should not surface."
         )
         XCTAssertTrue(
-            SidebarShortcutHintFreezePolicy.resolved(
+            SidebarShortcutHintFreezePolicy().resolved(
                 live: false,
                 currentTabId: rowId,
                 frozenTabId: rowId,
@@ -310,7 +264,7 @@ final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
         let frozenRow = UUID()
         let otherRow = UUID()
         XCTAssertTrue(
-            SidebarShortcutHintFreezePolicy.resolved(
+            SidebarShortcutHintFreezePolicy().resolved(
                 live: true,
                 currentTabId: otherRow,
                 frozenTabId: frozenRow,
