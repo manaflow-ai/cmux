@@ -23360,9 +23360,9 @@ struct CMUXCLI {
                     )
                 }
             }
-            // Register PID for stale detection; forks require authoritative non-snapshot surfaces.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative && !resolvedSurface.isProcessSnapshotBound
+            // Register PID for stale detection only on authoritative surfaces; forks also require non-snapshot surfaces.
+            let shouldRegisterPID = resolvedSurface.isAuthoritative && (isForkSessionLaunch
+                ? !resolvedSurface.isProcessSnapshotBound
                 : shouldPromoteActiveSession ||
                     shouldApplyClaudeHookVisibleMutation(
                         sessionStore: sessionStore,
@@ -23370,7 +23370,7 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
-                    )
+                    ))
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -23640,6 +23640,11 @@ struct CMUXCLI {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = hookClaudePid ?? mappedSession?.pid
                 var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+                guard mappedHookTargetIsReachable(mappedSession) || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else {
+                    telemetry.breadcrumb("claude-hook.auto-name.missing-target")
+                    print("OK")
+                    return
+                }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
