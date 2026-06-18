@@ -197,4 +197,65 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(statusProviderCalls == 1)
         #expect(store.authorizationState == .denied)
     }
+
+    @Test func suppressedFeedbackCoalescesStaleAuthorizationRefreshes() async {
+        let store = TerminalNotificationStore.shared
+        let originalAuthorizationState = store.authorizationState
+        var statusProviderCalls = 0
+        var pendingStatusCompletions: [(UNAuthorizationStatus) -> Void] = []
+        var effects = TerminalNotificationPolicyEffects()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.desktop = false
+        effects.sound = true
+        effects.command = true
+        effects.paneFlash = false
+        let first = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Recordless 1",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+        let second = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Recordless 2",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+
+        store.setAuthorizationStateForTesting(.unknown)
+        store.configureNotificationAuthorizationStatusProviderForTesting { completion in
+            statusProviderCalls += 1
+            pendingStatusCompletions.append(completion)
+        }
+        defer {
+            store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.setAuthorizationStateForTesting(originalAuthorizationState)
+        }
+
+        var authorizationUpdates = store.authorizationStateUpdates().makeAsyncIterator()
+        store.scheduleUserNotificationForTesting(first, effects: effects)
+        store.scheduleUserNotificationForTesting(second, effects: effects)
+
+        #expect(statusProviderCalls == 1)
+        #expect(pendingStatusCompletions.count == 1)
+
+        pendingStatusCompletions[0](.denied)
+        while let state = await authorizationUpdates.next() {
+            if state == .denied {
+                break
+            }
+        }
+
+        #expect(store.authorizationState == .denied)
+    }
 }

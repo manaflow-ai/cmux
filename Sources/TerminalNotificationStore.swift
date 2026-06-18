@@ -481,6 +481,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
+    private var fallbackAuthorizationRefreshInFlight = false
+    private var pendingFallbackAuthorizationRefreshCompletions: [(NotificationAuthorizationState) -> Void] = []
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -1888,17 +1890,31 @@ final class TerminalNotificationStore: ObservableObject {
             completion(Self.fallbackEffects(effects, authorizationState: .denied))
             return
         }
+        enqueueFallbackAuthorizationRefresh { state in
+            completion(Self.fallbackEffects(effects, authorizationState: state))
+        }
+    }
+
+    private func enqueueFallbackAuthorizationRefresh(
+        _ completion: @escaping (NotificationAuthorizationState) -> Void
+    ) {
+        pendingFallbackAuthorizationRefreshCompletions.append(completion)
+        guard !fallbackAuthorizationRefreshInFlight else { return }
+        fallbackAuthorizationRefreshInFlight = true
         notificationAuthorizationStatusProvider { [weak self] status in
             Task { @MainActor in
-                guard let self else {
-                    completion(effects)
-                    return
-                }
-                self.authorizationState = Self.authorizationState(from: status)
+                guard let self else { return }
+                let state = Self.authorizationState(from: status)
+                self.authorizationState = state
                 self.logAuthorization(
-                    "feedback status=\(Self.authorizationStatusLabel(status)) mapped=\(self.authorizationState.statusLabel)"
+                    "feedback status=\(Self.authorizationStatusLabel(status)) mapped=\(state.statusLabel)"
                 )
-                completion(Self.fallbackEffects(effects, authorizationState: self.authorizationState))
+                let completions = self.pendingFallbackAuthorizationRefreshCompletions
+                self.pendingFallbackAuthorizationRefreshCompletions.removeAll(keepingCapacity: false)
+                self.fallbackAuthorizationRefreshInFlight = false
+                for completion in completions {
+                    completion(state)
+                }
             }
         }
     }
@@ -2184,6 +2200,8 @@ final class TerminalNotificationStore: ObservableObject {
 
     func resetNotificationAuthorizationStatusProviderForTesting() {
         notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
+        fallbackAuthorizationRefreshInFlight = false
+        pendingFallbackAuthorizationRefreshCompletions.removeAll()
     }
 
     func configurePhoneForwardHandlerForTesting(
