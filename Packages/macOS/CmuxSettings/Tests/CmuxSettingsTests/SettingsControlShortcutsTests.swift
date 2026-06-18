@@ -237,6 +237,18 @@ struct SettingsControlShortcutsTests {
         #expect(UserDefaults(suiteName: harness.suiteName)!.object(forKey: legacyKey) == nil)
     }
 
+    @Test func resetAllClearsLegacyUserDefaultsShortcutOverrides() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        let legacyKey = "shortcut.openSettings"
+        let suite = UserDefaults(suiteName: harness.suiteName)!
+        suite.set(Data("legacy".utf8), forKey: legacyKey)
+        #expect(suite.object(forKey: legacyKey) != nil)
+
+        try await harness.engine.resetAll()
+        #expect(UserDefaults(suiteName: harness.suiteName)!.object(forKey: legacyKey) == nil)
+    }
+
     @Test func storedShortcutDecodesEveryJSONForm() {
         #expect(StoredShortcut.decodeFromJSON("cmd+t") == StoredShortcut(first: ShortcutStroke(key: "t", command: true)))
         #expect(StoredShortcut.decodeFromJSON(["ctrl+b", "c"])

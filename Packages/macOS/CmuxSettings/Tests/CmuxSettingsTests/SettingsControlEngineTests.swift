@@ -294,6 +294,9 @@ struct SettingsControlEngineTests {
             try await harness.engine.set("app.appearance", rawValue: "light")
         }
         await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.setValue("app.appearance", value: .string("light"))
+        }
+        await #expect(throws: SettingsControlError.self) {
             try await harness.engine.unset("app.appearance")
         }
         // A setting that is NOT in cmux.json still writes normally.
