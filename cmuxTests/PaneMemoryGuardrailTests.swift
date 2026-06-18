@@ -183,4 +183,28 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         )
         XCTAssertEqual(pgids, [200])
     }
+
+    func testMemoryPressureProcessGroupsAreEmptyAfterPressureClears() {
+        let tty: Int64 = 0x1600_0003
+        let shell = CmuxTopProcessInfo(
+            pid: 100, parentPID: 1, name: "zsh", path: nil, ttyDevice: tty,
+            cmuxWorkspaceID: nil, cmuxSurfaceID: nil, cmuxAttributionReason: nil,
+            processGroupID: 100, terminalProcessGroupID: 100, cpuPercent: 0,
+            memoryBytes: 20_000_000, memorySource: .physicalFootprint,
+            residentBytes: 20_000_000, residentMemorySource: .residentSize,
+            virtualBytes: 0, threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [shell],
+            sampledAt: Date(),
+            includesProcessDetails: false
+        )
+
+        let pgids = PaneMemoryGuardrail.memoryPressureProcessGroupIDs(
+            in: snapshot,
+            pids: [100],
+            clearBytes: Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        )
+        XCTAssertTrue(pgids.isEmpty)
+    }
 }

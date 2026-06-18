@@ -400,19 +400,21 @@ final class PaneMemoryGuardrail {
         presentNextPendingBannerIfNeeded()
     }
 
-    func killActivePaneProcess() {
-        guard let active = activeBanner else { return }
-        let key = active.key
+    func killActivePaneProcess() { if let active = activeBanner { killPaneProcess(for: active) } }
+
+    func killPaneProcess(for warning: PaneMemoryWarning) {
+        let key = warning.key
         let descriptor = paneProvider?().first { $0.key == key }
         engine.acknowledgeHandled(key)
         pendingBanners.removeAll { $0.key == key }
-        activeBanner = nil
+        if activeBanner?.key == key {
+            activeBanner = nil
+        }
         if engine.warnedWorkspaceIds != lastWarnedWorkspaceIds {
             lastWarnedWorkspaceIds = engine.warnedWorkspaceIds
             onWarnedWorkspacesChanged?(engine.warnedWorkspaceIds)
         }
         guard let descriptor else {
-            onRequestClosePane?(active.workspaceId, active.panelId)
             presentNextPendingBannerIfNeeded()
             return
         }
@@ -422,11 +424,12 @@ final class PaneMemoryGuardrail {
         }
         presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
-            let pgids = await sampleTask.value?.memoryPressureProcessGroupIDs ?? []
+            let sample = await sampleTask.value
             self?.finishKillActivePaneProcess(
                 key: key,
-                warning: active,
-                processGroupIDs: pgids
+                warning: warning,
+                sample: sample,
+                thresholdBytes: thresholdBytes
             )
         }
     }
@@ -434,9 +437,11 @@ final class PaneMemoryGuardrail {
     private func finishKillActivePaneProcess(
         key: PaneMemoryPaneKey,
         warning: PaneMemoryWarning,
-        processGroupIDs: [Int]
+        sample: PaneMemorySample?,
+        thresholdBytes: Int64
     ) {
-        let pgids = processGroupIDs.filter { $0 > 1 }
+        guard let sample, sample.memoryBytes >= thresholdBytes else { return }
+        let pgids = sample.memoryPressureProcessGroupIDs.filter { $0 > 1 }
         if pgids.isEmpty {
             onRequestClosePane?(warning.workspaceId, warning.panelId)
             return

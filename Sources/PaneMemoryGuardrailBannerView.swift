@@ -73,7 +73,7 @@ struct PaneMemoryGuardrailBanner: View {
                     titleVisibility: .visible
                 ) {
                     Button(role: .destructive) {
-                        guardrail.killActivePaneProcess()
+                        guardrail.killPaneProcess(for: warning)
                     } label: {
                         Text(String(
                             localized: "paneMemoryGuardrail.confirm.kill",

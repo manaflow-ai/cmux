@@ -69,6 +69,8 @@ public struct TerminalSection: View {
             rendererReclaim,
             rendererIdleSeconds,
             rendererMaxWarm,
+            memGuardrailEnabled,
+            memGuardrailThresholdGB,
         ]
         models.forEach { $0.startObserving() }
     }
