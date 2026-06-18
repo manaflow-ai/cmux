@@ -30,8 +30,8 @@ extension TerminalSurface {
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
         let data = Data(bytes: ptr, count: Int(exported.len))
-        let name = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let decoded = String(data: data, encoding: .utf8) else { return nil }
+        let name = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
     }
 }

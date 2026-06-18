@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Observation
 
 // MARK: - Value types
 
@@ -148,13 +149,19 @@ enum PaneMemoryProcessKiller {
     /// short grace. Negative pid targets the whole process group, so the runaway
     /// job and its descendants die while the pane's shell (a different group)
     /// stays alive. ESRCH on an already-dead group is harmless.
-    static func terminate(processGroupIDs: [Int], graceSeconds: TimeInterval = 3) {
+    static func terminate(processGroupIDs: [Int], graceSeconds: TimeInterval = 3) -> Task<Void, Never>? {
         let pgids = processGroupIDs.filter { $0 > 1 }
-        guard !pgids.isEmpty else { return }
+        guard !pgids.isEmpty else { return nil }
         for pgid in pgids {
             _ = kill(pid_t(-pgid), SIGTERM)
         }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + graceSeconds) {
+        let delayNanoseconds = UInt64(max(0, graceSeconds) * 1_000_000_000)
+        return Task.detached(priority: .userInitiated) { [pgids] in
+            // Bounded SIGTERM grace period before escalation; cancellation suppresses SIGKILL.
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
+            guard !Task.isCancelled else { return }
             for pgid in pgids {
                 _ = kill(pid_t(-pgid), SIGKILL)
             }
@@ -169,7 +176,8 @@ enum PaneMemoryProcessKiller {
 /// warning badge + dismissible banner. The heavy libproc scan runs off the main
 /// thread; only the small state updates touch `@MainActor`.
 @MainActor
-final class PaneMemoryGuardrail: ObservableObject {
+@Observable
+final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
     enum DefaultsKeys {
@@ -182,25 +190,38 @@ final class PaneMemoryGuardrail: ObservableObject {
     private static let minThresholdGB: Double = 1
 
     /// The banner content for the most recent un-dismissed crossing, or nil.
-    @Published private(set) var activeBanner: PaneMemoryWarning?
+    private(set) var activeBanner: PaneMemoryWarning?
 
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
+    @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
     /// Pushes the set of workspaces that should show a warning badge.
+    @ObservationIgnored
     var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
     /// Fallback when a pane has no foreground process group to signal: close it.
+    @ObservationIgnored
     var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
 
+    @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
-    private let queue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
+    @ObservationIgnored
+    private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
+    @ObservationIgnored
     private var timer: DispatchSourceTimer?
+    @ObservationIgnored
     private var isScanning = false
+    @ObservationIgnored
+    private var scanApplyTask: Task<Void, Never>?
+    @ObservationIgnored
     private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
+    @ObservationIgnored
     private var lastWarnedWorkspaceIds: Set<UUID> = []
+    @ObservationIgnored
+    private var pendingKillTasksByKey: [PaneMemoryPaneKey: (id: UUID, task: Task<Void, Never>)] = [:]
 
     func start() {
         guard timer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
             deadline: .now() + Self.pollInterval,
             repeating: Self.pollInterval,
@@ -241,11 +262,13 @@ final class PaneMemoryGuardrail: ObservableObject {
         }
         let thresholdBytes = thresholdBytes()
         isScanning = true
-        queue.async { [weak self] in
-            let samples = Self.computeSamples(descriptors: descriptors)
-            Task { @MainActor in
-                self?.applySamples(samples, thresholdBytes: thresholdBytes)
-            }
+        let sampleTask = Task.detached(priority: .utility) {
+            Self.computeSamples(descriptors: descriptors)
+        }
+        scanApplyTask = Task { @MainActor [weak self] in
+            let samples = await sampleTask.value
+            guard !Task.isCancelled else { return }
+            self?.applySamples(samples, thresholdBytes: thresholdBytes)
         }
     }
 
@@ -280,6 +303,7 @@ final class PaneMemoryGuardrail: ObservableObject {
 
     private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
         isScanning = false
+        scanApplyTask = nil
         lastSamplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
 
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
@@ -295,7 +319,7 @@ final class PaneMemoryGuardrail: ObservableObject {
         // Banner lifecycle.
         if let active = activeBanner {
             let activeKey = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-            if output.clearedPanes.contains(activeKey) {
+            if output.clearedPanes.contains(activeKey) || lastSamplesByKey[activeKey] == nil {
                 activeBanner = nil
             } else if let refreshed = lastSamplesByKey[activeKey], refreshed.memoryBytes >= thresholdBytes {
                 // Keep the on-screen memory figure current while it stays high.
@@ -326,17 +350,49 @@ final class PaneMemoryGuardrail: ObservableObject {
     func killActivePaneProcess() {
         guard let active = activeBanner else { return }
         let key = PaneMemoryPaneKey(workspaceId: active.workspaceId, panelId: active.panelId)
-        let pgids = lastSamplesByKey[key]?.foregroundProcessGroupIDs ?? []
-        if pgids.isEmpty {
-            onRequestClosePane?(active.workspaceId, active.panelId)
-        } else {
-            PaneMemoryProcessKiller.terminate(processGroupIDs: pgids)
-        }
+        let descriptor = paneProvider?().first { $0.key == key }
         engine.acknowledgeHandled(key)
         activeBanner = nil
         if engine.warnedWorkspaceIds != lastWarnedWorkspaceIds {
             lastWarnedWorkspaceIds = engine.warnedWorkspaceIds
             onWarnedWorkspacesChanged?(engine.warnedWorkspaceIds)
+        }
+        guard let descriptor else {
+            onRequestClosePane?(active.workspaceId, active.panelId)
+            return
+        }
+        let sampleTask = Task.detached(priority: .userInitiated) {
+            Self.computeSamples(descriptors: [descriptor]).first
+        }
+        Task { @MainActor [weak self] in
+            let pgids = await sampleTask.value?.foregroundProcessGroupIDs ?? []
+            self?.finishKillActivePaneProcess(
+                key: key,
+                warning: active,
+                processGroupIDs: pgids
+            )
+        }
+    }
+
+    private func finishKillActivePaneProcess(
+        key: PaneMemoryPaneKey,
+        warning: PaneMemoryWarning,
+        processGroupIDs: [Int]
+    ) {
+        let pgids = processGroupIDs.filter { $0 > 1 }
+        if pgids.isEmpty {
+            onRequestClosePane?(warning.workspaceId, warning.panelId)
+            return
+        }
+        pendingKillTasksByKey[key]?.task.cancel()
+        guard let task = PaneMemoryProcessKiller.terminate(processGroupIDs: pgids) else { return }
+        let id = UUID()
+        pendingKillTasksByKey[key] = (id: id, task: task)
+        Task { @MainActor [weak self] in
+            await task.value
+            if self?.pendingKillTasksByKey[key]?.id == id {
+                self?.pendingKillTasksByKey[key] = nil
+            }
         }
     }
 
@@ -344,6 +400,9 @@ final class PaneMemoryGuardrail: ObservableObject {
 
     private func clearAll() {
         engine.reset()
+        isScanning = false
+        scanApplyTask?.cancel()
+        scanApplyTask = nil
         if activeBanner != nil { activeBanner = nil }
         lastSamplesByKey.removeAll()
         if !lastWarnedWorkspaceIds.isEmpty {

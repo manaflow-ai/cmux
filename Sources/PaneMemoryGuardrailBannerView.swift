@@ -1,12 +1,12 @@
 import SwiftUI
 
 /// Top-of-content dismissible banner shown when a pane's process tree crosses
-/// the runaway-memory threshold. Observes the guardrail singleton; mounted once
+/// the runaway-memory threshold. Reads the guardrail singleton; mounted once
 /// as an overlay on the workspace content area (outside the sidebar list, so
-/// observing an `ObservableObject` here does not violate the snapshot-boundary
-/// rule). Stays silent while `activeBanner` is nil.
+/// the observed state stays outside the snapshot-boundary rule). Stays silent
+/// while `activeBanner` is nil.
 struct PaneMemoryGuardrailBanner: View {
-    @ObservedObject var guardrail: PaneMemoryGuardrail
+    let guardrail: PaneMemoryGuardrail
     @State private var isConfirmingKill = false
 
     private static let byteFormatter: ByteCountFormatter = {

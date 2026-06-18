@@ -6386,18 +6386,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            // Promoting the hosted-inspector side-dock split mutates the view
-            // hierarchy (`addSubview` / `removeFromSuperview` + constraint
-            // activation). Performing that synchronously inside a layout pass
-            // re-enters AppKit's layout machinery and can crash: either Auto
-            // Layout constraint recursion surfaced as an uncaught exception
-            // (EXC_BREAKPOINT via `_postWindowNeedsUpdateConstraints`, #653) or
-            // a use-after-free when a view is freed mid-layout and then messaged
-            // (EXC_BAD_ACCESS in `objc_msgSend` from `___NSViewLayout_block_invoke`,
-            // #6150). Defer the promotion to the next runloop tick so the
-            // hierarchy mutation never runs inside `layout()`. The dock-config
-            // path already defers via `scheduleHostedInspectorDockConfigurationSync`.
-            scheduleHostedInspectorSideDockPromotionIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
@@ -6406,6 +6394,18 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
+            // Promoting the hosted-inspector side-dock split mutates the view
+            // hierarchy (`addSubview` / `removeFromSuperview` + constraint
+            // activation). Performing that synchronously inside a layout pass
+            // re-enters AppKit's layout machinery and can crash: either Auto
+            // Layout constraint recursion surfaced as an uncaught exception
+            // (EXC_BREAKPOINT via `_postWindowNeedsUpdateConstraints`, #653) or
+            // a use-after-free when a view is freed mid-layout and then messaged
+            // (EXC_BAD_ACCESS in `objc_msgSend` from `___NSViewLayout_block_invoke`,
+            // #6150). Defer the promotion to the next runloop tick after the adaptive
+            // bottom-dock guard accepts it. The dock-config path already defers via
+            // `scheduleHostedInspectorDockConfigurationSync`.
+            scheduleHostedInspectorSideDockPromotionIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
                 // Origin-only frame churn is common while the surrounding split layout
