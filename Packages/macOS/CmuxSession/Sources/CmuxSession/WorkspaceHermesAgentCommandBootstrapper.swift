@@ -320,7 +320,10 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         guard terminalCommandTextContainsWord(lowered, word: "hud") else {
             return false
         }
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
+        return terminalCommandTextContainsWord(lowered, word: "omx")
+            || terminalCommandTextContainsWord(lowered, word: "oh-my-codex")
+            || terminalCommandTextContainsWord(lowered, word: "omp")
+            || terminalCommandTextContainsWord(lowered, word: "oh-my-pi")
     }
 
     private func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {

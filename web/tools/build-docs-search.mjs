@@ -43,6 +43,7 @@ const searchAliases = {
   dock: ["dock", "agent dock", "workspace dock"],
   notifications: ["OSC 777", "OSC 99", "hooks", "notification rings"],
   ohMyClaudeCode: ["omc", "oh my claude", "oh-my-claudecode"],
+  ohMyPi: ["omp", "oh my pi", "oh-my-pi"],
   ohMyCodex: ["omx", "oh my codex", "oh-my-codex"],
   ohMyOpenCode: ["omo", "oh-my-opencode", "oh-my-openagent"],
   ssh: ["remote sessions", "SSH relay", "scp uploads"],

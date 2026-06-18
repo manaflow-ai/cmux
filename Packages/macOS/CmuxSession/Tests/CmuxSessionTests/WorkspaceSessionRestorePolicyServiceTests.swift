@@ -281,7 +281,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         ))
     }
 
-    @Test("tmux start command is restorable only for OMX HUD commands")
+    @Test("tmux start command is restorable only for OMX/OMP HUD commands")
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
@@ -289,5 +289,10 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("omx run") == nil)
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
         #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
+        #expect(service.restorableTmuxStartCommand("  oh-my-pi hud  ") == "oh-my-pi hud")
+        #expect(service.restorableTmuxStartCommand("omp run") == nil)
+        #expect(service.restorableTmuxStartCommand("omp hud") == "omp hud")
+        // "prompt" must not be misread as an OMP command via substring matching.
+        #expect(service.restorableTmuxStartCommand("prompt hud") == nil)
     }
 }
