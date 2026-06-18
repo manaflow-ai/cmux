@@ -49,7 +49,7 @@ extension TerminalController: ControlSidebarContext {
                 }
                 return
             }
-            tab.statusEntries[key] = SidebarStatusEntry(
+            tab.setSidebarStatusEntry(SidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -58,7 +58,7 @@ extension TerminalController: ControlSidebarContext {
                 priority: priority,
                 format: appFormat,
                 timestamp: Date()
-            )
+            ), allowingPIDHandoffGrace: pid != nil)
             if let pid {
                 tab.recordAgentPIDForSurvivingStatusKey(key, pid: pid, panelId: panelID)
             }

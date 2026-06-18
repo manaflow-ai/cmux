@@ -309,13 +309,6 @@ extension Workspace {
 
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
-        if !runtimeState.statusEntries.isEmpty {
-            var merged = statusEntries
-            for (statusKey, statusEntry) in runtimeState.statusEntries {
-                merged[statusKey] = statusEntry
-            }
-            statusEntries = merged
-        }
         func transferredStatusKey(forAgentPIDKey key: String) -> String? {
             if runtimeState.statusEntries[key] != nil {
                 return key
@@ -325,6 +318,15 @@ extension Workspace {
             }
             let statusKey = String(key[..<dotIndex])
             return runtimeState.statusEntries[statusKey] != nil ? statusKey : nil
+        }
+        let transferredPIDKeys = Set(runtimeState.agentPIDKeys).union(runtimeState.agentPIDs.keys)
+        let pidHandoffGraceKeys = Set(transferredPIDKeys.compactMap(transferredStatusKey(forAgentPIDKey:)))
+        if !runtimeState.statusEntries.isEmpty {
+            var merged = statusEntries
+            for (statusKey, statusEntry) in runtimeState.statusEntries {
+                merged[statusKey] = statusEntry
+            }
+            replaceSidebarStatusEntries(merged, pidHandoffGraceKeys: pidHandoffGraceKeys)
         }
         func adoptedStatusSurvived(forAgentPIDKey key: String) -> Bool {
             guard let statusKey = transferredStatusKey(forAgentPIDKey: key) else { return true }

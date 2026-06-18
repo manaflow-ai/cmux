@@ -2344,10 +2344,16 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.statusEntries }
         set {
             let previousKeys = Set(sidebarMetadata.statusEntries.keys)
+            let pidHandoffGraceKeys = sidebarStatusPIDHandoffGraceKeys
+            sidebarStatusPIDHandoffGraceKeys.removeAll(keepingCapacity: true)
             sidebarMetadata.statusEntries = newValue
-            trimSidebarStatusEntriesIfNeeded(previousKeys: previousKeys)
+            trimSidebarStatusEntriesIfNeeded(
+                previousKeys: previousKeys,
+                pidHandoffGraceKeys: pidHandoffGraceKeys
+            )
         }
     }
+    private var sidebarStatusPIDHandoffGraceKeys: Set<String> = []
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -6511,6 +6517,24 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarMetadata.appendLogEntry(message: message, level: level, source: source)
     }
 
+    func setSidebarStatusEntry(
+        _ entry: SidebarStatusEntry,
+        allowingPIDHandoffGrace: Bool = false
+    ) {
+        if allowingPIDHandoffGrace {
+            sidebarStatusPIDHandoffGraceKeys.insert(entry.key)
+        }
+        statusEntries[entry.key] = entry
+    }
+
+    func replaceSidebarStatusEntries(
+        _ entries: [String: SidebarStatusEntry],
+        pidHandoffGraceKeys: Set<String> = []
+    ) {
+        sidebarStatusPIDHandoffGraceKeys.formUnion(pidHandoffGraceKeys)
+        statusEntries = entries
+    }
+
     /// Upper bound on retained sidebar status pills / metadata blocks per
     /// workspace. The sidebar `status`/`metadata` socket API lets agents and CI
     /// scripts insert entries under arbitrary caller-chosen keys. Without a cap,
@@ -6531,22 +6555,29 @@ final class Workspace: Identifiable, ObservableObject {
     ///  2. statuses backed by a live agent (coupled PID or lifecycle state) — so
     ///     an actively updated agent status whose display timestamp went stale
     ///     can't be aged out by a flood of newer distinct keys.
-    ///  3. keys inserted by the write that triggered this trim (`previousKeys`
-    ///     is the pre-write key set). Multi-step updates such as
-    ///     `set_status --pid` insert the status first and record the coupling
-    ///     marker afterward; this grace tier keeps the just-inserted status alive
-    ///     across its own synchronous trim so `recordAgentPIDForSurvivingStatusKey`
-    ///     can mark it live before the next trim (#5845). It is a *tier*, not an
-    ///     absolute pin — a bulk insert above the cap still ranks within this
-    ///     tier by priority/timestamp, so the cap is always enforced.
+    ///  3. newly inserted keys explicitly marked for a PID-handoff write.
+    ///     Multi-step updates such as `set_status --pid` insert the status first
+    ///     and record the coupling marker afterward; this grace tier keeps the
+    ///     just-inserted status alive across its own synchronous trim so
+    ///     `recordAgentPIDForSurvivingStatusKey` can mark it live before the next
+    ///     trim (#5845). It is a *tier*, not an absolute pin — a bulk insert
+    ///     above the cap still ranks within this tier by priority/timestamp, so
+    ///     the cap is always enforced. Plain status telemetry does not get this
+    ///     tier and retains strictly by priority/timestamp after reserved/live
+    ///     keys.
     ///  4. everything else, by the same priority/timestamp order as
     ///     `sidebarStatusEntriesInDisplayOrder()`.
     /// Ranking and the keep-set are both keyed by the dictionary's storage key
     /// (not `entry.key`) so the two can never diverge.
-    private func trimSidebarStatusEntriesIfNeeded(previousKeys: Set<String>) {
+    private func trimSidebarStatusEntriesIfNeeded(
+        previousKeys: Set<String>,
+        pidHandoffGraceKeys: Set<String>
+    ) {
         guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
         let liveAgentStatusKeys = statusKeysWithCoupledAgentRuntime()
-        let justInsertedKeys = Set(statusEntries.keys).subtracting(previousKeys)
+        let justInsertedPIDHandoffKeys = Set(statusEntries.keys)
+            .subtracting(previousKeys)
+            .intersection(pidHandoffGraceKeys)
         let kept = Set(
             statusEntries
                 .sorted { lhs, rhs in
@@ -6556,8 +6587,8 @@ final class Workspace: Identifiable, ObservableObject {
                     let lhsLive = liveAgentStatusKeys.contains(lhs.key)
                     let rhsLive = liveAgentStatusKeys.contains(rhs.key)
                     if lhsLive != rhsLive { return lhsLive }
-                    let lhsFresh = justInsertedKeys.contains(lhs.key)
-                    let rhsFresh = justInsertedKeys.contains(rhs.key)
+                    let lhsFresh = justInsertedPIDHandoffKeys.contains(lhs.key)
+                    let rhsFresh = justInsertedPIDHandoffKeys.contains(rhs.key)
                     if lhsFresh != rhsFresh { return lhsFresh }
                     if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
                     if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }

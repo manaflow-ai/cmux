@@ -12836,7 +12836,7 @@ class TerminalController {
                 }
                 return
             }
-            tab.statusEntries[key] = SidebarStatusEntry(
+            tab.setSidebarStatusEntry(SidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -12845,7 +12845,7 @@ class TerminalController {
                 priority: priority,
                 format: format,
                 timestamp: Date()
-            )
+            ), allowingPIDHandoffGrace: pidValue != nil)
             if let pidValue {
                 tab.recordAgentPIDForSurvivingStatusKey(key, pid: pidValue, panelId: panelResolution.panelId)
             }

@@ -201,12 +201,12 @@ import CmuxSidebar
         )
     }
 
-    // A brand-new agent status (set_status --pid inserts the status first, then
-    // records the PID) must survive its own synchronous trim even when the
-    // workspace is already at cap with higher-priority plain telemetry — the
-    // just-inserted grace tier outranks plain telemetry, so the follow-up PID can
-    // still be tracked instead of lost to a self-eviction (#5845).
-    @Test func testNewStatusSurvivesOwnTrimOverPlainTelemetry() {
+    // A brand-new agent status with a pending PID handoff (set_status --pid
+    // inserts the status first, then records the PID) must survive its own
+    // synchronous trim even when the workspace is already at cap with
+    // higher-priority plain telemetry, so the follow-up PID can still be tracked
+    // instead of lost to a self-eviction (#5845).
+    @Test func testNewPIDHandoffStatusSurvivesOwnTrimOverPlainTelemetry() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -221,17 +221,53 @@ import CmuxSidebar
         }
         #expect(workspace.statusEntries.count == cap)
 
-        // Insert a lower-priority, newest agent status; the grace tier keeps it.
-        workspace.statusEntries["agent"] = SidebarStatusEntry(
+        // Insert a lower-priority, newest PID-handoff status; the grace tier
+        // keeps it until recordAgentPIDForSurvivingStatusKey can mark it live.
+        workspace.setSidebarStatusEntry(SidebarStatusEntry(
             key: "agent",
             value: "Running",
             priority: 0,
             timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 1))
-        )
+        ), allowingPIDHandoffGrace: true)
         #expect(workspace.statusEntries.count <= cap)
         #expect(
             workspace.statusEntries["agent"] != nil,
             "A just-inserted status must survive its own trim over plain telemetry"
+        )
+    }
+
+    // Plain status telemetry has no follow-up PID/lifecycle coupling, so it must
+    // not use the PID-handoff grace tier to displace existing higher-priority
+    // status entries at the cap.
+    @Test func testNewPlainStatusSelfEvictsAgainstHigherPriorityTelemetry() {
+        let workspace = Workspace()
+        let cap = Workspace.maxSidebarStatusEntries
+
+        for index in 0..<cap {
+            workspace.statusEntries["high_\(index)"] = SidebarStatusEntry(
+                key: "high_\(index)",
+                value: "value_\(index)",
+                priority: 100,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        #expect(workspace.statusEntries.count == cap)
+
+        workspace.statusEntries["victim"] = SidebarStatusEntry(
+            key: "victim",
+            value: "victim",
+            priority: 0,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 1))
+        )
+
+        #expect(workspace.statusEntries.count <= cap)
+        #expect(
+            workspace.statusEntries["victim"] == nil,
+            "A plain low-priority status must not displace higher-priority telemetry"
+        )
+        #expect(
+            workspace.statusEntries["high_0"] != nil,
+            "Existing high-priority status entries must be retained over plain low-priority inserts"
         )
     }
 
