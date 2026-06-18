@@ -504,8 +504,10 @@
 		D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
+		A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
+		A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
@@ -598,6 +600,8 @@
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
+		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
 		E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */; };
 		A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
@@ -895,6 +899,7 @@
 		F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */; };
 		A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */; };
 		B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */; };
+		A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0200000000000000001 /* WindowCloseObserver.swift */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */; };
 		D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */; };
@@ -1457,8 +1462,10 @@
 		D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceMonitor.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
+		A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MainWindowVisibilityController+Lifecycle.swift"; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
+		A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityLifecycleTests.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
@@ -1549,6 +1556,8 @@
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
+		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
 		E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDropUploadError+LocalizedError.swift"; sourceTree = "<group>"; };
 		A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractiveShellBootstrapBuilder.swift; sourceTree = "<group>"; };
@@ -1838,6 +1847,7 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackgroundComposition.swift; sourceTree = "<group>"; };
 		B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeMetrics.swift; sourceTree = "<group>"; };
+		A6D1F0200000000000000001 /* WindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowCloseObserver.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
 		D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowInputRoutingContext.swift; sourceTree = "<group>"; };
@@ -2290,7 +2300,10 @@
 				C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
 				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
+				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
+				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
+				A6D1F0000000000000000001 /* ReleasingWindowController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
@@ -2909,6 +2922,8 @@
 				C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */,
 				D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */,
 				17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */,
+				A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */,
+				A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */,
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
@@ -3712,6 +3727,7 @@
 				D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
+				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
@@ -3771,6 +3787,7 @@
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
@@ -3970,6 +3987,7 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
+				A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */,
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */,
@@ -4234,6 +4252,7 @@
 				A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */,
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
+				A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */,
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
@@ -4260,6 +4279,7 @@
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,
