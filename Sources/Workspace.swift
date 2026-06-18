@@ -889,18 +889,18 @@ extension Workspace {
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let binding,
-              binding.isAgentHookBinding,
-              let restorableAgent else {
+        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
 
-        let launchWorkingDirectory =
+        // Restore has no live hook cwd; use the snapshot's derived restorable cwd
+        // and fall back to launch capture only for older snapshots.
+        let snapshotRestorableWorkingDirectory =
             restorableAgent.workingDirectory ?? restorableAgent.launchCommand?.workingDirectory
         let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: binding.kind ?? restorableAgent.kind.rawValue,
             runtimeCwd: binding.cwd,
-            launchWorkingDirectory: launchWorkingDirectory
+            launchWorkingDirectory: snapshotRestorableWorkingDirectory
         )
         guard resolvedWorkingDirectory != binding.cwd else {
             return binding
