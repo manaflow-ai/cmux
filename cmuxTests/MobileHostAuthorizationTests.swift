@@ -796,46 +796,6 @@ struct MobileHostAuthorizationTests {
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    #if DEBUG
-    @Test func testMobileWorkspaceCloseHandlerRejectsMissingAttachTokenAfterStackAuth() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-            MobileHostService.shared.debugConfigureAcceptedStackAuthTokenForTesting(nil)
-            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
-        }
-
-        let service = MobileHostService.shared
-        service.stop()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-
-        let workspace = try #require(manager.selectedWorkspace)
-        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
-        let request = MobileHostRPCRequest(
-            id: "workspace-close",
-            method: "workspace.close",
-            params: ["workspace_id": workspace.id.uuidString],
-            auth: MobileHostRPCAuth(
-                attachToken: nil,
-                stackAccessToken: "cmux-dev-token"
-            )
-        )
-        let authResult = await service.debugAuthorizationError(for: request)
-        #expect(authResult == nil)
-
-        let response = await TerminalController.shared.mobileHostHandleRPC(request)
-
-        guard case let .failure(error) = response else {
-            return #expect(Bool(false), "workspace.close without an attach token should stay scoped even after Stack auth")
-        }
-        #expect(error.code == "protected")
-        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
-    }
-    #endif
-
     @Test func testMobileLastSurfaceCloseHandlerProtectsTerminalScopedWorkspaceTeardown() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
@@ -936,49 +896,6 @@ struct MobileHostAuthorizationTests {
         #expect(workspace.terminalPanel(for: allowedTerminal.id) != nil)
         #expect(workspace.terminalPanel(for: otherTerminal.id) != nil)
     }
-
-    #if DEBUG
-    @Test func testMobileSurfaceCloseHandlerRejectsMissingAttachTokenAfterStackAuth() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-            MobileHostService.shared.debugConfigureAcceptedStackAuthTokenForTesting(nil)
-            MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
-        }
-
-        let service = MobileHostService.shared
-        service.stop()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-
-        let workspace = try #require(manager.selectedWorkspace)
-        let terminal = try #require(workspace.focusedTerminalPanel)
-        let request = MobileHostRPCRequest(
-            id: "surface-close",
-            method: "surface.close",
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": terminal.id.uuidString,
-            ],
-            auth: MobileHostRPCAuth(
-                attachToken: nil,
-                stackAccessToken: "cmux-dev-token"
-            )
-        )
-        let authResult = await service.debugAuthorizationError(for: request)
-        #expect(authResult == nil)
-
-        let response = await TerminalController.shared.mobileHostHandleRPC(request)
-
-        guard case let .failure(error) = response else {
-            return #expect(Bool(false), "surface.close without an attach token should stay scoped even after Stack auth")
-        }
-        #expect(error.code == "protected")
-        #expect(workspace.terminalPanel(for: terminal.id) != nil)
-    }
-    #endif
 
     @Test func testTerminalScopedAttachTicketAcceptsSurfaceCloseForNamedTerminal() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")

@@ -336,6 +336,28 @@ import Testing
 }
 
 @MainActor
+@Test func workspaceDeleteRollbackRestoresPendingAttachments() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.failNextWorkspaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let payload = Data("workspace-image".utf8)
+    store.addPendingAttachment(payload, format: "png", forTerminalID: "live-terminal")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").count == 1)
+
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").isEmpty)
+
+    let restored = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.pendingAttachments(forTerminalID: "live-terminal").first?.data == payload
+    }
+    #expect(restored)
+}
+
+@MainActor
 @Test func terminalDeleteRefreshFailureDoesNotRollbackSuccessfulClose() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
@@ -381,6 +403,28 @@ import Testing
     }
     #expect(rolledBack)
     #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func terminalDeleteRollbackRestoresPendingAttachments() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    await router.failNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let payload = Data("terminal-image".utf8)
+    store.addPendingAttachment(payload, format: "jpg", forTerminalID: "live-terminal")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").count == 1)
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.pendingAttachments(forTerminalID: "live-terminal").isEmpty)
+
+    let restored = try await pollUntil {
+        store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"]
+            && store.pendingAttachments(forTerminalID: "live-terminal").first?.data == payload
+    }
+    #expect(restored)
 }
 
 @MainActor
