@@ -578,6 +578,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
+    private let defaultTerminalBackgroundColor = UIColor.ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)
+    private let defaultCursorOverlayColor = UIColor.ghosttyRendererColor(srgbRed: 0xc0, green: 0xc1, blue: 0xb5)
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -985,7 +987,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
-        backgroundColor = .ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)
+        backgroundColor = defaultTerminalBackgroundColor
         isOpaque = true
         #if DEBUG
         // The surface is a container, not a leaf, so the docked toolbar's
@@ -2784,8 +2786,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             height: ceil(cellHeight)
         )
         overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? .ghosttyRendererColor(srgbRed: 0xc0, green: 0xc1, blue: 0xb5)).cgColor
-            : (configBackgroundColor ?? backgroundColor ?? .ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)).cgColor
+            ? (configCursorColor ?? defaultCursorOverlayColor).cgColor
+            : (configBackgroundColor ?? backgroundColor ?? defaultTerminalBackgroundColor).cgColor
         overlay.isHidden = false
     }
 
