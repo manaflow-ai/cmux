@@ -272,7 +272,7 @@ extension SettingsControlEngine {
         }
         let tokens = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         if tokens.count >= 2 {
-            return StoredShortcut.parseConfig(strokes: Array(tokens.prefix(2)), allowBareFirstStroke: allowBareFirstStroke)
+            return StoredShortcut.parseConfig(strokes: tokens, allowBareFirstStroke: allowBareFirstStroke)
         }
         return StoredShortcut.parseConfig(trimmed, allowBareFirstStroke: allowBareFirstStroke)
     }

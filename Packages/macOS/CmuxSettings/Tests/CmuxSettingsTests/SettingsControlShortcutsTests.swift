@@ -131,6 +131,15 @@ struct SettingsControlShortcutsTests {
         }
     }
 
+    @Test func shortcutRejectsOverlongChord() async throws {
+        let harness = SettingsControlHarness()
+        defer { harness.cleanup() }
+        await #expect(throws: SettingsControlError.self) {
+            try await harness.engine.shortcutSet("openSettings", combo: "ctrl+b c d")
+        }
+        #expect(try await harness.engine.shortcutGet("openSettings").isOverridden == false)
+    }
+
     @Test func shortcutSetHonorsActionBareFirstStrokePolicy() async throws {
         let harness = SettingsControlHarness()
         defer { harness.cleanup() }
