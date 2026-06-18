@@ -221,7 +221,7 @@ jobs:
                   subprocess.check_call(["xcodebuild", "-downloadPlatform", "iOS"])
 
           if not has_ios_runtime():
-              sys.exit("No available iOS simulator runtime after xcodebuild -downloadPlatform iOS")
+              sys.exit("No available iOS simulator runtime after attempting platform setup")
           PY
 
       - name: Provision GhosttyKit
