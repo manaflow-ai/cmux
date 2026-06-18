@@ -101,6 +101,72 @@ struct TerminalLetterboxGeometryTests {
         #expect(pinned == CGSize(width: 180, height: 180))
     }
 
+    @Test("raw-byte producer-grid pin is nil for invalid metrics")
+    func rawBytePinNilForInvalidMetrics() {
+        let invalidGrid = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 0, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        let invalidCell = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: .zero,
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(invalidGrid == nil)
+        #expect(invalidCell == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil when the producer grid already fits")
+    func rawBytePinNilWhenProducerGridFitsNaturalGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 100, rows: 40),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil for one-cell drift")
+    func rawBytePinNilForOneCellDrift() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 99, rows: 39),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil when the candidate cannot shrink the container")
+    func rawBytePinNilWhenCandidateDoesNotShrinkContainer() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 100, height: 100)
+        )
+        #expect(pinned == nil)
+    }
+
     // MARK: - Keyboard open/closed full-height contract
 
     // iPhone 16-ish portrait: 402x874 bounds, 34pt home indicator, 44pt toolbar.
