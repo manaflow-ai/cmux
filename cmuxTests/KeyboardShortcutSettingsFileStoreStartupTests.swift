@@ -6,6 +6,8 @@ import AppKit
 import struct CmuxSettings.AppCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
+import enum CmuxSettings.BrowserSearchEngine
+import struct CmuxSettings.BrowserSearchSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1279,15 +1281,15 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testSettingsFileStoreAppliesCustomBrowserSearchEngine() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
-            BrowserSearchSettings.searchEngineKey,
-            BrowserSearchSettings.customSearchEngineNameKey,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey,
+            BrowserSearchSettingsStore.searchEngineKey,
+            BrowserSearchSettingsStore.customSearchEngineNameKey,
+            BrowserSearchSettingsStore.customSearchEngineURLTemplateKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
-            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
-            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineNameKey)
-            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.searchEngineKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
@@ -1315,7 +1317,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            let configuration = BrowserSearchSettings.currentConfiguration(defaults: defaults)
+            let configuration = BrowserSearchSettingsStore(defaults: defaults).currentConfiguration
             let url = try XCTUnwrap(configuration.searchURL(query: "browser settings"))
 
             XCTAssertEqual(configuration.engine, .custom)
@@ -1328,18 +1330,18 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testSettingsFileStoreAppliesBlankCustomBrowserSearchNameAndIgnoresInvalidCustomURLWithoutAbortingBrowserSection() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
-            BrowserSearchSettings.searchEngineKey,
-            BrowserSearchSettings.customSearchEngineNameKey,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey,
-            BrowserSearchSettings.searchSuggestionsEnabledKey,
+            BrowserSearchSettingsStore.searchEngineKey,
+            BrowserSearchSettingsStore.customSearchEngineNameKey,
+            BrowserSearchSettingsStore.customSearchEngineURLTemplateKey,
+            BrowserSearchSettingsStore.searchSuggestionsEnabledKey,
             BrowserThemeSettings.modeKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
-            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
-            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineNameKey)
-            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
-            defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.searchEngineKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
+            defaults.removeObject(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
             defaults.removeObject(forKey: BrowserThemeSettings.modeKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
@@ -1370,16 +1372,16 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchEngine.google.rawValue)
+            XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchEngine.google.rawValue)
             XCTAssertEqual(
-                defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey),
-                BrowserSearchSettings.defaultCustomSearchEngineName
+                defaults.string(forKey: BrowserSearchSettingsStore.customSearchEngineNameKey),
+                BrowserSearchSettingsStore.defaultCustomSearchEngineName
             )
             XCTAssertNotEqual(
-                defaults.string(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey),
+                defaults.string(forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey),
                 "ftp://search.example.test?q={query}"
             )
-            XCTAssertEqual(defaults.object(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey) as? Bool, false)
             XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
         }
     }

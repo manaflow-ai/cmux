@@ -47,7 +47,7 @@ private struct ConfigSourceProbe {
             sources: ConfigSource.allCases.map(\.rawValue),
             cmux: encodedSnapshot(for: .cmux, environment: environment),
             synced: encodedSnapshot(for: .synced, environment: environment),
-            loadPaths: CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            loadPaths: CmuxGhosttyConfigPathResolver().loadConfigURLs(
                 currentBundleIdentifier: bundleIdentifier,
                 appSupportDirectory: appSupportDirectoryURL
             )
