@@ -993,7 +993,10 @@ jobs:
     # mistakes before they reach main.
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    # Release builds need enough disk for a universal Release build plus the
+    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
+    # of the generic persistent macOS 26 pool.
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
     # Cold cache saves can add several minutes after the Release build and
     # artifact validation have already passed.
     timeout-minutes: 45
