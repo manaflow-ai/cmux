@@ -205,6 +205,63 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             "Find terminal restore should reassert Ghostty focus after deferred geometry recovery"
         )
     }
+
+    @Test
+    func rightSidebarDockHiddenTinyFirstResponderReappliesGhosttyFocusAfterGeometrySettles() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer { AppDelegate.shared = originalAppDelegate }
+
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            focusPlacement: .rightSidebarDock
+        )
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        panel.hostedView.frame = contentView.bounds
+        contentView.addSubview(panel.hostedView)
+        panel.hostedView.setVisibleInUI(true)
+        panel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
+
+        window.makeFirstResponder(nil)
+        panel.surface.setFocus(false)
+        #expect(!panel.surface.debugDesiredFocusState())
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+        #expect(window.makeFirstResponder(surfaceView))
+        #expect(panel.hostedView.isSurfaceViewFirstResponder())
+        #expect(panel.hostedView.debugRenderStats().desiredFocus)
+        #expect(
+            !panel.surface.debugDesiredFocusState(),
+            "Right-sidebar dock handoff should defer Ghostty focus until geometry is usable"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        #expect(
+            !panel.surface.debugDesiredFocusState(),
+            "The dock deferred apply can fire while geometry is still unusable"
+        )
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        surfaceView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(
+            panel.surface.debugDesiredFocusState(),
+            "Right-sidebar dock deferred focus reconciliation should reapply Ghostty focus once geometry becomes usable"
+        )
+    }
 #endif
 
     private func makeWindow() -> NSWindow {
