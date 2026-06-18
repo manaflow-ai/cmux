@@ -203,6 +203,7 @@ final class NotificationAuthorizationDeliveryTests {
         let originalAuthorizationState = store.authorizationState
         var statusProviderCalls = 0
         var pendingStatusCompletions: [(UNAuthorizationStatus) -> Void] = []
+        var feedbackTitles: [String] = []
         var effects = TerminalNotificationPolicyEffects()
         effects.record = false
         effects.markUnread = false
@@ -237,8 +238,12 @@ final class NotificationAuthorizationDeliveryTests {
             statusProviderCalls += 1
             pendingStatusCompletions.append(completion)
         }
+        store.configureLocalNotificationFeedbackHandlerForTesting { title, _, _, _ in
+            feedbackTitles.append(title)
+        }
         defer {
             store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.resetLocalNotificationFeedbackHandlerForTesting()
             store.setAuthorizationStateForTesting(originalAuthorizationState)
         }
 
@@ -249,13 +254,14 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(statusProviderCalls == 1)
         #expect(pendingStatusCompletions.count == 1)
 
-        pendingStatusCompletions[0](.denied)
+        pendingStatusCompletions[0](.authorized)
         while let state = await authorizationUpdates.next() {
-            if state == .denied {
+            if state == .authorized {
                 break
             }
         }
 
-        #expect(store.authorizationState == .denied)
+        #expect(store.authorizationState == .authorized)
+        #expect(feedbackTitles == ["Recordless 2"])
     }
 }

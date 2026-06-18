@@ -482,7 +482,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
     private var fallbackAuthorizationRefreshInFlight = false
-    private var pendingFallbackAuthorizationRefreshCompletions: [(NotificationAuthorizationState) -> Void] = []
+    private var pendingFallbackAuthorizationRefreshCompletion: ((NotificationAuthorizationState) -> Void)?
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -521,6 +521,22 @@ final class TerminalNotificationStore: ObservableObject {
         notification,
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
+    }
+    private var localNotificationFeedbackHandler: (String, String, String, TerminalNotificationPolicyEffects) -> Void = {
+        title,
+        subtitle,
+        body,
+        effects in
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
+        if effects.command {
+            NotificationSoundSettings.runCustomCommand(
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
     }
     private struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
@@ -1866,16 +1882,7 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         effects: TerminalNotificationPolicyEffects
     ) {
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
+        localNotificationFeedbackHandler(title, subtitle, body, effects)
     }
 
     private func resolveFallbackEffectsFromCurrentAuthorization(
@@ -1898,7 +1905,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func enqueueFallbackAuthorizationRefresh(
         _ completion: @escaping (NotificationAuthorizationState) -> Void
     ) {
-        pendingFallbackAuthorizationRefreshCompletions.append(completion)
+        pendingFallbackAuthorizationRefreshCompletion = completion
         guard !fallbackAuthorizationRefreshInFlight else { return }
         fallbackAuthorizationRefreshInFlight = true
         notificationAuthorizationStatusProvider { [weak self] status in
@@ -1909,12 +1916,10 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "feedback status=\(Self.authorizationStatusLabel(status)) mapped=\(state.statusLabel)"
                 )
-                let completions = self.pendingFallbackAuthorizationRefreshCompletions
-                self.pendingFallbackAuthorizationRefreshCompletions.removeAll(keepingCapacity: false)
+                let completion = self.pendingFallbackAuthorizationRefreshCompletion
+                self.pendingFallbackAuthorizationRefreshCompletion = nil
                 self.fallbackAuthorizationRefreshInFlight = false
-                for completion in completions {
-                    completion(state)
-                }
+                completion?(state)
             }
         }
     }
@@ -2201,7 +2206,7 @@ final class TerminalNotificationStore: ObservableObject {
     func resetNotificationAuthorizationStatusProviderForTesting() {
         notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
         fallbackAuthorizationRefreshInFlight = false
-        pendingFallbackAuthorizationRefreshCompletions.removeAll()
+        pendingFallbackAuthorizationRefreshCompletion = nil
     }
 
     func configurePhoneForwardHandlerForTesting(
@@ -2251,6 +2256,31 @@ final class TerminalNotificationStore: ObservableObject {
     func resetSuppressedNotificationFeedbackHandlerForTesting() {
         suppressedNotificationFeedbackHandler = { store, notification, effects in
             store.playSuppressedNotificationFeedback(for: notification, effects: effects)
+        }
+    }
+
+    func configureLocalNotificationFeedbackHandlerForTesting(
+        _ handler: @escaping (String, String, String, TerminalNotificationPolicyEffects) -> Void
+    ) {
+        localNotificationFeedbackHandler = handler
+    }
+
+    func resetLocalNotificationFeedbackHandlerForTesting() {
+        localNotificationFeedbackHandler = {
+            title,
+            subtitle,
+            body,
+            effects in
+            if effects.sound {
+                NotificationSoundSettings.playSelectedSound()
+            }
+            if effects.command {
+                NotificationSoundSettings.runCustomCommand(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+            }
         }
     }
 
