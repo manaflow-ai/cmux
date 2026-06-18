@@ -225,6 +225,38 @@ struct SidebarProviderMenuRegressionTests {
         }
     }
 
+    /// Custom provider ids are persisted strings, so the fast path must keep the
+    /// old descriptor enumeration boundary: only files directly inside the
+    /// sidebars directory are renderable.
+    @Test
+    func customSidebarFileURLRejectsPathTraversalProviderIds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-sidebar-test-\(UUID().uuidString)", isDirectory: true)
+        let sidebarsDirectory = root.appendingPathComponent("sidebars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidebarsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let validName = "valid-\(UUID().uuidString)"
+        let validURL = sidebarsDirectory.appendingPathComponent("\(validName).swift", isDirectory: false)
+        try Data().write(to: validURL)
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + validName,
+                sidebarsDirectory: sidebarsDirectory
+            ) == validURL
+        )
+
+        let escapedName = "outside-\(UUID().uuidString)"
+        let escapedURL = root.appendingPathComponent("\(escapedName).swift", isDirectory: false)
+        try Data().write(to: escapedURL)
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "../\(escapedName)",
+                sidebarsDirectory: sidebarsDirectory
+            ) == nil
+        )
+    }
+
     private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
             CmuxSidebarProviderWorkspace(
