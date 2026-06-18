@@ -561,7 +561,7 @@ jobs:
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] && grep -q "Could not resolve package dependencies" <<< "$OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -612,14 +612,14 @@ jobs:
           # framework: XCTest prints "Executed N tests" and swift-testing prints
           # "Test run with N tests" — a shard holding only swift-testing @Suites
           # never emits the XCTest summary, so both must be accepted.
-          if ! echo "$OUTPUT" | grep -qE "Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test"; then
+          if ! grep -qE "Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test" <<< "$OUTPUT"; then
             echo "ERROR: shard $CMUX_SHARD_INDEX/$CMUX_SHARD_TOTAL executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} classes (selector format mismatch?)" >&2
             exit 1
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            SUMMARY=$(grep "Executed.*tests.*with.*failures" <<< "$OUTPUT" | tail -1 || true)
+            if grep -q "(0 unexpected)" <<< "$SUMMARY"; then
               echo "All failures are expected, treating as pass"
             else
               echo "Unexpected test failures detected"
