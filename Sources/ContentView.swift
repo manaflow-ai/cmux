@@ -9862,43 +9862,44 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 /// → rebuilt the publisher → re-subscribed … a self-sustaining ~100% CPU loop
 /// (issue #5970).
 ///
-/// Caching the composed publishers and only rebuilding them when the workspace
-/// set actually changes hands `.onReceive` a *stable* instance, so it subscribes
-/// once and the chain's `removeDuplicates()` then suppresses no-op replays. This
-/// is plain memoization on a non-observed reference type, so reading/refreshing
-/// it from a view-building method does not itself drive SwiftUI invalidation.
+/// Caching the composed publishers and rebuilding them only from explicit
+/// lifecycle callbacks keeps `.onReceive` stable when the workspace set is
+/// unchanged, so `removeDuplicates()` can suppress no-op replays.
 @MainActor
-private final class ExtensionSidebarObservationPublishers {
+private struct ExtensionSidebarObservationPublishers {
     private var cachedWorkspaceIds: [UUID] = []
     private var built = false
 
     private(set) var immediate: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
     private(set) var debounced: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
 
-    /// Rebuilds the merged publishers only when the workspace identity set
-    /// changes; otherwise leaves the cached (stable) instances in place.
-    func refresh(
+    /// Returns rebuilt merged publishers only when the workspace identity set
+    /// changes; otherwise returns `nil` so callers can avoid a `@State` write.
+    func refreshing(
         tabs: [Workspace],
         coalesceInterval: RunLoop.SchedulerTimeType.Stride
-    ) {
+    ) -> ExtensionSidebarObservationPublishers? {
         let workspaceIds = tabs.map(\.id)
-        if built && workspaceIds == cachedWorkspaceIds { return }
-        built = true
-        cachedWorkspaceIds = workspaceIds
+        if built && workspaceIds == cachedWorkspaceIds { return nil }
+
+        var next = self
+        next.built = true
+        next.cachedWorkspaceIds = workspaceIds
 
         guard !tabs.isEmpty else {
-            immediate = Empty<Void, Never>().eraseToAnyPublisher()
-            debounced = Empty<Void, Never>().eraseToAnyPublisher()
-            return
+            next.immediate = Empty<Void, Never>().eraseToAnyPublisher()
+            next.debounced = Empty<Void, Never>().eraseToAnyPublisher()
+            return next
         }
 
-        immediate = Publishers.MergeMany(tabs.map(\.sidebarImmediateObservationPublisher))
+        next.immediate = Publishers.MergeMany(tabs.map { $0.sidebarImmediateObservationPublisher })
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
-        debounced = Publishers.MergeMany(tabs.map(\.sidebarObservationPublisher))
+        next.debounced = Publishers.MergeMany(tabs.map { $0.sidebarObservationPublisher })
             .receive(on: RunLoop.main)
             .debounce(for: coalesceInterval, scheduler: RunLoop.main)
             .eraseToAnyPublisher()
+        return next
     }
 }
 
@@ -10751,14 +10752,13 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // Refresh the cached, stable observation publishers before the branches
-        // wire their `.onReceive` handlers, so each render hands `.onReceive` the
-        // same publisher instance unless the workspace set changed (issue #5970).
-        extensionSidebarObservationPublishers.refresh(
-            tabs: renderContext.tabs,
-            coalesceInterval: Self.extensionSidebarObservationCoalesceInterval
-        )
-        return extensionSidebarScrollAreaContent(renderContext: renderContext)
+        extensionSidebarScrollAreaContent(renderContext: renderContext)
+            .onAppear {
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
+            .onChange(of: renderContext.workspaceIds) { _, _ in
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
     }
 
     @ViewBuilder
@@ -10954,6 +10954,14 @@ struct VerticalTabsSidebar: View {
 
     private func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
+    }
+
+    private func refreshExtensionSidebarObservationPublishers(tabs: [Workspace]) {
+        guard let refreshed = extensionSidebarObservationPublishers.refreshing(
+            tabs: tabs,
+            coalesceInterval: Self.extensionSidebarObservationCoalesceInterval
+        ) else { return }
+        extensionSidebarObservationPublishers = refreshed
     }
 
     private func extensionSidebarRenderModel(
