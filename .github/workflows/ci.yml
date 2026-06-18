@@ -369,14 +369,17 @@ jobs:
       - name: Run Ghostty split-theme appearance regression
         run: |
           set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme"
+          rm -rf "$DERIVED_DATA_PATH"
           (
             cd Packages/macOS/CmuxTerminalCore
             xcodebuild \
               -scheme CmuxTerminalCore-Package \
               -destination "platform=macOS" \
-              -only-testing:CmuxTerminalCoreTests/GhosttySplitThemePreferenceTests \
-              test
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              build-for-testing
           )
+          xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
 
       - name: Run browser system proxy mirror regression
         run: |
