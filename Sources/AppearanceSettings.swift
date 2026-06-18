@@ -309,6 +309,81 @@ final class AppearanceSettingsUserDefaultsObserver {
     }
 }
 
+extension Notification.Name {
+    /// Posted on the main thread whenever the system's effective appearance
+    /// changes (e.g. a macOS scheduled "Auto" Light↔Dark switch). Distinct from
+    /// the cmux appearance *setting* change tracked by
+    /// `AppearanceSettingsUserDefaultsObserver`: this fires when the OS — not the
+    /// user's cmux preference — flips appearance. See #6385.
+    static let systemAppearanceDidChange = Notification.Name("systemAppearanceDidChange")
+}
+
+/// Bridges OS-driven appearance switches into the app's chrome-refresh path.
+///
+/// When macOS flips appearance on a schedule (System Settings → Appearance →
+/// Auto), `NSApp.effectiveAppearance` updates and the terminal re-themes itself,
+/// but cmux's own chrome (sidebar text, titlebar) caches a color-scheme snapshot
+/// that is only invalidated by unrelated events — so it stays stale until a tab
+/// switch forces a re-render (#6385). This observer watches
+/// `NSApp.effectiveAppearance` and posts `.systemAppearanceDidChange`, which
+/// `ContentView` turns into a `scheduleTitlebarThemeRefresh(...)` — the same
+/// invalidation a tab switch triggers, just automatically.
+///
+/// It is intentionally separate from `AppIconAppearanceObserver`, which observes
+/// the same key path but is torn down whenever the app icon isn't in automatic
+/// mode, so it cannot be relied upon to refresh app chrome.
+final class SystemAppearanceObserver {
+    struct Environment {
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
+        let postNotification: () -> Void
+
+        static func live(notificationCenter: NotificationCenter = .default) -> Environment {
+            Environment(
+                startEffectiveAppearanceObservation: { handler in
+                    guard let app = NSApp else { return nil }
+                    return app.observe(\.effectiveAppearance, options: []) { _, _ in
+                        DispatchQueue.main.async {
+                            handler()
+                        }
+                    }
+                },
+                postNotification: {
+                    notificationCenter.post(name: .systemAppearanceDidChange, object: nil)
+                }
+            )
+        }
+    }
+
+    static let shared = SystemAppearanceObserver()
+
+    private let environment: Environment
+    private var observation: EffectiveAppearanceObservation?
+
+    init(environment: Environment = .live()) {
+        self.environment = environment
+    }
+
+    deinit {
+        stopObserving()
+    }
+
+    /// Begin observing `NSApp.effectiveAppearance`. Start this once launch has
+    /// completed (past the macOS Tahoe `App.init()` crash window for touching
+    /// `effectiveAppearance`). Idempotent.
+    func startObserving() {
+        guard observation == nil else { return }
+        observation = environment.startEffectiveAppearanceObservation { [weak self] in
+            guard let self, self.observation != nil else { return }
+            self.environment.postNotification()
+        }
+    }
+
+    func stopObserving() {
+        observation?.invalidate()
+        observation = nil
+    }
+}
+
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let rawValue: String?

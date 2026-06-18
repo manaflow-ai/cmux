@@ -564,7 +564,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
 }
 
 final class AppIconAppearanceObserverTests: XCTestCase {
-    private final class ObservationToken: AppIconAppearanceObservation {
+    private final class ObservationToken: EffectiveAppearanceObservation {
         private(set) var invalidateCallCount = 0
 
         func invalidate() {
