@@ -70,6 +70,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
+    /// Clears the focused terminal's visible screen while preserving scrollback.
+    case clearScreenKeepScrollback
 
     // MARK: Panes
     case focusLeft
@@ -109,6 +111,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case browserBack
     case browserForward
     case browserReload
+    /// Hard refreshes the focused browser pane, bypassing WebKit's cache.
+    case browserHardReload
     case browserZoomIn
     case browserZoomOut
     case browserZoomReset
@@ -176,7 +180,8 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
+             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
@@ -188,7 +193,7 @@ extension ShortcutAction {
              .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
-             .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
+             .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
@@ -251,9 +256,9 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal:
+        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .browserBack, .browserForward, .browserReload,
+        case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
@@ -345,6 +350,8 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .clearScreenKeepScrollback:
+            return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
@@ -393,6 +400,7 @@ extension ShortcutAction {
         case .browserBack: return "Back"
         case .browserForward: return "Forward"
         case .browserReload: return "Reload Page"
+        case .browserHardReload: return String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")
         case .browserZoomIn: return "Zoom In"
         case .browserZoomOut: return "Zoom Out"
         case .browserZoomReset: return "Actual Size"

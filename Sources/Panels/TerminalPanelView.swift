@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
@@ -286,7 +287,7 @@ struct PanelAppearance {
         fromConfig(
             config,
             usesTransparentWindow: WindowBackgroundComposition.policy
-                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
         )
     }
 

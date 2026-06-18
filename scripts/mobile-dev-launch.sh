@@ -14,7 +14,7 @@
 # shared agent account (~/.secrets/cmux.env).
 #
 # Usage:
-#   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach]
+#   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach] [--detach]
 #   scripts/mobile-dev-launch.sh --tag grid --device [--device-id <id>] [--attach]
 #   scripts/mobile-dev-launch.sh --tag grid --agent  [--attach]
 #
@@ -23,6 +23,8 @@
 #              ticket from the mobile-attach QR server (default :17321). Requires
 #              that server + the tagged Mac app to be running.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
+#   --detach   simulator only: launch without attaching stdio, so the app keeps
+#              running after this script exits.
 
 set -euo pipefail
 
@@ -32,6 +34,7 @@ SIMULATOR_NAME="iPhone 17"
 DEVICE_ID=""
 ATTACH=0
 AGENT=0
+DETACH=0
 QR_PORT="${CMUX_QR_PORT:-17321}"
 
 usage() { sed -n '2,30p' "$0"; }
@@ -44,12 +47,18 @@ while [[ $# -gt 0 ]]; do
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --attach) ATTACH=1; shift ;;
     --agent) AGENT=1; shift ;;
+    --detach) DETACH=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
+if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
+  echo "error: --detach is supported only with simulator launches" >&2
+  usage >&2
+  exit 2
+fi
 
 # --- credentials ------------------------------------------------------------
 # Dogfood account wins over the agent account so iOS dev builds sign in as the
@@ -92,11 +101,15 @@ if [[ "$TARGET" == "simulator" ]]; then
     exit 1
   fi
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  launch_args=(launch)
+  if [[ "$DETACH" -ne 1 ]]; then
+    launch_args+=(--console-pty)
+  fi
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
-    xcrun simctl launch --console-pty "$SIM_UDID" "$BUNDLE_ID"
+    xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
   if [[ -z "$DEVICE_ID" ]]; then
     DEVICE_ID="$(xcrun devicectl list devices 2>/dev/null \
