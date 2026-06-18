@@ -278,25 +278,26 @@ final class PaneMemoryGuardrail {
         }
     }
 
-    /// Off-main: capture one process snapshot and attribute memory per pane by
-    /// controlling-tty device (the snapshot already indexes pids by tty dev).
+    /// Off-main: capture one shared process snapshot and attribute memory per pane.
     nonisolated static func computeSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
     ) -> [PaneMemorySample] {
-        let snapshot = CmuxTopProcessSnapshot.capture()
+        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.captureCached(maximumAge: 2))
+    }
+
+    nonisolated static func computeSamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> [PaneMemorySample] {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
-            guard let ttyName = descriptor.ttyName else {
-                return PaneMemorySample(
-                    descriptor: descriptor,
-                    memoryBytes: 0,
-                    residentBytes: 0,
-                    memoryPressureProcessGroupIDs: [],
-                    foregroundCommand: nil
-                )
+            var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
+            if let ttyName = descriptor.ttyName {
+                rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
             }
-            let pids = snapshot.pids(forTTYName: ttyName)
+            let pids = snapshot.expandedPIDs(rootPIDs: rootPIDs)
             let summary = snapshot.summary(for: pids)
             let pgids = memoryPressureProcessGroupIDs(
                 in: snapshot,

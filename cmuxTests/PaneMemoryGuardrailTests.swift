@@ -184,6 +184,54 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         XCTAssertEqual(pgids, [200])
     }
 
+    func testProcessTreeMemoryIncludesDetachedSurfaceDescendantWithoutTTY() {
+        let ws = UUID(), pane = UUID()
+        func proc(
+            _ pid: Int,
+            ppid: Int,
+            name: String,
+            mem: Int64,
+            pgid: Int,
+            tty: Int64?,
+            surface: UUID?
+        ) -> CmuxTopProcessInfo {
+            CmuxTopProcessInfo(
+                pid: pid, parentPID: ppid, name: name, path: nil, ttyDevice: tty,
+                cmuxWorkspaceID: nil, cmuxSurfaceID: surface, cmuxAttributionReason: nil,
+                processGroupID: pgid, terminalProcessGroupID: pgid, cpuPercent: 0,
+                memoryBytes: mem, memorySource: .physicalFootprint,
+                residentBytes: mem, residentMemorySource: .residentSize,
+                virtualBytes: 0, threadCount: 1
+            )
+        }
+        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: pane)
+        let leak = proc(200, ppid: 100, name: "python", mem: 9_000_000_000, pgid: 200, tty: nil, surface: nil)
+        let other = proc(300, ppid: 1, name: "other", mem: 1_000_000_000, pgid: 300, tty: nil, surface: nil)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [shell, leak, other],
+            sampledAt: Date(),
+            includesProcessDetails: false
+        )
+        let descriptor = PaneMemoryDescriptor(
+            workspaceId: ws,
+            panelId: pane,
+            workspaceTitle: "Workspace",
+            paneTitle: "Terminal",
+            ttyName: nil,
+            foregroundPID: 100
+        )
+
+        let sample = PaneMemoryGuardrail.computeSamples(
+            descriptors: [descriptor],
+            thresholdBytes: threshold,
+            snapshot: snapshot
+        ).first
+
+        XCTAssertEqual(sample?.memoryBytes, 9_010_000_000)
+        XCTAssertEqual(sample?.memoryPressureProcessGroupIDs, [200])
+        XCTAssertEqual(sample?.foregroundCommand, "zsh")
+    }
+
     func testMemoryPressureProcessGroupsAreEmptyAfterPressureClears() {
         let tty: Int64 = 0x1600_0003
         let shell = CmuxTopProcessInfo(
