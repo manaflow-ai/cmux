@@ -602,11 +602,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     /// The in-flight raw-input drain loop. Retained (not fire-and-forget) so it
     /// isn't orphaned and tests can await it deterministically via
-    /// ``drainRawTerminalInputForTesting()``. Single-drain-at-a-time ordering is
-    /// enforced by the buffer's `isDraining` flag — a new `.startDraining` only
-    /// occurs once the prior drain emptied the queue — so the task is replaced,
-    /// never chained onto the previous one. Not observed: it sequences async
-    /// delivery, not view state.
+    /// ``drainRawTerminalInputForTesting()``. Cleared connection contexts cancel
+    /// this task before resetting the buffer, so a suspended stale drain cannot
+    /// resume and consume input from the next session. Not observed: it
+    /// sequences async delivery, not view state.
     @ObservationIgnored private var rawTerminalInputDrainTask: Task<Void, Never>?
     @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
@@ -856,7 +855,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         reportedViewportSizesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
         // Group sections are account-scoped like `pairedMacs`/`registryDevices`
@@ -3319,7 +3318,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func drainRawTerminalInputBuffer() async {
-        while let chunk = rawTerminalInputBuffer.nextBatch() {
+        while !Task.isCancelled, let chunk = rawTerminalInputBuffer.nextBatch() {
             await submitTerminalRawInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
@@ -3342,7 +3341,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -3584,6 +3583,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
         replaceRemoteClient(with: nil)
+        resetRawTerminalInputBuffer()
+    }
+
+    private func resetRawTerminalInputBuffer() {
+        rawTerminalInputDrainTask?.cancel()
+        rawTerminalInputDrainTask = nil
         rawTerminalInputBuffer.clear()
     }
 
@@ -3639,7 +3644,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         clearPairingError()
         clearPairingVersionWarning()
         return attemptID

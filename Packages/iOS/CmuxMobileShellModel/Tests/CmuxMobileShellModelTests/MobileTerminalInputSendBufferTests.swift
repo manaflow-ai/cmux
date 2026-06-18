@@ -72,6 +72,27 @@ import Testing
         #expect(buffer.nextBatch() == nil)
     }
 
+    @Test func oversizedCombiningGraphemeDrainsInBoundedBatches() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedText = "e" + String(
+            repeating: "\u{0301}",
+            count: MobileTerminalInputSendBuffer.maximumPendingByteCount
+        )
+
+        #expect(oversizedText.utf8.count > MobileTerminalInputSendBuffer.maximumPendingByteCount)
+        #expect(buffer.enqueue(oversizedText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+
+        var drainedText = ""
+        while let batch = buffer.nextBatch() {
+            #expect(batch.text.utf8.count <= MobileTerminalInputSendBuffer.maximumPendingByteCount)
+            drainedText += batch.text
+        }
+        #expect(drainedText == oversizedText)
+        #expect(buffer.pendingByteCount == 0)
+    }
+
     @Test func rejectsSingleInputAboveAbsoluteLimit() {
         var buffer = MobileTerminalInputSendBuffer()
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")

@@ -120,26 +120,24 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         let chunk = pendingChunks.removeFirst()
         let chunkByteCount = chunk.text.utf8.count
         if chunkByteCount > Self.maximumPendingByteCount {
-            let splitIndex = chunk.text.mobileTerminalInputBoundedSplitIndex(
+            let split = chunk.text.mobileTerminalInputBoundedSplit(
                 maximumUTF8ByteCount: Self.maximumPendingByteCount
             )
-            let prefix = String(chunk.text[..<splitIndex])
-            let remainder = String(chunk.text[splitIndex...])
-            if !remainder.isEmpty {
+            if !split.remainder.isEmpty {
                 pendingChunks.insert(
                     Chunk(
                         workspaceID: chunk.workspaceID,
                         terminalID: chunk.terminalID,
-                        text: remainder
+                        text: split.remainder
                     ),
                     at: 0
                 )
             }
-            pendingByteCount = max(0, pendingByteCount - prefix.utf8.count)
+            pendingByteCount = max(0, pendingByteCount - split.prefix.utf8.count)
             return Chunk(
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID,
-                text: prefix
+                text: split.prefix
             )
         }
         pendingByteCount = max(0, pendingByteCount - chunkByteCount)
@@ -155,18 +153,23 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
 }
 
 private extension String {
-    func mobileTerminalInputBoundedSplitIndex(maximumUTF8ByteCount: Int) -> String.Index {
-        var index = startIndex
+    func mobileTerminalInputBoundedSplit(maximumUTF8ByteCount: Int) -> (prefix: String, remainder: String) {
+        var prefix = ""
+        var remainder = ""
         var byteCount = 0
-        while index < endIndex {
-            let nextIndex = self.index(after: index)
-            let nextByteCount = self[index..<nextIndex].utf8.count
+        var iterator = unicodeScalars.makeIterator()
+        while let scalar = iterator.next() {
+            let nextByteCount = scalar.utf8.count
             guard byteCount + nextByteCount <= maximumUTF8ByteCount else {
+                remainder.unicodeScalars.append(scalar)
                 break
             }
+            prefix.unicodeScalars.append(scalar)
             byteCount += nextByteCount
-            index = nextIndex
         }
-        return index == startIndex ? self.index(after: startIndex) : index
+        while let scalar = iterator.next() {
+            remainder.unicodeScalars.append(scalar)
+        }
+        return (prefix, remainder)
     }
 }
