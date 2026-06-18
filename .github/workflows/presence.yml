@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
         working-directory: workers/presence
@@ -57,7 +57,7 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     concurrency:
       group: presence-deploy
       cancel-in-progress: false

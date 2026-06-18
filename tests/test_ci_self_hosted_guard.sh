@@ -3,7 +3,7 @@
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
 # GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/macos-ci-runners.md.
+# see docs/ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -677,7 +677,25 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_no_bare_github_hosted_runners() {
+  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
+  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
+  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
+  # deliberate single-runner pins such as the testmanagerd-wedged `tests` job.
+  local hits
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
+    echo "$hits"
+    exit 1
+  fi
+  echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+}
+
 # ci.yml jobs
+check_no_bare_github_hosted_runners
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
