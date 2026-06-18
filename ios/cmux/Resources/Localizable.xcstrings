@@ -6426,6 +6426,142 @@
           }
         }
       }
+    },
+    "mobile.onboarding.notificationsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get notified when your Mac needs you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macからの通知を受け取る"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.notificationsBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an agent finishes or asks a question, cmux can notify your phone, even when it's locked. Turn it on so you don't have to keep checking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが完了したり質問したりすると、ロック中でもcmuxがiPhoneに通知します。オンにすれば、何度も確認する必要はありません。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.enableNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を有効にする"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.notificationsNotNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
+    "mobile.notifications.bannerTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をオンにする"
+          }
+        }
+      }
+    },
+    "mobile.notifications.bannerBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get notified when an agent finishes or needs you, even when your phone is locked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが完了したり対応が必要になったときに、ロック中でも通知を受け取れます。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.bannerEnable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にする"
+          }
+        }
+      }
+    },
+    "mobile.notifications.bannerIgnoreForever": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignore forever"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後表示しない"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -13,6 +13,16 @@ struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    #if os(iOS)
+    @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    #endif
+    /// Local visibility for the top-of-list "enable notifications" banner, seeded
+    /// from `NotificationBannerPolicy` and flipped off when the user enables or
+    /// permanently ignores. Held as `@State` (not read live from the coordinator)
+    /// so the banner reacts immediately to the in-process action, matching the
+    /// Settings toggle's local-mirror pattern. iOS-only behavior; stays `false` on
+    /// macOS, where the banner section is compiled out.
+    @State private var notificationBannerVisible = false
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -59,11 +69,43 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
+            #if os(iOS)
+            refreshNotificationBannerVisibility()
+            #endif
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
             MobileConnectionRecoveryBanner(store: store, signOut: signOut)
         }
+    }
+
+    /// Seed/refresh the banner's local visibility from the push coordinator.
+    /// No-op on macOS (no push coordinator; the banner is compiled out there).
+    private func refreshNotificationBannerVisibility() {
+        #if os(iOS)
+        notificationBannerVisible = NotificationBannerPolicy.shouldShow(
+            isEnabled: pushCoordinator.isEnabled,
+            dismissedForever: pushCoordinator.bannerDismissedForever
+        )
+        #endif
+    }
+
+    private func enableNotificationsFromBanner() {
+        #if os(iOS)
+        Task { @MainActor in
+            await pushCoordinator.enableOrOpenSettings(trigger: "workspaces_banner")
+            // Re-derive from the (possibly now-enabled) state; a denied user sent
+            // to Settings keeps the banner until they return enabled.
+            refreshNotificationBannerVisibility()
+        }
+        #endif
+    }
+
+    private func ignoreNotificationsBanner() {
+        #if os(iOS)
+        pushCoordinator.dismissNotificationBannerForever()
+        notificationBannerVisible = false
+        #endif
     }
 
     private var stackLayout: some View {
@@ -87,7 +129,10 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                showsNotificationBanner: notificationBannerVisible,
+                enableNotifications: enableNotificationsFromBanner,
+                ignoreNotificationsForever: ignoreNotificationsBanner
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -165,7 +210,10 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                showsNotificationBanner: notificationBannerVisible,
+                enableNotifications: enableNotificationsFromBanner,
+                ignoreNotificationsForever: ignoreNotificationsBanner
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

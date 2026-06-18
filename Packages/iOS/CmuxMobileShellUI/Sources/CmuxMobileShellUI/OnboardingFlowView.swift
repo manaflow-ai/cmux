@@ -7,8 +7,10 @@ import SwiftUI
 /// a Mac, then hands off to the existing pairing flow.
 ///
 /// This view is deliberately pairing-ignorant. It owns no auth, store, or
-/// pairing state: it walks the user through three explanatory pages and then
-/// calls ``onComplete``. The caller decides what "complete" means:
+/// pairing state: it walks the user through the explanatory pages, ends on an
+/// "enable notifications" opt-in (driven through the injected
+/// ``MobilePushCoordinator``, and skipped when notifications are already on),
+/// then calls ``onComplete``. The caller decides what "complete" means:
 ///
 /// - First launch: presented post-authentication, in front of the never-paired
 ///   add-device state. The root view marks onboarding seen and falls through to
@@ -32,9 +34,25 @@ struct OnboardingFlowView: View {
 
     @State private var pageIndex = 0
     @State private var isShowingSetupHelp = false
+    @State private var isEnablingNotifications = false
     @Environment(\.analytics) private var analytics
+    @Environment(MobilePushCoordinator.self) private var pushCoordinator
 
-    private let pages = OnboardingPage.allPages
+    /// The pages to show. The final "enable notifications" page is dropped when
+    /// notifications are already on, so a returning/Settings user never sees a
+    /// redundant opt-in. `isEnabled` only changes when the user acts on that very
+    /// page (which immediately completes the flow), so the list is stable while
+    /// onboarding is on screen.
+    private var pages: [OnboardingPage] {
+        OnboardingPage.allPages.filter { page in
+            page.kind != .enableNotifications || !pushCoordinator.isEnabled
+        }
+    }
+
+    private var currentPage: OnboardingPage? {
+        guard pages.indices.contains(pageIndex) else { return nil }
+        return pages[pageIndex]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,7 +99,16 @@ struct OnboardingFlowView: View {
         .padding(.top, 12)
     }
 
+    @ViewBuilder
     private var footer: some View {
+        if currentPage?.kind == .enableNotifications {
+            notificationsFooter
+        } else {
+            infoFooter
+        }
+    }
+
+    private var infoFooter: some View {
         VStack(spacing: 12) {
             Button {
                 advance()
@@ -104,6 +131,45 @@ struct OnboardingFlowView: View {
                     .font(.subheadline)
             }
             .accessibilityIdentifier("MobileOnboardingHelpButton")
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 16)
+    }
+
+    /// Footer for the final "enable notifications" page: the primary button fires
+    /// the OS permission prompt (or routes to Settings if previously denied),
+    /// then completes; "Not now" completes without enabling. Either way the flow
+    /// finishes and hands off to pairing.
+    private var notificationsFooter: some View {
+        VStack(spacing: 12) {
+            Button {
+                guard !isEnablingNotifications else { return }
+                isEnablingNotifications = true
+                Task { @MainActor in
+                    await pushCoordinator.enableOrOpenSettings(trigger: "onboarding")
+                    isEnablingNotifications = false
+                    analytics.capture("ios_onboarding_completed", [:])
+                    onComplete()
+                }
+            } label: {
+                Text(L10n.string("mobile.onboarding.enableNotifications", defaultValue: "Enable notifications"))
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(.capsule)
+            }
+            .mobileGlassProminentButton()
+            .disabled(isEnablingNotifications)
+            .accessibilityIdentifier("MobileOnboardingEnableNotificationsButton")
+
+            Button {
+                analytics.capture("ios_onboarding_notifications_skipped", ["page": .int(pageIndex)])
+                onComplete()
+            } label: {
+                Text(L10n.string("mobile.onboarding.notificationsNotNow", defaultValue: "Not now"))
+                    .font(.subheadline)
+            }
+            .disabled(isEnablingNotifications)
+            .accessibilityIdentifier("MobileOnboardingNotificationsNotNowButton")
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
