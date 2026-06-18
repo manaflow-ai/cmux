@@ -14,7 +14,7 @@ LOCK_POLL_SECONDS="${CMUX_VDISPLAY_LOCK_POLL_SECONDS:-2}"
 
 usage() {
   cat >&2 <<'EOF'
-usage: virtual-display-lock.sh acquire|set-owner <pid>|release
+usage: virtual-display-lock.sh acquire|set-owner <pid>|reap-strays|release
 
 Coordinates host-global CGVirtualDisplay use between concurrent self-hosted
 macOS jobs. acquire prints CMUX_VDISPLAY_LOCK_DIR and
@@ -204,12 +204,58 @@ release() {
   rm -rf "$LOCK_DIR"
 }
 
+# List PIDs of running compiled create-virtual-display helper binaries, excluding
+# the clang compile of the .m source and this script itself. Used to reap leaked
+# helpers from crashed/cancelled jobs.
+stray_helper_pids() {
+  # Tolerate no-match at every stage (no helper running, or every match filtered
+  # out) so the empty result is an empty string with exit 0, not a pipefail that
+  # would abort reap_strays under `set -e`.
+  { pgrep -fl 'create-virtual-display' 2>/dev/null || true; } \
+    | { grep -v -e 'clang' -e '[.]m\b' -e 'virtual-display-lock' || true; } \
+    | awk -v self="$$" '$1 != self { print $1 }'
+}
+
+# Kill orphaned create-virtual-display helpers. Must be called while holding the
+# lock: lock ownership makes CGVirtualDisplay access exclusive, so any live
+# helper is a leak from a job that died without releasing. On persistent
+# self-hosted runners (the minis) these orphans keep their CGVirtualDisplay
+# alive and block every subsequent create, because only one CI virtual display
+# identity is allowed at a time. Warp VMs never hit this since each job gets a
+# fresh VM.
+reap_strays() {
+  require_token_match || exit 0
+  local pids
+  pids="$(stray_helper_pids)"
+  if [ -z "$pids" ]; then
+    echo "No stray virtual-display helpers to reap" >&2
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  echo "Reaping stray virtual-display helpers: $(echo $pids | tr '\n' ' ')" >&2
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  local _
+  for _ in $(seq 1 50); do
+    pids="$(stray_helper_pids)"
+    [ -n "$pids" ] || return 0
+    sleep 0.1
+  done
+  # shellcheck disable=SC2086
+  echo "Force-killing remaining virtual-display helpers: $(echo $pids | tr '\n' ' ')" >&2
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+}
+
 case "$COMMAND" in
   acquire)
     acquire
     ;;
   set-owner)
     set_owner "${1:-}"
+    ;;
+  reap-strays)
+    reap_strays
     ;;
   release)
     release

@@ -854,6 +854,11 @@ jobs:
             echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
             echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
 
+            # Now that we hold the lock, reap any leaked display helper so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
             "$HELPER_PATH" \
               --ready-path "$VDISPLAY_READY" \
               --display-id-path "$VDISPLAY_ID_PATH" \
@@ -1399,6 +1404,11 @@ jobs:
 
             acquire_display_lock
 
+            # Reap any leaked display helper now that we hold the lock, so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
             # runner is sandboxed and can't write to /tmp/ for the start signal.
@@ -1562,6 +1572,11 @@ jobs:
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-vdisplay-persistent.id"
           VDISPLAY_LOG="$RUNNER_TEMP/cmux-vdisplay-persistent.log"
           rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          # Now that we hold the lock, reap any leaked display helper so a
+          # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+          # this create on persistent self-hosted runners.
+          scripts/ci/virtual-display-lock.sh reap-strays || true
 
           "$HELPER_PATH" \
             --modes "1920x1080" \
