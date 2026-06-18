@@ -279,7 +279,8 @@ struct HorizontalTabsSidebar: View {
 
     private func reconcileSelectionWithRenderedOrder(renderedWorkspaceIds: [UUID]? = nil) {
         let liveRenderedIds = renderedWorkspaceIds ?? workspaceRenderModel.renderedIds
-        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+        let selectionPolicy = SidebarWorkspaceSelectionSyncPolicy()
+        let nextSelectionIds = selectionPolicy.reconciledSelection(
             previousSelectionIds: selectedTabIds,
             liveWorkspaceIds: liveRenderedIds,
             fallbackSelectedWorkspaceId: tabManager.selectedTabId
@@ -287,7 +288,7 @@ struct HorizontalTabsSidebar: View {
         if selectedTabIds != nextSelectionIds {
             selectedTabIds = nextSelectionIds
         }
-        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+        let nextAnchorIndex = selectionPolicy.anchorIndex(
             preferredWorkspaceId: tabManager.selectedTabId,
             selectedWorkspaceIds: nextSelectionIds,
             liveWorkspaceIds: liveRenderedIds
