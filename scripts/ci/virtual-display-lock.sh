@@ -208,11 +208,16 @@ release() {
 # the clang compile of the .m source and this script itself. Used to reap leaked
 # helpers from crashed/cancelled jobs.
 stray_helper_pids() {
-  # Tolerate no-match at every stage (no helper running, or every match filtered
-  # out) so the empty result is an empty string with exit 0, not a pipefail that
-  # would abort reap_strays under `set -e`.
-  { pgrep -fl 'create-virtual-display' 2>/dev/null || true; } \
-    | { grep -v -e 'clang' -e '[.]m\b' -e 'virtual-display-lock' || true; } \
+  # Match running compiled create-virtual-display helpers by full command line.
+  # Use `ps -o command=` (not `pgrep -fl`, whose output is the full argv on BSD
+  # but only the process name on Linux, which breaks the clang/.m exclusion) so
+  # the filter is identical on macOS runners and the Linux guard host. Exclude
+  # the clang compile of the .m source and this script itself. Tolerate no-match
+  # at every stage so an empty result is exit 0, not a pipefail that would abort
+  # reap_strays under `set -e`.
+  { ps -axww -o pid=,command= 2>/dev/null || true; } \
+    | { grep 'create-virtual-display' || true; } \
+    | { grep -v -e 'clang' -e 'create-virtual-display[.]m' -e 'virtual-display-lock' || true; } \
     | awk -v self="$$" '$1 != self { print $1 }'
 }
 
