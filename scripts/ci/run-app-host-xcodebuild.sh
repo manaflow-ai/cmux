@@ -11,6 +11,43 @@ max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
+# Principled serialization (the actual fix; the retry below is only a backstop).
+# Invariant: a GUI test host owns the Mac's single login session + testmanagerd
+# while it runs. Two hosts on one self-hosted Mac contend for that one session
+# and drop the test-runner channel. Enforce one app-host test at a time PER
+# MACHINE with a machine-local mutex. atomic mkdir is the lock (portable; no
+# util-linux flock dependency on macOS). The lock dir lives on local disk, so
+# different machines use different locks and cross-machine parallelism is kept.
+lock_dir="${CMUX_APP_HOST_TEST_LOCK_DIR:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
+lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-2400}"
+lock_stale_seconds="${CMUX_APP_HOST_TEST_LOCK_STALE_SECONDS:-2400}"
+lock_held=0
+release_test_lock() { [ "$lock_held" = "1" ] && rm -rf "$lock_dir" 2>/dev/null || true; }
+trap release_test_lock EXIT
+waited=0
+while :; do
+  # Ownership is proven ONLY by creating the dir ourselves (atomic mkdir).
+  if mkdir "$lock_dir" 2>/dev/null; then
+    lock_held=1
+    echo "Holding app-host test lock: ${lock_dir}"
+    break
+  fi
+  # Break a lock orphaned by a crashed job (older than the stale threshold).
+  lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+  if [ "$lock_age" -ge "$lock_stale_seconds" ]; then
+    echo "WARN: breaking stale app-host test lock ${lock_dir} (age ${lock_age}s)" >&2
+    rm -rf "$lock_dir" 2>/dev/null || true
+    continue
+  fi
+  if [ "$waited" -ge "$lock_wait_seconds" ]; then
+    echo "WARN: app-host test lock not acquired in ${lock_wait_seconds}s; proceeding without exclusivity" >&2
+    break
+  fi
+  [ "$waited" = "0" ] && echo "Waiting for app-host test lock ${lock_dir} (another GUI test host holds this Mac)..."
+  sleep 5
+  waited=$(( waited + 5 ))
+done
+
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
