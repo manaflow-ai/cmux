@@ -82,7 +82,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
