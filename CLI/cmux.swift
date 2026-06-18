@@ -11610,7 +11610,7 @@ struct CMUXCLI {
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
-        let resizeSource = startSSHPTYResizeSource(
+        let resizeCoordinator = startSSHPTYResizeSource(
             client: client,
             workspaceId: workspaceId,
             surfaceID: surfaceID,
@@ -11619,7 +11619,7 @@ struct CMUXCLI {
             attachmentToken: attachmentToken,
             socketLock: controlSocketLock
         )
-        defer { resizeSource.cancel() }
+        defer { resizeCoordinator.cancel() }
 
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -11648,7 +11648,7 @@ struct CMUXCLI {
             if count > 0 {
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                resizeSource.cancel()
+                resizeCoordinator.cancel()
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
@@ -11661,7 +11661,7 @@ struct CMUXCLI {
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    resizeSource.cancel()
+                    resizeCoordinator.cancel()
                     try handleSSHPTYBridgeEOF(
                         client: client,
                         workspaceId: workspaceId,
@@ -11906,32 +11906,32 @@ struct CMUXCLI {
         attachmentID: String,
         attachmentToken: String,
         socketLock: NSLock
-    ) -> DispatchSourceSignal {
+    ) -> SSHPTYResizeCoordinator {
         signal(SIGWINCH, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(
-            signal: SIGWINCH,
-            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        )
-        source.setEventHandler {
-            let size = self.currentCLITerminalSize()
-            socketLock.lock()
-            defer { socketLock.unlock() }
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": attachmentToken,
-                "cols": size.cols,
-                "rows": size.rows,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+        let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        var baseParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionID,
+            "attachment_id": attachmentID,
+            "attachment_token": attachmentToken,
+        ]
+        if let surfaceID {
+            baseParams["surface_id"] = surfaceID
+            baseParams["allow_moved_surface"] = true
         }
+        let coordinator = SSHPTYResizeCoordinator(
+            client: client,
+            baseParams: baseParams,
+            socketLock: socketLock,
+            queue: queue,
+            sizeProvider: { self.currentCLITerminalSize() },
+            log: { self.cliDebugLog($0) }
+        )
+        let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: queue)
+        source.setEventHandler { coordinator.noteResize() }
+        coordinator.bindSignalSource(source) // lets cancel() tear down retries synchronously
         source.resume()
-        return source
+        return coordinator
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
