@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import CmuxCore
@@ -1424,6 +1425,18 @@ extension Workspace {
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
+        // The bonsplit tab header only refreshes when `updateTab` is called; the writes
+        // above never reach it (`setPanelCustomTitle` skips the sync when there is no
+        // custom title), so push the restored title to the tab now, mirroring
+        // `updatePanelTitle`, instead of waiting for the next OSC title update.
+        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
         } else {
@@ -2316,17 +2329,52 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
-    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
+    /// The sidebar-metadata sub-model (CmuxSidebar): owns the
+    /// sidebar status entries, metadata blocks, log entries, progress, and
+    /// git-branch / pull-request presentation state. The legacy accessors below
+    /// forward here. The moved properties were `@Published` and fed the sidebar
+    /// observation publishers, so the model exposes per-field Combine publishers
+    /// (`statusEntriesPublisher` etc.) that `makeSidebarObservationPublisher()`
+    /// subscribes to in place of the former `$projection`s, preserving the
+    /// debounced refresh timing byte-identically.
+    let sidebarMetadata = WorkspaceSidebarMetadataModel(
+        limitProvider: WorkspaceSidebarLogEntryLimitProvider()
+    )
+    var statusEntries: [String: SidebarStatusEntry] {
+        get { sidebarMetadata.statusEntries }
+        set { sidebarMetadata.statusEntries = newValue }
+    }
+    var metadataBlocks: [String: SidebarMetadataBlock] {
+        get { sidebarMetadata.metadataBlocks }
+        set { sidebarMetadata.metadataBlocks = newValue }
+    }
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
-    @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: SidebarProgressState?
-    @Published var gitBranch: SidebarGitBranchState?
-    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
-    @Published var pullRequest: SidebarPullRequestState?
-    @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
+    var logEntries: [SidebarLogEntry] {
+        get { sidebarMetadata.logEntries }
+        set { sidebarMetadata.logEntries = newValue }
+    }
+    var progress: SidebarProgressState? {
+        get { sidebarMetadata.progress }
+        set { sidebarMetadata.progress = newValue }
+    }
+    var gitBranch: SidebarGitBranchState? {
+        get { sidebarMetadata.gitBranch }
+        set { sidebarMetadata.gitBranch = newValue }
+    }
+    var panelGitBranches: [UUID: SidebarGitBranchState] {
+        get { sidebarMetadata.panelGitBranches }
+        set { sidebarMetadata.panelGitBranches = newValue }
+    }
+    var pullRequest: SidebarPullRequestState? {
+        get { sidebarMetadata.pullRequest }
+        set { sidebarMetadata.pullRequest = newValue }
+    }
+    var panelPullRequests: [UUID: SidebarPullRequestState] {
+        get { sidebarMetadata.panelPullRequests }
+        set { sidebarMetadata.panelPullRequests = newValue }
+    }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
@@ -2647,8 +2695,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
@@ -2684,8 +2732,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
@@ -5045,11 +5093,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
-        metadataBlocks.values.sorted { lhs, rhs in
-            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-            return lhs.key < rhs.key
-        }
+        sidebarMetadata.metadataBlocksInDisplayOrder()
     }
 
     @discardableResult
@@ -6454,14 +6498,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        logEntries.append(SidebarLogEntry(message: trimmed, level: level, source: source, timestamp: Date()))
-        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
-        let limit = max(1, min(500, configuredLimit))
-        if logEntries.count > limit {
-            logEntries.removeFirst(logEntries.count - limit)
-        }
+        sidebarMetadata.appendLogEntry(message: message, level: level, source: source)
     }
 
     // MARK: - Panel Operations

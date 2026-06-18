@@ -158,10 +158,10 @@ extension CmuxSettingsFileStore {
             [
                 "sidebarAppearance": [
                     "matchTerminalBackground": false,
-                    "tintColor": SidebarTintDefaults.hex,
+                    "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
-                    "tintOpacity": SidebarTintDefaults.opacity,
+                    "tintOpacity": SidebarTintDefaults().opacity,
                 ],
             ],
             [
