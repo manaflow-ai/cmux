@@ -370,7 +370,11 @@ extension CMUXCLI {
             try process.run()
         } catch {
             try? logHandle.close()
-            throw CLIError(message: String(describing: error))
+            let format = String(
+                localized: "cli.ios.error.helperLaunchFailed",
+                defaultValue: "iOS simulator server could not be launched. See log: %@"
+            )
+            throw CLIError(message: String(format: format, logURL.path))
         }
         try? logHandle.close()
         let pid = process.processIdentifier
