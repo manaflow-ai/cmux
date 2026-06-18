@@ -71,6 +71,11 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
     /// The stored global default placement for new in-group workspaces
     /// (legacy settings read of `workspaceGroups.newWorkspacePlacement`).
     var defaultNewWorkspacePlacementInGroup: WorkspaceGroupNewPlacement { get }
+    /// Whether a new in-group workspace should inherit the group anchor's
+    /// working directory (settings read of `app.workspaceInheritWorkingDirectory`).
+    /// When false, in-group creation leaves the cwd unset so the new workspace
+    /// falls back to home, matching ungrouped new-workspace creation.
+    var inheritsWorkingDirectoryForNewWorkspaces: Bool { get }
     /// Normalizes a group icon SF Symbol name (legacy
     /// `RenderableSystemSymbol.normalized(_:)`, app-side catalog).
     func normalizedGroupIconSymbol(_ symbol: String?) -> String?
