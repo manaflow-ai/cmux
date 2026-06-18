@@ -5313,7 +5313,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = id
     }
 
-    private func applyRemoteWorkspaceList(
+    func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false

@@ -121,12 +121,13 @@ extension MobileShellComposite {
                     "client_id": clientID,
                 ]
             )
-            _ = try await client.sendRequest(request)
+            let responseData = try await client.sendRequest(request)
+            let response = try MobileSyncWorkspaceListResponse.decode(responseData)
             guard remoteClient === client,
                   connectionState == .connected,
                   !Task.isCancelled else { return }
             terminalOverviewPreviewLinesByID[terminalID] = nil
-            await refreshWorkspaces()
+            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
         } catch {
             guard remoteClient === client, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
