@@ -34,6 +34,7 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    @State private var sidebarSide: DefaultsValueModel<SidebarSideOption>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
@@ -60,6 +61,7 @@ public struct SidebarSection: View {
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _sidebarSide = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.side))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -169,6 +171,20 @@ public struct SidebarSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("sidebarAppearance.side"),
+                String(localized: "settings.sidebarAppearance.side", defaultValue: "Tab Sidebar Position"),
+                subtitle: String(localized: "settings.sidebarAppearance.side.subtitle", defaultValue: "Choose which side the workspace tab list appears on.")
+            ) {
+                Picker("", selection: Binding(get: { sidebarSide.current }, set: { sidebarSide.set($0) })) {
+                    Text(String(localized: "settings.sidebarAppearance.side.left", defaultValue: "Left")).tag(SidebarSideOption.left)
+                    Text(String(localized: "settings.sidebarAppearance.side.right", defaultValue: "Right")).tag(SidebarSideOption.right)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
             SettingsCardRow(
                 configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
                 String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
