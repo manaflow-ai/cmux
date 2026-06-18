@@ -12066,7 +12066,7 @@ struct VerticalTabsSidebar: View {
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
-            focusWorkspaceSidebar: focusWorkspaceSidebarForKeyboardShortcut,
+            focusWorkspaceSidebar: { _ = focusWorkspaceSidebarForKeyboardShortcut() },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
