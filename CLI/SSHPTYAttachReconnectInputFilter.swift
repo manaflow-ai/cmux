@@ -36,15 +36,27 @@ final class SSHPTYAttachReconnectInputFilter {
         var stopSignalFDs = [Int32](repeating: -1, count: 2)
         let filterControl: SSHPTYAttachReconnectInputFilterControl?
         let stopSignalReadFD: Int32?
+        let stopAcknowledgementWriteFD: Int32?
         if filterState == nil {
             filterControl = nil
             stopSignalReadFD = nil
+            stopAcknowledgementWriteFD = nil
         } else {
             guard Darwin.pipe(&stopSignalFDs) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
-            filterControl = SSHPTYAttachReconnectInputFilterControl(stopSignalWriteFD: stopSignalFDs[1])
+            var stopAcknowledgementFDs = [Int32](repeating: -1, count: 2)
+            guard Darwin.pipe(&stopAcknowledgementFDs) == 0 else {
+                Darwin.close(stopSignalFDs[0])
+                Darwin.close(stopSignalFDs[1])
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            filterControl = SSHPTYAttachReconnectInputFilterControl(
+                stopSignalWriteFD: stopSignalFDs[1],
+                stopAcknowledgementReadFD: stopAcknowledgementFDs[0]
+            )
             stopSignalReadFD = stopSignalFDs[0]
+            stopAcknowledgementWriteFD = stopAcknowledgementFDs[1]
         }
         DispatchQueue.global(qos: .userInteractive).async {
             pumpStdin(
@@ -52,7 +64,8 @@ final class SSHPTYAttachReconnectInputFilter {
                 fd: fd,
                 reconnectInputFilterState: filterState,
                 retainedFilterControl: filterControl,
-                stopSignalFD: stopSignalReadFD
+                stopSignalFD: stopSignalReadFD,
+                stopAcknowledgementFD: stopAcknowledgementWriteFD
             )
         }
         return filterControl
@@ -95,15 +108,20 @@ final class SSHPTYAttachReconnectInputFilter {
         fd: Int32,
         reconnectInputFilterState: SSHPTYAttachReconnectInputFilterState?,
         retainedFilterControl: SSHPTYAttachReconnectInputFilterControl?,
-        stopSignalFD initialStopSignalFD: Int32?
+        stopSignalFD initialStopSignalFD: Int32?,
+        stopAcknowledgementFD initialStopAcknowledgementFD: Int32?
     ) {
         _ = retainedFilterControl
         var reconnectInputFilter = reconnectInputFilterState.map(SSHPTYAttachReconnectInputFilter.init(state:))
         var stopSignalFD = initialStopSignalFD
+        var stopAcknowledgementFD = initialStopAcknowledgementFD
         var buffer = [UInt8](repeating: 0, count: 8192)
         defer {
             if let stopSignalFD {
                 Darwin.close(stopSignalFD)
+            }
+            if let stopAcknowledgementFD {
+                Darwin.close(stopAcknowledgementFD)
             }
         }
 
@@ -120,7 +138,25 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
+        func acknowledgeStopFiltering() {
+            guard let fd = stopAcknowledgementFD else {
+                return
+            }
+            var byte: UInt8 = 1
+            while true {
+                let written = withUnsafePointer(to: &byte) { pointer in
+                    Darwin.write(fd, pointer, 1)
+                }
+                if written > 0 || errno != EINTR {
+                    Darwin.close(fd)
+                    stopAcknowledgementFD = nil
+                    return
+                }
+            }
+        }
+
         func stopReconnectFiltering() -> Bool {
+            defer { acknowledgeStopFiltering() }
             guard let filter = reconnectInputFilter else {
                 return true
             }

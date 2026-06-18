@@ -143,6 +143,34 @@ import Testing
         #expect(try readUntilEOF(fd: bridgePair[1]) == forwardedInput)
     }
 
+    @Test func stdinPumpStopsFilteringBeforeStopFilteringReturns() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+
+        control?.stopFiltering()
+        let liveProbeReply = Data("\u{1B}[2;2R".utf8)
+        try writeAll(fd: inputPipe[1], data: liveProbeReply)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
+    }
+
     private func makePipe(_ fds: inout [Int32]) throws {
         guard Darwin.pipe(&fds) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
