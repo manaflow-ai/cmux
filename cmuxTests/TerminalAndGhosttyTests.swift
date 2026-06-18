@@ -1385,6 +1385,47 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(error.code, "surface_unavailable")
     }
 
+    func testMobileTerminalCloseReturnsRemainingWorkspaceList() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let workspaces = payload["workspaces"] as? [[String: Any]],
+              let workspacePayload = workspaces.first,
+              let terminals = workspacePayload["terminals"] as? [[String: Any]] else {
+            XCTFail("Expected terminal.close to return the refreshed workspace list")
+            return
+        }
+
+        XCTAssertNil(workspace.terminalPanel(for: closingPanel.id))
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspacePayload["id"] as? String, workspace.id.uuidString)
+        XCTAssertTrue(terminals.contains { ($0["id"] as? String) == firstPanel.id.uuidString })
+        XCTAssertFalse(terminals.contains { ($0["id"] as? String) == closingPanel.id.uuidString })
+    }
+
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
         let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(

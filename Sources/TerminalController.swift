@@ -13678,8 +13678,12 @@ class TerminalController {
                 "surface_id": surfaceId.uuidString,
             ])
         }
+        var refreshParams = params
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            refreshParams.removeValue(forKey: key)
+        }
         return v2MobileWorkspaceList(
-            params: params,
+            params: refreshParams,
             tabManager: resolved.tabManager
         )
     }
