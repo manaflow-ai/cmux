@@ -84,7 +84,7 @@ public actor UserDefaultsSettingsStore {
     /// as opposed to falling back to the key's default. Used by the settings
     /// control layer to report a value's source.
     public func hasOverride<Value>(for key: DefaultsKey<Value>) -> Bool {
-        key.hasStoredValue(in: underlyingDefaults)
+        storage.hasStoredValue(for: key)
     }
 
     /// Removes a raw UserDefaults entry by its storage key. Used by the settings
@@ -92,7 +92,7 @@ public actor UserDefaultsSettingsStore {
     /// (`shortcut.<action>`) that are not modeled as catalog keys but still
     /// participate in runtime shortcut resolution.
     public func removeRawValue(forKey storageKey: String) {
-        underlyingDefaults.removeObject(forKey: storageKey)
+        storage.removeObject(forKey: storageKey)
     }
 
     /// Removes the stored overrides for every UserDefaults-backed entry in
