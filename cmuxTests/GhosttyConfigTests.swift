@@ -1,4 +1,5 @@
 @preconcurrency import XCTest
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxBrowser
 import CmuxBrowserImport
@@ -1466,7 +1467,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(39.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
@@ -1481,7 +1482,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
@@ -5994,7 +5995,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector(
             homeDirectoryURL: home,
             bundleLookup: { bundleIdentifier in
                 if bundleIdentifier == "com.google.Chrome" {
@@ -6003,7 +6004,8 @@ final class BrowserInstallDetectorTests: XCTestCase {
                 return nil
             },
             applicationSearchDirectories: []
-        )
+
+        ).detectInstalledBrowsers()
 
         guard let chrome = detected.first(where: { $0.descriptor.id == "google-chrome" }) else {
             XCTFail("Expected Chrome to be detected")
@@ -6023,11 +6025,12 @@ final class BrowserInstallDetectorTests: XCTestCase {
         let home = makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
-        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        )
+
+        ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.isEmpty)
     }
@@ -6042,11 +6045,12 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        )
+
+        ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.contains(where: { $0.descriptor.id == "chromium" }))
         XCTAssertFalse(detected.contains(where: { $0.descriptor.id == "ungoogled-chromium" }))
@@ -6085,11 +6089,12 @@ final class BrowserInstallDetectorTests: XCTestCase {
             )
         )
 
-        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        )
+
+        ).detectInstalledBrowsers()
 
         guard let helium = detected.first(where: { $0.descriptor.id == "helium" }) else {
             XCTFail("Expected Helium to be detected")
@@ -6125,11 +6130,12 @@ final class BrowserInstallDetectorTests: XCTestCase {
             contents: Data()
         )
 
-        let detected = BrowserInstalledBrowserDetector.detectInstalledBrowsers(
+        let detected = BrowserInstalledBrowserDetector(
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        )
+
+        ).detectInstalledBrowsers()
 
         guard let safari = detected.first(where: { $0.descriptor.id == "safari" }) else {
             XCTFail("Expected Safari to be detected")

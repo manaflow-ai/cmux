@@ -37,6 +37,15 @@ public struct CustomSidebarsSection: View {
                 )
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            enabled,
+            renderer,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder

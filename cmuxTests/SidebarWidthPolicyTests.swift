@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 import XCTest
@@ -427,10 +428,10 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 materialRawValue: SidebarMaterialOption.sidebar.rawValue,
                 blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
                 stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: SidebarTintDefaults.hex,
+                tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
-                tintOpacity: SidebarTintDefaults.opacity,
+                tintOpacity: SidebarTintDefaults().opacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .light

@@ -138,19 +138,53 @@ struct MobileSettingsView: View {
                 }
 
                 #if DEBUG
-                Section("Developer") {
+                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
                         showingChatDemo = true
                     } label: {
-                        Label("Agent Chat Demo", systemImage: "bubble.left.and.bubble.right")
+                        Label(
+                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
+                            systemImage: "bubble.left.and.bubble.right"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
                     Button {
                         showingTerminalDemo = true
                     } label: {
-                        Label("Terminal Log Demo", systemImage: "terminal")
+                        Label(
+                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
+                            systemImage: "terminal"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.unreadIndicatorLeftness",
+                            defaultValue: "Unread Indicator Leftness"
+                        ),
+                        value: $displaySettings.unreadIndicatorLeftShift,
+                        range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
+                        identifier: "MobileSettingsUnreadIndicatorLeftness"
+                    )
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.profilePictureLeftness",
+                            defaultValue: "Profile Picture Leftness"
+                        ),
+                        value: $displaySettings.profilePictureLeftShift,
+                        range: MobileDisplaySettings.profilePictureLeftShiftRange,
+                        identifier: "MobileSettingsProfilePictureLeftness"
+                    )
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.profilePictureSize",
+                            defaultValue: "Profile Picture Size"
+                        ),
+                        value: $displaySettings.profilePictureSize,
+                        range: MobileDisplaySettings.profilePictureSizeRange,
+                        identifier: "MobileSettingsProfilePictureSize"
+                    )
                 }
                 #endif
 
@@ -280,5 +314,34 @@ struct MobileSettingsView: View {
         if let name, !name.isEmpty { return name }
         return L10n.string("mobile.settings.account", defaultValue: "Account")
     }
+
+    #if DEBUG
+    private func debugLayoutSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(debugPointValue(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: 1)
+        }
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func debugPointValue(_ value: Double) -> String {
+        String(
+            format: L10n.string("mobile.settings.pointsFormat", defaultValue: "%lld pt"),
+            Int64(value.rounded())
+        )
+    }
+    #endif
+
 }
 #endif

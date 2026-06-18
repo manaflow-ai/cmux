@@ -50,8 +50,8 @@ require_job_contains \
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
-  "CI release-build must compile the app on macOS 26"
+  'runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || '\''warp-macos-26-arm64-6x'\'' }}' \
+  "CI release-build must compile the app on macOS 26 using the release-specific runner variable"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
