@@ -380,7 +380,8 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
-        case .toggleWorkspaceInputBroadcast: return "Broadcast Input to All Panes"
+        case .toggleWorkspaceInputBroadcast:
+            return String(localized: "shortcut.toggleWorkspaceInputBroadcast.label", defaultValue: "Broadcast Input to All Panes")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:
             return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")

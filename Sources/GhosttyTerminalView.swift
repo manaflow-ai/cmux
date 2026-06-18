@@ -5104,15 +5104,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        // Only mirror to peers if the local paste actually fired.
+        guard performBindingAction("paste_from_clipboard") else { return }
         broadcastClipboardPasteIfNeeded()
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
-    @IBAction func pasteAsPlainText(_ sender: Any?) {
+    @IBAction private func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        guard performBindingAction("paste_from_clipboard") else { return }
         broadcastClipboardPasteIfNeeded()
     }
 
@@ -6077,8 +6078,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Mirrors IME/dictation/accessibility-committed text (delivered directly,
-    /// not through the `keyDown` accumulator) onto peer panes as a key event so
-    /// it is encoded identically to the source pane (not bracketed-pasted).
+    /// not through the `keyDown` accumulator) onto peer panes as a key event.
+    /// Byte-faithful for single-line committed text (the dominant case). For the
+    /// rare multiline/control-character commit the source splits LF/CR/Tab/ESC
+    /// into discrete key events while peers receive the text in one event — a
+    /// known minor divergence not worth duplicating the splitter for.
     private func broadcastCommittedTextIfNeeded(_ text: String) {
         guard !text.isEmpty, let surface = terminalSurface, surface.inputBroadcastEnabled else { return }
         surface.owningWorkspace()?.broadcastTerminalInput(
@@ -6165,6 +6169,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.text = nil
         keyEvent.composing = false
         _ = sendGhosttyKey(surface, keyEvent)
+        // Mirror the release so peers using key-release reporting (e.g. the Kitty
+        // keyboard protocol) don't end up with stuck-key state.
+        broadcastKeyIfNeeded(keyEvent, text: nil)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -7762,8 +7769,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.sendText(text)
-            broadcastTextIfNeeded(text)
+            // Only mirror to peers when the local surface accepted/queued the text.
+            let delivered = terminalSurface?.sendText(text) ?? false
+            if delivered {
+                broadcastTextIfNeeded(text)
+            }
             return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
@@ -9103,13 +9113,9 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    // Callers are all main-actor (updateNSView + portal callbacks), so this sets
+    // the flag directly rather than re-introducing a DispatchQueue trampoline.
     func setBroadcastDot(visible: Bool) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.setBroadcastDot(visible: visible)
-            }
-            return
-        }
         guard broadcastDotView.isHidden != !visible else { return }
         broadcastDotView.isHidden = !visible
     }
