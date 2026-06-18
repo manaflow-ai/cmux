@@ -42,6 +42,8 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
+    /// Drives the rename-workspace sheet launched from the picker menu.
+    @State private var isRenamePresented = false
     /// Captured at the moment the "View as Text" action is tapped so the
     /// sheet keeps showing the terminal the user asked about even if the
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
@@ -168,6 +170,9 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .sheet(isPresented: $isRenamePresented) {
+            renameSheet
+        }
     }
 
     /// Top-level toolbar toggle between terminal and chat. Shown only when the
@@ -274,6 +279,9 @@ struct WorkspaceDetailView: View {
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
         )
+        .sheet(isPresented: $isRenamePresented) {
+            renameSheet
+        }
     }
     #endif
 
@@ -411,6 +419,9 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isTextSheetPresented) {
             TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
+        .sheet(isPresented: $isRenamePresented) {
+            renameSheet
+        }
         #endif
     }
 
@@ -504,6 +515,21 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        // Rename the current workspace from the terminal-icon menu, mirroring the
+        // workspace list's rename action. Gated on the same capability the list
+        // uses, so it stays hidden on older Macs.
+        if store.supportsWorkspaceActions {
+            Section {
+                Button(action: presentRenameFromMenu) {
+                    Label(
+                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
+                        systemImage: "pencil"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceRenameMenuItem")
+            }
         }
 
         // Mark the current workspace read/unread from the terminal-icon menu,
@@ -755,6 +781,23 @@ struct WorkspaceDetailView: View {
         let markUnread = !workspace.hasUnread
         Task { await store.setWorkspaceUnread(id: id, markUnread) }
     }
+
+    #if canImport(UIKit)
+    private func presentRenameFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        isRenamePresented = true
+    }
+
+    /// Rename sheet seeded with the current name; the trimmed result is forwarded
+    /// to the Mac, which echoes the new name back via the authoritative list sync.
+    private var renameSheet: some View {
+        WorkspaceRenameSheet(currentName: workspace.name) { newName in
+            let store = store
+            let id = workspace.id
+            Task { await store.renameWorkspace(id: id, title: newName) }
+        }
+    }
+    #endif
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()

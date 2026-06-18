@@ -56,8 +56,12 @@ extension View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
             self
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 14)
+                // Taller vertical padding so the single-line title pill's glass
+                // background matches the height of the back button and the other
+                // bar-button glass items. Padding (not a fixed height) so the
+                // multi-line chat header pill can still grow.
+                .padding(.vertical, 9)
                 .glassEffect(.regular, in: .capsule)
         } else {
             self
