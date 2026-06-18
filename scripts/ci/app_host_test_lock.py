@@ -10,10 +10,13 @@ description. The kernel releases it automatically when the holding process exits
 (even on crash), so there is no stale lock to detect and no time-based or
 pid-based recovery race: correctness does not depend on any cleanup running.
 
-The lock fd has its close-on-exec flag cleared and is inherited across exec, so
-the lock stays held for the entire lifetime of the exec'd command and is
-released the instant that process ends. Different machines use different local
-lock files, so cross-machine parallelism is preserved.
+ONLY this parent wrapper holds the lock. The command runs as a child via
+subprocess, and the lock fd is never inherited by it (os.open fds are
+non-inheritable by default per PEP 446, and subprocess closes non-stdio fds), so
+xcodebuild and any app-host it spawns cannot keep the lock alive. An orphaned
+app-host therefore cannot hold the lock; the lock is released the instant this
+wrapper exits. Different machines use different local lock files, so
+cross-machine parallelism is preserved.
 
 Usage: app_host_test_lock.py <lock_file> <wait_seconds> <command> [args...]
 Exits 1 if the lock is not acquired within <wait_seconds> (never runs unlocked).
@@ -22,6 +25,8 @@ Exits 1 if the lock is not acquired within <wait_seconds> (never runs unlocked).
 import errno
 import fcntl
 import os
+import signal
+import subprocess
 import sys
 import time
 
@@ -41,11 +46,9 @@ def main() -> int:
         return 2
     command = sys.argv[3:]
 
+    # Non-inheritable by default (PEP 446): children never receive this fd, so
+    # only this parent process can hold the lock.
     fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o644)
-    # Keep the lock across exec: clear FD_CLOEXEC so the inheriting process holds
-    # it until it exits, then the kernel releases it.
-    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
 
     deadline = time.monotonic() + wait_seconds
     announced = False
@@ -72,13 +75,28 @@ def main() -> int:
             time.sleep(2)
 
     try:
+        os.ftruncate(fd, 0)
         os.write(fd, ("%d\n" % os.getpid()).encode())
     except OSError:
         pass
     sys.stderr.write("Holding app-host test lock: %s (pid %d)\n" % (lock_file, os.getpid()))
 
-    os.execvp(command[0], command)
-    return 127  # unreachable if exec succeeds
+    # Run the command as a child and wait. The lock stays held by this parent for
+    # exactly the child's lifetime; forward termination signals so a cancelled CI
+    # job tears the child down too. close_fds (subprocess default on POSIX) keeps
+    # the lock fd out of the child.
+    proc = subprocess.Popen(command)
+
+    def _forward(signum, _frame):
+        try:
+            proc.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(_sig, _forward)
+
+    return proc.wait()
 
 
 if __name__ == "__main__":
