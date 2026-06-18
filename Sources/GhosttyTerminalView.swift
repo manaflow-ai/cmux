@@ -4722,19 +4722,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let selectedRows = keyboardCopyModeVisualLineScreenRows(
             surface: surface,
             usePendingScrollFallback: true
-        ),
-              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return nil }
+        ) else { return nil }
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_EXACT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
             x: 0,
-            y: UInt32(clamping: selectedRows.lowerBound)
+            y: 0
         )
         let bottomRight = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_EXACT,
-            x: UInt32(clamping: max(metrics.columns - 1, 0)),
-            y: UInt32(clamping: selectedRows.upperBound)
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
         )
         let selection = ghostty_selection_s(
             top_left: topLeft,
@@ -4745,9 +4744,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        let selectedData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: selectedData, as: UTF8.self)
+        let screenText = text.text.map {
+            String(decoding: Data(bytes: $0, count: Int(text.text_len)), as: UTF8.self)
+        } ?? ""
+        return TerminalKeyboardCopyModeClipboardFormatter().visualLineFallbackText(fromScreenText: screenText, rows: selectedRows)
     }
 
     private func keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: ghostty_surface_t) -> Bool {
@@ -4793,10 +4793,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface),
                   !selectedText.isEmpty else { return false }
 
-            GhosttyApp.terminalPasteboard.writeString(
-                TerminalKeyboardCopyModeClipboardFormatter().trimTrailingLinePadding(selectedText),
-                to: GHOSTTY_CLIPBOARD_STANDARD
-            )
+            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }
 

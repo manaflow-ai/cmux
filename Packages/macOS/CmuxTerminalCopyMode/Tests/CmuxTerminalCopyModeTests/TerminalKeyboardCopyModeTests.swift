@@ -314,4 +314,32 @@ struct TerminalKeyboardCopyModeClipboardPackageTests {
                 "alpha\n\nbeta\n"
         )
     }
+
+    @Test func rawVisualLineFallbackSlicesAbsoluteScreenRows() {
+        let formatter = TerminalKeyboardCopyModeClipboardFormatter()
+
+        #expect(
+            formatter.visualLineFallbackText(
+                fromScreenText: "zero padded   \none\t\t\ntwo  \nthree",
+                rows: 1 ... 2
+            ) == "one\ntwo"
+        )
+    }
+
+    @Test func rawVisualLineFallbackRejectsRangesOutsideSnapshot() {
+        let formatter = TerminalKeyboardCopyModeClipboardFormatter()
+
+        #expect(
+            formatter.visualLineFallbackText(
+                fromScreenText: "zero\none",
+                rows: 4 ... 5
+            ) == nil
+        )
+        #expect(
+            formatter.visualLineFallbackText(
+                fromScreenText: "zero\none",
+                rows: 1 ... 3
+            ) == nil
+        )
+    }
 }

@@ -20,4 +20,26 @@ public struct TerminalKeyboardCopyModeClipboardFormatter: Sendable {
         }
         return lines.joined(separator: "\n")
     }
+
+    /// Extracts visual-line fallback text from a full screen snapshot.
+    ///
+    /// - Parameters:
+    ///   - text: The raw full-screen text returned by Ghostty's `screen` read.
+    ///   - rows: The absolute screen-row range to copy, relative to the same snapshot.
+    /// - Returns: The selected rows with trailing terminal-cell padding removed, or `nil` if the range is outside the snapshot.
+    public func visualLineFallbackText(
+        fromScreenText text: String,
+        rows: ClosedRange<UInt64>
+    ) -> String? {
+        guard let lowerRow = Int(exactly: rows.lowerBound),
+              let upperRow = Int(exactly: rows.upperBound) else { return nil }
+        let screenRows = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lowerRow >= 0,
+              lowerRow < screenRows.count,
+              upperRow < screenRows.count,
+              upperRow >= lowerRow else { return nil }
+
+        let selectedRows = screenRows[lowerRow ... upperRow].joined(separator: "\n")
+        return trimTrailingLinePadding(selectedRows)
+    }
 }
