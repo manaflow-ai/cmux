@@ -31,6 +31,12 @@ public enum ToolbarMacroStep: Codable, Equatable, Sendable {
     /// The bytes this step contributes to its macro, or `nil` when it resolves to
     /// nothing (empty text, or a key combo the encoder cannot encode).
     public var output: Data? {
+        resolvedOutput
+    }
+}
+
+private extension ToolbarMacroStep {
+    var resolvedOutput: Data? {
         switch self {
         case let .text(value):
             let normalized = value.replacingOccurrences(of: "\n", with: "\r")
