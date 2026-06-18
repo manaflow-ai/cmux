@@ -9889,9 +9889,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    private func canReassertTerminalSurfaceFocus(reason: String) -> Bool {
+    private func canReassertTerminalSurfaceFocus(reason: String, force: Bool) -> Bool {
         guard pendingSuppressedFirstResponderFocusReapply else { return true }
 
+        // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
         let portalSize = bounds.size
         let surfaceSize = surfaceView.bounds.size
         let hasUsablePortalGeometry = portalSize.width > 1 && portalSize.height > 1
@@ -9903,6 +9904,7 @@ final class GhosttySurfaceScrollView: NSView {
             cmuxDebugLog(
                 "focus.surface.reassert.skip surface=\(surfaceShort) reason=\(reason).hidden_or_tiny " +
                 "hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "force=\(force ? 1 : 0) " +
                 "frame=\(String(format: "%.1fx%.1f", portalSize.width, portalSize.height)) " +
                 "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
             )
@@ -9914,7 +9916,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
-        guard canReassertTerminalSurfaceFocus(reason: reason) else { return }
+        guard canReassertTerminalSurfaceFocus(reason: reason, force: force) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
