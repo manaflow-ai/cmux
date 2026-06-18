@@ -91,6 +91,21 @@ struct WorkspaceShellView: View {
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
+                    // Only on the pushed compact stack (where a back button
+                    // exists): replace the system back button with a custom one
+                    // that folds the unread-workspace count INTO the same button
+                    // ("‹ 3"). Hiding the system button disables the interactive
+                    // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
+                    .navigationBarBackButtonHidden(true)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            WorkspaceBackButton(
+                                unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                                action: popCompactStack
+                            )
+                        }
+                    }
+                    .background(InteractiveSwipeBackEnabler())
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
@@ -264,6 +279,20 @@ struct WorkspaceShellView: View {
         #endif
     }
 
+    /// Count of workspaces with unread activity, excluding the one currently
+    /// open (you are looking at it, so it should not count toward "waiting back
+    /// in the list"). Drives the back-button unread count.
+    private func unreadWorkspaceCount(excluding workspaceID: MobileWorkspacePreview.ID?) -> Int {
+        store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
+    }
+
+    /// Pop the pushed workspace detail back to the list — the action behind the
+    /// custom back button (which replaces the system one to carry the count).
+    private func popCompactStack() {
+        guard !compactNavigationPath.isEmpty else { return }
+        compactNavigationPath.removeLast()
+    }
+
     @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
@@ -278,3 +307,26 @@ struct WorkspaceShellView: View {
         )
     }
 }
+
+#if os(iOS)
+/// Re-enables the interactive swipe-from-edge back gesture, which UIKit disables
+/// whenever a custom leading bar button replaces the system back button (we do
+/// that to fold the unread count into the back control). Owns the pop gesture's
+/// delegate and only lets it begin when there is actually a screen to pop, so it
+/// never fires on the root list.
+private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+
+    final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            navigationController?.interactivePopGestureRecognizer?.delegate = self
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            (navigationController?.viewControllers.count ?? 0) > 1
+        }
+    }
+}
+#endif
