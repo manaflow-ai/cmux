@@ -286,3 +286,99 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceCloseActions)
     #expect(currentMacStore.supportsDeleteActions)
 }
+
+@MainActor
+@Test func workspaceDeleteRefreshFailureDoesNotRollbackSuccessfulClose() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+
+    let workspaceListCountBeforeDelete = await router.count(of: "mobile.workspace.list")
+    await router.failNextWorkspaceListRefresh()
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.workspaces.map(\.id.rawValue) == ["backup-workspace"])
+
+    let sawClose = try await pollUntil { await router.count(of: "workspace.close") >= 1 }
+    #expect(sawClose)
+    let sawRefresh = try await pollUntil {
+        await router.count(of: "mobile.workspace.list") > workspaceListCountBeforeDelete
+    }
+    #expect(sawRefresh)
+    let stayedOnNeighbor = try await pollUntil {
+        store.selectedWorkspace?.id.rawValue == "backup-workspace"
+    }
+    #expect(stayedOnNeighbor)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
+@Test func workspaceDeleteRollsBackWhenCloseFails() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondWorkspace(true)
+    await router.failNextWorkspaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"])
+
+    store.deleteWorkspace(id: "live-workspace")
+    #expect(store.workspaces.map(\.id.rawValue) == ["backup-workspace"])
+
+    let rolledBack = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.selectedWorkspace?.id.rawValue == "live-workspace"
+    }
+    #expect(rolledBack)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func terminalDeleteRefreshFailureDoesNotRollbackSuccessfulClose() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedTerminalID?.rawValue == "live-terminal")
+
+    let workspaceListCountBeforeDelete = await router.count(of: "mobile.workspace.list")
+    await router.failNextWorkspaceListRefresh()
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["backup-terminal"])
+
+    let sawClose = try await pollUntil { await router.count(of: "surface.close") >= 1 }
+    #expect(sawClose)
+    let sawRefresh = try await pollUntil {
+        await router.count(of: "mobile.workspace.list") > workspaceListCountBeforeDelete
+    }
+    #expect(sawRefresh)
+    let stayedOnNeighbor = try await pollUntil {
+        store.selectedTerminalID?.rawValue == "backup-terminal"
+    }
+    #expect(stayedOnNeighbor)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
+@Test func terminalDeleteRollsBackWhenCloseFails() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setIncludeSecondTerminal(true)
+    await router.failNextSurfaceClose()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"])
+
+    store.deleteTerminal(id: "live-terminal", in: "live-workspace")
+    #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["backup-terminal"])
+
+    let rolledBack = try await pollUntil {
+        store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["live-terminal", "backup-terminal"]
+            && store.selectedTerminalID?.rawValue == "live-terminal"
+    }
+    #expect(rolledBack)
+    #expect(store.connectionError != nil)
+}
