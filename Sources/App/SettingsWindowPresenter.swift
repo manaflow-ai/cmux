@@ -9,7 +9,7 @@ struct SettingsWindowPresenter {
     private static let visibleAreaInset: CGFloat = 18
     private static let sharedPresenter = SettingsWindowPresenter()
 
-    private final class State {
+    private final class State: NSObject {
         var openWindow: (@MainActor () -> Void)?
         var parentWindowProvider: (@MainActor () -> NSWindow?)?
         var settingsWindow: NSWindow?
@@ -17,6 +17,26 @@ struct SettingsWindowPresenter {
         var pendingContentNavigationTarget: SettingsNavigationTarget?
         var shouldOpenWhenConfigured = false
         var shouldFocusWhenConfigured = false
+        var isOpeningSettingsWindow = false
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc
+        func settingsWindowWillClose(_ notification: Notification) {
+            guard
+                let window = notification.object as? NSWindow,
+                settingsWindow === window
+            else { return }
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.willCloseNotification,
+                object: window
+            )
+            settingsWindow = nil
+            isOpeningSettingsWindow = false
+        }
     }
 
     private let state: State
@@ -43,6 +63,7 @@ struct SettingsWindowPresenter {
         state.parentWindowProvider = parentWindowProvider
         if state.shouldOpenWhenConfigured {
             state.shouldOpenWhenConfigured = false
+            state.isOpeningSettingsWindow = true
             openWindow()
         }
     }
@@ -52,11 +73,13 @@ struct SettingsWindowPresenter {
     }
 
     func configure(window: NSWindow) {
-        let shouldFocusAfterConfiguration = state.settingsWindow !== window && state.shouldFocusWhenConfigured
+        let isNewSettingsWindow = state.settingsWindow !== window
+        let shouldFocusAfterConfiguration = isNewSettingsWindow && state.shouldFocusWhenConfigured
         if shouldFocusAfterConfiguration {
             state.shouldFocusWhenConfigured = false
         }
         state.settingsWindow = window
+        state.isOpeningSettingsWindow = false
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
@@ -64,6 +87,9 @@ struct SettingsWindowPresenter {
         window.contentMinSize = Self.minimumSize
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
+        if isNewSettingsWindow {
+            observeClose(of: window)
+        }
         if shouldFocusAfterConfiguration {
             Task { @MainActor in
                 guard state.settingsWindow === window else { return }
@@ -112,8 +138,14 @@ struct SettingsWindowPresenter {
             return
         }
 
+        if state.isOpeningSettingsWindow {
+            state.shouldFocusWhenConfigured = true
+            return
+        }
+
         if let openWindowOverride {
             state.shouldFocusWhenConfigured = true
+            state.isOpeningSettingsWindow = true
             openWindowOverride()
             return
         }
@@ -124,6 +156,7 @@ struct SettingsWindowPresenter {
             return
         }
         state.shouldFocusWhenConfigured = true
+        state.isOpeningSettingsWindow = true
         openWindow()
     }
 
@@ -157,19 +190,12 @@ struct SettingsWindowPresenter {
     }
 
     private func existingWindow() -> NSWindow? {
-        // Return the settings window whenever it still exists, even if it
-        // is currently ordered out (closed). SwiftUI's single `Window`
-        // scene does not destroy the window on close — it just hides it
-        // (isVisible == false) — and `openWindow(id:)` then no-ops because
-        // the scene still owns that window. So filtering by visibility here
-        // made every reopen-after-close fall through to a dead `openWindow`
-        // call and the window never came back. Reusing the hidden window
-        // lets `show()` re-front it via `makeKeyAndOrderFront`.
         if let settingsWindow = state.settingsWindow {
             return settingsWindow
         }
         return NSApp.windows.first {
-            $0.identifier?.rawValue == Self.windowIdentifier
+            $0.identifier?.rawValue == Self.windowIdentifier &&
+            ($0.isVisible || $0.isMiniaturized)
         }
     }
 
@@ -214,6 +240,20 @@ struct SettingsWindowPresenter {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    private func observeClose(of window: NSWindow) {
+        NotificationCenter.default.removeObserver(
+            state,
+            name: NSWindow.willCloseNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            state,
+            selector: #selector(State.settingsWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
     }
 
     private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
