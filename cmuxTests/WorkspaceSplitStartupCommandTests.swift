@@ -317,6 +317,17 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let restoredHudPanel = try XCTUnwrap(
             restored.panels.values
                 .compactMap { $0 as? TerminalPanel }
+                .first { $0.surface.debugTmuxStartCommand() == tmuxStartCommand }
+        )
+        let restoredStartupScript = try XCTUnwrap(restoredHudPanel.surface.debugInitialCommand())
+        XCTAssertNotEqual(
+            restoredStartupScript,
+            originalStartupScript,
+            "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
+        )
+        XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
+        XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
+    }
 
     func testSessionRestoreRelaunchesOMPHudTmuxStartCommand() throws {
         let workspace = Workspace()
