@@ -179,6 +179,19 @@ struct CMUXMobileRootView: View {
             // paired-but-offline user (who can reach here after a failed
             // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
+        } else if store.shouldShowUnifiedWorkspaceList {
+            // FLAG ON: the registry/aggregator discovered online Macs, so show
+            // the unified list even with no heavy connection. Tapping a row
+            // lazy-attaches that Mac (see `selectScopedWorkspace`). This is what
+            // closes the loop for a freshly signed-in phone: sign in -> online
+            // Macs appear -> tap to connect, no QR / add-device dead end.
+            WorkspaceShellView(store: store, signOut: signOut)
+        } else if store.isDiscoveringUnifiedMacs {
+            // FLAG ON: signed in, first registry+aggregator discovery pass not
+            // finished and nothing listed yet. Show a neutral determining
+            // spinner so the add-device screen does not flash before the
+            // registry has been consulted.
+            MobilePairedMacDeterminingView()
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,

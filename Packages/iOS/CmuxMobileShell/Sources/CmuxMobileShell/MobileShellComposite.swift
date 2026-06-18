@@ -87,6 +87,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
             evaluatePresenceSubscription()
+            // Discover online Macs from the registry without waiting for a heavy
+            // connection so a freshly signed-in phone lists them straight away.
+            // Reset the discovery gate on sign-out so the next account starts
+            // from a clean "still determining" state. No-op while the flag is off.
+            if isSignedIn {
+                kickUnifiedRegistryDiscovery()
+            } else {
+                hasCompletedInitialUnifiedDiscovery = false
+            }
         }
     }
     public private(set) var connectionState: MobileConnectionState {
@@ -228,6 +237,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return activatingDeviceID == deviceId
     }
 
+    /// Whether the first post-sign-in unified discovery pass (registry load +
+    /// aggregator refresh) has completed at least once this session. Drives the
+    /// root view's "discovering devices" spinner so a freshly signed-in phone
+    /// shows a neutral determining state instead of flashing the add-device
+    /// screen before the registry has been consulted. Reset on sign-out. Always
+    /// `false`-irrelevant while the flag is off (the root view ignores it then).
+    public private(set) var hasCompletedInitialUnifiedDiscovery: Bool = false
+
+    /// FLAG ON: the unified list has at least one discovered workspace (from the
+    /// heavy client and/or the aggregator's online-Mac slices), so the root view
+    /// should show the unified workspace list even with no heavy connection.
+    /// FLAG OFF: always `false`, so routing falls back to the connection-gated
+    /// path unchanged.
+    public var shouldShowUnifiedWorkspaceList: Bool {
+        unifiedMultiMacEnabled && !unifiedWorkspaces.isEmpty
+    }
+
+    /// FLAG ON: signed in but the first registry+aggregator discovery pass has
+    /// not finished and nothing is listed yet, so the root view shows a neutral
+    /// determining spinner rather than the add-device screen. FLAG OFF: always
+    /// `false`. Once discovery completes with no online Macs, this is `false` and
+    /// the add-device screen shows as before.
+    public var isDiscoveringUnifiedMacs: Bool {
+        unifiedMultiMacEnabled
+            && isSignedIn
+            && !hasCompletedInitialUnifiedDiscovery
+            && unifiedWorkspaces.isEmpty
+    }
+
     /// The lightweight aggregator that fetches *other* online Macs' workspace
     /// lists for the unified multi-Mac list. Inert (never refreshed) while the
     /// ``unifiedMultiMacEnabled`` flag is off, so FLAG OFF stays byte-identical
@@ -346,6 +384,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         unifiedAggregatorRefreshTask = Task { @MainActor [weak self] in
             defer { self?.unifiedAggregatorRefreshTask = nil }
             await self?.refreshUnifiedAggregator()
+        }
+    }
+
+    /// Discover and list the user's online Macs from the team registry with NO
+    /// heavy connection: load ``registryDevices`` (the aggregator's target
+    /// source, otherwise only populated after a heavy connect) then refresh the
+    /// aggregator. This is what lets a freshly signed-in phone — never paired,
+    /// no stored Mac — populate the unified list straight from the registry +
+    /// presence instead of dead-ending on the add-device screen.
+    ///
+    /// Called on the sign-in edge and on foreground. A no-op while the flag is
+    /// off, so FLAG OFF never loads the registry pre-connection and behaves
+    /// exactly as before. Marks ``hasCompletedInitialUnifiedDiscovery`` once the
+    /// first pass finishes so the root view can distinguish "still discovering"
+    /// (neutral spinner) from "discovered, genuinely no Macs" (add-device).
+    private func kickUnifiedRegistryDiscovery() {
+        guard unifiedMultiMacEnabled, isSignedIn else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadRegistryDevices()
+            await self.refreshUnifiedAggregator()
+            self.hasCompletedInitialUnifiedDiscovery = true
         }
     }
 
@@ -1124,6 +1184,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         unifiedAggregatorRefreshTask?.cancel()
         unifiedAggregatorRefreshTask = nil
         multiMacAggregator.reset()
+        // The next account must re-discover from a clean "still determining"
+        // state rather than inheriting this session's completed-discovery gate.
+        hasCompletedInitialUnifiedDiscovery = false
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1155,6 +1218,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
+        // Re-discover online Macs on foreground: covers a store constructed
+        // already-signed-in (no isSignedIn edge fired) and refreshes the unified
+        // list after time in the background. No-op while the flag is off.
+        kickUnifiedRegistryDiscovery()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
