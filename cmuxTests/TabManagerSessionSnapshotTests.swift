@@ -1735,6 +1735,37 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(manager.selectedTabId)
     }
 
+    func testSessionSnapshotRestoresCodeEditorPanelTypeAndURL() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let editorURL = URL(string: "https://vscode.dev/"),
+              let editorPanel = workspace.newCodeEditorSurface(inPane: paneId, url: editorURL, focus: true) else {
+            XCTFail("Expected code editor setup to succeed")
+            return
+        }
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        guard let panelSnapshot = snapshot.workspaces.first?.panels.first(where: { $0.id == editorPanel.id }) else {
+            XCTFail("Expected code editor panel snapshot")
+            return
+        }
+        XCTAssertEqual(panelSnapshot.type, .codeEditor)
+        XCTAssertEqual(panelSnapshot.browser?.urlString, editorURL.absoluteString)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        guard let restoredWorkspace = restored.selectedWorkspace,
+              let restoredEditor = restoredWorkspace.panels.values.compactMap({ $0 as? BrowserPanel }).first(where: { $0.panelType == .codeEditor }) else {
+            XCTFail("Expected restored code editor panel")
+            return
+        }
+
+        XCTAssertEqual(restoredEditor.surfaceRole, .codeEditor)
+        XCTAssertFalse(restoredEditor.isOmnibarVisible)
+        XCTAssertEqual(restoredEditor.currentURL?.absoluteString, editorURL.absoluteString)
+    }
+
     func testRestoredPersistentSSHBrowserOnlyWorkspaceAutoConnectsWithoutForegroundAuthTerminal() {
         let browserPanelId = UUID()
         let browserOnlySnapshot = Self.persistentSSHWorkspaceSnapshot(

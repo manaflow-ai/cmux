@@ -561,6 +561,8 @@ final class VSCodeServeWebController {
                         guard self.activeLaunchGeneration == launchGeneration else { return }
                         self.isLaunching = false
                         self.activeLaunchGeneration = nil
+                        let completions = self.takePendingCompletions(for: launchGeneration)
+                        DispatchQueue.main.async { completions.forEach { $0(nil) } }
                     }
                     return
                 }
@@ -586,6 +588,8 @@ final class VSCodeServeWebController {
                         if let process = launchResult?.process, process.isRunning {
                             process.terminate()
                         }
+                        let completions = self.takePendingCompletions(for: launchGeneration)
+                        DispatchQueue.main.async { completions.forEach { $0(nil) } }
                         return
                     }
 
@@ -599,21 +603,24 @@ final class VSCodeServeWebController {
                         self.serveWebURL = nil
                     }
 
-                    var completions: [(URL?) -> Void] = []
-                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
-                    for pending in self.pendingCompletions {
-                        if pending.generation == launchGeneration {
-                            completions.append(pending.completion)
-                        } else {
-                            remaining.append(pending)
-                        }
-                    }
-                    self.pendingCompletions = remaining
+                    let completions = self.takePendingCompletions(for: launchGeneration)
                     let resolvedURL = self.serveWebURL
-                    DispatchQueue.main.async {
-                        completions.forEach { $0(resolvedURL) }
-                    }
+                    DispatchQueue.main.async { completions.forEach { $0(resolvedURL) } }
                 }
+            }
+        }
+    }
+
+    private func takePendingCompletions(for generation: UInt64) -> [(URL?) -> Void] {
+        let completions = pendingCompletions.filter { $0.generation == generation }.map(\.completion)
+        pendingCompletions.removeAll { $0.generation == generation }
+        return completions
+    }
+
+    func ensureServeWebURL(vscodeApplicationURL: URL) async -> URL? {
+        await withCheckedContinuation { continuation in
+            ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+                continuation.resume(returning: serveWebURL)
             }
         }
     }

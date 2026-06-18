@@ -1069,6 +1069,18 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
     }
 
+    func testCodeEditorRoleDefaultsInitialURLAndHidesOmnibar() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            surfaceRole: .codeEditor,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.currentURL?.absoluteString, "https://vscode.dev/")
+        XCTAssertFalse(panel.isOmnibarVisible)
+    }
+
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
         let workspaceId = UUID()
         let terminalId = UUID()

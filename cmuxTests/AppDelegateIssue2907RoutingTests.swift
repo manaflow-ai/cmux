@@ -94,6 +94,74 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testSystemTreeSerializesEditorSurfaceURLAndWebViewMetadata() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousBrowserDisabled = UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        let app = AppDelegate()
+        defer {
+            if let previousBrowserDisabled {
+                UserDefaults.standard.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+        BrowserAvailabilitySettings.setDisabled(false)
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let editorURL = try XCTUnwrap(URL(string: "https://vscode.dev/"))
+        let editorPanel = try XCTUnwrap(workspace.newCodeEditorSurface(
+            inPane: paneId,
+            url: editorURL,
+            focus: true
+        ))
+
+        let tree = try v2Result(method: "system.tree")
+        let windows = try XCTUnwrap(tree["windows"] as? [[String: Any]])
+        var editorSurface: [String: Any]?
+        for windowPayload in windows {
+            let workspaces = windowPayload["workspaces"] as? [[String: Any]] ?? []
+            for workspacePayload in workspaces {
+                let panes = workspacePayload["panes"] as? [[String: Any]] ?? []
+                for panePayload in panes {
+                    let surfaces = panePayload["surfaces"] as? [[String: Any]] ?? []
+                    if let surface = surfaces.first(where: { ($0["id"] as? String) == editorPanel.id.uuidString }) {
+                        editorSurface = surface
+                    }
+                }
+            }
+        }
+
+        let surface = try XCTUnwrap(editorSurface)
+        XCTAssertEqual(surface["type"] as? String, "editor")
+        XCTAssertEqual(surface["url"] as? String, editorURL.absoluteString)
+        let webviews = try XCTUnwrap(surface["webviews"] as? [[String: Any]])
+        let webview = try XCTUnwrap(webviews.first)
+        XCTAssertEqual(webview["surface_id"] as? String, editorPanel.id.uuidString)
+        XCTAssertEqual(webview["url"] as? String, editorURL.absoluteString)
+    }
+
     func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()

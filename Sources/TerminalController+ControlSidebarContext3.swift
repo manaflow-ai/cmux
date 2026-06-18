@@ -174,6 +174,7 @@ extension TerminalController {
 
     func controlSidebarCreatePaneSplit(
         isBrowser: Bool,
+        isCodeEditor: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
@@ -189,6 +190,19 @@ extension TerminalController {
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
             guard let id = tab.newBrowserSplit(
+                from: focusedPanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload
+            )?.id else {
+                return .failed
+            }
+            return .created(id)
+        }
+        if isCodeEditor {
+            guard let id = tab.newCodeEditorSplit(
                 from: focusedPanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -222,7 +236,12 @@ extension TerminalController {
 
     // MARK: - New / close surface
 
-    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(
+        isBrowser: Bool,
+        isCodeEditor: Bool,
+        paneArg: String?,
+        url: URL?
+    ) -> ControlSidebarNewSurfaceResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
@@ -251,6 +270,17 @@ extension TerminalController {
 
         if isBrowser {
             guard let id = tab.newBrowserSurface(
+                inPane: targetPaneId,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload
+            )?.id else {
+                return .failed
+            }
+            return .created(id)
+        }
+        if isCodeEditor {
+            guard let id = tab.newCodeEditorSurface(
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,

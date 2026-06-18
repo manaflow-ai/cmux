@@ -6,6 +6,7 @@ import AppKit
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case codeEditor = "editor"
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
@@ -13,23 +14,42 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
 
+    public init?(externalValue rawValue: String) {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        switch normalized {
+        case Self.terminal.rawValue:
+            self = .terminal
+        case Self.browser.rawValue:
+            self = .browser
+        case "editor", "code", "codeeditor", "vscode", "vscodeinline":
+            self = .codeEditor
+        case Self.markdown.rawValue:
+            self = .markdown
+        case Self.filePreview.rawValue:
+            self = .filePreview
+        case "rightsidebartool":
+            self = .rightSidebarTool
+        case "agentsession":
+            self = .agentSession
+        case Self.project.rawValue:
+            self = .project
+        case "extensionbrowser":
+            self = .extensionBrowser
+        default:
+            return nil
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
-        if let type = Self(rawValue: rawValue) {
+        if let type = Self(externalValue: rawValue) {
             self = type
-            return
-        }
-        if rawValue.lowercased() == Self.filePreview.rawValue {
-            self = .filePreview
-            return
-        }
-        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
-            self = .rightSidebarTool
-            return
-        }
-        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
-            self = .agentSession
             return
         }
         throw DecodingError.dataCorruptedError(

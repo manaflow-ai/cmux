@@ -320,6 +320,7 @@ extension AppDelegate {
         for manager in shortcutCandidateTabManagers() {
             for workspace in manager.tabs {
                 if let panel = workspace.browserPanel(for: panelId) {
+                    guard panel.panelType == .browser else { continue }
                     return panel
                 }
             }
@@ -332,6 +333,7 @@ extension AppDelegate {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {
                     guard let browserPanel = panel as? BrowserPanel,
+                          browserPanel.panelType == .browser,
                           browserPanel.webView === webView else {
                         continue
                     }

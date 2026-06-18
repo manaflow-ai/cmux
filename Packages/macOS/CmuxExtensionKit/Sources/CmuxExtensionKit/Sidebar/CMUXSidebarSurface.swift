@@ -6,6 +6,8 @@ public enum CmuxSidebarSurfaceKind: String, Codable, CaseIterable, Equatable, Se
     case terminal
     /// A browser surface.
     case browser
+    /// A code editor surface.
+    case codeEditor
     /// A markdown preview surface.
     case markdown
     /// A file preview surface.

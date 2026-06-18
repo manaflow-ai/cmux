@@ -446,6 +446,16 @@ struct CmuxTaskManagerSnapshot {
         let title = nonEmptyString(surface["title"]) ?? displayHandle(surface)
         let surfaceId = uuid(surface["id"])
         let terminalSurfaceId = type == "terminal" ? surfaceId : nil
+        let surfaceKind: CmuxTaskManagerRow.Kind = {
+            switch type {
+            case "browser":
+                return .browserSurface
+            case "editor", "code_editor", "codeeditor":
+                return .codeEditorSurface
+            default:
+                return .terminalSurface
+            }
+        }()
         var detailParts = [surfaceTypeLabel(type)]
         if bool(surface["selected"]) {
             detailParts.append(String(localized: "taskManager.row.selected", defaultValue: "Selected"))
@@ -458,7 +468,7 @@ struct CmuxTaskManagerSnapshot {
         }
         rows.append(row(
             surface,
-            kind: type == "browser" ? .browserSurface : .terminalSurface,
+            kind: surfaceKind,
             level: 3,
             title: title,
             detail: detailParts.joined(separator: " / "),
@@ -475,7 +485,7 @@ struct CmuxTaskManagerSnapshot {
             }
         }
         let processes = surface["processes"] as? [[String: Any]] ?? []
-        let context = rowID(surface, kind: type == "browser" ? .browserSurface : .terminalSurface)
+        let context = rowID(surface, kind: surfaceKind)
         for process in processes {
             appendProcess(
                 process,
@@ -655,6 +665,8 @@ struct CmuxTaskManagerSnapshot {
         switch type {
         case "browser":
             return String(localized: "taskManager.row.surfaceType.browser", defaultValue: "Browser")
+        case "editor", "code_editor", "codeeditor":
+            return String(localized: "taskManager.row.surfaceType.codeEditor", defaultValue: "Code Editor")
         case "terminal":
             return String(localized: "taskManager.row.surfaceType.terminal", defaultValue: "Terminal")
         case "unknown", "":

@@ -183,22 +183,7 @@ extension TerminalController {
 
     nonisolated func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        switch v2NormalizedToken(s) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
+        return PanelType(externalValue: s)
     }
 
     nonisolated func v2NormalizedToken(_ raw: String) -> String {
