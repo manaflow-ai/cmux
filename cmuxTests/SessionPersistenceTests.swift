@@ -2537,6 +2537,170 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
+    private struct CodexResumeLauncherHarness {
+        let root: URL
+        let workingDirectory: URL
+        let homeDirectory: URL
+        let shellURL: URL
+        let codexURL: URL
+        let attemptCountURL: URL
+        let fallbackCwdURL: URL
+        let snapshot: SessionRestorableAgentSnapshot
+    }
+
+    private struct ResumeLauncherResult {
+        let status: Int32
+        let stdout: String
+        let stderr: String
+    }
+
+    private func makeCodexResumeLauncherHarness() throws -> CodexResumeLauncherHarness {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-lock-resume-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let shellURL = binDirectory.appendingPathComponent("cmux-test-shell", isDirectory: false)
+        let codexURL = binDirectory.appendingPathComponent("codex", isDirectory: false)
+        let attemptCountURL = root.appendingPathComponent("codex-attempts.txt", isDirectory: false)
+        let fallbackCwdURL = root.appendingPathComponent("fallback-cwd.txt", isDirectory: false)
+
+        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        try writeFallbackLoggingShell(at: shellURL, fallbackCwdURL: fallbackCwdURL)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-lock-session",
+            workingDirectory: workingDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: codexURL.path,
+                arguments: [
+                    codexURL.path,
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: workingDirectory.path,
+                environment: ["CODEX_HOME": homeDirectory.appendingPathComponent(".codex", isDirectory: true).path],
+                capturedAt: 123,
+                source: "test"
+            )
+        )
+
+        return CodexResumeLauncherHarness(
+            root: root,
+            workingDirectory: workingDirectory,
+            homeDirectory: homeDirectory,
+            shellURL: shellURL,
+            codexURL: codexURL,
+            attemptCountURL: attemptCountURL,
+            fallbackCwdURL: fallbackCwdURL,
+            snapshot: snapshot
+        )
+    }
+
+    private func writeFakeCodexScript(
+        at scriptURL: URL,
+        attemptCountURL: URL,
+        succeedOnAttempt: Int?
+    ) throws {
+        let successCondition: String
+        if let succeedOnAttempt {
+            successCondition = #"""
+if [ "$count" -ge \#(succeedOnAttempt) ]; then
+  echo "resume-ok attempt=$count"
+  exit 0
+fi
+"""#
+        } else {
+            successCondition = ""
+        }
+
+        let script = #"""
+#!/bin/sh
+count_file=\#(shellSingleQuoteForTest(attemptCountURL.path))
+count=0
+if [ -r "$count_file" ]; then
+  count=$(cat "$count_file")
+fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$count_file"
+\#(successCondition)
+echo "Codex couldn't start because another Codex process is using its local data." >&2
+echo "Location: ${HOME}/.codex/state_5.sqlite" >&2
+echo "Cause: failed to initialize state runtime: error returned from database: (code: 5) database is locked" >&2
+exit 1
+"""#
+
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+    }
+
+    private func writeFallbackLoggingShell(at shellURL: URL, fallbackCwdURL: URL) throws {
+        let script = #"""
+#!/bin/sh
+if [ "$1" = "-c" ] || [ "$1" = "-lc" ] || [ "$1" = "-lic" ]; then
+  flag="$1"
+  shift
+  exec /bin/zsh "$flag" "$1"
+fi
+pwd > \#(shellSingleQuoteForTest(fallbackCwdURL.path))
+exit 0
+"""#
+        try script.write(to: shellURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shellURL.path)
+    }
+
+    private func runResumeLauncher(
+        _ command: String,
+        harness: CodexResumeLauncherHarness
+    ) throws -> ResumeLauncherResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", command]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_AGENT_RESUME_RETRY_DELAY_SECONDS"] = "0"
+        environment["CMUX_AGENT_RESUME_RETRY_LIMIT"] = "3"
+        environment["HOME"] = harness.homeDirectory.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["SHELL"] = harness.shellURL.path
+        environment["ZDOTDIR"] = harness.homeDirectory.path
+        process.environment = environment
+
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        try process.run()
+        process.waitUntilExit()
+
+        return ResumeLauncherResult(
+            status: process.terminationStatus,
+            stdout: String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
+    }
+
+    private func codexResumeAttemptCount(at url: URL) throws -> Int {
+        let countString = try String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try XCTUnwrap(Int(countString))
+    }
+
+    private func fallbackShellWorkingDirectory(at url: URL) throws -> String {
+        try String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func shellSingleQuoteForTest(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
     func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -2639,6 +2803,77 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+    }
+
+    func testCodexResumeStartupInputFallsBackToInlineWhenRetryScriptCannotBeWrittenAndCommandFits() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let blockedDirectory = tempDir.appendingPathComponent("not-a-directory", isDirectory: false)
+        try "occupied".write(to: blockedDirectory, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: "/tmp/repo",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory),
+            snapshot.resumeCommand.map { $0 + "\n" }
+        )
+    }
+
+    func testCodexResumeLauncherRetriesTransientStateDatabaseLockAndReturnsToLaunchCwd() throws {
+        let harness = try makeCodexResumeLauncherHarness()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+
+        try writeFakeCodexScript(
+            at: harness.codexURL,
+            attemptCountURL: harness.attemptCountURL,
+            succeedOnAttempt: 2
+        )
+
+        let command = try XCTUnwrap(harness.snapshot.resumeStartupCommand(temporaryDirectory: harness.root))
+        let result = try runResumeLauncher(command, harness: harness)
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(try codexResumeAttemptCount(at: harness.attemptCountURL), 2)
+        XCTAssertTrue(result.stdout.contains("resume-ok attempt=2"), result.stdout)
+        XCTAssertEqual(try fallbackShellWorkingDirectory(at: harness.fallbackCwdURL), harness.workingDirectory.path)
+    }
+
+    func testCodexResumeLauncherStopsTransientStateDatabaseLockRetriesAtBound() throws {
+        let harness = try makeCodexResumeLauncherHarness()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+
+        try writeFakeCodexScript(
+            at: harness.codexURL,
+            attemptCountURL: harness.attemptCountURL,
+            succeedOnAttempt: nil
+        )
+
+        let command = try XCTUnwrap(harness.snapshot.resumeStartupCommand(temporaryDirectory: harness.root))
+        let result = try runResumeLauncher(command, harness: harness)
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(try codexResumeAttemptCount(at: harness.attemptCountURL), 4)
+        XCTAssertFalse(result.stdout.contains("resume-ok"), result.stdout)
+        XCTAssertEqual(try fallbackShellWorkingDirectory(at: harness.fallbackCwdURL), harness.workingDirectory.path)
     }
 
     func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {
@@ -4419,6 +4654,33 @@ extension SessionPersistenceTests {
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
         XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    func testCodexSurfaceResumeBindingFallsBackToInlineWhenRetryScriptCannotBeWrittenAndCommandFits() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let blockedDirectory = tempDir.appendingPathComponent("not-a-directory", isDirectory: false)
+        try "occupied".write(to: blockedDirectory, atomically: true, encoding: .utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            checkpointId: "session",
+            source: "process-detected",
+            environment: [
+                "CODEX_HOME": "/tmp/codex home",
+            ]
+        )
+
+        let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
+        XCTAssertLessThanOrEqual(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+        XCTAssertEqual(
+            binding.startupInputWithLauncherScript(temporaryDirectory: blockedDirectory),
+            inlineInput
+        )
     }
 
     @MainActor
